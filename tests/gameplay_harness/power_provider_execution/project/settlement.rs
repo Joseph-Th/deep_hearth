@@ -22,6 +22,24 @@ pub(in super::super::super) fn execute_selected_settlement_project(
         expected_condition_ppm,
         label,
     ) = match plan.choice {
+        SettlementPowerChoice::StoneCrank => (
+            EQUIPMENT_STONE_HAND_CRANK,
+            MANUAL_POWER_HAND_CRANK,
+            plan.stone_crank_lifecycle_attention,
+            plan.stone_crank_lifecycle_metabolic_nj,
+            plan.stone_crank_lifecycle_hydration_ul,
+            plan.stone_crank_lifecycle_condition.parts_per_million(),
+            "selected settlement stone-crank project",
+        ),
+        SettlementPowerChoice::CopperCrank => (
+            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            MANUAL_POWER_HAND_CRANK,
+            plan.copper_crank_lifecycle_attention,
+            plan.copper_crank_lifecycle_metabolic_nj,
+            plan.copper_crank_lifecycle_hydration_ul,
+            plan.copper_crank_lifecycle_condition.parts_per_million(),
+            "selected settlement copper-crank project",
+        ),
         SettlementPowerChoice::Treadle => (
             EQUIPMENT_TIMBER_TREADLE_DRIVE,
             MANUAL_POWER_FOOT_TREADLE,
@@ -30,6 +48,15 @@ pub(in super::super::super) fn execute_selected_settlement_project(
             plan.treadle_lifecycle_hydration_ul,
             plan.treadle_lifecycle_condition.parts_per_million(),
             "selected settlement treadle project",
+        ),
+        SettlementPowerChoice::TreadleDynamo => (
+            EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+            MANUAL_POWER_FOOT_TREADLE,
+            plan.treadle_dynamo_lifecycle_attention,
+            plan.treadle_dynamo_lifecycle_metabolic_nj,
+            plan.treadle_dynamo_lifecycle_hydration_ul,
+            plan.treadle_dynamo_lifecycle_condition.parts_per_million(),
+            "selected settlement treadle-dynamo project",
         ),
         SettlementPowerChoice::WalkingWheel => (
             EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,

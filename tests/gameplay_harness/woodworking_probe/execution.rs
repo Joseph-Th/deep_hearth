@@ -44,6 +44,73 @@ pub(super) fn assemble_adze(
     (equipment, attention)
 }
 
+pub(super) fn reinforce_adze(
+    registries: &Registries,
+    state: &mut AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    adze: EquipmentId,
+) -> u64 {
+    let upgrade = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE)
+        .and_then(|definition| definition.upgrade_profile())
+        .unwrap_or_else(|| panic!("woodworking reinforced adze lost its authored upgrade"));
+    assert_eq!(upgrade.from(), EQUIPMENT_STONE_WOODWORKING_ADZE);
+    let mut attention = 0_u64;
+    for input in upgrade.additions().inputs() {
+        let available = state
+            .inventory()
+            .get_stockpile(parts)
+            .unwrap_or_else(|| panic!("woodworking adze parts stockpile disappeared"))
+            .get_mass(input.commodity());
+        if available >= input.mass() {
+            continue;
+        }
+        let missing = input
+            .mass()
+            .checked_sub(available)
+            .unwrap_or_else(|| unreachable!("checked woodworking upgrade component deficit"));
+        let (craft, batches, source) = manual_craft_plan_for_available_output(
+            registries,
+            state,
+            &[raw],
+            input.commodity(),
+            missing,
+            "woodworking adze reinforcement planning",
+        );
+        attention = attention
+            .checked_add(
+                execute_manual_craft_batches(
+                    registries,
+                    state,
+                    craft.process(),
+                    source,
+                    parts,
+                    batches,
+                    "woodworking adze reinforcement",
+                )
+                .value(),
+            )
+            .unwrap_or_else(|| panic!("woodworking adze reinforcement attention overflowed"));
+    }
+    let upgraded = validate_upgrade_equipment(
+        registries,
+        state,
+        adze,
+        EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+        parts,
+    )
+    .unwrap_or_else(|error| panic!("woodworking adze reinforcement failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("woodworking adze reinforcement commit failed: {error}"));
+    assert_eq!(
+        upgraded, adze,
+        "woodworking adze reinforcement must preserve identity"
+    );
+    attention
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SawSetup {
     pub(super) equipment: EquipmentId,
@@ -325,15 +392,15 @@ fn service_adze_if_critical(
     spent: StockpileId,
     adze: EquipmentId,
 ) -> Option<u64> {
-    let definition = registries
-        .equipment()
-        .get_equipment(EQUIPMENT_STONE_WOODWORKING_ADZE)
-        .unwrap_or_else(|| panic!("woodworking adze definition disappeared"));
-    let condition = state
+    let record = state
         .equipment()
         .get_equipment(adze)
-        .map(|record| record.condition())
         .unwrap_or_else(|| panic!("woodworking adze disappeared before service check"));
+    let definition = registries
+        .equipment()
+        .get_equipment(record.definition())
+        .unwrap_or_else(|| panic!("woodworking adze definition disappeared"));
+    let condition = record.condition();
     if definition.maintenance_thresholds().classify(condition) != MaintenanceBand::Critical {
         return None;
     }

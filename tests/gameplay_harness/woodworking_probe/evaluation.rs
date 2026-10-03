@@ -4,6 +4,7 @@ use super::execution::{
     AdzePipelinePlan, SawPipelinePlan, SawSetup, WoodworkingRouteOutcome, assemble_adze,
     assemble_saw, authored_output_mass, checked_mass_times, execute_adze_pipeline,
     execute_bare_pipeline, execute_saw_pipeline, project_saw_setup_budget, projected_board_mass,
+    reinforce_adze,
 };
 use super::*;
 
@@ -100,12 +101,13 @@ struct WoodworkingWorld {
     saw_spent: StockpileId,
     matter_before: deep_hearth::core::quantity::AggregateMass,
     blade_input: Mass,
+    reinforcement_input: Mass,
     copper_available: Mass,
     saw_fundable: bool,
     protected_copper_reserve: Mass,
 }
 
-fn protected_future_copper_reserve(registries: &Registries) -> Mass {
+fn adze_reinforcement_native_copper(registries: &Registries) -> Mass {
     let upgrade = registries
         .equipment()
         .get_equipment(EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE)
@@ -146,8 +148,12 @@ fn protected_future_copper_reserve(registries: &Registries) -> Mass {
         batches,
         "future adze reinforcement reserve",
     );
+    native_per_upgrade
+}
+
+fn protected_future_copper_reserve(registries: &Registries) -> Mass {
     checked_mass_times(
-        native_per_upgrade,
+        adze_reinforcement_native_copper(registries),
         2,
         "two future adze reinforcement reserves",
     )
@@ -159,6 +165,7 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
         .get_manual(PROCESS_COLD_WORK_COPPER_SAW_BLADE)
         .map(|definition| definition.input_mass())
         .unwrap_or_else(|| panic!("woodworking saw-blade process disappeared"));
+    let reinforcement_input = adze_reinforcement_native_copper(registries);
     let protected_copper_reserve = protected_future_copper_reserve(registries);
     let just_reserve_safe = blade_input
         .checked_add(protected_copper_reserve)
@@ -247,6 +254,7 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
         saw_spent,
         matter_before,
         blade_input,
+        reinforcement_input,
         copper_available,
         saw_fundable: copper_available >= blade_input,
         protected_copper_reserve,
@@ -260,13 +268,20 @@ struct WoodworkingDecisionPlan {
     bare_projected_boards: Mass,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     adze_budget: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
+    reinforced_adze_budget: Option<u64>,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
+    reinforced_projected_attention: Option<u64>,
     saw_budget: Option<(u64, Mass)>,
     reserve_safe_now: bool,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
+    reinforced_reserve_safe_now: bool,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     setup_attention_budget_met: bool,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     nominal_timber_balance: WoodworkingTimberBalance,
     invest_in_saw: bool,
+    invest_in_reinforced_adze: bool,
     use_bare_hands: bool,
     reason: WoodworkingInvestmentReason,
 }
@@ -350,6 +365,49 @@ fn plan_woodworking_investment(
         world.raw,
         EQUIPMENT_STONE_WOODWORKING_ADZE,
     );
+    let reinforced_adze_fundable = world.copper_available >= world.reinforcement_input;
+    let reinforced_adze_budget = reinforced_adze_fundable.then(|| {
+        project_woodworking_construction_budget(
+            registries,
+            &world.state,
+            world.raw,
+            EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+        )
+        .0
+    });
+    let one_batch = NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one is nonzero"));
+    let stone_work_ticks = project_manual_craft_equipment(
+        registries,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        one_batch,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("woodworking stone-adze planning failed: {error}"))
+    .duration()
+    .value()
+    .checked_mul(demand.adze_batches)
+    .unwrap_or_else(|| panic!("woodworking stone-adze nominal queue overflowed"));
+    let stone_projected_attention = adze_budget
+        .checked_add(stone_work_ticks)
+        .unwrap_or_else(|| panic!("woodworking stone-adze projected attention overflowed"));
+    let reinforced_projected_attention = reinforced_adze_budget.map(|setup| {
+        let work = project_manual_craft_equipment(
+            registries,
+            PROCESS_SHAPE_WOOD_BOARDS,
+            one_batch,
+            EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+            Condition::PRISTINE,
+        )
+        .unwrap_or_else(|error| panic!("woodworking reinforced-adze planning failed: {error}"))
+        .duration()
+        .value()
+        .checked_mul(demand.adze_batches)
+        .unwrap_or_else(|| panic!("woodworking reinforced-adze nominal queue overflowed"));
+        setup
+            .checked_add(work)
+            .unwrap_or_else(|| panic!("woodworking reinforced-adze projected attention overflowed"))
+    });
     let saw_budget = world
         .saw_fundable
         .then(|| project_saw_setup_budget(registries, &world.state, world.raw));
@@ -371,6 +429,10 @@ fn plan_woodworking_investment(
         .copper_available
         .checked_sub(world.blade_input)
         .is_some_and(|remaining| remaining >= world.protected_copper_reserve);
+    let reinforced_reserve_safe_now = world
+        .copper_available
+        .checked_sub(world.reinforcement_input)
+        .is_some_and(|remaining| remaining >= world.protected_copper_reserve);
     let setup_attention_budget_met = saw_budget.is_some_and(|(ticks, _)| {
         bare_attention
             >= ticks
@@ -380,13 +442,26 @@ fn plan_woodworking_investment(
     });
     let nominal_timber_balance =
         woodworking_timber_balance(nominal_saw_timber, nominal_adze_timber);
-    let (invest_in_saw, saw_reason) = woodworking_investment_decision(
+    let (mut invest_in_saw, saw_reason) = woodworking_investment_decision(
         preference,
         reserve_safe_now,
         setup_attention_budget_met,
         nominal_timber_balance,
     );
+    let reinforced_pays_back = reinforced_projected_attention
+        .is_some_and(|ticks| ticks < stone_projected_attention && ticks < bare_attention);
+    let invest_in_reinforced_adze = reinforced_pays_back
+        && match preference {
+            WoodworkingInvestmentPreference::ConserveScarceCopper => reinforced_reserve_safe_now,
+            WoodworkingInvestmentPreference::ConserveTimber => !invest_in_saw,
+        };
+    if preference == WoodworkingInvestmentPreference::ConserveScarceCopper
+        && invest_in_reinforced_adze
+    {
+        invest_in_saw = false;
+    }
     let use_bare_hands = !invest_in_saw
+        && !invest_in_reinforced_adze
         && bare_attention
             < adze_budget
                 .checked_mul(2)
@@ -396,14 +471,27 @@ fn plan_woodworking_investment(
         bare_attention,
         bare_projected_boards: projected_board_mass(&bare_pipeline_projection),
         adze_budget,
+        reinforced_adze_budget,
+        reinforced_projected_attention,
         saw_budget,
         reserve_safe_now,
+        reinforced_reserve_safe_now,
         setup_attention_budget_met,
         nominal_timber_balance,
         invest_in_saw,
+        invest_in_reinforced_adze,
         use_bare_hands,
         reason: if use_bare_hands {
             WoodworkingInvestmentReason::BareHandsAvoidsInvestmentCost
+        } else if invest_in_reinforced_adze {
+            match preference {
+                WoodworkingInvestmentPreference::ConserveScarceCopper => {
+                    WoodworkingInvestmentReason::ReinforcedAdzePreservesCopper
+                }
+                WoodworkingInvestmentPreference::ConserveTimber => {
+                    WoodworkingInvestmentReason::ReinforcedAdzeRepaysAttention
+                }
+            }
         } else {
             saw_reason
         },
@@ -416,6 +504,12 @@ struct SawCounterfactual {
     route: WoodworkingRouteOutcome,
 }
 
+struct ReinforcedAdzeCounterfactual {
+    state: AppState,
+    route: WoodworkingRouteOutcome,
+    setup_ticks: u64,
+}
+
 struct WoodworkingLifecycleEvidence {
     bare_state: AppState,
     bare_route: WoodworkingRouteOutcome,
@@ -425,6 +519,7 @@ struct WoodworkingLifecycleEvidence {
     adze_setup: u64,
     bare_immediate_ticks: u64,
     adze_immediate_ticks: u64,
+    reinforced_adze: Option<ReinforcedAdzeCounterfactual>,
     saw: Option<SawCounterfactual>,
 }
 
@@ -589,6 +684,45 @@ fn execute_woodworking_lifecycle(
     validate_loaded_state(registries, &adze_state)
         .unwrap_or_else(|error| panic!("woodworking adze counterfactual state invalid: {error}"));
 
+    let reinforced_adze = (world.copper_available >= world.reinforcement_input).then(|| {
+        let mut state = common_state.clone();
+        let reinforcement_ticks =
+            reinforce_adze(registries, &mut state, world.raw, world.adze_parts, adze);
+        let setup_ticks = adze_setup
+            .checked_add(reinforcement_ticks)
+            .unwrap_or_else(|| panic!("woodworking reinforced-adze setup overflowed"));
+        assert_eq!(
+            Some(setup_ticks),
+            decision.reinforced_adze_budget,
+            "pre-action reinforced-adze setup projection must match canonical execution"
+        );
+        let route = execute_adze_pipeline(
+            registries,
+            &mut state,
+            AdzePipelinePlan {
+                raw: world.raw,
+                output: world.output,
+                replacement: world.adze_replacement,
+                spent: world.adze_spent,
+                adze,
+                batches: demand.adze_batches,
+            },
+        );
+        assert!(route.boards >= demand.pipeline_boards);
+        assert_eq!(
+            route.boards.checked_add(route.chips),
+            Some(route.project_timber)
+        );
+        validate_loaded_state(registries, &state).unwrap_or_else(|error| {
+            panic!("woodworking reinforced-adze counterfactual state invalid: {error}")
+        });
+        ReinforcedAdzeCounterfactual {
+            state,
+            route,
+            setup_ticks,
+        }
+    });
+
     let saw = execute_saw_counterfactual(registries, world, demand, decision, &common_state, adze);
 
     WoodworkingLifecycleEvidence {
@@ -600,6 +734,7 @@ fn execute_woodworking_lifecycle(
         adze_setup,
         bare_immediate_ticks: bare_projection.duration().value(),
         adze_immediate_ticks: immediate_adze_projection.duration().value(),
+        reinforced_adze,
         saw,
     }
 }
@@ -607,6 +742,10 @@ fn execute_woodworking_lifecycle(
 #[derive(Clone, Copy)]
 struct WoodworkingLifecycleMetrics {
     adze_total_attention: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
+    reinforced_adze_total_attention: Option<u64>,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
+    reinforced_adze_copper_consumed: Mass,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_total_timber: Option<Mass>,
     saw_total_attention: Option<u64>,
@@ -658,10 +797,21 @@ fn assert_woodworking_maintained_witness(
             );
             assert!(metrics.saw_fallback_due_to_copper);
         }
-        (FocusedProbeRole::MaintainedCoverage, 3 | 12) => {
+        (FocusedProbeRole::MaintainedCoverage, 3) => {
             assert_eq!(
                 decision.reason,
                 WoodworkingInvestmentReason::CopperSupplyLimited
+            );
+        }
+        (FocusedProbeRole::MaintainedCoverage, 12) => {
+            assert_eq!(
+                decision.reason,
+                WoodworkingInvestmentReason::ReinforcedAdzeRepaysAttention
+            );
+            assert!(
+                metrics
+                    .reinforced_adze_total_attention
+                    .is_some_and(|ticks| ticks < metrics.adze_total_attention)
             );
         }
         (FocusedProbeRole::MaintainedCoverage, 4) => assert_eq!(
@@ -671,9 +821,14 @@ fn assert_woodworking_maintained_witness(
         (FocusedProbeRole::MaintainedCoverage, 6) => {
             assert_eq!(
                 decision.reason,
-                WoodworkingInvestmentReason::CopperReserveProtected
+                WoodworkingInvestmentReason::ReinforcedAdzePreservesCopper
             );
-            assert!(decision.bare_attention >= metrics.adze_total_attention);
+            assert!(decision.reinforced_reserve_safe_now);
+            assert!(
+                metrics
+                    .reinforced_adze_total_attention
+                    .is_some_and(|ticks| ticks < metrics.adze_total_attention)
+            );
         }
         (FocusedProbeRole::MaintainedCoverage, 250) => {
             assert_eq!(
@@ -716,6 +871,38 @@ fn evaluate_woodworking_lifecycle(
         .adze_setup
         .checked_add(evidence.adze_route.active_ticks())
         .unwrap_or_else(|| panic!("woodworking adze lifecycle attention overflowed"));
+    let reinforced_adze_total_attention = evidence.reinforced_adze.as_ref().map(|reinforced| {
+        reinforced
+            .setup_ticks
+            .checked_add(reinforced.route.active_ticks())
+            .unwrap_or_else(|| panic!("woodworking reinforced-adze lifecycle attention overflowed"))
+    });
+    let copper_after_reinforced =
+        evidence
+            .reinforced_adze
+            .as_ref()
+            .map_or(world.copper_available, |reinforced| {
+                reinforced
+                    .state
+                    .inventory()
+                    .get_stockpile(world.raw)
+                    .map(|stockpile| {
+                        stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL))
+                    })
+                    .unwrap_or_else(|| {
+                        panic!("woodworking raw stockpile disappeared after reinforced adze")
+                    })
+            });
+    let reinforced_adze_copper_consumed = world
+        .copper_available
+        .checked_sub(copper_after_reinforced)
+        .unwrap_or_else(|| panic!("woodworking reinforced adze increased available native copper"));
+    if evidence.reinforced_adze.is_some() {
+        assert_eq!(
+            reinforced_adze_copper_consumed, world.reinforcement_input,
+            "reinforced adze must consume exactly its authored native-copper preparation"
+        );
+    }
     let actual_timber_balance =
         woodworking_timber_balance(saw_total_timber, evidence.adze_route.project_timber);
     let saw_service_count = evidence
@@ -755,6 +942,8 @@ fn evaluate_woodworking_lifecycle(
     );
     let metrics = WoodworkingLifecycleMetrics {
         adze_total_attention,
+        reinforced_adze_total_attention,
+        reinforced_adze_copper_consumed,
         saw_total_timber,
         saw_total_attention,
         saw_setup_timber: evidence
@@ -847,6 +1036,7 @@ fn choose_woodworking_route(
         adze_setup,
         bare_immediate_ticks,
         adze_immediate_ticks,
+        reinforced_adze,
         saw,
     } = lifecycle;
     let (choice, state, route, setup_ticks, total_timber) = if decision.invest_in_saw {
@@ -862,6 +1052,16 @@ fn choose_woodworking_route(
                 .raw_timber
                 .checked_add(saw.route.project_timber)
                 .unwrap_or_else(|| panic!("woodworking selected saw timber overflowed")),
+        )
+    } else if decision.invest_in_reinforced_adze {
+        let reinforced = reinforced_adze
+            .unwrap_or_else(|| unreachable!("reinforced-adze choice requires a fundable route"));
+        (
+            "reinforced-adze",
+            reinforced.state,
+            reinforced.route,
+            reinforced.setup_ticks,
+            reinforced.route.project_timber,
         )
     } else if decision.use_bare_hands {
         (

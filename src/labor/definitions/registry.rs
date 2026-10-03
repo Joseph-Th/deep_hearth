@@ -57,7 +57,8 @@ impl LaborRegistry {
         self.prospecting.get(&id)
     }
 
-    pub(crate) fn manual_power_definitions(&self) -> impl Iterator<Item = &ManualPowerDefinition> {
+    /// Iterates authored manual-power methods for player-facing planning and catalog discovery.
+    pub fn manual_power_definitions(&self) -> impl Iterator<Item = &ManualPowerDefinition> {
         self.manual_power.values()
     }
 

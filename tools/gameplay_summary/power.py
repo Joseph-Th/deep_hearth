@@ -24,6 +24,39 @@ def _numeric_values(lines: list[str], pattern: str) -> list[int]:
     return values
 
 
+def _counterfactual_provider_attention(line: str) -> dict[str, int]:
+    """Return every executed provider arm reported by one played project."""
+
+    return {
+        provider: int(attention)
+        for provider, attention in re.findall(
+            r"\b([a-z0-9-]+)-active-attention:(\d+)t",
+            line,
+        )
+    }
+
+
+def _project_choice_counts(lines: list[str], era: str) -> dict[str, int]:
+    """Count played provider choices without maintaining a second provider catalog."""
+
+    counts: dict[str, int] = {}
+    for line in lines:
+        if not line.startswith("POWER PROJECT EXPERIENCE ") or f" era={era} " not in line:
+            continue
+        for provider in _counterfactual_provider_attention(line):
+            counts.setdefault(provider, 0)
+        selected = re.search(r"\bselected=([^\s]+)", line)
+        if selected is not None:
+            provider = selected.group(1)
+            counts[provider] = counts.get(provider, 0) + 1
+    return counts
+
+
+def _choice_counts_text(counts: dict[str, int]) -> str:
+    selected = [(provider, count) for provider, count in counts.items() if count > 0]
+    return " ".join(f"{provider}:{count}" for provider, count in selected) or "none"
+
+
 def _selected_project_mass(
     lines: list[str],
     consumer: str,
@@ -197,32 +230,11 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
                 )
 
         selected_provider = re.search(r"\bselected=([^\s]+)", line)
-        if era == "primitive":
-            counterfactual = re.search(
-                r"crank-active-attention:(\d+)t treadle-active-attention:(\d+)t",
-                line,
-            )
-            provider_attention = (
-                {"crank": int(counterfactual.group(1)), "treadle": int(counterfactual.group(2))}
-                if counterfactual is not None
-                else None
-            )
-        else:
-            counterfactual = re.search(
-                r"treadle-active-attention:(\d+)t walking-active-attention:(\d+)t",
-                line,
-            )
-            provider_attention = (
-                {
-                    "treadle": int(counterfactual.group(1)),
-                    "walking-wheel": int(counterfactual.group(2)),
-                }
-                if counterfactual is not None
-                else None
-            )
-        if selected_provider is not None and provider_attention is not None:
-            chosen = provider_attention[selected_provider.group(1)]
-            values["attention_regret"].append(chosen - min(provider_attention.values()))
+        provider_attention = _counterfactual_provider_attention(line)
+        if selected_provider is not None and provider_attention:
+            chosen = provider_attention.get(selected_provider.group(1))
+            if chosen is not None:
+                values["attention_regret"].append(chosen - min(provider_attention.values()))
     values["selected_agrees"] = [
         1 if "selected-agrees:true" in line else 0 for line in selected
     ]
@@ -231,7 +243,15 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
 
 
 def _primitive_evidence(power: list[str], projects: list[str]) -> str:
-    organic_power = organic_only(power)
+    choice_counts = _project_choice_counts(projects, "primitive")
+    organic_project_lines = [
+        line
+        for line in projects
+        if line.startswith("POWER PROJECT EXPERIENCE ")
+        and " era=primitive " in line
+        and " sample=organic " in line
+    ]
+    organic_choice_counts = _project_choice_counts(organic_project_lines, "primitive")
     policy_returns = _numeric_values(power, r"minimum-return:(\d+)ppm")
     pristine_break_evens = _numeric_values(power, r"pristine-rate-break-even:(\d+)")
     minimum_attention_return = _numeric_values(
@@ -271,10 +291,8 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     lived = _project_experience(projects, "primitive")
     lived_samples = lived["samples"][0]
     return (
-        f"choice=[crank:{sum('selected:crank' in line for line in power)} "
-        f"treadle:{sum('selected:treadle' in line for line in power)}] "
-        f"organic-choice=[crank:{sum('selected:crank' in line for line in organic_power)} "
-        f"treadle:{sum('selected:treadle' in line for line in organic_power)}] "
+        f"choice=[{_choice_counts_text(choice_counts)}] "
+        f"organic-choice=[{_choice_counts_text(organic_choice_counts)}] "
         f"project=[crusher-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "
         f"buffer-lower-bound-charges:{_span(buffer_lower_bound_charges)} "
@@ -335,7 +353,15 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
 
 
 def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
-    organic_settlement = organic_only(settlement)
+    choice_counts = _project_choice_counts(projects, "settlement")
+    organic_project_lines = [
+        line
+        for line in projects
+        if line.startswith("POWER PROJECT EXPERIENCE ")
+        and " era=settlement " in line
+        and " sample=organic " in line
+    ]
+    organic_choice_counts = _project_choice_counts(organic_project_lines, "settlement")
     policy_returns = _numeric_values(settlement, r"minimum-return:(\d+)ppm")
     project_mass = _numeric_values(
         settlement, r"project=\[consumer:powered-saw feed:(\d+)mg"
@@ -361,10 +387,8 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
     lived = _project_experience(projects, "settlement")
     lived_samples = lived["samples"][0]
     return (
-        f"settlement-choice=[treadle:{sum('selected:treadle' in line for line in settlement)} "
-        f"walking:{sum('selected:walking-wheel' in line for line in settlement)}] "
-        f"organic-settlement-choice=[treadle:{sum('selected:treadle' in line for line in organic_settlement)} "
-        f"walking:{sum('selected:walking-wheel' in line for line in organic_settlement)}] "
+        f"settlement-choice=[{_choice_counts_text(choice_counts)}] "
+        f"organic-settlement-choice=[{_choice_counts_text(organic_choice_counts)}] "
         f"settlement-project=[lumber-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "
         f"charge-events:{_span(charge_events)}] "

@@ -156,6 +156,11 @@ pub(in super::super::super) fn execute_selected_primitive_project(
             MANUAL_POWER_FOOT_TREADLE,
             "selected primitive treadle project",
         ),
+        PrimitivePowerChoice::WalkingWheel => (
+            EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+            MANUAL_POWER_WALKING_WHEEL,
+            "selected primitive walking-wheel project",
+        ),
     };
     let (provider, provider_build) = build_provider(
         registries,

@@ -1,7 +1,8 @@
 //! Pre-action workload planning for primitive and settlement human power.
 
 use deep_hearth::content::{
-    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
     EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
     MANUAL_POWER_WALKING_WHEEL, PROCESS_CRUSH_ORE,
 };
@@ -22,9 +23,7 @@ use super::super::manual_assembly_planning::project_manual_assembly_package;
 
 #[path = "power_provider_planning/lifecycle.rs"]
 mod lifecycle;
-use lifecycle::{
-    ManualPowerRoute, charge_events_for_declared_work, first_candidate_preferred_charge,
-};
+use lifecycle::{ManualPowerRoute, charge_events_for_declared_work};
 
 const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
 const MAX_PRIMITIVE_PROJECT_BATCHES: u64 = 1_024;
@@ -82,29 +81,81 @@ impl ShapedBuild {
 pub(super) enum PrimitivePowerChoice {
     Crank,
     Treadle,
+    WalkingWheel,
 }
 
 impl PrimitivePowerChoice {
+    pub(super) const ALL: [Self; 3] = [Self::Crank, Self::Treadle, Self::WalkingWheel];
+
+    pub(super) const fn equipment(self) -> EquipmentDefinitionId {
+        match self {
+            Self::Crank => EQUIPMENT_STONE_HAND_CRANK,
+            Self::Treadle => EQUIPMENT_TIMBER_TREADLE_DRIVE,
+            Self::WalkingWheel => EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        }
+    }
+
+    pub(super) const fn method(self) -> deep_hearth::labor::ManualPowerMethodId {
+        match self {
+            Self::Crank => MANUAL_POWER_HAND_CRANK,
+            Self::Treadle => MANUAL_POWER_FOOT_TREADLE,
+            Self::WalkingWheel => MANUAL_POWER_WALKING_WHEEL,
+        }
+    }
+
     #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::Crank => "crank",
             Self::Treadle => "treadle",
+            Self::WalkingWheel => "walking-wheel",
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SettlementPowerChoice {
+    StoneCrank,
+    CopperCrank,
     Treadle,
+    TreadleDynamo,
     WalkingWheel,
 }
 
 impl SettlementPowerChoice {
+    pub(super) const ALL: [Self; 5] = [
+        Self::StoneCrank,
+        Self::CopperCrank,
+        Self::Treadle,
+        Self::TreadleDynamo,
+        Self::WalkingWheel,
+    ];
+
+    pub(super) const fn equipment(self) -> EquipmentDefinitionId {
+        match self {
+            Self::StoneCrank => EQUIPMENT_STONE_HAND_CRANK,
+            Self::CopperCrank => EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            Self::Treadle => EQUIPMENT_TIMBER_TREADLE_DRIVE,
+            Self::TreadleDynamo => EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+            Self::WalkingWheel => EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        }
+    }
+
+    pub(super) const fn method(self) -> deep_hearth::labor::ManualPowerMethodId {
+        match self {
+            Self::StoneCrank | Self::CopperCrank => MANUAL_POWER_HAND_CRANK,
+            Self::Treadle | Self::TreadleDynamo => MANUAL_POWER_FOOT_TREADLE,
+            Self::WalkingWheel => MANUAL_POWER_WALKING_WHEEL,
+        }
+    }
+
     #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
+            Self::StoneCrank => "stone-crank",
+            Self::CopperCrank => "copper-crank",
             Self::Treadle => "treadle",
+            Self::TreadleDynamo => "treadle-dynamo",
             Self::WalkingWheel => "walking-wheel",
         }
     }
@@ -178,6 +229,166 @@ pub(super) struct PrimitivePowerPlan {
 }
 
 #[derive(Clone, Copy)]
+struct PrimitiveCandidateRoute {
+    choice: PrimitivePowerChoice,
+    build: ShapedBuild,
+    route: ManualPowerRoute,
+}
+
+#[derive(Clone, Copy)]
+struct PrimitiveCandidateProjection {
+    choice: PrimitivePowerChoice,
+    build: ShapedBuild,
+    lifecycle_attention: u64,
+    lifecycle_metabolic_nj: u128,
+    lifecycle_hydration_ul: u64,
+    lifecycle_condition: Condition,
+}
+
+impl PrimitiveCandidateProjection {
+    const fn setup_key(self) -> (u64, u64, u128, u64) {
+        (
+            self.build.attention_ticks,
+            self.build.input_mass_mg,
+            self.build.metabolic_nj,
+            self.build.hydration_ul,
+        )
+    }
+
+    const fn lifecycle_key(self) -> (u64, u128, u64, u64) {
+        (
+            self.lifecycle_attention,
+            self.lifecycle_metabolic_nj,
+            self.lifecycle_hydration_ul,
+            self.build.input_mass_mg,
+        )
+    }
+}
+
+fn primitive_candidate_routes(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    shaped: StockpileId,
+    store_definition: EnergyStoreDefinitionId,
+    capacity_nj: u128,
+) -> [PrimitiveCandidateRoute; 3] {
+    PrimitivePowerChoice::ALL.map(|choice| PrimitiveCandidateRoute {
+        choice,
+        build: project_power_package(
+            registries,
+            state,
+            raw,
+            shaped,
+            choice.equipment(),
+            store_definition,
+            "primitive provider package",
+        ),
+        route: ManualPowerRoute::new(
+            choice.method(),
+            choice.equipment(),
+            store_definition,
+            Energy::from_nanojoules(capacity_nj),
+            "primitive provider",
+        ),
+    })
+}
+
+fn primitive_candidate_projection(
+    candidate: PrimitiveCandidateRoute,
+    lifecycle: lifecycle::ManualPowerLifecycleCost,
+) -> PrimitiveCandidateProjection {
+    PrimitiveCandidateProjection {
+        choice: candidate.choice,
+        build: candidate.build,
+        lifecycle_attention: candidate
+            .build
+            .attention_ticks
+            .checked_add(lifecycle.attention_ticks)
+            .unwrap_or_else(|| panic!("primitive provider lifecycle attention overflowed")),
+        lifecycle_metabolic_nj: candidate
+            .build
+            .metabolic_nj
+            .checked_add(lifecycle.metabolic_nj)
+            .unwrap_or_else(|| panic!("primitive provider lifecycle metabolism overflowed")),
+        lifecycle_hydration_ul: candidate
+            .build
+            .hydration_ul
+            .checked_add(lifecycle.hydration_ul)
+            .unwrap_or_else(|| panic!("primitive provider lifecycle hydration overflowed")),
+        lifecycle_condition: lifecycle.condition_after,
+    }
+}
+
+fn select_primitive_candidate(
+    investment_policy: CapitalInvestmentPolicy,
+    candidates: &[PrimitiveCandidateProjection; 3],
+) -> (PrimitivePowerChoice, u64) {
+    let baseline_key = candidates
+        .iter()
+        .map(|candidate| candidate.setup_key())
+        .min()
+        .unwrap_or_else(|| unreachable!("primitive provider set is nonempty"));
+    let mut baselines = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| candidate.setup_key() == baseline_key);
+    let baseline = baselines
+        .next()
+        .unwrap_or_else(|| unreachable!("minimum primitive setup key came from one candidate"));
+    assert!(
+        baselines.next().is_none(),
+        "primitive power providers tie on every actor-visible setup cost; author an explicit preference"
+    );
+    let eligible = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate.choice == baseline.choice
+                || clears_attention_return(
+                    baseline.lifecycle_attention,
+                    candidate.lifecycle_attention,
+                    investment_policy.minimum_attention_return(
+                        baseline.build.attention_ticks,
+                        candidate.build.attention_ticks,
+                    ),
+                )
+        })
+        .collect::<Vec<_>>();
+    let best_key = eligible
+        .iter()
+        .map(|candidate| candidate.lifecycle_key())
+        .min()
+        .unwrap_or_else(|| unreachable!("primitive baseline is always eligible"));
+    let mut best = eligible
+        .into_iter()
+        .filter(|candidate| candidate.lifecycle_key() == best_key);
+    let selected = best
+        .next()
+        .unwrap_or_else(|| unreachable!("minimum primitive lifecycle key came from one candidate"));
+    assert!(
+        best.next().is_none(),
+        "primitive power providers tie on every actor-visible lifecycle cost; author an explicit preference"
+    );
+    let minimum_return = investment_policy.minimum_attention_return(
+        baseline.build.attention_ticks,
+        selected.build.attention_ticks,
+    );
+    (selected.choice, minimum_return)
+}
+
+fn primitive_projection_for(
+    candidates: &[PrimitiveCandidateProjection; 3],
+    choice: PrimitivePowerChoice,
+) -> PrimitiveCandidateProjection {
+    candidates
+        .iter()
+        .copied()
+        .find(|candidate| candidate.choice == choice)
+        .unwrap_or_else(|| unreachable!("every primitive choice has one candidate projection"))
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct PrimitivePowerProject {
     pub(super) store_definition: EnergyStoreDefinitionId,
     pub(super) capacity_nj: u128,
@@ -205,13 +416,25 @@ pub(super) struct SettlementPowerPlan {
     pub(super) walking_build: ShapedBuild,
     pub(super) treadle_charge: ManualPowerProjection,
     pub(super) walking_charge: ManualPowerProjection,
+    pub(super) stone_crank_lifecycle_attention: u64,
+    pub(super) copper_crank_lifecycle_attention: u64,
     pub(super) treadle_lifecycle_attention: u64,
+    pub(super) treadle_dynamo_lifecycle_attention: u64,
     pub(super) walking_lifecycle_attention: u64,
+    pub(super) stone_crank_lifecycle_metabolic_nj: u128,
+    pub(super) copper_crank_lifecycle_metabolic_nj: u128,
     pub(super) treadle_lifecycle_metabolic_nj: u128,
+    pub(super) treadle_dynamo_lifecycle_metabolic_nj: u128,
     pub(super) walking_lifecycle_metabolic_nj: u128,
+    pub(super) stone_crank_lifecycle_hydration_ul: u64,
+    pub(super) copper_crank_lifecycle_hydration_ul: u64,
     pub(super) treadle_lifecycle_hydration_ul: u64,
+    pub(super) treadle_dynamo_lifecycle_hydration_ul: u64,
     pub(super) walking_lifecycle_hydration_ul: u64,
+    pub(super) stone_crank_lifecycle_condition: Condition,
+    pub(super) copper_crank_lifecycle_condition: Condition,
     pub(super) treadle_lifecycle_condition: Condition,
+    pub(super) treadle_dynamo_lifecycle_condition: Condition,
     pub(super) walking_lifecycle_condition: Condition,
     #[cfg_attr(
         test,
@@ -225,6 +448,171 @@ pub(super) struct SettlementPowerPlan {
     pub(super) decision_crossover_charges: Option<u64>,
 }
 
+#[derive(Clone, Copy)]
+struct SettlementCandidateRoute {
+    choice: SettlementPowerChoice,
+    build: ShapedBuild,
+    route: ManualPowerRoute,
+}
+
+#[derive(Clone, Copy)]
+struct SettlementCandidateProjection {
+    choice: SettlementPowerChoice,
+    build: ShapedBuild,
+    charge: ManualPowerProjection,
+    lifecycle_attention: u64,
+    lifecycle_metabolic_nj: u128,
+    lifecycle_hydration_ul: u64,
+    lifecycle_condition: Condition,
+}
+
+impl SettlementCandidateProjection {
+    const fn setup_key(self) -> (u64, u64, u128, u64) {
+        (
+            self.build.attention_ticks,
+            self.build.input_mass_mg,
+            self.build.metabolic_nj,
+            self.build.hydration_ul,
+        )
+    }
+
+    const fn lifecycle_key(self) -> (u64, u128, u64, u64) {
+        (
+            self.lifecycle_attention,
+            self.lifecycle_metabolic_nj,
+            self.lifecycle_hydration_ul,
+            self.build.input_mass_mg,
+        )
+    }
+}
+
+fn settlement_candidate_routes(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    shaped: StockpileId,
+    capacity_nj: u128,
+) -> [SettlementCandidateRoute; 5] {
+    SettlementPowerChoice::ALL.map(|choice| SettlementCandidateRoute {
+        choice,
+        build: project_power_package(
+            registries,
+            state,
+            raw,
+            shaped,
+            choice.equipment(),
+            ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+            "settlement provider package",
+        ),
+        route: ManualPowerRoute::new(
+            choice.method(),
+            choice.equipment(),
+            ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+            Energy::from_nanojoules(capacity_nj),
+            "settlement provider",
+        ),
+    })
+}
+
+fn project_settlement_candidates(
+    registries: &Registries,
+    routes: [SettlementCandidateRoute; 5],
+    declared_work: Energy,
+) -> [SettlementCandidateProjection; 5] {
+    routes.map(|candidate| {
+        let lifecycle = candidate.route.project_lifecycle(registries, declared_work);
+        SettlementCandidateProjection {
+            choice: candidate.choice,
+            build: candidate.build,
+            charge: candidate.route.project(registries, Condition::PRISTINE),
+            lifecycle_attention: candidate
+                .build
+                .attention_ticks
+                .checked_add(lifecycle.attention_ticks)
+                .unwrap_or_else(|| panic!("settlement provider lifecycle attention overflowed")),
+            lifecycle_metabolic_nj: candidate
+                .build
+                .metabolic_nj
+                .checked_add(lifecycle.metabolic_nj)
+                .unwrap_or_else(|| panic!("settlement provider lifecycle metabolism overflowed")),
+            lifecycle_hydration_ul: candidate
+                .build
+                .hydration_ul
+                .checked_add(lifecycle.hydration_ul)
+                .unwrap_or_else(|| panic!("settlement provider lifecycle hydration overflowed")),
+            lifecycle_condition: lifecycle.condition_after,
+        }
+    })
+}
+
+fn select_settlement_candidate(
+    investment_policy: CapitalInvestmentPolicy,
+    candidates: &[SettlementCandidateProjection; 5],
+) -> (SettlementPowerChoice, u64) {
+    let baseline_key = candidates
+        .iter()
+        .map(|candidate| candidate.setup_key())
+        .min()
+        .unwrap_or_else(|| unreachable!("settlement provider set is nonempty"));
+    let mut baselines = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| candidate.setup_key() == baseline_key);
+    let baseline = baselines
+        .next()
+        .unwrap_or_else(|| unreachable!("minimum setup key came from one candidate"));
+    assert!(
+        baselines.next().is_none(),
+        "settlement power providers tie on every actor-visible setup cost; author an explicit preference"
+    );
+
+    let eligible = candidates.iter().copied().filter(|candidate| {
+        if candidate.choice == baseline.choice {
+            return true;
+        }
+        clears_attention_return(
+            baseline.lifecycle_attention,
+            candidate.lifecycle_attention,
+            investment_policy.minimum_attention_return(
+                baseline.build.attention_ticks,
+                candidate.build.attention_ticks,
+            ),
+        )
+    });
+    let eligible = eligible.collect::<Vec<_>>();
+    let best_key = eligible
+        .iter()
+        .map(|candidate| candidate.lifecycle_key())
+        .min()
+        .unwrap_or_else(|| unreachable!("baseline settlement provider is always eligible"));
+    let mut best = eligible
+        .into_iter()
+        .filter(|candidate| candidate.lifecycle_key() == best_key);
+    let selected = best
+        .next()
+        .unwrap_or_else(|| unreachable!("minimum lifecycle key came from one candidate"));
+    assert!(
+        best.next().is_none(),
+        "settlement power providers tie on every actor-visible lifecycle cost; author an explicit preference"
+    );
+    let minimum_return = investment_policy.minimum_attention_return(
+        baseline.build.attention_ticks,
+        selected.build.attention_ticks,
+    );
+    (selected.choice, minimum_return)
+}
+
+fn settlement_projection_for(
+    candidates: &[SettlementCandidateProjection; 5],
+    choice: SettlementPowerChoice,
+) -> SettlementCandidateProjection {
+    candidates
+        .iter()
+        .copied()
+        .find(|candidate| candidate.choice == choice)
+        .unwrap_or_else(|| unreachable!("every settlement choice has one candidate projection"))
+}
+
 pub(super) fn settlement_power_decision_crossover_charges(
     registries: &Registries,
     state: &AppState,
@@ -233,50 +621,21 @@ pub(super) fn settlement_power_decision_crossover_charges(
     capacity_nj: u128,
     investment_policy: CapitalInvestmentPolicy,
 ) -> Option<u64> {
-    let treadle_build = project_power_package(
-        registries,
-        state,
-        raw,
-        shaped,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        "settlement treadle crossover build",
-    );
-    let walking_build = project_power_package(
-        registries,
-        state,
-        raw,
-        shaped,
-        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        "settlement walking-wheel crossover build",
-    );
-    let requested = Energy::from_nanojoules(capacity_nj);
-    let treadle_route = ManualPowerRoute::new(
-        MANUAL_POWER_FOOT_TREADLE,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        requested,
-        "settlement treadle crossover",
-    );
-    let walking_route = ManualPowerRoute::new(
-        MANUAL_POWER_WALKING_WHEEL,
-        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        requested,
-        "settlement walking-wheel crossover",
-    );
-    let minimum_attention_return_ticks = investment_policy
-        .minimum_attention_return(treadle_build.attention_ticks, walking_build.attention_ticks);
-    first_candidate_preferred_charge(
-        registries,
-        treadle_route,
-        treadle_build,
-        walking_route,
-        walking_build,
-        MAX_SETTLEMENT_CROSSOVER_CHARGES,
-        minimum_attention_return_ticks,
-    )
+    let routes = settlement_candidate_routes(registries, state, raw, shaped, capacity_nj);
+    let first =
+        project_settlement_candidates(registries, routes, Energy::from_nanojoules(capacity_nj));
+    let (initial_choice, _) = select_settlement_candidate(investment_policy, &first);
+    (2..=MAX_SETTLEMENT_CROSSOVER_CHARGES).find(|&charges| {
+        let declared_work_nj = capacity_nj
+            .checked_mul(u128::from(charges))
+            .unwrap_or_else(|| panic!("settlement crossover work overflowed"));
+        let projected = project_settlement_candidates(
+            registries,
+            routes,
+            Energy::from_nanojoules(declared_work_nj),
+        );
+        select_settlement_candidate(investment_policy, &projected).0 != initial_choice
+    })
 }
 
 pub(super) fn settlement_power_plan(
@@ -287,111 +646,61 @@ pub(super) fn settlement_power_plan(
     project: SettlementPowerProject,
     investment_policy: CapitalInvestmentPolicy,
 ) -> SettlementPowerPlan {
-    let treadle_build = project_power_package(
-        registries,
-        state,
-        raw,
-        shaped,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        "settlement treadle pre-action build",
-    );
-    let walking_build = project_power_package(
-        registries,
-        state,
-        raw,
-        shaped,
-        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        "walking-wheel pre-action build",
-    );
-    let requested = Energy::from_nanojoules(project.capacity_nj);
-    let treadle_route = ManualPowerRoute::new(
-        MANUAL_POWER_FOOT_TREADLE,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        requested,
-        "settlement treadle",
-    );
-    let walking_route = ManualPowerRoute::new(
-        MANUAL_POWER_WALKING_WHEEL,
-        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        requested,
-        "settlement walking wheel",
-    );
-    let minimum_attention_return_ticks = investment_policy
-        .minimum_attention_return(treadle_build.attention_ticks, walking_build.attention_ticks);
-    let decision_crossover_charges = first_candidate_preferred_charge(
-        registries,
-        treadle_route,
-        treadle_build,
-        walking_route,
-        walking_build,
-        MAX_SETTLEMENT_CROSSOVER_CHARGES,
-        minimum_attention_return_ticks,
-    );
-    let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
-    let walking_charge = walking_route.project(registries, Condition::PRISTINE);
+    let routes = settlement_candidate_routes(registries, state, raw, shaped, project.capacity_nj);
     let charge_events = charge_events_for_declared_work(
         project.declared_work_nj,
         project.capacity_nj,
         "settlement project",
     );
     let declared_work = Energy::from_nanojoules(project.declared_work_nj);
-    let treadle_lifecycle = treadle_route.project_lifecycle(registries, declared_work);
-    let walking_lifecycle = walking_route.project_lifecycle(registries, declared_work);
-    let treadle_lifecycle_attention = treadle_build
-        .attention_ticks
-        .checked_add(treadle_lifecycle.attention_ticks)
-        .unwrap_or_else(|| panic!("settlement treadle lifecycle attention overflowed"));
-    let walking_lifecycle_attention = walking_build
-        .attention_ticks
-        .checked_add(walking_lifecycle.attention_ticks)
-        .unwrap_or_else(|| panic!("settlement walking-wheel lifecycle attention overflowed"));
-    let treadle_lifecycle_metabolic_nj = treadle_build
-        .metabolic_nj
-        .checked_add(treadle_lifecycle.metabolic_nj)
-        .unwrap_or_else(|| panic!("settlement treadle total metabolism overflowed"));
-    let walking_lifecycle_metabolic_nj = walking_build
-        .metabolic_nj
-        .checked_add(walking_lifecycle.metabolic_nj)
-        .unwrap_or_else(|| panic!("settlement walking total metabolism overflowed"));
-    let treadle_lifecycle_hydration_ul = treadle_build
-        .hydration_ul
-        .checked_add(treadle_lifecycle.hydration_ul)
-        .unwrap_or_else(|| panic!("settlement treadle total hydration overflowed"));
-    let walking_lifecycle_hydration_ul = walking_build
-        .hydration_ul
-        .checked_add(walking_lifecycle.hydration_ul)
-        .unwrap_or_else(|| panic!("settlement walking total hydration overflowed"));
+    let candidates = project_settlement_candidates(registries, routes, declared_work);
+    let (choice, minimum_attention_return_ticks) =
+        select_settlement_candidate(investment_policy, &candidates);
+    let stone = settlement_projection_for(&candidates, SettlementPowerChoice::StoneCrank);
+    let copper = settlement_projection_for(&candidates, SettlementPowerChoice::CopperCrank);
+    let treadle = settlement_projection_for(&candidates, SettlementPowerChoice::Treadle);
+    let treadle_dynamo =
+        settlement_projection_for(&candidates, SettlementPowerChoice::TreadleDynamo);
+    let walking = settlement_projection_for(&candidates, SettlementPowerChoice::WalkingWheel);
+    let decision_crossover_charges = settlement_power_decision_crossover_charges(
+        registries,
+        state,
+        raw,
+        shaped,
+        project.capacity_nj,
+        investment_policy,
+    );
     SettlementPowerPlan {
-        choice: if clears_attention_return(
-            treadle_lifecycle_attention,
-            walking_lifecycle_attention,
-            minimum_attention_return_ticks,
-        ) {
-            SettlementPowerChoice::WalkingWheel
-        } else {
-            SettlementPowerChoice::Treadle
-        },
+        choice,
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
         capacity_nj: project.capacity_nj,
         declared_mass: project.declared_mass,
         declared_work_nj: project.declared_work_nj,
         charge_events,
-        treadle_build,
-        walking_build,
-        treadle_charge,
-        walking_charge,
-        treadle_lifecycle_attention,
-        walking_lifecycle_attention,
-        treadle_lifecycle_metabolic_nj,
-        walking_lifecycle_metabolic_nj,
-        treadle_lifecycle_hydration_ul,
-        walking_lifecycle_hydration_ul,
-        treadle_lifecycle_condition: treadle_lifecycle.condition_after,
-        walking_lifecycle_condition: walking_lifecycle.condition_after,
+        treadle_build: treadle.build,
+        walking_build: walking.build,
+        treadle_charge: treadle.charge,
+        walking_charge: walking.charge,
+        stone_crank_lifecycle_attention: stone.lifecycle_attention,
+        copper_crank_lifecycle_attention: copper.lifecycle_attention,
+        treadle_lifecycle_attention: treadle.lifecycle_attention,
+        treadle_dynamo_lifecycle_attention: treadle_dynamo.lifecycle_attention,
+        walking_lifecycle_attention: walking.lifecycle_attention,
+        stone_crank_lifecycle_metabolic_nj: stone.lifecycle_metabolic_nj,
+        copper_crank_lifecycle_metabolic_nj: copper.lifecycle_metabolic_nj,
+        treadle_lifecycle_metabolic_nj: treadle.lifecycle_metabolic_nj,
+        treadle_dynamo_lifecycle_metabolic_nj: treadle_dynamo.lifecycle_metabolic_nj,
+        walking_lifecycle_metabolic_nj: walking.lifecycle_metabolic_nj,
+        stone_crank_lifecycle_hydration_ul: stone.lifecycle_hydration_ul,
+        copper_crank_lifecycle_hydration_ul: copper.lifecycle_hydration_ul,
+        treadle_lifecycle_hydration_ul: treadle.lifecycle_hydration_ul,
+        treadle_dynamo_lifecycle_hydration_ul: treadle_dynamo.lifecycle_hydration_ul,
+        walking_lifecycle_hydration_ul: walking.lifecycle_hydration_ul,
+        stone_crank_lifecycle_condition: stone.lifecycle_condition,
+        copper_crank_lifecycle_condition: copper.lifecycle_condition,
+        treadle_lifecycle_condition: treadle.lifecycle_condition,
+        treadle_dynamo_lifecycle_condition: treadle_dynamo.lifecycle_condition,
+        walking_lifecycle_condition: walking.lifecycle_condition,
         minimum_attention_return_ticks,
         decision_crossover_charges,
     }
@@ -452,50 +761,31 @@ pub(super) fn primitive_power_decision_crossover_charges(
     capacity_nj: u128,
     investment_policy: CapitalInvestmentPolicy,
 ) -> Option<u64> {
-    let crank_build = project_power_package(
+    let routes = primitive_candidate_routes(
         registries,
         state,
         raw,
         shaped,
-        EQUIPMENT_STONE_HAND_CRANK,
         store_definition,
-        "primitive crank crossover build",
+        capacity_nj,
     );
-    let treadle_build = project_power_package(
-        registries,
-        state,
-        raw,
-        shaped,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        store_definition,
-        "primitive treadle crossover build",
-    );
-    let requested = Energy::from_nanojoules(capacity_nj);
-    let crank_route = ManualPowerRoute::new(
-        MANUAL_POWER_HAND_CRANK,
-        EQUIPMENT_STONE_HAND_CRANK,
-        store_definition,
-        requested,
-        "primitive crank crossover",
-    );
-    let treadle_route = ManualPowerRoute::new(
-        MANUAL_POWER_FOOT_TREADLE,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        store_definition,
-        requested,
-        "primitive treadle crossover",
-    );
-    let minimum_attention_return_ticks = investment_policy
-        .minimum_attention_return(crank_build.attention_ticks, treadle_build.attention_ticks);
-    first_candidate_preferred_charge(
-        registries,
-        crank_route,
-        crank_build,
-        treadle_route,
-        treadle_build,
-        MAX_PRIMITIVE_CROSSOVER_CHARGES,
-        minimum_attention_return_ticks,
-    )
+    let project = |charges: u64| {
+        let declared = Energy::from_nanojoules(
+            capacity_nj
+                .checked_mul(u128::from(charges))
+                .unwrap_or_else(|| panic!("primitive crossover work overflowed")),
+        );
+        routes.map(|candidate| {
+            primitive_candidate_projection(
+                candidate,
+                candidate.route.project_lifecycle(registries, declared),
+            )
+        })
+    };
+    let initial_choice = select_primitive_candidate(investment_policy, &project(1)).0;
+    (2..=MAX_PRIMITIVE_CROSSOVER_CHARGES).find(|&charges| {
+        select_primitive_candidate(investment_policy, &project(charges)).0 != initial_choice
+    })
 }
 
 pub(super) fn primitive_power_plan(
@@ -506,39 +796,16 @@ pub(super) fn primitive_power_plan(
     project: PrimitivePowerProject,
     investment_policy: CapitalInvestmentPolicy,
 ) -> PrimitivePowerPlan {
-    let crank_build = project_power_package(
+    let routes = primitive_candidate_routes(
         registries,
         state,
         raw,
         shaped,
-        EQUIPMENT_STONE_HAND_CRANK,
         project.store_definition,
-        "power provider crank pre-action build",
+        project.capacity_nj,
     );
-    let treadle_build = project_power_package(
-        registries,
-        state,
-        raw,
-        shaped,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        project.store_definition,
-        "power provider treadle pre-action build",
-    );
-    let requested = Energy::from_nanojoules(project.capacity_nj);
-    let crank_route = ManualPowerRoute::new(
-        MANUAL_POWER_HAND_CRANK,
-        EQUIPMENT_STONE_HAND_CRANK,
-        project.store_definition,
-        requested,
-        "primitive crank",
-    );
-    let treadle_route = ManualPowerRoute::new(
-        MANUAL_POWER_FOOT_TREADLE,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        project.store_definition,
-        requested,
-        "primitive treadle",
-    );
+    let crank_route = routes[0].route;
+    let treadle_route = routes[1].route;
     let crank_charge = crank_route.project(registries, Condition::PRISTINE);
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     // The project owns a fixed amount of useful mechanical work. Buffer choice only determines
@@ -584,55 +851,29 @@ pub(super) fn primitive_power_plan(
         projected_work_nj, project.declared_work_nj,
         "consumer-aware batch projection must preserve the declared useful work"
     );
-    let crank_lifecycle =
-        crank_route.project_lifecycle_batches(registries, consumer_order.batches());
-    let treadle_lifecycle =
-        treadle_route.project_lifecycle_batches(registries, consumer_order.batches());
-    let minimum_attention_return_ticks = investment_policy
-        .minimum_attention_return(crank_build.attention_ticks, treadle_build.attention_ticks);
-    let decision_crossover_charges = first_candidate_preferred_charge(
+    let candidates = routes.map(|candidate| {
+        primitive_candidate_projection(
+            candidate,
+            candidate
+                .route
+                .project_lifecycle_batches(registries, consumer_order.batches()),
+        )
+    });
+    let (choice, minimum_attention_return_ticks) =
+        select_primitive_candidate(investment_policy, &candidates);
+    let decision_crossover_charges = primitive_power_decision_crossover_charges(
         registries,
-        crank_route,
-        crank_build,
-        treadle_route,
-        treadle_build,
-        MAX_PRIMITIVE_CROSSOVER_CHARGES,
-        minimum_attention_return_ticks,
+        state,
+        raw,
+        shaped,
+        project.store_definition,
+        project.capacity_nj,
+        investment_policy,
     );
-    let crank_lifecycle_attention = crank_build
-        .attention_ticks
-        .checked_add(crank_lifecycle.attention_ticks)
-        .unwrap_or_else(|| panic!("power provider crank lifecycle attention overflowed"));
-    let treadle_lifecycle_attention = treadle_build
-        .attention_ticks
-        .checked_add(treadle_lifecycle.attention_ticks)
-        .unwrap_or_else(|| panic!("power provider treadle lifecycle attention overflowed"));
-    let crank_lifecycle_metabolic_nj = crank_build
-        .metabolic_nj
-        .checked_add(crank_lifecycle.metabolic_nj)
-        .unwrap_or_else(|| panic!("power provider crank total metabolism overflowed"));
-    let treadle_lifecycle_metabolic_nj = treadle_build
-        .metabolic_nj
-        .checked_add(treadle_lifecycle.metabolic_nj)
-        .unwrap_or_else(|| panic!("power provider treadle total metabolism overflowed"));
-    let crank_lifecycle_hydration_ul = crank_build
-        .hydration_ul
-        .checked_add(crank_lifecycle.hydration_ul)
-        .unwrap_or_else(|| panic!("power provider crank total hydration overflowed"));
-    let treadle_lifecycle_hydration_ul = treadle_build
-        .hydration_ul
-        .checked_add(treadle_lifecycle.hydration_ul)
-        .unwrap_or_else(|| panic!("power provider treadle total hydration overflowed"));
+    let crank = primitive_projection_for(&candidates, PrimitivePowerChoice::Crank);
+    let treadle = primitive_projection_for(&candidates, PrimitivePowerChoice::Treadle);
     PrimitivePowerPlan {
-        choice: if clears_attention_return(
-            crank_lifecycle_attention,
-            treadle_lifecycle_attention,
-            minimum_attention_return_ticks,
-        ) {
-            PrimitivePowerChoice::Treadle
-        } else {
-            PrimitivePowerChoice::Crank
-        },
+        choice,
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
         store_definition: project.store_definition,
         capacity_nj: project.capacity_nj,
@@ -641,18 +882,18 @@ pub(super) fn primitive_power_plan(
         charge_events,
         consumer_projected_charge_events,
         consumer_projected_services: consumer_order.services(),
-        crank_build,
-        treadle_build,
+        crank_build: crank.build,
+        treadle_build: treadle.build,
         crank_charge,
         treadle_charge,
-        crank_lifecycle_attention,
-        treadle_lifecycle_attention,
-        crank_lifecycle_metabolic_nj,
-        treadle_lifecycle_metabolic_nj,
-        crank_lifecycle_hydration_ul,
-        treadle_lifecycle_hydration_ul,
-        crank_lifecycle_condition: crank_lifecycle.condition_after,
-        treadle_lifecycle_condition: treadle_lifecycle.condition_after,
+        crank_lifecycle_attention: crank.lifecycle_attention,
+        treadle_lifecycle_attention: treadle.lifecycle_attention,
+        crank_lifecycle_metabolic_nj: crank.lifecycle_metabolic_nj,
+        treadle_lifecycle_metabolic_nj: treadle.lifecycle_metabolic_nj,
+        crank_lifecycle_hydration_ul: crank.lifecycle_hydration_ul,
+        treadle_lifecycle_hydration_ul: treadle.lifecycle_hydration_ul,
+        crank_lifecycle_condition: crank.lifecycle_condition,
+        treadle_lifecycle_condition: treadle.lifecycle_condition,
         minimum_attention_return_ticks,
         decision_crossover_charges,
     }

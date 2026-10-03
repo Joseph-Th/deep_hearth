@@ -40,6 +40,7 @@ mod manual_craft_execution;
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[cfg(test)]
 #[path = "gameplay_harness/persistence_timing.rs"]
 mod persistence_timing;
 #[cfg(not(test))]
@@ -47,6 +48,7 @@ mod persistence_timing;
 mod physical_time;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[cfg(test)]
 #[path = "gameplay_harness/saw_bench_contract_tests.rs"]
 mod saw_bench_contract_tests;
 #[path = "gameplay_harness/seed.rs"]
@@ -55,6 +57,7 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[cfg(test)]
 #[path = "gameplay_harness/woodworking_contract_tests.rs"]
 mod woodworking_contract_tests;
 #[path = "gameplay_harness/woodworking_policy.rs"]

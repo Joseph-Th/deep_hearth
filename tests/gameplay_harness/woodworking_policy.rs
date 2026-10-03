@@ -33,6 +33,8 @@ pub(super) enum WoodworkingInvestmentReason {
     CopperReserveProtected,
     SetupAttentionBudgetExceeded,
     SurplusCopperWithinSetupBudget,
+    ReinforcedAdzePreservesCopper,
+    ReinforcedAdzeRepaysAttention,
     PipelineTimberCostNotRecovered,
     PipelineTimberNeutralOutsideSetupBudget,
     PipelineTimberNeutralWithinSetupBudget,
@@ -48,6 +50,8 @@ impl WoodworkingInvestmentReason {
             Self::CopperReserveProtected => "copper-reserve-protected",
             Self::SetupAttentionBudgetExceeded => "setup-attention-budget-exceeded",
             Self::SurplusCopperWithinSetupBudget => "surplus-copper-within-setup-budget",
+            Self::ReinforcedAdzePreservesCopper => "reinforced-adze-preserves-copper",
+            Self::ReinforcedAdzeRepaysAttention => "reinforced-adze-repays-attention",
             Self::PipelineTimberCostNotRecovered => "pipeline-timber-cost-not-recovered",
             Self::PipelineTimberNeutralOutsideSetupBudget => {
                 "pipeline-timber-neutral-outside-setup-budget"

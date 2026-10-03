@@ -139,7 +139,7 @@ def _fieldwork_extracted(fieldwork: list[str]) -> int:
 def _choice_diversity(
     woodworking: list[str],
     fieldwork: list[str],
-    power: list[str],
+    power_projects: list[str],
     settlement: list[str],
     survival: list[str],
     survey_campaigns: list[str],
@@ -158,11 +158,17 @@ def _choice_diversity(
     fieldwork_tools = {
         tool for line in fieldwork if (tool := field(line, "tool")) is not None
     }
-    power_choices = {
-        match.group(1)
-        for line in power
-        if (match := re.search(r"\bdecision=\[selected:([^\s\]]+)", line))
-        is not None
+    primitive_power_choices = {
+        selected
+        for line in power_projects
+        if " era=primitive " in line
+        and (selected := field(line, "selected")) is not None
+    }
+    settlement_power_choices = {
+        selected
+        for line in power_projects
+        if " era=settlement " in line
+        and (selected := field(line, "selected")) is not None
     }
     preservation_policies = {
         match.group(1)
@@ -182,10 +188,10 @@ def _choice_diversity(
     }
     return (
         "choice-diversity=["
-        f"woodworking:{len(woodworking_choices)}/3 "
+        f"woodworking:{len(woodworking_choices)} "
         f"fieldwork-selected:{len(fieldwork_tools)}/4 "
         f"bulk-crossover-tools:{len(bulk_tools)}/2 "
-        f"power-market:{len(power_choices)}/2 "
+        f"power-market=[primitive:{len(primitive_power_choices)} settlement:{len(settlement_power_choices)}] "
         f"settlement-investment:{len(settlement_choices)}/2 "
         f"survey-strategy:{len(survey_strategies)}/2 "
         f"preservation:{len(preservation_policies)}/5]"
@@ -502,5 +508,5 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_maintenance_evidence(evidence.woodworking, evidence.power_projects)} "
         f"{delegate} "
         f"{reinvest} "
-        f"{_choice_diversity(evidence.woodworking, evidence.fieldwork, evidence.power, evidence.settlement, evidence.survival, evidence.survey_campaigns, evidence.bulk_crossovers)}"
+        f"{_choice_diversity(evidence.woodworking, evidence.fieldwork, evidence.power_projects, evidence.settlement, evidence.survival, evidence.survey_campaigns, evidence.bulk_crossovers)}"
     )

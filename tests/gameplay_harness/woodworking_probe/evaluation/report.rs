@@ -68,13 +68,24 @@ pub(super) fn report_woodworking_result(
     let bare_immediate_time = format_physical_duration(registries, selected.bare_immediate_ticks);
     let adze_immediate_time = format_physical_duration(registries, selected.adze_immediate_ticks);
     let saw_route_timber = metrics.saw_total_timber.map_or(0, Mass::milligrams);
+    let reinforced_projected = decision
+        .reinforced_projected_attention
+        .map_or_else(|| "n/a".to_owned(), |ticks| format!("{ticks}t"));
+    let reinforced_actual = metrics
+        .reinforced_adze_total_attention
+        .map_or_else(|| "n/a".to_owned(), |ticks| format!("{ticks}t"));
 
     reviewln!(
-        "WOODWORKING DECISION seed=0x{:016X} basis=pre-action-inventory+authored-routes budget=bare-work-at-least-twice-hand-build bare-work={}t adze-build-budget={}t timber=nominal-no-future-service reserve-safe-now={} saw={} bare={} future-outcomes=diagnostic-only",
+        "WOODWORKING DECISION seed=0x{:016X} basis=pre-action-inventory+authored-routes budget=bare-work-at-least-twice-hand-build bare-work={}t adze-build-budget={}t reinforced-build-budget={} timber=nominal-no-future-service saw-reserve-safe={} reinforced-reserve-safe={} reinforced={} saw={} bare={} future-outcomes=diagnostic-only",
         case.seed(),
         decision.bare_attention,
         decision.adze_budget,
+        decision
+            .reinforced_adze_budget
+            .map_or_else(|| "n/a".to_owned(), |ticks| format!("{ticks}t")),
         decision.reserve_safe_now,
+        decision.reinforced_reserve_safe_now,
+        decision.invest_in_reinforced_adze,
         decision.invest_in_saw,
         decision.use_bare_hands,
     );
@@ -87,7 +98,7 @@ pub(super) fn report_woodworking_result(
         selected.choice,
     );
     reviewln!(
-        "WOODWORKING EXPERIENCE seed=0x{:016X} behavior=0x{behavior_seed:016X} sample={} demand-horizon={} demand=[immediate:{}mg queued:{}mg pipeline:{}mg boards] preference={} policy-basis=pre-action-budget-not-lifecycle-oracle copper-counterfactual=[available:{}mg blade:{}mg protected-reserve:{}mg lifecycle-spend:{}mg after-saw:{}mg] routes=[adze:{}logs timber:{}mg attention:{}t/{adze_route_time} production:{}t maintenance:{}t/{}services final-condition:{}ppm; saw-assisted:min-saw-logs:{} fundable:{} setup-timber:{}mg actual=[saw:{} adze-fallback:{} fallback-copper:{} saw-services:{} adze-services:{}] timber:{}mg attention:{}t/{saw_route_time} attention-payback:{} timber-saving:{} timber-neutral:{} counterfactual-vs-adze=[{saw_counterfactual_tradeoff}]] choice={} reason={} selected=[setup:{}t/{selected_setup_time} active:{}t/{selected_active_time} total:{}t/{selected_total_time} timber:{}mg project-timber:{}mg boards:{}mg surplus:{}mg chips:{}mg condition:{selected_condition}] selected-vs-adze=[attention:{:+}t/{attention_delta_time} timber:{:+}mg] immediate-baseline=[bare:{}t/{bare_immediate_time} adze:{adze_immediate_total}t/{adze_immediate_total_time} adze-work-only:{}t/{adze_immediate_time}] matter=conserved",
+        "WOODWORKING EXPERIENCE seed=0x{:016X} behavior=0x{behavior_seed:016X} sample={} demand-horizon={} demand=[immediate:{}mg queued:{}mg pipeline:{}mg boards] preference={} policy-basis=pre-action-budget-not-lifecycle-oracle copper-counterfactual=[available:{}mg blade:{}mg reinforcement:{}mg protected-reserve:{}mg reinforced-spend:{}mg saw-spend:{}mg after-saw:{}mg] routes=[adze:{}logs timber:{}mg attention:{}t/{adze_route_time} production:{}t maintenance:{}t/{}services final-condition:{}ppm; reinforced-adze=[projected:{reinforced_projected} actual:{reinforced_actual}]; saw-assisted:min-saw-logs:{} fundable:{} setup-timber:{}mg actual=[saw:{} adze-fallback:{} fallback-copper:{} saw-services:{} adze-services:{}] timber:{}mg attention:{}t/{saw_route_time} attention-payback:{} timber-saving:{} timber-neutral:{} counterfactual-vs-adze=[{saw_counterfactual_tradeoff}]] choice={} reason={} selected=[setup:{}t/{selected_setup_time} active:{}t/{selected_active_time} total:{}t/{selected_total_time} timber:{}mg project-timber:{}mg boards:{}mg surplus:{}mg chips:{}mg condition:{selected_condition}] selected-vs-adze=[attention:{:+}t/{attention_delta_time} timber:{:+}mg] immediate-baseline=[bare:{}t/{bare_immediate_time} adze:{adze_immediate_total}t/{adze_immediate_total_time} adze-work-only:{}t/{adze_immediate_time}] matter=conserved",
         case.seed(),
         case.role().label(),
         demand.horizon,
@@ -101,7 +112,9 @@ pub(super) fn report_woodworking_result(
         decision.preference.label(),
         world.copper_available.milligrams(),
         world.blade_input.milligrams(),
+        world.reinforcement_input.milligrams(),
         world.protected_copper_reserve.milligrams(),
+        metrics.reinforced_adze_copper_consumed.milligrams(),
         metrics.saw_copper_consumed.milligrams(),
         metrics.copper_after_saw.milligrams(),
         demand.adze_batches,

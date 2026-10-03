@@ -15,7 +15,7 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{project_manual_craft_equipment, resolve_manual_craft};
 use deep_hearth::equipment::{
     EquipmentId, EquipmentMaintenanceRequest, resolve_equipment_maintenance,
-    validate_assemble_equipment, validate_equipment_maintenance,
+    validate_assemble_equipment, validate_equipment_maintenance, validate_upgrade_equipment,
 };
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::maintenance::{Condition, MaintenanceBand};

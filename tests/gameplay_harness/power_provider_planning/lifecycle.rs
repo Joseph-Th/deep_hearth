@@ -8,8 +8,6 @@ use deep_hearth::maintenance::Condition;
 use deep_hearth::ore_processing::PoweredOreOrderBatch;
 use deep_hearth::registry::Registries;
 
-use super::ShapedBuild;
-
 #[derive(Clone, Copy)]
 pub(super) struct ManualPowerRoute {
     method: ManualPowerMethodId,
@@ -45,15 +43,6 @@ impl LifecycleAccumulator {
         }
     }
 
-    const fn with_build(build: ShapedBuild) -> Self {
-        Self {
-            attention_ticks: build.attention_ticks,
-            metabolic_nj: build.metabolic_nj,
-            hydration_ul: build.hydration_ul,
-            condition: Condition::PRISTINE,
-        }
-    }
-
     fn record_charge(&mut self, charge: ManualPowerProjection, context: &'static str) {
         self.attention_ticks = self
             .attention_ticks
@@ -68,16 +57,6 @@ impl LifecycleAccumulator {
             .checked_add(charge.resource_budget().hydration().microliters())
             .unwrap_or_else(|| panic!("power-provider {context} lifecycle hydration overflowed"));
         self.condition = charge.condition_after();
-    }
-
-    const fn policy_key(self, input_mass_mg: u64, tie_break: u8) -> (u64, u128, u64, u64, u8) {
-        (
-            self.attention_ticks,
-            self.metabolic_nj,
-            self.hydration_ul,
-            input_mass_mg,
-            tie_break,
-        )
     }
 
     const fn finish(self) -> ManualPowerLifecycleCost {
@@ -192,40 +171,6 @@ impl ManualPowerRoute {
         }
         lifecycle.finish()
     }
-}
-
-pub(super) fn first_candidate_preferred_charge(
-    registries: &Registries,
-    baseline_route: ManualPowerRoute,
-    baseline_build: ShapedBuild,
-    candidate_route: ManualPowerRoute,
-    candidate_build: ShapedBuild,
-    maximum_charges: u64,
-    minimum_attention_return_ticks: u64,
-) -> Option<u64> {
-    let mut baseline = LifecycleAccumulator::with_build(baseline_build);
-    let mut candidate = LifecycleAccumulator::with_build(candidate_build);
-
-    for charges in 1..=maximum_charges {
-        let baseline_charge = baseline_route.project(registries, baseline.condition);
-        baseline.record_charge(baseline_charge, "baseline crossover");
-        let candidate_charge = candidate_route.project(registries, candidate.condition);
-        candidate.record_charge(candidate_charge, "candidate crossover");
-
-        let attention_saving = baseline
-            .attention_ticks
-            .saturating_sub(candidate.attention_ticks);
-        if minimum_attention_return_ticks > 0 {
-            if attention_saving >= minimum_attention_return_ticks {
-                return Some(charges);
-            }
-        } else if candidate.policy_key(candidate_build.input_mass_mg, 1)
-            < baseline.policy_key(baseline_build.input_mass_mg, 0)
-        {
-            return Some(charges);
-        }
-    }
-    None
 }
 
 pub(super) fn charge_events_for_declared_work(
