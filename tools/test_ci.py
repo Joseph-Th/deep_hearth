@@ -1701,11 +1701,11 @@ class GameplayCiRoutingTests(unittest.TestCase):
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
-                "PROBE INPUT name=survival-provisioning mode=gate samples=3 organic=0 "
-                "world_root=n/a behavior_root=maintained "
-                "replay=anchor:0xA@0x1,coverage:0xB@0x2,coverage:0xC@0x3\n"
+                "PROBE INPUT name=survival-provisioning mode=gate samples=3 organic=1 "
+                "world_root=0x111 behavior_root=0x222 "
+                "replay=anchor:0xA@0x1,coverage:0xB@0x2,organic:0xC@0x3\n"
             ),
-            "maintained=3",
+            "roots=0x111/0x222",
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
@@ -1721,13 +1721,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 "world_root=0x1234 behavior_root=0x5678 replay=ignored\n"
             ),
             "roots=0x1234/0x5678",
-        )
-        self.assertEqual(
-            ci.gameplay_replay_summary(
-                "HARNESS INPUT plan=maintained anchors=7 variation=0 custom=0 "
-                "world_root=n/a behavior_root=0x1 replay=ignored\n"
-            ),
-            "maintained=7",
         )
         self.assertEqual(
             ci.gameplay_replay_summary(

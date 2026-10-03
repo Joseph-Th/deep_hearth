@@ -17,6 +17,8 @@ mod environment;
 )]
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
+#[path = "gameplay_harness/exact_local_runtime.rs"]
+mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
 #[path = "gameplay_harness/focused_runner.rs"]

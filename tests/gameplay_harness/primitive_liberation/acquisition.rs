@@ -699,6 +699,11 @@ pub(super) fn acquire_raw_kit<T>(
         .carried_stockpile();
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("liberation kit survival setup failed: {error}"));
+    super::super::exact_local_runtime::assert_exact_local_runtime_ready(
+        registries,
+        &state,
+        "primitive liberation",
+    );
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("liberation kit player survival disappeared"));
     let matter_before = calculate_matter_accounting(&state)
@@ -718,20 +723,6 @@ pub(super) fn acquire_raw_kit<T>(
         Some(Mass::ZERO),
         "liberation ground bootstrap must be emptied through canonical pickup",
     );
-    let admitted_player = state
-        .logistics()
-        .player()
-        .unwrap_or_else(|| panic!("primitive liberation pickup lost its logistics player"));
-    assert_eq!(admitted_player.position(), player_position);
-    for stockpile in state.inventory().stockpiles() {
-        assert_eq!(
-            state.logistics().stockpile_position(stockpile.id()),
-            Some(player_position),
-            "primitive liberation stockpile {} is not local after canonical pickup",
-            stockpile.id().value()
-        );
-    }
-
     let projected_attention = project_incremental_kit_attention(registries);
 
     for input in adze_profile.inputs() {

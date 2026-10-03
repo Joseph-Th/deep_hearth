@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::env;
 
-use super::configuration::MaintainedAnchor;
+use super::configuration::{MAINTAINED_BEHAVIOR_ROOT, MaintainedAnchor};
 #[cfg(not(test))]
 use super::fresh_seed::fresh_root;
 #[cfg(not(test))]
@@ -427,8 +427,17 @@ fn run_policy_reports(
     reports
 }
 
+fn counterfactual_behavior_seed() -> u64 {
+    // Agency explicitly compares fixed one-factor player policies on the same world. Keep every
+    // other behavior-derived scenario field on an independent, stable channel instead of deriving
+    // actor identity from hidden physical world identity. If ScenarioVariation gains another
+    // behavior-driven input later, this prevents the counterfactual harness from silently leaking
+    // world entropy into it.
+    mix64(MAINTAINED_BEHAVIOR_ROOT ^ 0xA63E_4E43_5942_4856)
+}
+
 fn evaluate_agency_world(registries: &Registries, world: AgencyWorld) -> AgencyWorldEvaluation {
-    let behavior_seed = mix64(world.world_seed ^ 0xA63E_4E43_5900_0001);
+    let behavior_seed = counterfactual_behavior_seed();
     let preliminary_reports = run_policy_reports(registries, world, behavior_seed, None);
     let comparison_horizon = preliminary_reports
         .iter()
@@ -988,4 +997,16 @@ fn gameplay_agency_gate_keeps_witnesses_and_varies_one_organic_world() {
         first[maintained_count].world_seed,
         second[maintained_count].world_seed
     );
+}
+
+#[test]
+fn gameplay_agency_counterfactual_behavior_channel_is_world_independent() {
+    let registries = build_registries();
+    let behavior_seed = counterfactual_behavior_seed();
+    let first = ScenarioVariation::from_seeds(&registries, 0x1111, behavior_seed, None);
+    let second = ScenarioVariation::from_seeds(&registries, 0x2222, behavior_seed, None);
+
+    assert_ne!(first.world_seed, second.world_seed);
+    assert_eq!(first.behavior_seed, second.behavior_seed);
+    assert_eq!(first.policy, second.policy);
 }

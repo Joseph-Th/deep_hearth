@@ -23,6 +23,8 @@ mod direct_consumption_timing;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
+#[path = "gameplay_harness/exact_local_runtime.rs"]
+mod exact_local_runtime;
 #[path = "gameplay_harness/fieldwork_probe.rs"]
 mod fieldwork_probe;
 #[path = "gameplay_harness/first_foundry_probe.rs"]

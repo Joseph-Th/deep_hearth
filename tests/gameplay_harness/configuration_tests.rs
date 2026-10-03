@@ -90,11 +90,11 @@ fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
 }
 
 #[test]
-fn default_gate_keeps_only_maintained_anchors() {
+fn default_gate_keeps_maintained_anchors_plus_one_deterministic_organic_case() {
     let plan = plan(ScenarioPlanMode::Gate, None, None, None)
         .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
-    assert_eq!(plan.source_label(), "maintained");
+    assert_eq!(plan.source_label(), "anchor+variation");
     assert_eq!(
         MaintainedAnchor::ALL.map(|anchor| anchor.label()),
         [
@@ -115,11 +115,36 @@ fn default_gate_keeps_only_maintained_anchors() {
         EXPECTED_MAINTAINED_ANCHORS
     );
     assert_eq!(plan.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
-    assert_eq!(plan.variation_seed_count(), 0);
+    assert_eq!(plan.variation_seed_count(), 1);
     assert_eq!(plan.custom_seed_count(), 0);
-    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len());
-    assert!(plan.cases().iter().all(|case| case.anchor.is_some()));
-    assert_eq!(plan.variation_label(), "n/a");
+    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len() + 1);
+    assert_eq!(
+        plan.cases()
+            .iter()
+            .filter(|case| case.anchor.is_none())
+            .count(),
+        1,
+        "routine workshop gate must include exactly one bounded organic world"
+    );
+    let organic = plan
+        .cases()
+        .last()
+        .unwrap_or_else(|| panic!("default workshop gate lost its organic case"));
+    assert_eq!(organic.anchor, None);
+    assert!(
+        !EXPECTED_MAINTAINED_ANCHORS
+            .iter()
+            .any(|(_, world_seed)| *world_seed == organic.world_seed),
+        "default organic workshop world must not alias a maintained witness"
+    );
+    assert_eq!(
+        plan.variation_label(),
+        format!("0x{MAINTAINED_VARIATION_ROOT:016X}")
+    );
+    assert_eq!(
+        plan.behavior_label(),
+        format!("0x{MAINTAINED_BEHAVIOR_ROOT:016X}")
+    );
 }
 
 #[test]

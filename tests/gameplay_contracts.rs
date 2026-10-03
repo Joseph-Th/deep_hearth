@@ -6,6 +6,8 @@ mod capital_investment_policy;
 mod catalog;
 #[path = "gameplay_harness/configuration.rs"]
 mod configuration;
+#[path = "gameplay_harness/exact_local_runtime.rs"]
+mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
 #[path = "gameplay_harness/focused_seeds.rs"]

@@ -172,9 +172,6 @@ FAILURE_TAIL_LINES = 64
 GAMEPLAY_REPLAY_ROOTS = re.compile(
     r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
 )
-FOCUSED_PROBE_SUMMARY = re.compile(
-    r"\bsamples=(?P<samples>\d+)\s+organic=(?P<organic>\d+)"
-)
 AGENCY_REPLAY_ROOT = re.compile(r"\bvariation_root=(?P<world>0x[0-9A-Fa-f]+)")
 WORKSHOP_PLAN_SUMMARY = re.compile(
     r"\bplan=(?P<plan>\S+)\s+anchors=(?P<anchors>\d+)\s+variation=(?P<variation>\d+)\s+custom=(?P<custom>\d+)"
@@ -211,14 +208,6 @@ def gameplay_replay_summary(stdout: str) -> str | None:
     for line in stdout.splitlines():
         if line.startswith("PROBE INPUT ") and " replay=" in line:
             roots = GAMEPLAY_REPLAY_ROOTS.search(line)
-            probe = FOCUSED_PROBE_SUMMARY.search(line)
-            if (
-                roots is not None
-                and roots.group("world") != "explicit"
-                and probe is not None
-                and probe.group("organic") == "0"
-            ):
-                return f"maintained={probe.group('samples')}"
             if roots is not None and roots.group("world") != "explicit":
                 return f"roots={roots.group('world')}/{roots.group('behavior')}"
             replay = line.split(" replay=", 1)[1]
@@ -227,8 +216,6 @@ def gameplay_replay_summary(stdout: str) -> str | None:
             return f"replay={replay}"
         if line.startswith("HARNESS INPUT "):
             plan = WORKSHOP_PLAN_SUMMARY.search(line)
-            if plan is not None and plan.group("plan") == "maintained":
-                return f"maintained={plan.group('anchors')}"
             if plan is not None and plan.group("plan") == "custom":
                 return f"custom={plan.group('custom')}"
             match = GAMEPLAY_REPLAY_ROOTS.search(line)

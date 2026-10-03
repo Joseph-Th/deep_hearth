@@ -8,6 +8,8 @@ mod output;
 mod capital_investment_policy;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
+#[path = "gameplay_harness/exact_local_runtime.rs"]
+mod exact_local_runtime;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
 #[path = "gameplay_harness/manual_craft_selection.rs"]

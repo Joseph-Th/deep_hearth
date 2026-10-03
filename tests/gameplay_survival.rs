@@ -12,6 +12,8 @@ macro_rules! include_survival_probe_contract_tests {
 mod direct_consumption_timing;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
+#[path = "gameplay_harness/exact_local_runtime.rs"]
+mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
 #[path = "gameplay_harness/focused_runner.rs"]

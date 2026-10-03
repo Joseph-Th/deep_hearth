@@ -2,6 +2,9 @@
 
 use std::collections::BTreeSet;
 
+use super::configuration::{
+    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from,
+};
 use super::scenario::*;
 use deep_hearth::content::build_registries;
 
@@ -17,6 +20,56 @@ fn behavior_seed_never_changes_physical_scenario_inputs() {
     assert_eq!(first.crusher, second.crusher);
     assert_eq!(first.structure, second.structure);
     assert_eq!(first.delivery, second.delivery);
+}
+
+#[test]
+fn default_gate_organic_case_is_a_real_world_variation_not_only_a_replay_label() {
+    let registries = build_registries();
+    let plan = scenario_seeds_from(
+        ScenarioPlanMode::Gate,
+        None,
+        None,
+        None,
+        MAINTAINED_VARIATION_ROOT,
+        MAINTAINED_BEHAVIOR_ROOT,
+    )
+    .unwrap_or_else(|error| panic!("default workshop gate seed plan failed: {error:?}"));
+    let organic_case = plan
+        .cases()
+        .iter()
+        .find(|case| case.anchor.is_none())
+        .copied()
+        .unwrap_or_else(|| panic!("default workshop gate lost its organic world"));
+    let organic = ScenarioVariation::from_seeds(
+        &registries,
+        organic_case.world_seed,
+        organic_case.behavior_seed,
+        None,
+    );
+    let maintained = plan
+        .cases()
+        .iter()
+        .filter(|case| case.anchor.is_some())
+        .map(|case| {
+            ScenarioVariation::from_seeds(
+                &registries,
+                case.world_seed,
+                case.behavior_seed,
+                case.anchor,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        maintained.iter().all(|witness| {
+            witness.survival != organic.survival
+                || witness.ore != organic.ore
+                || witness.crusher != organic.crusher
+                || witness.structure != organic.structure
+                || witness.delivery != organic.delivery
+        }),
+        "default organic workshop case must materially vary actor-visible world pressure instead of only changing replay identity"
+    );
 }
 
 #[test]

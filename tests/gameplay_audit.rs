@@ -156,6 +156,8 @@ mod tick_observation;
 mod capital_investment_policy_tests;
 #[path = "gameplay_harness/configuration_tests.rs"]
 mod configuration_tests;
+#[path = "gameplay_harness/exact_local_runtime.rs"]
+mod exact_local_runtime;
 #[path = "gameplay_harness/fixture_boundary_tests.rs"]
 mod fixture_boundary_tests;
 #[path = "gameplay_harness/foundry_contract_tests.rs"]
