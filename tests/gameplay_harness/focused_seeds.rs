@@ -48,6 +48,26 @@ pub(super) struct FocusedProbeSeedPlan<'a> {
     pub(super) default_behavior_root: Option<u64>,
 }
 
+fn unique_stratified_world_seed(candidate: u64, stratum: u64, reserved: &[u64]) -> u64 {
+    let mut candidate = unique_mixed_seed(candidate, reserved);
+    let attempt_budget = reserved
+        .len()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("focused world-seed collision budget overflowed"));
+    for _ in 0..attempt_budget {
+        let stratified = (candidate & !0b11) | (stratum & 0b11);
+        if !reserved.contains(&stratified) {
+            return stratified;
+        }
+        candidate = mix64(candidate);
+    }
+    panic!(
+        "focused world-seed mixer failed to escape {} reserved seed(s) within stratum {}",
+        reserved.len(),
+        stratum & 0b11
+    );
+}
+
 /// Resolves maintained contract cases plus an optional bounded replayable variation sample.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
@@ -123,13 +143,16 @@ pub(super) fn focused_probe_cases_from(
     };
     let mut variation = root ^ probe_salt;
     for index in 0..variation_count {
-        variation = mix64(
-            variation
-                ^ u64::try_from(index + 1)
-                    .unwrap_or_else(|_| unreachable!("focused variation index fits u64"))
-                    .wrapping_mul(0xD1B5_4A32_D192_ED03),
-        );
-        variation = unique_mixed_seed(variation, &raw_seeds);
+        let ordinal = u64::try_from(index + 1)
+            .unwrap_or_else(|_| unreachable!("focused variation index fits u64"));
+        variation = mix64(variation ^ ordinal.wrapping_mul(0xD1B5_4A32_D192_ED03));
+        // Preserve fresh high-bit entropy while cycling four coarse world-pressure strata. A
+        // routine one-case gate still lands on a fresh root-selected stratum; a four-case report
+        // covers all strata without paying for a much larger stochastic sample. Generators may use
+        // these low bits only for actor-visible pressure classes, never actor policy or hidden
+        // evaluator truth.
+        let stratum = root.wrapping_add(ordinal - 1) & 0b11;
+        variation = unique_stratified_world_seed(variation, stratum, &raw_seeds);
         raw_seeds.push(variation);
         cases.push(FocusedProbeCase::new(
             variation,

@@ -80,6 +80,7 @@ fn declared_lumber_batches(case: FocusedProbeCase, baseline_crossover_batches: O
         FocusedProbeRole::MaintainedCoverage => SETTLEMENT_MECHANIZE_HORIZON_BATCHES,
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
             organic_lumber_batches(
+                case.seed() & 0b11,
                 mix64(case.seed() ^ 0x5345_5454_4C55_4D42),
                 baseline_crossover_batches,
                 SETTLEMENT_OPPORTUNITY_BATCHES,

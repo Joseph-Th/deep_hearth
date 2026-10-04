@@ -14,7 +14,7 @@ use super::settlement_generation::{
 fn organic_settlement_generation_straddles_supplied_crossovers_and_varies_actor_policy() {
     for crossover in [4_u64, 8, 16, 32, 64, 96] {
         let demands = (0_u64..=127)
-            .map(|entropy| organic_lumber_batches(entropy, Some(crossover), 192))
+            .map(|entropy| organic_lumber_batches(entropy & 0b11, entropy, Some(crossover), 192))
             .collect::<BTreeSet<_>>();
         assert!(
             demands.len() > 1,
@@ -25,9 +25,43 @@ fn organic_settlement_generation_straddles_supplied_crossovers_and_varies_actor_
                 && demands.iter().any(|batches| *batches > crossover),
             "organic settlement demand must sample both sides of supplied crossover {crossover}"
         );
+        for root in [0_u64, 4, 0x1234_5678_9ABC_DEF0] {
+            let bounded = (0_u64..4)
+                .map(|offset| {
+                    let world = root + offset;
+                    organic_lumber_batches(world & 0b11, world, Some(crossover), 192)
+                })
+                .collect::<Vec<_>>();
+            assert!(
+                bounded.iter().any(|batches| *batches < crossover)
+                    && bounded.iter().any(|batches| *batches > crossover),
+                "one four-stratum settlement sample must cross supplied crossover {crossover}"
+            );
+        }
+        for stratum in 0_u64..4 {
+            let values = (0_u64..32)
+                .map(|entropy| {
+                    organic_lumber_batches(
+                        stratum,
+                        entropy.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+                        Some(crossover),
+                        192,
+                    )
+                })
+                .collect::<BTreeSet<_>>();
+            assert!(
+                values.len() > 1,
+                "settlement pressure stratum {stratum} became a rigid fixed scenario"
+            );
+            if stratum & 1 == 0 {
+                assert!(values.iter().all(|batches| *batches < crossover));
+            } else {
+                assert!(values.iter().all(|batches| *batches > crossover));
+            }
+        }
     }
     let no_crossover = (0_u64..=127)
-        .map(|entropy| organic_lumber_batches(entropy, None, 192))
+        .map(|entropy| organic_lumber_batches(entropy & 0b11, entropy, None, 192))
         .collect::<BTreeSet<_>>();
     assert!(
         no_crossover.len() > 1 && no_crossover.iter().all(|batches| *batches < 192),

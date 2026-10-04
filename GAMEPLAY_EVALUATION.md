@@ -198,6 +198,9 @@ turning qualitative coverage into a probabilistic requirement. Organic generator
 straddle an authored threshold, equipment scale, storage capacity, or production crossover derive that scale from
 the current production definitions/projections. Fixed numeric pressure is appropriate only when the number itself
 is the disclosed world condition or player goal, not when it is standing in for an authored requirement.
+Bounded organic reports may stratify a few low world-seed bits across actor-visible pressure classes so a small
+sample does not accidentally collapse to one side of a live decision frontier. The remaining seed entropy stays
+fresh, and actor-policy roots remain independent from those world strata.
 Direct Cargo invocation also includes one deterministic organic case; repository-owned runners replace its root
 with a fresh replayable root so routine iteration varies without sacrificing reproduction.
 An organic seed must materially affect actor-visible world pressure, actor policy, or both; changing only a replay

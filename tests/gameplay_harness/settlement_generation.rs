@@ -18,6 +18,7 @@ pub(super) fn organic_inherited_equipment_condition(
 }
 
 pub(super) fn organic_lumber_batches(
+    world_stratum: u64,
     entropy: u64,
     baseline_crossover_batches: Option<u64>,
     opportunity_batches: u64,
@@ -31,7 +32,19 @@ pub(super) fn organic_lumber_batches(
         return 1 + entropy % maximum_order;
     };
     let spread = (crossover / 2).max(1);
-    let lower = crossover.saturating_sub(spread).max(1).min(maximum_order);
-    let upper = crossover.saturating_add(spread).min(maximum_order);
-    lower + entropy % (upper - lower + 1)
+    let below_max = crossover.saturating_sub(1).min(maximum_order);
+    let above_min = crossover.saturating_add(1);
+    if below_max == 0 || above_min > maximum_order {
+        return 1 + entropy % maximum_order;
+    }
+    if world_stratum & 1 == 0 {
+        let lower = crossover.saturating_sub(spread).max(1).min(below_max);
+        lower + entropy % (below_max - lower + 1)
+    } else {
+        let upper = crossover
+            .saturating_add(spread)
+            .min(maximum_order)
+            .max(above_min);
+        above_min + entropy % (upper - above_min + 1)
+    }
 }

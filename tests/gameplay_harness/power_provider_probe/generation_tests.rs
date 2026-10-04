@@ -141,4 +141,41 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
         .map(|mass| mass.milligrams() / saw_mass_per_bank.milligrams())
         .collect::<BTreeSet<_>>();
     assert!(no_settlement_frontier.len() > 1);
+
+    for root in [0_u64, 4, 0x1234_5678_9ABC_DEF0] {
+        let bounded = (0_u64..4)
+            .map(|offset| {
+                let seed = root + offset;
+                let cycle = primitive_mining_cycle_mass(&registries, seed);
+                let (mass, _work, workload) =
+                    declared_primitive_crushing_project(&registries, seed, store_definition);
+                (seed & 0b11, mass, cycle, workload)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            bounded
+                .iter()
+                .map(|(stratum, _, _, _)| *stratum)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([0, 1, 2, 3])
+        );
+        assert!(
+            bounded[..2]
+                .iter()
+                .all(|(_, _, _, workload)| *workload == PrimitiveCrushingWorkload::RoutineStockpile)
+        );
+        assert!(
+            bounded[2..]
+                .iter()
+                .all(|(_, _, _, workload)| *workload == PrimitiveCrushingWorkload::BulkFieldwork)
+        );
+        assert!(
+            bounded[0].1 < bounded[1].1,
+            "routine strata must increase disclosed work"
+        );
+        assert!(
+            bounded[2].1 < bounded[3].1,
+            "bulk strata must increase disclosed work"
+        );
+    }
 }

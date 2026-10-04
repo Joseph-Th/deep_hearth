@@ -30,7 +30,9 @@ use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
 use super::primitive_workload::{
+    BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES,
     STOCKPILE_WORK_ORDER_CYCLES, bulk_fieldwork_order_mass, primitive_mining_cycle_mass,
+    primitive_quarry_batch_mass,
 };
 use super::seed::mix64;
 
@@ -342,7 +344,11 @@ pub(super) fn declared_primitive_crushing_project(
         !cycle_work.is_zero() && cycle_work <= store.capacity(),
         "ordinary primitive mining cycle must fit the current baseline accumulator"
     );
-    let workload = if mix64(seed ^ 0x5052_494D_5F42_554C).is_multiple_of(2) {
+    // Low world-seed bits are a sampling stratum, not actor policy. They keep a tiny bounded report
+    // spread across ordinary upstream workload scales while mixed high entropy still varies the
+    // exact demand inside each scale.
+    let stratum = seed & 0b11;
+    let workload = if stratum >= 2 {
         PrimitiveCrushingWorkload::BulkFieldwork
     } else {
         PrimitiveCrushingWorkload::RoutineStockpile
@@ -351,8 +357,13 @@ pub(super) fn declared_primitive_crushing_project(
         PrimitiveCrushingWorkload::RoutineStockpile => {
             const MIN_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2 / 3;
             const MAX_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2;
-            let cycles =
-                MIN_CYCLES + mix64(seed ^ 0x5052_494D_5F4F_5245) % (MAX_CYCLES - MIN_CYCLES + 1);
+            let midpoint = (MIN_CYCLES + MAX_CYCLES) / 2;
+            let (minimum, maximum) = if stratum == 0 {
+                (MIN_CYCLES, midpoint)
+            } else {
+                (midpoint + 1, MAX_CYCLES)
+            };
+            let cycles = minimum + mix64(seed ^ 0x5052_494D_5F4F_5245) % (maximum - minimum + 1);
             Mass::from_milligrams(
                 cycle_mass
                     .milligrams()
@@ -360,7 +371,26 @@ pub(super) fn declared_primitive_crushing_project(
                     .unwrap_or_else(|| panic!("primitive power project mass overflowed")),
             )
         }
-        PrimitiveCrushingWorkload::BulkFieldwork => bulk_fieldwork_order_mass(registries, seed),
+        PrimitiveCrushingWorkload::BulkFieldwork => {
+            let quarry_batch = primitive_quarry_batch_mass(registries);
+            let ordinary = bulk_fieldwork_order_mass(registries, seed);
+            let ordinary_batches = ordinary.milligrams() / quarry_batch.milligrams();
+            let ordinal = ordinary_batches - BULK_FIELDWORK_ORDER_MIN_BATCHES;
+            let midpoint =
+                (BULK_FIELDWORK_ORDER_MIN_BATCHES + BULK_FIELDWORK_ORDER_MAX_BATCHES) / 2;
+            let (minimum, maximum) = if stratum == 2 {
+                (BULK_FIELDWORK_ORDER_MIN_BATCHES, midpoint)
+            } else {
+                (midpoint + 1, BULK_FIELDWORK_ORDER_MAX_BATCHES)
+            };
+            let batches = minimum + ordinal % (maximum - minimum + 1);
+            Mass::from_milligrams(
+                quarry_batch
+                    .milligrams()
+                    .checked_mul(batches)
+                    .unwrap_or_else(|| panic!("primitive power bulk project mass overflowed")),
+            )
+        }
     };
     (
         mass,

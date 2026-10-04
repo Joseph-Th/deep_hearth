@@ -147,6 +147,24 @@ fn focused_explore_adds_a_tiny_replayable_variation_sample() {
         first.len(),
         "focused exploratory planning must keep maintained and generated worlds distinct"
     );
+    assert_eq!(
+        first[2..]
+            .iter()
+            .map(|case| case.seed() & 0b11)
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([0, 1, 2, 3]),
+        "four-case exploratory sampling must cover every coarse world-pressure stratum"
+    );
+}
+
+#[test]
+fn focused_single_organic_case_keeps_root_selected_world_stratum() {
+    for root in 0_u64..4 {
+        let text = root.to_string();
+        let cases = focused_probe_cases_from(1, None, Some(&text), 0x1111, &[], 0x2222, 0)
+            .unwrap_or_else(|error| panic!("focused one-case plan failed: {error:?}"));
+        assert_eq!(cases[1].seed() & 0b11, root);
+    }
 }
 
 #[test]
