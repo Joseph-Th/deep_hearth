@@ -36,6 +36,12 @@ def settlement_summary(lines: list[str]) -> str | None:
     policy_returns = _values(settlement, r"minimum-return:(\d+)ppm")
     crossover_values = _values(settlement, r"baseline-crossover:(\d+)")
     crossover_none = sum("baseline-crossover:none" in line for line in settlement)
+    frame_start_condition = _values(
+        settlement, r"prior-infrastructure=\[frame-saw-condition:(\d+)ppm"
+    )
+    crank_start_condition = _values(
+        settlement, r"crank-condition:(\d+)ppm"
+    )
     crossover = ""
     if crossover_values or crossover_none:
         crossover = (
@@ -184,6 +190,8 @@ def settlement_summary(lines: list[str]) -> str | None:
         f"samples={len(settlement)} sample-shape=[{sample_shape(settlement)}] "
         f"choice=[frame:{direct} sawmill:{mechanized}] "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
+        f"prior-wear=[saw:{_span(frame_start_condition, 'ppm')} "
+        f"crank:{_span(crank_start_condition, 'ppm')}] "
         f"demand={min(batches)}..{max(batches)}batches"
         f"{crossover} "
         f"attention=[baseline:{min(baseline)}..{max(baseline)}t "

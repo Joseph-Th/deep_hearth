@@ -39,6 +39,7 @@ def woodworking_summary(lines: list[str]) -> str | None:
     timber_model_agrees = 0
     attention_exact = 0
     attention_safe = 0
+    frozen_before_action = 0
     for line in feedback:
         attention = re.search(
             r"attention=\[setup-budget-met:(true|false) actual-payback:(true|false)\]",
@@ -56,6 +57,7 @@ def woodworking_summary(lines: list[str]) -> str | None:
             attention_safe += not (budget_met and not payback)
         if timber is not None and timber.group(1) == timber.group(2):
             timber_model_agrees += 1
+        frozen_before_action += "choice-frozen-before-action=true" in line
     return (
         "ORDINARY SUMMARY probe=woodworking "
         f"samples={len(woodworking)} sample-shape=[{sample_shape(woodworking)}] "
@@ -77,7 +79,8 @@ def woodworking_summary(lines: list[str]) -> str | None:
         f"realized-payback:{realized_payback}/{len(feedback)} "
         f"budget-vs-payback=[conservative:{conservative_budget_misses} "
         f"optimistic:{optimistic_budget_misses}] "
-        f"timber-model-agrees:{timber_model_agrees}/{len(feedback)} choice-revised:0/{len(feedback)}] "
+        f"timber-model-agrees:{timber_model_agrees}/{len(feedback)} "
+        f"frozen:{frozen_before_action}/{len(feedback)}] "
         f"forecast-calibration=[samples:{len(feedback)}/{len(woodworking)} "
         f"attention-exact:{attention_exact}/{len(feedback)} "
         f"attention-safe:{attention_safe}/{len(feedback)} "

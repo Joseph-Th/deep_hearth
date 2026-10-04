@@ -52,6 +52,20 @@ def _project_choice_counts(lines: list[str], era: str) -> dict[str, int]:
     return counts
 
 
+def _frontier_thresholds(lines: list[str], provider: str) -> list[int]:
+    thresholds: list[int] = []
+    for line in lines:
+        match = re.search(r"\bmarket-frontier:([a-z0-9,:-]+)", line)
+        if match is None:
+            continue
+        for entry in match.group(1).split(","):
+            charge, separator, candidate = entry.partition(":")
+            if separator and candidate == provider and charge.isdecimal():
+                thresholds.append(int(charge))
+                break
+    return thresholds
+
+
 def _choice_counts_text(counts: dict[str, int]) -> str:
     selected = [(provider, count) for provider, count in counts.items() if count > 0]
     return " ".join(f"{provider}:{count}" for provider, count in selected) or "none"
@@ -265,6 +279,8 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         power, r"minimum-attention-return:(\d+)t"
     )
     market_regimes = _market_regime_counts(power)
+    treadle_thresholds = _frontier_thresholds(power, "treadle")
+    walking_thresholds = _frontier_thresholds(power, "walking-wheel")
     project_mass = _numeric_values(
         power, r"project=\[consumer:stone-crusher feed:(\d+)mg"
     )
@@ -315,6 +331,8 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"provisioning:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
         f"market-regimes={_span(market_regimes)} "
+        f"scale=[job:{_span(buffer_lower_bound_charges)} "
+        f"treadle:{_span(treadle_thresholds)} wheel:{_span(walking_thresholds)}] "
         f"pristine-rate-break-even={_span(pristine_break_evens)} "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
         f"minimum-investment-return={_span(minimum_attention_return, 't')} "

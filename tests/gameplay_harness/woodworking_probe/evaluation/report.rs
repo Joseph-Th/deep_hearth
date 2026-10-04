@@ -153,7 +153,7 @@ pub(super) fn report_woodworking_result(
         selected.adze_immediate_ticks,
     );
     reviewln!(
-        "WOODWORKING FEEDBACK seed=0x{:016X} basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:{} actual-payback:{}] timber=[nominal:{} actual:{}] selected={} choice-revised-after-outcome=false",
+        "WOODWORKING FEEDBACK seed=0x{:016X} basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:{} actual-payback:{}] timber=[nominal:{} actual:{}] selected={} choice-frozen-before-action=true feedback-scope=next-order",
         case.seed(),
         decision.setup_attention_budget_met,
         metrics.saw_attention_payback,

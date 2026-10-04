@@ -3,7 +3,10 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
-use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
+use deep_hearth::content::gameplay_fixture::{
+    seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_lot,
+    seed_preused_assembled_equipment_at, seed_stockpile,
+};
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
     EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_BOARD, FORM_CHIP, FORM_LOG, FORM_NATIVE_METAL,
@@ -14,11 +17,9 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
     manual_craft_options_from_stockpile, project_manual_craft_equipment, resolve_manual_craft,
 };
-use deep_hearth::energy::validate_assemble_energy_store;
-use deep_hearth::equipment::{
-    EquipmentId, validate_assemble_equipment, validate_upgrade_equipment,
-};
+use deep_hearth::equipment::{EquipmentId, validate_upgrade_equipment};
 use deep_hearth::inventory::StockpileStorageProfile;
+use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::ProcessId;
@@ -34,8 +35,11 @@ use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output
 use super::physical_time::format_physical_duration;
 use super::powered_craft_planning::authored_batch;
 use super::seed::mix64;
-use super::settlement_generation::{organic_investment_policy, organic_lumber_batches};
+use super::settlement_generation::{
+    organic_inherited_equipment_condition, organic_investment_policy, organic_lumber_batches,
+};
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
+use super::world_admission::STATIONARY_PLAYER_ORIGIN;
 
 const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
 const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 64;
@@ -103,18 +107,96 @@ fn add_requirement(
         .unwrap_or_else(|| panic!("settlement {context} material requirement overflowed"));
 }
 
+#[derive(Clone, Copy)]
+struct PriorWorkshop {
+    component_source: deep_hearth::inventory::StockpileId,
+    frame_saw: EquipmentId,
+    crank: EquipmentId,
+    drive: deep_hearth::energy::EnergyStoreId,
+    frame_saw_condition: Condition,
+    crank_condition: Condition,
+}
+
+fn inherited_equipment_condition(
+    registries: &Registries,
+    definition: deep_hearth::equipment::EquipmentDefinitionId,
+    case: FocusedProbeCase,
+) -> Condition {
+    if matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    ) {
+        return Condition::PRISTINE;
+    }
+    organic_inherited_equipment_condition(
+        registries,
+        definition,
+        mix64(case.seed() ^ u64::from(definition.value()) ^ 0x5345_5454_5553_4544),
+    )
+}
+
 fn seed_prior_workshop(
     registries: &Registries,
     state: &mut AppState,
-) -> deep_hearth::inventory::StockpileId {
-    super::settlement_fixture::seed_inherited_workshop_package(
+    case: FocusedProbeCase,
+) -> PriorWorkshop {
+    let component_source = super::settlement_fixture::seed_inherited_workshop_package(
         registries,
         state,
         &[EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_STONE_HAND_CRANK],
         &[ENERGY_STONE_FLYWHEEL_DRIVE],
         &[],
         "focused settlement prior workshop",
-    )
+    );
+    let frame_saw_condition =
+        inherited_equipment_condition(registries, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, case);
+    let crank_condition =
+        inherited_equipment_condition(registries, EQUIPMENT_STONE_HAND_CRANK, case);
+    let assemble = |state: &mut AppState, definition, condition| {
+        if condition == Condition::PRISTINE {
+            seed_assembled_equipment_at(
+                registries,
+                state,
+                definition,
+                component_source,
+                STATIONARY_PLAYER_ORIGIN,
+            )
+        } else {
+            seed_preused_assembled_equipment_at(
+                registries,
+                state,
+                definition,
+                component_source,
+                STATIONARY_PLAYER_ORIGIN,
+                condition,
+            )
+        }
+    };
+    let frame_saw = assemble(state, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, frame_saw_condition);
+    let crank = assemble(state, EQUIPMENT_STONE_HAND_CRANK, crank_condition);
+    let drive = seed_assembled_energy_store_at(
+        registries,
+        state,
+        ENERGY_STONE_FLYWHEEL_DRIVE,
+        component_source,
+        STATIONARY_PLAYER_ORIGIN,
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(component_source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "settlement inherited workshop must embody its complete disclosed component stock"
+    );
+    PriorWorkshop {
+        component_source,
+        frame_saw,
+        crank,
+        drive,
+        frame_saw_condition,
+        crank_condition,
+    }
 }
 
 fn settlement_upgrade_raw_requirements(registries: &Registries) -> BTreeMap<CommodityKey, Mass> {
@@ -389,7 +471,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             .unwrap_or_else(|| panic!("settlement lumber opportunity mass overflowed")),
     );
     let mut state = AppState::new();
-    let bootstrap = seed_prior_workshop(registries, &mut state);
+    let prior_workshop = seed_prior_workshop(registries, &mut state, case);
     let upgrade_requirements = settlement_upgrade_raw_requirements(registries);
     let upgrade_wood_mass = upgrade_requirements
         .get(&CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
@@ -445,38 +527,19 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     super::world_admission::admit_stationary_player(
         registries,
         &mut state,
-        &[bootstrap, upgrade_raw, upgrade_parts, work_source, output],
+        &[
+            prior_workshop.component_source,
+            upgrade_raw,
+            upgrade_parts,
+            work_source,
+            output,
+        ],
         &[],
         "focused settlement",
     );
-
-    let frame_saw = validate_assemble_equipment(
-        registries,
-        &state,
-        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-        bootstrap,
-    )
-    .unwrap_or_else(|error| panic!("settlement frame-saw assembly failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("settlement frame-saw commit failed: {error}"));
-    let crank =
-        validate_assemble_equipment(registries, &state, EQUIPMENT_STONE_HAND_CRANK, bootstrap)
-            .unwrap_or_else(|error| panic!("settlement hand-crank assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("settlement hand-crank commit failed: {error}"));
-    let drive =
-        validate_assemble_energy_store(registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, bootstrap)
-            .unwrap_or_else(|error| panic!("settlement flywheel assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("settlement flywheel commit failed: {error}"));
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(bootstrap)
-            .map(|stockpile| stockpile.stored_mass()),
-        Some(Mass::ZERO),
-        "settlement disclosed prior-workshop package must be exact"
-    );
+    let frame_saw = prior_workshop.frame_saw;
+    let crank = prior_workshop.crank;
+    let drive = prior_workshop.drive;
 
     let baseline_crossover_batches = baseline_lumber_crossover_batches(
         registries,
@@ -702,7 +765,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let baseline_crossover =
         baseline_crossover_batches.map_or_else(|| "none".to_owned(), |batches| batches.to_string());
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t machine-owned-before:{} reinvested:{} boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t machine-owned-before:{} reinvested:{} boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=[frame-saw-condition:{}ppm crank-condition:{}ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         order_batches,
@@ -750,6 +813,8 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             .checked_sub(survival_after.hydration())
             .unwrap_or_else(|| panic!("settlement hydration reserve increased"))
             .microliters(),
+        prior_workshop.frame_saw_condition.parts_per_million(),
+        prior_workshop.crank_condition.parts_per_million(),
         upgrade_wood_mass.milligrams(),
         upgrade_copper_mass.milligrams(),
     );

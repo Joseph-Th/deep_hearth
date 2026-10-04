@@ -2728,7 +2728,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] inherited-condition=1000000..1000000ppm resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
-            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
+            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-frozen-before-action=true feedback-scope=next-order",
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
             "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 geology=quarry-soft policy-input=false report-only=true",
             "FIELDWORK CONTINUATION seed=0x1 available=true reused-knowledge=true reused-tool=true requested=1mg extracted=1mg extraction=2t/7.2s avoided-search=10t/36.0s avoided-kit=50t/3.0m stop=order-complete scope=matched-repeat-order destination-capacity=diagnostic-only",
@@ -2744,7 +2744,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=settlement selected=copper-crank copper-policy=spend-available declared=[work:400000000000000nJ pristine-charge-events:80 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:80 survival-limited-batches:0 active-attention:2500t provider-attention:2200t consumer-runtime:5600t maintenance=[services:4 preparation:240t service:12t replacement:216000mg] provisioning=[stops:2 attention:48t drinks:2 volume:200000uL meals:0 mass:0mg] elapsed:8100t reserves=[start:1001nJ/1001uL end:1nJ/1uL]] condition=[provider:900000ppm consumer:800000ppm] full-counterfactual=[stone-crank-active-attention:2550t copper-crank-active-attention:2400t treadle-active-attention:2600t treadle-dynamo-active-attention:2650t double-wound-treadle-dynamo-active-attention:2350t walking-wheel-active-attention:2500t attention-best:copper-crank allowed-attention-best:copper-crank selected-attention-gap:0t] evidence=complete-selected-project-canonical",
             "POWER SETTLEMENT seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:powered-saw feed:1600000000mg work:400000000000000nJ charge-events:80] buffer:5000000000000nJ decision=[selected:walking-wheel copper-policy:spend-available policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:2290t projected-attention-walking:2210t] treadle=[first-charge:14t second-charge:15t] walking-wheel=[first-charge:10t second-charge:11t] productive-cycle=[consumer:powered-saw treadle:56t walking:56t] projected-provider-lifecycle=[treadle:body:100000000000000nJ/200000uL condition:800000ppm walking-wheel:body:80000000000000nJ/150000uL condition:900000ppm] comparison=[charge-saving:4t metabolic-saving:1nJ pristine-rate-break-even:60charges market-frontier:1:stone-crank,3:copper-crank provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw]",
             "PROBE INPUT name=settlement mode=explore samples=1 organic=0",
-            "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:20 mass:20000000mg] decision=[choice:frame-saw policy:min-player-attention baseline:139t mechanized:221t setup:181t charge-per-batch:2t margin:-82t] execution=[active:139t elapsed:139t/8.3m delegated:0t upgraded:false boards:18000000mg chips:2000000mg] survival=[energy-spent:150537000000000nJ hydration-spent:45175uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
+            "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:20 mass:20000000mg] decision=[choice:frame-saw policy:min-player-attention baseline:139t mechanized:221t setup:181t charge-per-batch:2t margin:-82t] execution=[active:139t elapsed:139t/8.3m delegated:0t upgraded:false boards:18000000mg chips:2000000mg] survival=[energy-spent:150537000000000nJ hydration-spent:45175uL] prior-infrastructure=[frame-saw-condition:1000000ppm crank-condition:1000000ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
             "HARNESS INPUT plan=anchor+variation anchors=1 variation=0 custom=0 world_root=0x1 behavior_root=0x2 replay=0x1@0x2",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=1 orders=[complete:1 partial:0 productive:1/1] adaptive=[total:0 condition:0 stored-work:0] stops=[structural:0 maintenance-required:1 energy:0 declined-manual:0 survival-limited-manual:0] maintenance-blockers=[replacement-supply:1 service-labor:0]",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt pressure-shape=[clean:1 single:0 multi-system:10] interlocks=[stored-work+throughput:11 body+power:5 wear+maintenance:6 structure+production:9] recovery=[suspensions:3 resumed:3 stranded:0]",
@@ -2858,9 +2858,15 @@ class GameplayReportContractTests(unittest.TestCase):
             "settlement-lifecycle-obligations=[services:4..4 prep:240..240t share:10..10% provisioning:2..2",
             concise,
         )
-        self.assertIn("market-regimes=2", concise)
+        self.assertIn(
+            "scale=[job:1..1 treadle:3..3 wheel:n/a]",
+            concise,
+        )
         self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", concise)
-        self.assertIn("settlement-regimes=2", concise)
+        self.assertIn(
+            "prior-wear=[saw:1000000..1000000ppm crank:1000000..1000000ppm]",
+            concise,
+        )
         self.assertIn("pacing-physical=[first-expedition:3.8..3.8m", concise)
         self.assertIn("reuse-physical=[repeat-complete:7.2..7.2s", concise)
         self.assertNotIn("integrated-campaign=[", concise)
@@ -3162,13 +3168,13 @@ class GameplayReportContractTests(unittest.TestCase):
             "\n".join(
                 (
                     "WOODWORKING EXPERIENCE seed=0x1 demand-horizon=project choice=stone-adze reason=pipeline-timber-cost-not-recovered",
-                    "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:true] timber=[nominal:costlier actual:costlier] selected=stone-adze choice-revised-after-outcome=false",
+                    "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:true] timber=[nominal:costlier actual:costlier] selected=stone-adze choice-frozen-before-action=true feedback-scope=next-order",
                 )
             ),
             {},
         )
         self.assertIn(
-            "lifecycle-feedback=[samples:1/1 setup-budget-met:0/1 realized-payback:1/1 budget-vs-payback=[conservative:1 optimistic:0] timber-model-agrees:1/1 choice-revised:0/1]",
+            "lifecycle-feedback=[samples:1/1 setup-budget-met:0/1 realized-payback:1/1 budget-vs-payback=[conservative:1 optimistic:0] timber-model-agrees:1/1 frozen:1/1]",
             summary,
         )
 
