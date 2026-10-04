@@ -22,6 +22,24 @@ pub(super) fn has_trace_output() -> bool {
     env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
 }
 
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "shared output module is compiled by focused targets that do not all need an early report-only return"
+)]
+pub(super) fn review_output_enabled() -> bool {
+    std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some()
+}
+
+#[cfg(not(test))]
+#[allow(
+    dead_code,
+    reason = "shared output module is compiled by report targets that do not all need an early return"
+)]
+pub(super) const fn review_output_enabled() -> bool {
+    true
+}
+
 // Test binaries stay quiet during routine gates. Scoped reports that reuse a focused test artifact
 // enable review output below; narration still requires trace mode.
 #[cfg(test)]
@@ -51,7 +69,7 @@ macro_rules! println {
 #[allow(unused_macros)]
 macro_rules! reviewln {
     ($($argument:tt)*) => {{
-        if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
+        if crate::output::review_output_enabled() {
             std::println!($($argument)*);
         }
     }};

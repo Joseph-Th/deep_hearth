@@ -335,12 +335,16 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> tuple[str, str]:
     )
     compact = (
         "shortfall-recovery=["
-        f"productive:{sum(value > 0 for value in additional_extracted)}/{len(recoveries)} "
-        f"geology-changed:{sum(value > 0 for value in hardness_changes)}/{len(recoveries)} "
-        f"retooled:{retooled} upgraded:{sum(value > 0 for value in tool_upgrades)} "
-        f"salvaged:{sum(value > 0 for value in salvage_retools)} "
-        f"completed:{completed}/{len(recoveries)} horizon-end:{horizon_exhausted} "
-        f"fulfillment:{_span(fulfillment, unit='ppm')}]"
+        f"gain:{sum(value > 0 for value in additional_extracted)}/{len(recoveries)} "
+        f"search=[point:{sum(' strategy=point-search ' in line for line in recoveries)} "
+        f"indexed:{sum(' strategy=indexed-channel ' in line for line in recoveries)} "
+        f"setup:{_span(values(r'\bsurvey-upgrade=(\d+)t'))} "
+        f"payoff:{sum(value > 0 for value in realized_total_deltas)}/{len(recoveries)}] "
+        f"geology:{sum(value > 0 for value in hardness_changes)}/{len(recoveries)} "
+        f"retool:{retooled} upgrade:{sum(value > 0 for value in tool_upgrades)} "
+        f"salvage:{sum(value > 0 for value in salvage_retools)} "
+        f"complete:{completed}/{len(recoveries)} horizon:{horizon_exhausted} "
+        f"fill:{_span(fulfillment, unit='ppm')}]"
     )
     return detailed, compact
 

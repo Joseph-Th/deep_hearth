@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .common import sample_shape
+from .common import organic_only, sample_shape
 
 
 def _values(lines: list[str], pattern: str) -> list[int]:
@@ -28,7 +28,11 @@ def settlement_summary(lines: list[str]) -> str | None:
 
     direct = sum("choice:frame-saw" in line for line in settlement)
     mechanized = sum("choice:sash-sawmill" in line for line in settlement)
+    organic_settlement = organic_only(settlement)
+    organic_direct = sum("choice:frame-saw" in line for line in organic_settlement)
+    organic_mechanized = sum("choice:sash-sawmill" in line for line in organic_settlement)
     batches = _values(settlement, r"demand=\[batches:(\d+)")
+    organic_batches = _values(organic_settlement, r"demand=\[batches:(\d+)")
     baseline = _values(settlement, r"baseline:(\d+)t")
     machine = _values(settlement, r"mechanized:(\d+)t")
     setup = _values(settlement, r"setup:(\d+)t")
@@ -41,6 +45,12 @@ def settlement_summary(lines: list[str]) -> str | None:
     )
     crank_start_condition = _values(
         settlement, r"crank-condition:(\d+)ppm"
+    )
+    organic_frame_start_condition = _values(
+        organic_settlement, r"prior-infrastructure=\[frame-saw-condition:(\d+)ppm"
+    )
+    organic_crank_start_condition = _values(
+        organic_settlement, r"crank-condition:(\d+)ppm"
     )
     crossover = ""
     if crossover_values or crossover_none:
@@ -189,6 +199,10 @@ def settlement_summary(lines: list[str]) -> str | None:
         "ORDINARY SUMMARY probe=settlement "
         f"samples={len(settlement)} sample-shape=[{sample_shape(settlement)}] "
         f"choice=[frame:{direct} sawmill:{mechanized}] "
+        f"organic-play=[decision=[frame:{organic_direct} sawmill:{organic_mechanized}] "
+        f"demand:{_span(organic_batches, 'batches')} "
+        f"wear=[saw:{_span(organic_frame_start_condition, 'ppm')} "
+        f"crank:{_span(organic_crank_start_condition, 'ppm')}]] "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
         f"prior-wear=[saw:{_span(frame_start_condition, 'ppm')} "
         f"crank:{_span(crank_start_condition, 'ppm')}] "

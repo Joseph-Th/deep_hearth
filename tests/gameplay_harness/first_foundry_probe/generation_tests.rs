@@ -15,6 +15,7 @@ enum OpportunityRegime {
 
 fn opportunity_inputs(
     registries: &Registries,
+    case: FocusedProbeCase,
 ) -> (planning::FoundryBootstrapRoutePlan, Mass, Mass) {
     let melting = registries
         .thermal()
@@ -40,7 +41,7 @@ fn opportunity_inputs(
         casting.max_batch_mass_capability(),
     );
     (
-        foundry_bootstrap_route_plan(registries, immediate),
+        foundry_bootstrap_route_plan(registries, case, immediate),
         settlement_mold_ingot_requirement(registries),
         settlement_cast,
     )
@@ -65,6 +66,7 @@ fn classify(
         registries,
         shortfall,
         opportunity.owned_ore.copper_ppm,
+        opportunity.recovery_batch_limit,
     )
     .unwrap_or_else(|| panic!("generated foundry recovery projection overflowed"));
     if opportunity.owned_ore.mass >= needed_feed {
@@ -77,16 +79,11 @@ fn classify(
 #[test]
 fn organic_foundry_worlds_span_current_workload_decision_regimes() {
     let registries = deep_hearth::content::build_registries();
-    let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries);
     let opportunities = (1_u64..=96)
         .map(|seed| {
-            foundry_resource_opportunity(
-                &registries,
-                FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation),
-                &route_plan,
-                ingots,
-                settlement_cast,
-            )
+            let case = FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation);
+            let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries, case);
+            foundry_resource_opportunity(&registries, case, &route_plan, ingots, settlement_cast)
         })
         .collect::<Vec<_>>();
 
@@ -132,32 +129,20 @@ fn organic_foundry_worlds_span_current_workload_decision_regimes() {
 #[test]
 fn maintained_foundry_worlds_pin_opposite_sides_of_current_threshold() {
     let registries = deep_hearth::content::build_registries();
-    let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries);
-    let anchor = foundry_resource_opportunity(
-        &registries,
-        FocusedProbeCase::new(1, None, FocusedProbeRole::MaintainedAnchor),
-        &route_plan,
-        ingots,
-        settlement_cast,
+    let anchor_case = FocusedProbeCase::new(1, None, FocusedProbeRole::MaintainedAnchor);
+    let recovery_case = FocusedProbeCase::new(
+        FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED,
+        None,
+        FocusedProbeRole::MaintainedCoverage,
     );
-    let recovery_coverage = foundry_resource_opportunity(
-        &registries,
-        FocusedProbeCase::new(
-            FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED,
-            None,
-            FocusedProbeRole::MaintainedCoverage,
-        ),
-        &route_plan,
-        ingots,
-        settlement_cast,
-    );
-    let coverage = foundry_resource_opportunity(
-        &registries,
-        FocusedProbeCase::new(2, None, FocusedProbeRole::MaintainedCoverage),
-        &route_plan,
-        ingots,
-        settlement_cast,
-    );
+    let coverage_case = FocusedProbeCase::new(2, None, FocusedProbeRole::MaintainedCoverage);
+    let opportunity = |case| {
+        let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries, case);
+        foundry_resource_opportunity(&registries, case, &route_plan, ingots, settlement_cast)
+    };
+    let anchor = opportunity(anchor_case);
+    let recovery_coverage = opportunity(recovery_case);
+    let coverage = opportunity(coverage_case);
 
     assert_eq!(
         classify(&registries, anchor),

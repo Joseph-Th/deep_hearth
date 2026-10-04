@@ -3,28 +3,35 @@
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
-    ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
-    EQUIPMENT_ELECTRIC_FURNACE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
-    MANUAL_POWER_TREADLE_DYNAMO, MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+    ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK,
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_ELECTRIC_FURNACE,
+    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, MANUAL_POWER_FOOT_TREADLE,
+    MANUAL_POWER_HAND_CRANK, MANUAL_POWER_TREADLE_DYNAMO, MANUAL_POWER_WALKING_WHEEL,
+    MATERIAL_COPPER, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
+    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER,
+    PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::{EnergyCarrier, EnergyStoreId};
-use deep_hearth::equipment::EquipmentId;
+use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
 use deep_hearth::labor::ManualPowerMethodId;
 use deep_hearth::logistics::validate_allocate_ground_stockpile;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::ore_processing::resolve_representable_screening_mass;
+use deep_hearth::ore_processing::{
+    project_powered_ore_replenished_batch_capacity, resolve_representable_screening_mass,
+};
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::assess_survival;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::inherited_condition::healthy_used_equipment_condition;
 use super::manual_ore_recovery::ManualOreRecoveryPlan;
 use super::manual_ore_recovery_evaluation::evaluate_manual_ore_recovery;
 use super::ore_fixture::copper_ore_composition;
@@ -48,6 +55,25 @@ mod support;
 
 const PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES: u64 = 8;
 const PRIMITIVE_LIBERATION_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
+
+fn inherited_progression_condition(
+    registries: &Registries,
+    definition: EquipmentDefinitionId,
+    case: FocusedProbeCase,
+    salt: u64,
+) -> Condition {
+    if matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    ) {
+        return Condition::PRISTINE;
+    }
+    healthy_used_equipment_condition(
+        registries,
+        definition,
+        mix64(case.seed() ^ 0x4C49_4245_494E_4845 ^ salt),
+    )
+}
 
 #[derive(Clone, Copy)]
 struct PrimitiveLiberationBootstrap {
@@ -300,14 +326,81 @@ struct PrimitiveLiberationWorldParameters {
     clay_share_ppm: u32,
 }
 
+fn primitive_liberation_batch_ceiling(registries: &Registries, case: FocusedProbeCase) -> Mass {
+    [
+        (
+            PROCESS_CRUSH_ORE,
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            inherited_progression_condition(
+                registries,
+                EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+                case,
+                0x4352_5553_4800_0001,
+            ),
+        ),
+        (
+            PROCESS_GRIND_CRUSHED_ORE,
+            EQUIPMENT_STONE_ROTARY_QUERN,
+            Condition::PRISTINE,
+        ),
+        (
+            PROCESS_SCREEN_CRUSHED_ORE,
+            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+            Condition::PRISTINE,
+        ),
+        (
+            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+            EQUIPMENT_STONE_ROTARY_QUERN,
+            Condition::PRISTINE,
+        ),
+        (
+            PROCESS_CONCENTRATE_COPPER,
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            inherited_progression_condition(
+                registries,
+                EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+                case,
+                0x5345_5041_5241_544F,
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(process, equipment, condition)| {
+        project_powered_ore_replenished_batch_capacity(
+            registries,
+            process,
+            equipment,
+            condition,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        )
+        .unwrap_or_else(|error| {
+            panic!("primitive liberation authored batch projection failed: {error}")
+        })
+    })
+    .min()
+    .unwrap_or_else(|| unreachable!("primitive liberation has a nonempty processing route"))
+}
+
 fn primitive_liberation_world_parameters(
     registries: &Registries,
     case: FocusedProbeCase,
 ) -> PrimitiveLiberationWorldParameters {
     let seed = case.seed();
     let planned_batches = disclosed_campaign_batches(case);
-    let requested_batch_mass =
-        Mass::from_milligrams(80_000 + mix64(seed ^ 0x4C49_4245_5241_5445) % 40_001);
+    let route_ceiling = primitive_liberation_batch_ceiling(registries, case).milligrams();
+    // Exercise meaningful utilization of the complete inherited route without pinning a copied
+    // authored mass. Lower loads can make the fixed incremental kit dominate every bounded
+    // campaign; this range keeps maintained lifecycle payback observable while organic cases
+    // still move materially across the current production bottleneck scale.
+    let minimum_batch = (route_ceiling / 2).max(1);
+    let maximum_batch = route_ceiling
+        .checked_mul(4)
+        .unwrap_or_else(|| panic!("primitive liberation route ceiling scaling overflowed"))
+        / 5;
+    let maximum_batch = maximum_batch.max(minimum_batch);
+    let requested_batch_mass = Mass::from_milligrams(
+        minimum_batch + mix64(seed ^ 0x4C49_4245_5241_5445) % (maximum_batch - minimum_batch + 1),
+    );
     let grinding = registries
         .ore_processing()
         .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
@@ -478,7 +571,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     );
     comparison::review(
         registries,
-        seed,
+        case,
         comparison::LiberationComparison {
             started_at,
             primary_completed_at,

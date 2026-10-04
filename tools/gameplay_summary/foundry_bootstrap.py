@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .common import sample_shape, scaled_span
+from .common import organic_only, sample_shape, scaled_span
 
 
 def _values(lines: list[str], pattern: str) -> list[int]:
@@ -26,11 +26,21 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
 
     builds = [line for line in witnesses if " foundry-build=true " in line]
     deferred = [line for line in witnesses if " foundry-build=false " in line]
+    organic_witnesses = organic_only(witnesses)
+    organic_builds = [line for line in organic_witnesses if " foundry-build=true " in line]
+    organic_deferred = [line for line in organic_witnesses if " foundry-build=false " in line]
     inherited_condition_min = _values(witnesses, r"\binherited-condition=(\d+)\.\.\d+ppm")
     inherited_condition_max = _values(witnesses, r"\binherited-condition=\d+\.\.(\d+)ppm")
     available = _values(witnesses, r"\bremaining-native:(\d+)mg")
     required = _values(witnesses, r"\brequired:(\d+)mg")
     shortfall = _values(witnesses, r"\bshortfall:(\d+)mg")
+    organic_shortfall = _values(organic_witnesses, r"\bshortfall:(\d+)mg")
+    organic_inherited_min = _values(
+        organic_witnesses, r"\binherited-condition=(\d+)\.\.\d+ppm"
+    )
+    organic_inherited_max = _values(
+        organic_witnesses, r"\binherited-condition=\d+\.\.(\d+)ppm"
+    )
     shortfall_before = _values(witnesses, r"\bshortfall-before:(\d+)mg")
     capital = _values(witnesses, r"\bfoundry-capital:(\d+)mg")
     ingots = _values(witnesses, r"\bcast-ingots:(\d+)mg")
@@ -90,6 +100,11 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         " owned-ore-recovery=[route:powered-inherited-line " in line
         for line in recovery_executed
     )
+    organic_condition = (
+        f"{min(organic_inherited_min)}..{max(organic_inherited_max)}ppm"
+        if organic_inherited_min and organic_inherited_max
+        else "n/a"
+    )
     recovery_summary = ""
     if shortfall_before:
         recovery_summary = (
@@ -110,6 +125,9 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         "ORDINARY SUMMARY probe=foundry-bootstrap "
         f"samples={len(witnesses)} sample-shape=[{sample_shape(witnesses)}] "
         f"choice=[build:{len(builds)} defer:{len(deferred)}] "
+        f"organic-play=[build:{len(organic_builds)} defer:{len(organic_deferred)} "
+        f"shortfall:{scaled_span(organic_shortfall, 1_000, 'g')} "
+        f"inherited-wear:{organic_condition}] "
         f"inherited-condition=[{min(inherited_condition_min) if inherited_condition_min else 'n/a'}"
         f"..{max(inherited_condition_max) if inherited_condition_max else 'n/a'}ppm] "
         f"copper=[available:{scaled_span(available, 1_000, 'g')} "

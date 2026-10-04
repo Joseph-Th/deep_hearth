@@ -16,6 +16,8 @@ mod focused_runner;
 mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
+#[path = "gameplay_harness/inherited_condition.rs"]
+mod inherited_condition;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_equipment_planning.rs"]

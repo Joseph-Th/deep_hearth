@@ -35,14 +35,13 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_power_timing::finish_manual_power_work;
 use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
-use super::seed::mix64;
 use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 use super::world_admission::STATIONARY_PLAYER_ORIGIN;
 #[path = "first_foundry_probe/casting.rs"]
@@ -58,11 +57,12 @@ mod recovery;
 use self::casting::resolve_full_cast_after_cooldown;
 use self::planning::{
     craft_foundry_components, foundry_bootstrap_route_plan, foundry_resource_opportunity,
-    select_commodity_mass, settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
+    inherited_equipment_condition, select_commodity_mass, settlement_mold_ingot_requirement,
+    settlement_mold_stone_requirement,
 };
 use self::recovery::{
-    InheritedProcessingLine, PoweredOreRecoveryPlan, execute_powered_ore_recovery,
-    minimum_current_powered_ore_feed_for_target_recovery,
+    InheritedProcessingLine, PoweredOreRecoveryPlan, current_processing_batch_limit,
+    execute_powered_ore_recovery, minimum_current_powered_ore_feed_for_target_recovery,
 };
 
 #[derive(Clone, Copy)]
@@ -76,35 +76,6 @@ struct PriorSettlementWorkshop {
     processing_drive: deep_hearth::energy::EnergyStoreId,
     minimum_start_condition_ppm: u32,
     maximum_start_condition_ppm: u32,
-}
-
-fn inherited_equipment_condition(
-    registries: &Registries,
-    definition: deep_hearth::equipment::EquipmentDefinitionId,
-    case: FocusedProbeCase,
-) -> Condition {
-    if matches!(
-        case.role(),
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
-    ) {
-        return Condition::PRISTINE;
-    }
-    let warning = registries
-        .equipment()
-        .get_equipment(definition)
-        .unwrap_or_else(|| panic!("first foundry inherited equipment definition disappeared"))
-        .maintenance_thresholds()
-        .warning_below()
-        .parts_per_million();
-    let lower = warning
-        .checked_add((Condition::PRISTINE.parts_per_million() - warning) / 2)
-        .unwrap_or_else(|| unreachable!("normal condition midpoint fits u32"));
-    let span = Condition::PRISTINE.parts_per_million() - lower;
-    let offset =
-        u32::try_from(mix64(case.seed() ^ u64::from(definition.value())) % u64::from(span))
-            .unwrap_or_else(|_| unreachable!("bounded inherited condition offset fits u32"));
-    Condition::new(lower + offset)
-        .unwrap_or_else(|error| panic!("first foundry inherited condition invalid: {error}"))
 }
 
 fn seed_prior_settlement_workshop(
@@ -258,7 +229,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         "settlement cast must be an integral number of first-foundry melts"
     );
 
-    let route_plan = foundry_bootstrap_route_plan(registries, first_cast_mass);
+    let route_plan = foundry_bootstrap_route_plan(registries, case, first_cast_mass);
     let capital_copper = route_plan.capital_native_copper();
     let settlement_ingots = settlement_mold_ingot_requirement(registries);
     let settlement_stone = settlement_mold_stone_requirement(registries);
@@ -311,6 +282,11 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         drive: prior_workshop.processing_drive,
         provider: treadle_drive,
     };
+    assert_eq!(
+        current_processing_batch_limit(registries, &state, processing_line),
+        Some(resource_opportunity.recovery_batch_limit),
+        "first foundry generated recovery scale must match the live inherited processing line"
+    );
     let workshop_tools = [frame_saw, treadle_hammer];
     let non_copper_component_raw = route_plan
         .capital_raw_mass()

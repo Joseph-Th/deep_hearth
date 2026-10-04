@@ -81,6 +81,7 @@ def settlement_specialization_summary(lines: list[str]) -> str | None:
 _ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
         "first-copper",
+        "organic-first-copper",
         "feed-reassessment",
         "processing-crossover",
         "disclosed-order-attention",
@@ -90,10 +91,12 @@ _ORDINARY_DIGEST_FIELDS = {
         "native-copper",
         "kit-acquisition",
         "kit-lifecycle",
+        "organic-lifecycle",
         "remaining-frontier",
     ),
     "woodworking": (
         "choice",
+        "organic-choice",
         "decision-coverage",
         "attention-payback",
         "timber-saving",
@@ -102,7 +105,9 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "fieldwork": (
         "outcomes",
+        "organic-outcomes",
         "reserve-knowledge",
+        "organic-reserve-knowledge",
         "orders",
         "pacing-physical",
         "heavy-tool-market",
@@ -110,14 +115,18 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "power-provider": (
         "choice",
+        "organic-choice",
+        "organic-workload",
         "scale",
         "lifecycle-obligations",
         "settlement-choice",
+        "organic-settlement-choice",
         "settlement-copper-policy",
         "settlement-lifecycle-obligations",
     ),
     "settlement": (
         "choice",
+        "organic-play",
         "prior-wear",
         "baseline-crossover",
         "demand",
@@ -126,12 +135,12 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "foundry-bootstrap": (
         "choice",
+        "organic-play",
         "inherited-condition",
         "copper",
         "recovery",
         "workshop-reuse",
         "settlement-batch",
-        "attention",
     ),
     "survival": (
         "pressure",
@@ -140,7 +149,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "balanced-diet-counterfactual",
         "inherited-preservation",
         "preservation-investment",
-        "preservation-commitment",
+        "organic-preservation",
     ),
 }
 
@@ -165,6 +174,7 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
     ),
     "foundry-bootstrap": (
         "choice",
+        "organic-play",
         "inherited-condition",
         "copper",
         "recovery",
@@ -245,6 +255,39 @@ def _require_summary_coverage(
         )
 
 
+_ORGANIC_REPLACES = {
+    "primitive-progression": {"first-copper"},
+    "primitive-liberation": {"kit-lifecycle"},
+    "woodworking": {"choice"},
+    "fieldwork": {"outcomes", "reserve-knowledge"},
+    "power-provider": {"choice", "settlement-choice"},
+    "settlement": {"choice"},
+    "foundry-bootstrap": {"choice"},
+}
+
+
+def _sample_count(summary: str, role: str) -> int:
+    shape = field(summary, "sample-shape")
+    if shape is None:
+        return 0
+    match = re.search(rf"\b{re.escape(role)}:(\d+)", shape)
+    return int(match.group(1)) if match is not None else 0
+
+
+def _evidence_fields(summary: str, probe: str, fields: tuple[str, ...]) -> tuple[str, ...]:
+    """Prefer organic decision evidence without hiding maintained coverage shape."""
+
+    organic = _sample_count(summary, "organic")
+    if organic == 0:
+        return tuple(
+            name
+            for name in fields
+            if not name.startswith("organic-") and name != "organic-play"
+        )
+    replaced = _ORGANIC_REPLACES.get(probe, set())
+    return tuple(name for name in fields if name not in replaced)
+
+
 def _digest_summary(summary: str, *, scoped: bool = False) -> str:
     if summary.startswith("ORDINARY SUMMARY "):
         probe = field(summary, "probe")
@@ -256,17 +299,29 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             else ""
         )
         if probe == "fieldwork":
-            experience_fields = [
+            experience_fields = _evidence_fields(summary, probe, (
+                "sample-shape",
                 "outcomes",
+                "organic-outcomes",
                 "orders",
                 "reserve-knowledge",
+                "organic-reserve-knowledge",
                 "knowledge",
                 "pacing-physical",
                 "reuse-physical",
                 "depletion-adaptation",
-            ]
-            if scoped:
-                experience_fields.insert(0, "sample-shape")
+            ))
+            if not scoped:
+                experience_fields = tuple(
+                    name
+                    for name in experience_fields
+                    if name not in {"orders", "pacing-physical", "reuse-physical"}
+                )
+            knowledge = field(summary, "knowledge")
+            if knowledge is not None and knowledge.startswith("[frame=[n:0 "):
+                experience_fields = tuple(
+                    name for name in experience_fields if name != "knowledge"
+                )
             experience = compact_fields(
                 summary,
                 experience_fields,
@@ -284,19 +339,20 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 ),
             )
             recovery = compact_fields(summary, ("shortfall-recovery",))
-            return (
-                f"GAMEPLAY fieldwork{scope} {experience}".rstrip()
-                + "\n"
-                + f"GAMEPLAY fieldwork-adaptation {adaptation}".rstrip()
-                + "\n"
-                + f"GAMEPLAY fieldwork-recovery {recovery}".rstrip()
-            )
+            sections = [
+                f"GAMEPLAY fieldwork{scope} {experience}".rstrip(),
+                f"GAMEPLAY fieldwork-adaptation {adaptation}".rstrip(),
+            ]
+            if "gain:0/0" not in recovery:
+                sections.append(f"GAMEPLAY fieldwork-recovery {recovery}".rstrip())
+            return "\n".join(sections)
         fields = (
             _SCOPED_ORDINARY_DIGEST_FIELDS.get(probe)
             if scoped
             else None
         ) or _ORDINARY_DIGEST_FIELDS.get(probe, ("samples",))
-        if scoped and "sample-shape" not in fields and field(summary, "sample-shape") is not None:
+        fields = _evidence_fields(summary, probe, fields)
+        if "sample-shape" not in fields and field(summary, "sample-shape") is not None:
             fields = ("sample-shape", *fields)
         detail = compact_fields(summary, fields)
         return f"GAMEPLAY {probe}{scope} {detail}".rstrip()

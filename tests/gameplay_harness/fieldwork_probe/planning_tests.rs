@@ -51,7 +51,13 @@ fn organic_bulk_orders_cross_the_live_heavy_tool_market() {
     let mut selected_heavy = false;
 
     for seed in 1_u64..=256 {
-        let order = bulk_fieldwork_order(limits.base_quarry_batch, seed);
+        let order = bulk_fieldwork_order_mass(&registries, seed);
+        assert!(
+            order
+                .milligrams()
+                .is_multiple_of(limits.base_quarry_batch.milligrams()),
+            "shared bulk fieldwork workload must remain aligned to the live quarry batch"
+        );
         let selected = choose_fieldwork_tool(
             &registries,
             &state,

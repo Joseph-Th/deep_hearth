@@ -2804,7 +2804,10 @@ class GameplayReportContractTests(unittest.TestCase):
             "disclosed-order-attention=[manual:2470..2470t mechanized:429..429t saved:2041..2041t]",
             concise,
         )
-        self.assertNotIn("GAMEPLAY primitive-progression scope=spatial-proxy sample-shape=", concise)
+        self.assertIn(
+            "GAMEPLAY primitive-progression scope=spatial-proxy sample-shape=[anchor:1 coverage:0 organic:0 replay:0]",
+            concise,
+        )
         self.assertNotIn("GAMEPLAY primitive-progression scope=spatial-proxy samples=", concise)
         self.assertIn("probe=workshop sample-shape=[", concise)
         self.assertNotIn("probe=workshop scenarios=", concise)
@@ -2815,9 +2818,12 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "GAMEPLAY foundry-bootstrap choice=[build:1 defer:0] inherited-condition=[1000000..1000000ppm] copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
+            "GAMEPLAY foundry-bootstrap sample-shape=[anchor:1 coverage:0 organic:0 replay:0] "
+            "choice=[build:1 defer:0] inherited-condition=[1000000..1000000ppm] "
+            "copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
             concise,
         )
+        self.assertNotIn("GAMEPLAY foundry-bootstrap organic-play=", concise)
         self.assertIn(
             "settlement-batch=[executed:1/1 supply-shortfall:0..0g cooldown:60..60t]",
             concise,
@@ -2877,8 +2883,8 @@ class GameplayReportContractTests(unittest.TestCase):
             "prior-wear=[saw:1000000..1000000ppm crank:1000000..1000000ppm]",
             concise,
         )
-        self.assertIn("pacing-physical=[first-expedition:3.8..3.8m", concise)
-        self.assertIn("reuse-physical=[repeat-complete:7.2..7.2s", concise)
+        self.assertNotIn("pacing-physical=[", concise)
+        self.assertNotIn("reuse-physical=[", concise)
         self.assertNotIn("integrated-campaign=[", concise)
         self.assertNotIn("work-interlock=[", concise)
         self.assertIn("GAMEPLAY loop-dynamics ", concise)
@@ -2993,6 +2999,41 @@ class GameplayReportContractTests(unittest.TestCase):
                     "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed tool=stone-pick"
                 ]
             )
+
+    def test_concise_report_separates_organic_play_from_maintained_witnesses(self) -> None:
+        output = "\n".join(
+            (
+                "PROBE INPUT name=settlement mode=explore samples=2 organic=1",
+                "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:2 mass:200mg baseline-crossover:4] decision=[choice:frame-saw minimum-return:100000ppm baseline:100t mechanized:120t setup:20t margin:-20t] execution=[active:100t delegated:0t upgraded:false] prior-infrastructure=[frame-saw-condition:1000000ppm crank-condition:1000000ppm]",
+                "SETTLEMENT EXPERIENCE seed=0x2 sample=organic demand=[batches:8 mass:800mg baseline-crossover:4] decision=[choice:sash-sawmill minimum-return:100000ppm baseline:400t mechanized:260t setup:120t margin:+140t] execution=[active:260t delegated:80t upgraded:true] prior-infrastructure=[frame-saw-condition:875000ppm crank-condition:910000ppm]",
+            )
+        )
+        concise = gameplay_report_summary.concise_gameplay_report(output, {})
+        self.assertIn(
+            "GAMEPLAY settlement sample-shape=[anchor:1 coverage:0 organic:1 replay:0]",
+            concise,
+        )
+        self.assertNotIn("choice=[frame:1 sawmill:1]", concise)
+        self.assertIn(
+            "organic-play=[decision=[frame:0 sawmill:1] demand:8..8batches wear=[saw:875000..875000ppm crank:910000..910000ppm]]",
+            concise,
+        )
+
+    def test_liberation_digest_prefers_organic_lifecycle_over_maintained_payback(self) -> None:
+        summary = (
+            "ORDINARY SUMMARY probe=primitive-liberation "
+            "sample-shape=[anchor:1 coverage:0 organic:1 replay:0] cleanup-executed=2/2 "
+            "kit-lifecycle=[executed-builds:2/2 disclosed-horizon:8..9batches "
+            "repaid-within-horizon:1/2 observed-attention-payback:8..8jobs "
+            "evidence=post-build-lifecycle-not-preaction-choice] "
+            "organic-lifecycle=[executed-builds:1/1 disclosed-horizon:9..9batches "
+            "repaid-within-horizon:0/1 observed-attention-payback:n/a "
+            "evidence=post-build-lifecycle-not-preaction-choice] "
+            "remaining-frontier=industrial-foundry-scale"
+        )
+        digest = gameplay_report_summary._digest_summary(summary)
+        self.assertIn("organic-lifecycle=[executed-builds:1/1", digest)
+        self.assertNotIn("kit-lifecycle=[executed-builds:2/2", digest)
 
     def test_concise_report_keeps_executed_settlement_specialization_decisions(self) -> None:
         output = "\n".join(

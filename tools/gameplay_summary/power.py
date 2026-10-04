@@ -265,6 +265,7 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
 
 def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     choice_counts = _project_choice_counts(projects, "primitive")
+    organic_power = organic_only(power)
     organic_project_lines = [
         line
         for line in projects
@@ -273,6 +274,12 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         and " sample=organic " in line
     ]
     organic_choice_counts = _project_choice_counts(organic_project_lines, "primitive")
+    organic_routine = sum(
+        " workload-source=routine-stockpile " in line for line in organic_power
+    )
+    organic_bulk = sum(
+        " workload-source=bulk-fieldwork-ore " in line for line in organic_power
+    )
     policy_returns = _numeric_values(power, r"minimum-return:(\d+)ppm")
     pristine_break_evens = _numeric_values(power, r"pristine-rate-break-even:(\d+)")
     minimum_attention_return = _numeric_values(
@@ -313,6 +320,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"choice=[{_choice_counts_text(choice_counts)}] "
         f"market=[{_provider_market_text(choice_counts)}] "
         f"organic-choice=[{_choice_counts_text(organic_choice_counts)}] "
+        f"organic-workload=[routine:{organic_routine} bulk:{organic_bulk}] "
         f"project=[crusher-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "
         f"declared-charge-events:{_span(declared_charge_events)} "
@@ -471,7 +479,6 @@ def power_provider_summary(lines: list[str]) -> str | None:
     return (
         "ORDINARY SUMMARY probe=power-provider "
         f"samples={len(power)} sample-shape=[{sample_shape(power)}] "
-        "workload-source=declared-consumer-project "
         f"{_primitive_evidence(power, projects)} "
         f"{_settlement_evidence(settlement, projects)}"
     )

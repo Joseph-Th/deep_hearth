@@ -34,7 +34,7 @@ use deep_hearth::registry::Registries;
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::super::environment::ROOM_TEMPERATURE;
-use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::super::focused_case::FocusedProbeCase;
 use super::super::manual_craft_batches::execute_manual_craft_batches;
 use super::super::manual_craft_equipment_planning::{
     manual_craft_plan_with_equipment, manual_craft_topology_plan_with_equipment,
@@ -43,7 +43,6 @@ use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::super::manual_craft_selection::select_manual_craft_request;
 use super::super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
-use super::super::seed::mix64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RawKitAcquisitionReview {
@@ -263,35 +262,6 @@ fn add_requirement(
         .unwrap_or_else(|| panic!("liberation kit component requirement overflowed"));
 }
 
-fn inherited_progression_condition(
-    registries: &Registries,
-    definition: EquipmentDefinitionId,
-    case: FocusedProbeCase,
-    salt: u64,
-) -> Condition {
-    if matches!(
-        case.role(),
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
-    ) {
-        return Condition::PRISTINE;
-    }
-    let warning = registries
-        .equipment()
-        .get_equipment(definition)
-        .unwrap_or_else(|| panic!("liberation inherited equipment definition disappeared"))
-        .maintenance_thresholds()
-        .warning_below()
-        .parts_per_million();
-    let lower = warning
-        .checked_add((Condition::PRISTINE.parts_per_million() - warning) / 2)
-        .unwrap_or_else(|| unreachable!("normal-condition midpoint fits u32"));
-    let span = Condition::PRISTINE.parts_per_million() - lower;
-    let offset = u32::try_from(mix64(case.seed() ^ 0x4C49_4245_494E_4845 ^ salt) % u64::from(span))
-        .unwrap_or_else(|_| unreachable!("bounded inherited-condition offset fits u32"));
-    Condition::new(lower + offset)
-        .unwrap_or_else(|error| panic!("liberation inherited condition invalid: {error}"))
-}
-
 fn seed_inherited_progression_infrastructure(
     registries: &Registries,
     state: &mut AppState,
@@ -323,7 +293,7 @@ fn seed_inherited_progression_infrastructure(
     }
     let mut conditions = Vec::with_capacity(equipment.len());
     let mut assemble = |definition, salt| {
-        let condition = inherited_progression_condition(registries, definition, case, salt);
+        let condition = super::inherited_progression_condition(registries, definition, case, salt);
         conditions.push(condition.parts_per_million());
         if condition == Condition::PRISTINE {
             seed_assembled_equipment_at(registries, state, definition, source, position)

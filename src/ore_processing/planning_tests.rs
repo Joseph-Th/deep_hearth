@@ -32,7 +32,8 @@ use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
 use crate::ore_processing::{
     ComminutionProcessDefinition, ComminutionRequest, ComminutionResolutionError,
     PoweredOreOrderError, PoweredOreOrderMaintenancePolicy, PoweredOreOrderRequest,
-    PoweredOreProcessProfile, project_powered_ore_order, resolve_comminution_process,
+    PoweredOreProcessProfile, project_powered_ore_order,
+    project_powered_ore_replenished_batch_capacity, resolve_comminution_process,
 };
 use crate::production::{ProcessDefinition, ProcessId, validate_start_process};
 use crate::registry::Registries;
@@ -54,6 +55,37 @@ struct PlanningConfig {
     stored_nj: u128,
     output_power: Power,
     store_carrier: EnergyCarrier,
+}
+
+#[test]
+fn replenished_batch_capacity_matches_one_batch_order_projection_at_current_condition() {
+    let registries = build_registries();
+    let condition =
+        Condition::new(875_000).unwrap_or_else(|error| panic!("test condition invalid: {error}"));
+    let capacity = project_powered_ore_replenished_batch_capacity(
+        &registries,
+        PROCESS_CRUSH_ORE,
+        EQUIPMENT_STONE_CRUSHER,
+        condition,
+        ENERGY_STONE_FLYWHEEL_DRIVE,
+    )
+    .unwrap_or_else(|error| panic!("replenished capacity projection failed: {error}"));
+    assert!(!capacity.is_zero());
+    let order = project_powered_ore_order(
+        &registries,
+        PROCESS_CRUSH_ORE,
+        EQUIPMENT_STONE_CRUSHER,
+        ENERGY_STONE_FLYWHEEL_DRIVE,
+        PoweredOreOrderRequest::new(
+            condition,
+            capacity,
+            1,
+            PoweredOreOrderMaintenancePolicy::Unserviced,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("one-batch order projection failed: {error}"));
+    assert_eq!(order.batches().len(), 1);
+    assert_eq!(order.batches()[0].mass(), capacity);
 }
 
 #[test]

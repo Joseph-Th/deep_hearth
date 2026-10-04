@@ -290,8 +290,7 @@ def _route_tradeoff(lines: list[str]) -> str:
     )
 
 
-def _kit_lifecycle(lines: list[str]) -> str:
-    routes = [line for line in lines if line.startswith("LIBERATION ROUTE TRADEOFF ")]
+def _kit_lifecycle_from_routes(routes: list[str], field_name: str) -> str:
     live_builds = sum(" continuity=live-kit-used" in line for line in routes)
     payback_jobs: list[int] = []
     payback_proofs = 0
@@ -312,13 +311,39 @@ def _kit_lifecycle(lines: list[str]) -> str:
         if (match := re.search(r"campaign=\[planned:(\d+)batches", line)) is not None
     ]
     return (
-        "kit-lifecycle=["
+        f"{field_name}=["
         f"executed-builds:{live_builds}/{len(routes)} "
         f"disclosed-horizon:{_span(disclosed_horizons, 'batches')} "
         f"repaid-within-horizon:{payback_proofs}/{len(routes)} "
         f"observed-attention-payback:{_span(payback_jobs, 'jobs')} "
         "evidence=post-build-lifecycle-not-preaction-choice]"
     )
+
+
+def _kit_lifecycle(lines: list[str]) -> str:
+    routes = [line for line in lines if line.startswith("LIBERATION ROUTE TRADEOFF ")]
+    return _kit_lifecycle_from_routes(routes, "kit-lifecycle")
+
+
+def _organic_lifecycle(lines: list[str], liberation: list[str]) -> str | None:
+    organic_seeds = {
+        match.group(1).lower()
+        for line in liberation
+        if " sample=organic " in line
+        and (match := re.search(r"\bseed=(0x[0-9A-Fa-f]+)", line)) is not None
+    }
+    if not organic_seeds:
+        return None
+    routes = [
+        line
+        for line in lines
+        if line.startswith("LIBERATION ROUTE TRADEOFF ")
+        and (match := re.search(r"\bseed=(0x[0-9A-Fa-f]+)", line)) is not None
+        and match.group(1).lower() in organic_seeds
+    ]
+    if len(routes) != len(organic_seeds):
+        raise ValueError("primitive liberation organic lifecycle lost route evidence")
+    return _kit_lifecycle_from_routes(routes, "organic-lifecycle")
 
 
 def liberation_summary(lines: list[str]) -> str | None:
@@ -346,6 +371,7 @@ def liberation_summary(lines: list[str]) -> str | None:
     usable_sink = sum(
         "reason=required-native-copper-conversion" in line for line in liberation
     )
+    organic_lifecycle = _organic_lifecycle(lines, liberation)
     return (
         "ORDINARY SUMMARY probe=primitive-liberation "
         f"samples={len(liberation)} sample-shape=[{sample_shape(liberation)}] "
@@ -355,6 +381,7 @@ def liberation_summary(lines: list[str]) -> str | None:
         f"scavenger-marginal=[attention:{marginal_attention} native:{marginal_native}] "
         f"{_kit_acquisition(lines)} "
         f"{_kit_lifecycle(lines)} "
+        f"{organic_lifecycle + ' ' if organic_lifecycle is not None else ''}"
         f"{_route_tradeoff(lines)} "
         f"conserved={sum('matter=conserved' in line for line in liberation)} "
         f"ordinary-loop=[concentrate-reachable:{len(liberation)}/{len(liberation)} "

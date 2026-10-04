@@ -6,6 +6,9 @@ use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
 
+use super::super::primitive_workload::{
+    BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, primitive_quarry_batch_mass,
+};
 use super::planning::{
     assert_primitive_power_provider_market_current, assert_settlement_power_provider_market_current,
 };
@@ -52,8 +55,9 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
     let primitive = (1_u64..=256)
         .map(|seed| {
             let cycle = primitive_mining_cycle_mass(&registries, seed);
-            let mass = declared_primitive_crushing_project(&registries, seed, store_definition).0;
-            (mass, cycle)
+            let (mass, _work, workload) =
+                declared_primitive_crushing_project(&registries, seed, store_definition);
+            (mass, cycle, workload)
         })
         .collect::<Vec<_>>();
     let market_regimes = [1, 8, 24];
@@ -61,12 +65,24 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
         .map(|seed| declared_settlement_lumber_project(&registries, seed, &market_regimes).0)
         .collect::<Vec<_>>();
 
-    assert!(
-        primitive
-            .iter()
-            .all(|(mass, cycle)| mass.milligrams().is_multiple_of(cycle.milligrams())),
-        "primitive organic projects must remain whole current mining/processing cycles"
-    );
+    let quarry_batch = primitive_quarry_batch_mass(&registries);
+    for (mass, cycle, workload) in &primitive {
+        match workload {
+            PrimitiveCrushingWorkload::RoutineStockpile => assert!(
+                mass.milligrams().is_multiple_of(cycle.milligrams()),
+                "routine primitive projects must remain whole current mining/processing cycles"
+            ),
+            PrimitiveCrushingWorkload::BulkFieldwork => {
+                assert!(mass.milligrams().is_multiple_of(quarry_batch.milligrams()));
+                let batches = mass.milligrams() / quarry_batch.milligrams();
+                assert!(
+                    (BULK_FIELDWORK_ORDER_MIN_BATCHES..=BULK_FIELDWORK_ORDER_MAX_BATCHES)
+                        .contains(&batches),
+                    "bulk primitive projects must carry forward the ordinary fieldwork horizon"
+                );
+            }
+        }
+    }
     assert!(
         settlement.iter().all(|mass| mass
             .milligrams()
@@ -76,7 +92,7 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
     assert!(
         primitive
             .iter()
-            .map(|(mass, _)| mass.milligrams())
+            .map(|(mass, _, _)| mass.milligrams())
             .collect::<BTreeSet<_>>()
             .len()
             > 1,
@@ -91,18 +107,25 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
             > 1,
         "fresh settlement roots must vary declared productive work"
     );
-    let primitive_units = primitive
+    let routine_units = primitive
         .iter()
-        .map(|(mass, cycle)| mass.milligrams() / cycle.milligrams())
+        .filter(|(_, _, workload)| *workload == PrimitiveCrushingWorkload::RoutineStockpile)
+        .map(|(mass, cycle, _)| mass.milligrams() / cycle.milligrams())
         .collect::<BTreeSet<_>>();
     let settlement_units = settlement
         .iter()
         .map(|mass| mass.milligrams() / saw_mass_per_bank.milligrams())
         .collect::<BTreeSet<_>>();
-    assert!(primitive_units.iter().all(|units| (8..=24).contains(units)));
+    assert!(routine_units.iter().all(|units| (8..=24).contains(units)));
     assert!(
-        primitive_units.len() > 8,
-        "primitive workload variation collapsed"
+        routine_units.len() > 8,
+        "routine primitive workload variation collapsed"
+    );
+    assert!(
+        primitive
+            .iter()
+            .any(|(_, _, workload)| *workload == PrimitiveCrushingWorkload::BulkFieldwork),
+        "primitive workload sampling lost the bulk fieldwork continuation"
     );
     for (lower, upper) in [(1, 7), (8, 23), (24, u64::MAX)] {
         assert!(

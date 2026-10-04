@@ -267,6 +267,13 @@ def _delegate_reinvest_evidence(
         and int(match.group(1)) > 0
         for line in settlement
     )
+    settlement_reinvested = sum(" reinvested:true " in line for line in settlement)
+    settlement_reused = sum(
+        " machine-owned-before:true reinvested:false " in line for line in settlement
+    )
+    settlement_stayed_direct = sum(
+        " machine-owned-before:false reinvested:false " in line for line in settlement
+    )
     delegate = (
         "delegate=["
         f"mechanized-processing:{mechanized}/{len(progression)} "
@@ -275,7 +282,12 @@ def _delegate_reinvest_evidence(
         "stockpile-alt=[selected:false "
         f"overlap:{overlap_span} open:{room_span}]]"
     )
-    reinvest = f"reassess-reinvest=[completed:{reinvested}/{len(progression)}]"
+    reinvest = (
+        "reassess-reinvest=["
+        f"progression:{reinvested}/{len(progression)} "
+        f"settlement=[reinvest:{settlement_reinvested} "
+        f"reuse:{settlement_reused} direct:{settlement_stayed_direct}]]"
+    )
     return delegate, reinvest
 
 

@@ -297,6 +297,30 @@ fn map_timing_error(batch: u64, error: PoweredOreTimingError) -> PoweredOreOrder
     }
 }
 
+/// Projects the largest single powered-ore batch possible after replenishing the selected store.
+///
+/// This is the definition-level counterpart to the current-state mass envelope. It uses the same
+/// condition-adjusted capabilities, store output/capacity, condition lifetime, and physical timing
+/// as order projection without requiring a fabricated runtime state.
+pub fn project_powered_ore_replenished_batch_capacity(
+    registries: &Registries,
+    process: ProcessId,
+    equipment: EquipmentDefinitionId,
+    condition: Condition,
+    store: EnergyStoreDefinitionId,
+) -> Result<Mass, PoweredOreOrderError> {
+    let context = PoweredOreOrderContext::resolve(
+        registries,
+        process,
+        equipment,
+        store,
+        PoweredOreOrderMaintenancePolicy::Unserviced,
+    )?;
+    context
+        .project_batch(1, condition, Mass::from_milligrams(u64::MAX))
+        .map(|batch| batch.mass())
+}
+
 /// Projects a bounded powered-ore order while carrying condition and replenishment boundaries.
 pub fn project_powered_ore_order(
     registries: &Registries,

@@ -23,12 +23,13 @@ use super::equipment_support::pristine_equipment_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED;
 use super::manual_construction_planning::manual_construction_route_from_roots;
-use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
+use super::primitive_workload::{
+    BULK_FIELDWORK_ORDER_MIN_BATCHES, STOCKPILE_WORK_ORDER_CYCLES, bulk_fieldwork_order_mass,
+    primitive_mining_cycle_mass,
+};
 use super::seed::mix64;
 
 const FIELDWORK_KNOWN_SITE_REPEAT_HORIZON: u64 = 12;
-const FIELDWORK_BULK_ORDER_MIN_BATCHES: u64 = 32;
-const FIELDWORK_BULK_ORDER_MAX_BATCHES: u64 = 96;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_SEED: u64 = 0;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_BATCHES: u64 = 64;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_BATCHES: u64 = 80;
@@ -95,20 +96,13 @@ fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
     let batch = fieldwork_mining_limits(registries).base_quarry_batch;
     match mix64(seed ^ 0x4649_454C_4444_454D) % 4 {
         0 => short_fieldwork_order(batch, seed),
-        1 => bulk_fieldwork_order(batch, seed),
+        1 => bulk_fieldwork_order_mass(registries, seed),
         _ => multiplied_mass(
             primitive_mining_cycle_mass(registries, seed),
             STOCKPILE_WORK_ORDER_CYCLES,
             "current primitive processing project",
         ),
     }
-}
-
-fn bulk_fieldwork_order(batch: Mass, seed: u64) -> Mass {
-    let batch_span = FIELDWORK_BULK_ORDER_MAX_BATCHES - FIELDWORK_BULK_ORDER_MIN_BATCHES + 1;
-    let batches =
-        FIELDWORK_BULK_ORDER_MIN_BATCHES + mix64(seed ^ 0x4649_454C_4442_4C4B) % batch_span;
-    multiplied_mass(batch, batches, "settlement-scale bulk fieldwork project")
 }
 
 fn survey_investment_policy(case: FocusedProbeCase) -> FieldworkSurveyPolicy {
@@ -148,7 +142,7 @@ fn fieldwork_order_horizon(registries: &Registries, requested: Mass) -> &'static
     } else if requested
         >= multiplied_mass(
             batch,
-            FIELDWORK_BULK_ORDER_MIN_BATCHES,
+            BULK_FIELDWORK_ORDER_MIN_BATCHES,
             "bulk fieldwork horizon threshold",
         )
     {

@@ -14,6 +14,7 @@ mod validation;
 pub use order::{
     PoweredOreOrderBatch, PoweredOreOrderError, PoweredOreOrderMaintenancePolicy,
     PoweredOreOrderRequest, PoweredOreOrderResolution, project_powered_ore_order,
+    project_powered_ore_replenished_batch_capacity,
 };
 pub use planning::{
     PoweredOreMassConstraint, PoweredOreMassEnvelope, PoweredOreMassEnvelopeError,

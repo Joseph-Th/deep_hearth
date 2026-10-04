@@ -4,6 +4,7 @@ use deep_hearth::core::state::validate_loaded_state;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 
+use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::manual_ore_recovery_evaluation::ManualOreRecoveryReview;
 use super::acquisition::RawKitAcquisitionReview;
 use super::cleanup::CleanupOutcome;
@@ -46,7 +47,12 @@ pub(super) struct LiberationComparison<'a> {
     pub(super) planned_batches: u64,
 }
 
-pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationComparison<'_>) {
+pub(super) fn review(
+    registries: &Registries,
+    case: FocusedProbeCase,
+    comparison: LiberationComparison<'_>,
+) {
+    let seed = case.seed();
     let LiberationComparison {
         started_at,
         primary_completed_at,
@@ -186,12 +192,21 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
             payback = Some(batches);
         }
     }
-    let payback = payback.unwrap_or_else(|| {
-        panic!("liberation processing extension did not repay within the disclosed campaign")
-    });
-    assert!(payback <= planned_batches);
     let powered_campaign_attention = cumulative_powered_attention;
-    assert!(powered_campaign_attention <= manual_campaign_attention);
+    let justified = payback.is_some() && powered_campaign_attention <= manual_campaign_attention;
+    if matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    ) {
+        assert!(
+            justified,
+            "maintained liberation extension must repay within its disclosed campaign"
+        );
+    }
+    let payback_label = payback.map_or_else(
+        || "not-within-horizon".to_owned(),
+        |batches| format!("{batches}batches"),
+    );
     let manual_campaign_metabolic = manual_recovery
         .metabolic_cost_nj
         .checked_mul(u128::from(planned_batches))
@@ -210,15 +225,15 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
         .unwrap_or_else(|| panic!("powered liberation campaign hydration overflowed"));
     let campaign = format!(
         concat!(
-            "planned:{planned_batches}batches executed:{executed_batches} kit-payback:{payback}batches ",
+            "planned:{planned_batches}batches executed:{executed_batches} kit-payback:{payback_label} ",
             "attention:manual:{manual_campaign_attention}t/powered:{powered_campaign_attention}t ",
             "body:manual:{manual_campaign_metabolic}nJ/{manual_campaign_hydration}uL ",
             "powered:{powered_campaign_metabolic}nJ/{powered_campaign_hydration}uL ",
-            "elapsed:{elapsed_ticks}t final-condition=[crusher:{crusher} quern:{quern} screen:{screen} separator:{separator} provider:{provider}] justified:true"
+            "elapsed:{elapsed_ticks}t final-condition=[crusher:{crusher} quern:{quern} screen:{screen} separator:{separator} provider:{provider}] justified:{justified}"
         ),
         planned_batches = planned_batches,
         executed_batches = campaign_lifecycle.batch_charge_ticks.len(),
-        payback = payback,
+        payback_label = payback_label,
         manual_campaign_attention = manual_campaign_attention,
         powered_campaign_attention = powered_campaign_attention,
         manual_campaign_metabolic = manual_campaign_metabolic,
@@ -231,6 +246,7 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
         screen = campaign_lifecycle.screen_condition_ppm,
         separator = campaign_lifecycle.separator_condition_ppm,
         provider = campaign_lifecycle.power_provider_condition_ppm,
+        justified = justified,
     );
     reviewln!(
         "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation extension=[{kit}] continuity=live-kit-used inherited-processing-line=reused interpretation=manual-is-low-infrastructure-fallback;powered-route-extends-earned-infrastructure-for-recovery-and-throughput",

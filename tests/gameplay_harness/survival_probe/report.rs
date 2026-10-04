@@ -37,7 +37,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         );
     }
     let diet_comparison = evaluate_provisioning_comparison(registries, behavior_seed, &world);
-    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_none() {
+    if !crate::output::review_output_enabled() {
         return;
     }
 

@@ -9,14 +9,16 @@ pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 /// Returns the bounded organic sample size used by an exploratory report.
 ///
 /// Fieldwork combines independent demand, reserve scale, geology, and material-access regimes, so
-/// four worlds are too sparse to tell whether its investment choices emerge outside maintained
-/// witnesses. Twelve organic worlds keep those factors independent while remaining cheap enough
-/// for an explicit exploratory report; routine gates are unchanged.
+/// it uses a denser organic sample. Power samples distinct routine/bulk provider markets. First
+/// foundry samples three independent resource regimes whose build/defer outcome should be visible
+/// without relying on maintained witnesses. Explicit reports pay this runtime cost; routine gates
+/// still execute one organic case.
 pub(super) fn exploratory_variation_count(name: &str) -> usize {
-    if name == "fieldwork" {
-        EXPLORATORY_VARIATION_COUNT * 3
-    } else {
-        EXPLORATORY_VARIATION_COUNT
+    match name {
+        "fieldwork" => EXPLORATORY_VARIATION_COUNT * 5,
+        "foundry-bootstrap" => EXPLORATORY_VARIATION_COUNT * 3,
+        "power-provider" => EXPLORATORY_VARIATION_COUNT * 2,
+        _ => EXPLORATORY_VARIATION_COUNT,
     }
 }
 

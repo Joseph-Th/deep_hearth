@@ -29,7 +29,9 @@ use super::manual_construction_planning::manual_construction_route_from_roots;
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
-use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
+use super::primitive_workload::{
+    STOCKPILE_WORK_ORDER_CYCLES, bulk_fieldwork_order_mass, primitive_mining_cycle_mass,
+};
 use super::seed::mix64;
 
 #[path = "power_provider_build.rs"]
@@ -298,15 +300,31 @@ fn seed_raw_opportunity(
     (raw, capacity)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PrimitiveCrushingWorkload {
+    RoutineStockpile,
+    BulkFieldwork,
+}
+
+impl PrimitiveCrushingWorkload {
+    #[cfg(not(test))]
+    const fn label(self) -> &'static str {
+        match self {
+            Self::RoutineStockpile => "routine-stockpile",
+            Self::BulkFieldwork => "bulk-fieldwork-ore",
+        }
+    }
+}
+
 pub(super) fn declared_primitive_crushing_project(
     registries: &Registries,
     seed: u64,
     store_definition: EnergyStoreDefinitionId,
-) -> (Mass, Energy) {
-    // Ordinary primitive power should resemble the current progression loop, not a synthetic
-    // provider-crossover benchmark. Vary around the authored twelve-cycle stockpiling horizon up
-    // to the progression probe's bounded two-horizon repeat window. The complete provider frontier
-    // remains reportable separately without manufacturing multi-day primitive campaigns.
+) -> (Mass, Energy, PrimitiveCrushingWorkload) {
+    // Early powered processing sees two ordinary disclosed workload scales. Routine stockpiling
+    // follows the progression loop; bulk work carries forward the same large extraction order used
+    // by fieldwork. This lets better power equipment emerge from a real upstream opportunity rather
+    // than from a synthetic provider-crossover benchmark.
     let definition = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -324,18 +342,30 @@ pub(super) fn declared_primitive_crushing_project(
         !cycle_work.is_zero() && cycle_work <= store.capacity(),
         "ordinary primitive mining cycle must fit the current baseline accumulator"
     );
-    const MIN_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2 / 3;
-    const MAX_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2;
-    let cycles = MIN_CYCLES + mix64(seed ^ 0x5052_494D_5F4F_5245) % (MAX_CYCLES - MIN_CYCLES + 1);
-    let mass = Mass::from_milligrams(
-        cycle_mass
-            .milligrams()
-            .checked_mul(cycles)
-            .unwrap_or_else(|| panic!("primitive power project mass overflowed")),
-    );
+    let workload = if mix64(seed ^ 0x5052_494D_5F42_554C).is_multiple_of(2) {
+        PrimitiveCrushingWorkload::BulkFieldwork
+    } else {
+        PrimitiveCrushingWorkload::RoutineStockpile
+    };
+    let mass = match workload {
+        PrimitiveCrushingWorkload::RoutineStockpile => {
+            const MIN_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2 / 3;
+            const MAX_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2;
+            let cycles =
+                MIN_CYCLES + mix64(seed ^ 0x5052_494D_5F4F_5245) % (MAX_CYCLES - MIN_CYCLES + 1);
+            Mass::from_milligrams(
+                cycle_mass
+                    .milligrams()
+                    .checked_mul(cycles)
+                    .unwrap_or_else(|| panic!("primitive power project mass overflowed")),
+            )
+        }
+        PrimitiveCrushingWorkload::BulkFieldwork => bulk_fieldwork_order_mass(registries, seed),
+    };
     (
         mass,
         deep_hearth::energy::calculate_mass_specific_energy(mass, definition.specific_energy()),
+        workload,
     )
 }
 
@@ -543,7 +573,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .get_store(store_definition)
         .map(|definition| definition.capacity().nanojoules())
         .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
-    let (primitive_project_mass, primitive_project_work) =
+    let (primitive_project_mass, primitive_project_work, _primitive_workload) =
         declared_primitive_crushing_project(registries, seed, store_definition);
     let primitive_available_mass = primitive_project_mass;
     let primitive_feed = add_solid_stockpile(&mut state, primitive_available_mass);
@@ -1414,8 +1444,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ declared-charge-events:{} consumer-projected-batches:{} projected-services:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} market-frontier:{} provider-lifecycle=consumer-batches+provider-condition] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source={} project=[consumer:stone-crusher feed:{}mg work:{}nJ declared-charge-events:{} consumer-projected-batches:{} projected-services:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} market-frontier:{} provider-lifecycle=consumer-batches+provider-condition] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
         case.role().label(),
+        _primitive_workload.label(),
         primitive_project_mass.milligrams(),
         primitive_project_work.nanojoules(),
         plan.charge_events,

@@ -43,10 +43,10 @@ fn choice_rich_cases_fail_closed_when_actor_entropy_is_missing() {
 }
 
 #[test]
-fn exploratory_fieldwork_uses_a_denser_organic_sample_without_widening_other_probes() {
+fn exploratory_sample_density_tracks_each_probes_independent_market_shape() {
     assert_eq!(
         exploratory_variation_count("fieldwork"),
-        EXPLORATORY_VARIATION_COUNT * 3
+        EXPLORATORY_VARIATION_COUNT * 5
     );
     assert_eq!(
         exploratory_variation_count("woodworking"),
@@ -54,7 +54,11 @@ fn exploratory_fieldwork_uses_a_denser_organic_sample_without_widening_other_pro
     );
     assert_eq!(
         exploratory_variation_count("power-provider"),
-        EXPLORATORY_VARIATION_COUNT
+        EXPLORATORY_VARIATION_COUNT * 2
+    );
+    assert_eq!(
+        exploratory_variation_count("foundry-bootstrap"),
+        EXPLORATORY_VARIATION_COUNT * 3
     );
 }
 

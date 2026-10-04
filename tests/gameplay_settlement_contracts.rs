@@ -15,6 +15,8 @@ mod capital_investment_policy;
 mod environment;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
 mod exact_local_runtime;
+#[path = "gameplay_harness/inherited_condition.rs"]
+mod inherited_condition;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
 #[path = "gameplay_harness/manual_craft_selection.rs"]

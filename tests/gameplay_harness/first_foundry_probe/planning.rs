@@ -23,11 +23,14 @@ use deep_hearth::survival::project_survival_resource_budget;
 
 use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::focused_witnesses::FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED;
+use super::super::inherited_condition::healthy_used_equipment_condition;
 use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::material_selection::select_stockpile_commodity_mass;
 use super::super::seed::mix64;
 use super::super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
-use super::recovery::minimum_powered_ore_feed_for_target_recovery;
+use super::recovery::{
+    minimum_powered_ore_feed_for_target_recovery, projected_inherited_processing_batch_limit,
+};
 
 const FOUNDRY_RAW_INPUTS: [CommodityKey; 3] = [
     CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
@@ -39,6 +42,24 @@ const FOUNDRY_RAW_INPUTS: [CommodityKey; 3] = [
 struct ProjectedWorkshopTool {
     definition: EquipmentDefinitionId,
     condition: Condition,
+}
+
+pub(super) fn inherited_equipment_condition(
+    registries: &Registries,
+    definition: EquipmentDefinitionId,
+    case: FocusedProbeCase,
+) -> Condition {
+    if matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    ) {
+        return Condition::PRISTINE;
+    }
+    healthy_used_equipment_condition(
+        registries,
+        definition,
+        mix64(case.seed() ^ u64::from(definition.value()) ^ 0x464F_554E_4457_4541),
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,6 +107,7 @@ pub(super) struct FoundryResourceOpportunity {
     pub(super) owned_ore: FoundryOwnedOreOpportunity,
     pub(super) immediate_native_input: Mass,
     pub(super) required_after_current: Mass,
+    pub(super) recovery_batch_limit: Mass,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -238,16 +260,25 @@ fn project_foundry_craft_route(
 
 pub(super) fn foundry_bootstrap_route_plan(
     registries: &Registries,
+    case: FocusedProbeCase,
     immediate_reinforcement: Mass,
 ) -> FoundryBootstrapRoutePlan {
     let mut tools = [
         ProjectedWorkshopTool {
             definition: EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-            condition: Condition::PRISTINE,
+            condition: inherited_equipment_condition(
+                registries,
+                EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+                case,
+            ),
         },
         ProjectedWorkshopTool {
             definition: EQUIPMENT_TIMBER_TREADLE_HAMMER,
-            condition: Condition::PRISTINE,
+            condition: inherited_equipment_condition(
+                registries,
+                EQUIPMENT_TIMBER_TREADLE_HAMMER,
+                case,
+            ),
         },
     ];
     let immediate = project_foundry_craft_route(
@@ -361,6 +392,20 @@ pub(super) fn foundry_resource_opportunity(
         !required_after_current.is_zero(),
         "first foundry workload threshold must remain positive"
     );
+    let recovery_batch_limit = projected_inherited_processing_batch_limit(
+        registries,
+        inherited_equipment_condition(
+            registries,
+            deep_hearth::content::EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            case,
+        ),
+        inherited_equipment_condition(
+            registries,
+            deep_hearth::content::EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            case,
+        ),
+    )
+    .unwrap_or_else(|| panic!("first foundry inherited processing line cannot accept a batch"));
 
     let grade = || {
         300_000
@@ -391,6 +436,7 @@ pub(super) fn foundry_resource_opportunity(
                 },
                 immediate_native_input,
                 required_after_current,
+                recovery_batch_limit,
             }
         }
         FocusedProbeRole::MaintainedCoverage => {
@@ -401,11 +447,13 @@ pub(super) fn foundry_resource_opportunity(
                     "recovery coverage shortfall",
                 );
                 let copper_ppm = 550_000;
-                let required_feed =
-                    minimum_powered_ore_feed_for_target_recovery(registries, shortfall, copper_ppm)
-                        .unwrap_or_else(|| {
-                            panic!("first foundry recovery coverage projection overflowed")
-                        });
+                let required_feed = minimum_powered_ore_feed_for_target_recovery(
+                    registries,
+                    shortfall,
+                    copper_ppm,
+                    recovery_batch_limit,
+                )
+                .unwrap_or_else(|| panic!("first foundry recovery coverage projection overflowed"));
                 let reserve = scaled_mass(required_feed, 100_000, "recovery coverage reserve");
                 FoundryResourceOpportunity {
                     native: native_with_shortfall(
@@ -421,15 +469,18 @@ pub(super) fn foundry_resource_opportunity(
                     },
                     immediate_native_input,
                     required_after_current,
+                    recovery_batch_limit,
                 }
             } else {
                 let shortfall = scaled_mass(required_after_current, 350_000, "coverage shortfall");
                 let copper_ppm = 350_000;
-                let required_feed =
-                    minimum_powered_ore_feed_for_target_recovery(registries, shortfall, copper_ppm)
-                        .unwrap_or_else(|| {
-                            panic!("first foundry coverage recovery projection overflowed")
-                        });
+                let required_feed = minimum_powered_ore_feed_for_target_recovery(
+                    registries,
+                    shortfall,
+                    copper_ppm,
+                    recovery_batch_limit,
+                )
+                .unwrap_or_else(|| panic!("first foundry coverage recovery projection overflowed"));
                 FoundryResourceOpportunity {
                     native: native_with_shortfall(
                         immediate_native_input,
@@ -442,6 +493,7 @@ pub(super) fn foundry_resource_opportunity(
                     },
                     immediate_native_input,
                     required_after_current,
+                    recovery_batch_limit,
                 }
             }
         }
@@ -475,12 +527,16 @@ pub(super) fn foundry_resource_opportunity(
                         },
                         immediate_native_input,
                         required_after_current,
+                        recovery_batch_limit,
                     }
                 }
                 1 => {
                     let shortfall = make_shortfall(0x464F_554E_4452_5243);
                     let required_feed = minimum_powered_ore_feed_for_target_recovery(
-                        registries, shortfall, copper_ppm,
+                        registries,
+                        shortfall,
+                        copper_ppm,
+                        recovery_batch_limit,
                     )
                     .unwrap_or_else(|| {
                         panic!("first foundry organic recovery projection overflowed")
@@ -510,12 +566,16 @@ pub(super) fn foundry_resource_opportunity(
                         },
                         immediate_native_input,
                         required_after_current,
+                        recovery_batch_limit,
                     }
                 }
                 _ => {
                     let shortfall = make_shortfall(0x464F_554E_4452_5348);
                     let required_feed = minimum_powered_ore_feed_for_target_recovery(
-                        registries, shortfall, copper_ppm,
+                        registries,
+                        shortfall,
+                        copper_ppm,
+                        recovery_batch_limit,
                     )
                     .unwrap_or_else(|| {
                         panic!("first foundry organic shortage projection overflowed")
@@ -532,6 +592,7 @@ pub(super) fn foundry_resource_opportunity(
                         },
                         immediate_native_input,
                         required_after_current,
+                        recovery_batch_limit,
                     }
                 }
             }

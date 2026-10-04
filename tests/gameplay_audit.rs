@@ -104,6 +104,8 @@ mod focused_witnesses;
 mod foundry_setup;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
+#[path = "gameplay_harness/inherited_condition.rs"]
+mod inherited_condition;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
