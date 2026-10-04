@@ -15,14 +15,14 @@ use super::super::state::StructuralElementId;
 /// this setup-only binding intentionally omits joinery, wastage, tooling, labor, and duration.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct StructuralConstructionResolution {
+pub(crate) struct StructuralConstructionResolution {
     element: StructuralElementId,
     selection: ConsumptionSelection,
 }
 
 impl StructuralConstructionResolution {
     #[must_use]
-    pub fn mass(&self) -> Mass {
+    pub(crate) fn mass(&self) -> Mass {
         self.selection.total_consumed()
     }
 

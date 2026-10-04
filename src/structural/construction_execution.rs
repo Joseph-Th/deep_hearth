@@ -25,14 +25,14 @@ mod requirement;
 
 use binding::StructuralConstructionResolution;
 pub(crate) use binding::bind_structural_construction_selection;
-pub use errors::{StructuralConstructionCommitError, StructuralConstructionError};
+pub(crate) use errors::{StructuralConstructionCommitError, StructuralConstructionError};
 use requirement::resolve_required_mass;
 pub(crate) use requirement::resolve_structural_material_requirement;
 
 /// Consumed proof that exact inventory matter can become one member's embodied matter atomically.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ValidatedStructuralConstruction {
+pub(crate) struct ValidatedStructuralConstruction {
     element: StructuralElementId,
     expected_structure_revision: u64,
     next_structure_revision: u64,
@@ -50,7 +50,10 @@ impl ValidatedStructuralConstruction {
     }
 
     /// Commits both owners only after rechecking both revisions and the target lifecycle.
-    pub fn commit(self, state: &mut AppState) -> Result<(), StructuralConstructionCommitError> {
+    pub(crate) fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<(), StructuralConstructionCommitError> {
         let actual_structure_revision = state.structures().revision();
         if actual_structure_revision != self.expected_structure_revision {
             return Err(StructuralConstructionCommitError::StaleStructureRevision {
@@ -217,7 +220,7 @@ fn resolve_structural_construction_revision(
 }
 
 /// Validates a physically resolved material batch for one still-planned member.
-pub fn validate_structural_construction(
+pub(crate) fn validate_structural_construction(
     registries: &Registries,
     state: &AppState,
     resolution: StructuralConstructionResolution,

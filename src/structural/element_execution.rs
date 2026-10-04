@@ -16,7 +16,7 @@ use super::state::{
 
 /// Failure while allocating a planned structural member and its synchronized indexes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AddStructuralElementError {
+pub(crate) enum AddStructuralElementError {
     UnknownProfile { profile: StructuralProfileId },
     UnknownMaterial { material: MaterialId },
     NonStructuralMaterial { material: MaterialId },
@@ -66,7 +66,7 @@ impl Error for AddStructuralElementError {
 }
 
 /// Adds an inert planned member. It cannot carry or transmit load until activated canonically.
-pub fn add_structural_element(
+pub(crate) fn add_structural_element(
     registries: &Registries,
     state: &mut AppState,
     profile: StructuralProfileId,

@@ -14,7 +14,7 @@ use super::super::{
 
 /// Failure while validating an already-resolved construction batch.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StructuralConstructionError {
+pub(crate) enum StructuralConstructionError {
     UnknownElement {
         element: StructuralElementId,
     },
@@ -209,7 +209,7 @@ impl Error for StructuralConstructionError {
 
 /// A validated construction transfer can no longer commit because an owning subsystem changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StructuralConstructionCommitError {
+pub(crate) enum StructuralConstructionCommitError {
     StaleStructureRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StateChanged { element: StructuralElementId },

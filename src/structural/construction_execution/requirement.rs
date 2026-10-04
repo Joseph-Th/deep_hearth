@@ -14,7 +14,7 @@ use super::super::state::{StructuralElementId, StructuralElementRecord};
 /// Read-only physical material requirement for one prismatic structural member.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StructuralMaterialRequirement {
+pub(crate) struct StructuralMaterialRequirement {
     element: StructuralElementId,
     material: MaterialId,
     required_mass: Mass,
@@ -28,19 +28,19 @@ impl StructuralMaterialRequirement {
     }
 
     #[must_use]
-    pub const fn material(self) -> MaterialId {
+    pub(crate) const fn material(self) -> MaterialId {
         self.material
     }
 
     #[must_use]
-    pub const fn required_mass(self) -> Mass {
+    pub(crate) const fn required_mass(self) -> Mass {
         self.required_mass
     }
 }
 
 /// Failure while deriving a member's physical solid-material requirement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StructuralMaterialRequirementError {
+pub(crate) enum StructuralMaterialRequirementError {
     UnknownElement {
         element: StructuralElementId,
     },
@@ -90,7 +90,7 @@ pub(super) fn resolve_required_mass(
 }
 
 /// Derives conservative solid volume and exact milligram ownership from member geometry and density.
-pub fn resolve_structural_material_requirement(
+pub(crate) fn resolve_structural_material_requirement(
     registries: &Registries,
     state: &AppState,
     element: StructuralElementId,
