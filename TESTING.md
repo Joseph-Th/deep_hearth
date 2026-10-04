@@ -81,11 +81,11 @@ Avoid assertions on error prose, wall-clock timing, incidental order/count, or c
 
 ## Gameplay evaluation
 
-Each gameplay scope owns a focused probe artifact. Keep nearby contracts in that artifact while they are cheap; a
-contract-only target is justified when measured build timing shows that unrelated test bodies materially slow the
-probe loop. Exact-test routing must still resolve those contracts to their purpose-built target rather than the
-consolidated audit. Fieldwork keeps its larger contract set separate from the lived probe so the frequent probe
-link stays small. All gameplay targets share `test-gameplay`.
+Each gameplay scope owns a focused probe artifact. Keep cheap nearby contracts there, but move measured-heavy
+owner contracts to the scope's contract target so the frequent probe does not parse, codegen, or link unrelated
+test bodies. `tools/gameplay_targets.py` owns the scopes that use this split. Exact-test routing must resolve those
+contracts to their purpose-built target rather than the consolidated audit. All gameplay targets share
+`test-gameplay` and the same Cargo cache.
 
 `gate --gameplay contracts` is the small cross-scope contract target. Exact owner contracts resolve through
 `run_test.py` to their smallest purpose-built target. Scoped reports reuse focused artifacts when faithful; keep

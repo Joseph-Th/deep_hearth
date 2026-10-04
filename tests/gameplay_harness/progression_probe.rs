@@ -420,8 +420,7 @@ use mechanization::*;
 #[path = "progression_probe/steady_state.rs"]
 mod steady_state;
 #[cfg(test)]
-#[path = "progression_probe/steady_state_tests.rs"]
-mod steady_state_tests;
+include_progression_probe_contract_tests!();
 pub(super) use steady_state::PrimitiveSteadyStop;
 use steady_state::*;
 

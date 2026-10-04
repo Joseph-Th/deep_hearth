@@ -3,11 +3,11 @@
 use std::collections::BTreeSet;
 
 use deep_hearth::content::{
-    FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, STORAGE_BULK_TIMBER_PROVISIONS_CRATE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
-    STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK, STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
-    STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_ROUGH_TIMBER_FIELD_BOX,
-    STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
+    FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
+    STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK,
+    STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST, STORAGE_INSULATED_TIMBER_PANTRY,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::StockpileStorageProfile;
@@ -22,9 +22,7 @@ use super::focused_witnesses::{
     SURVIVAL_DECLINE_COVERAGE_SEED, SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED,
     SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
 };
-use super::preservation_route::{
-    is_disclosed_preservation_raw_material, preservation_construction_plan,
-};
+use super::preservation_route::preservation_construction_plan;
 use super::survival_probe::preservation::preservation_storage_definition_for_policy_with_constraints;
 use super::survival_probe::preservation_decision::{
     SignedResourceDelta, evaluate_preservation_decision,
@@ -34,6 +32,13 @@ use super::survival_probe::preservation_evaluation::{
     select_preservation_projection_for_attention_value,
 };
 use super::survival_probe::provisioning_world::minimum_visible_preservation_age_ticks;
+
+fn is_disclosed_preservation_raw_material(commodity: CommodityKey) -> bool {
+    commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+        || commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+        || commodity == CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)
+        || commodity == CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)
+}
 
 fn storage_capacity(
     registries: &deep_hearth::registry::Registries,

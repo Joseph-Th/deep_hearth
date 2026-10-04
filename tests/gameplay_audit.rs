@@ -22,6 +22,27 @@ macro_rules! include_woodworking_policy_contract_tests {
     };
 }
 
+macro_rules! include_woodworking_evaluation_contract_tests {
+    () => {
+        #[path = "evaluation_tests.rs"]
+        mod tests;
+    };
+}
+
+macro_rules! include_progression_probe_contract_tests {
+    () => {
+        #[path = "progression_probe/steady_state_tests.rs"]
+        mod steady_state_tests;
+    };
+}
+
+macro_rules! include_agency_contract_tests {
+    () => {
+        #[path = "agency_contract_tests.rs"]
+        mod contract_tests;
+    };
+}
+
 macro_rules! include_fieldwork_contract_tests {
     () => {
         #[path = "fieldwork_shortfall_policy_tests.rs"]

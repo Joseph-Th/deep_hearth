@@ -1553,63 +1553,66 @@ class TestTopologyContractTests(unittest.TestCase):
             ci.GAMEPLAY_TARGETS["survival"],
         )
 
-    def test_focused_gameplay_targets_keep_cheap_owner_contracts_with_the_probe(self) -> None:
+    def test_heavy_gameplay_contracts_stay_off_hot_probe_targets(self) -> None:
         contract_prefixes = {
             "workshop": "workshop_contract_tests::",
             "survival": "survival_contract_tests::",
             "progression": "progression_contract_tests::",
             "settlement": "settlement_wire_contract_tests::",
             "woodworking": "woodworking_contract_tests::",
-            "ore": "ore_contract_tests::",
-            "foundry": "foundry_contract_tests::",
+            "fieldwork": "prospecting_instrument_contract_tests::",
         }
         for scope, prefix in contract_prefixes.items():
-            target = ci.GAMEPLAY_TARGETS[scope]
-            catalog = run_test.source_test_catalog(target, None)
+            focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)
+            expected_probes = {ci.GAMEPLAY_TESTS[scope]}
+            if scope == "workshop":
+                expected_probes.add("gameplay_agency_counterfactuals")
+            self.assertEqual(set(focused), expected_probes)
+            contracts = run_test.source_test_catalog(
+                gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS[scope],
+                None,
+            )
+            self.assertTrue(contracts)
+            self.assertTrue(set(focused).isdisjoint(contracts))
+            self.assertTrue(
+                any(name.startswith(prefix) for name in contracts),
+                f"gameplay contract target {scope} lost owner contracts {prefix}",
+            )
+
+    def test_small_gameplay_targets_keep_cheap_owner_contracts_with_the_probe(self) -> None:
+        for scope, prefix in {
+            "ore": "ore_contract_tests::",
+            "foundry": "foundry_contract_tests::",
+        }.items():
+            catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)
             self.assertIn(ci.GAMEPLAY_TESTS[scope], catalog)
             self.assertTrue(
                 any(name.startswith(prefix) for name in catalog),
-                f"focused gameplay target {scope} lost owner contracts {prefix}",
+                f"focused gameplay target {scope} lost cheap owner contracts {prefix}",
             )
 
-    def test_fieldwork_contracts_stay_off_the_hot_probe_target(self) -> None:
-        probe = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["fieldwork"], None)
+    def test_progression_episode_regressions_use_the_progression_contract_target(self) -> None:
         contracts = run_test.source_test_catalog(
-            gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
-            None,
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"], None
         )
-        self.assertEqual(probe, [ci.GAMEPLAY_TESTS["fieldwork"]])
-        self.assertNotIn(ci.GAMEPLAY_TESTS["fieldwork"], contracts)
-        for prefix in (
-            "fieldwork_probe::planning_tests::",
-            "fieldwork_probe::retooling_tests::",
-            "fieldwork_probe::fieldwork_shortfall_policy_tests::",
-            "prospecting_instrument_contract_tests::",
-        ):
-            self.assertTrue(
-                any(name.startswith(prefix) for name in contracts),
-                f"fieldwork contract target lost {prefix}",
-            )
-
-    def test_progression_episode_regressions_reuse_the_focused_progression_target(self) -> None:
-        focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["progression"], None)
         self.assertTrue(
-            any(name.startswith("progression_episode_contract_tests::") for name in focused)
+            any(name.startswith("progression_episode_contract_tests::") for name in contracts)
         )
 
-    def test_settlement_target_keeps_all_machine_contract_families(self) -> None:
-        catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
+    def test_settlement_contract_target_keeps_all_machine_contract_families(self) -> None:
+        catalog = run_test.source_test_catalog(
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"], None
+        )
         prefixes = (
             "settlement_drill_contract_tests::",
             "settlement_helve_contract_tests::",
             "settlement_machine_contract_tests::",
             "settlement_wire_contract_tests::",
         )
-        self.assertIn("gameplay_settlement_probe", catalog)
         for prefix in prefixes:
             self.assertTrue(
                 any(name.startswith(prefix) for name in catalog),
-                f"settlement target lost owner {prefix.removesuffix('::')}",
+                f"settlement contract target lost owner {prefix.removesuffix('::')}",
             )
 
     def test_focused_progression_stages_do_not_compile_each_other(self) -> None:
@@ -2079,7 +2082,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
         args = run_test.parse_args(
             [
                 "--target",
-                ci.GAMEPLAY_TARGETS["survival"],
+                gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
                 "survival_contract_tests::survival_explanation_marks_singleton_enclosure_without_forcing_investment",
             ]
         )
@@ -3196,7 +3199,7 @@ class AuthorityContractTests(unittest.TestCase):
             {
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
-                gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
+                *gameplay_targets.GAMEPLAY_OWNER_CONTRACT_TARGETS,
                 *ci.GAMEPLAY_TARGETS.values(),
             },
         )
@@ -3609,9 +3612,7 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_audit_gameplay_concerns_route_to_natural_focused_owners(self) -> None:
         for selector, expected_target in {
             "gameplay_agency_counterfactuals": ci.GAMEPLAY_TARGETS["workshop"],
-            "scenario_tests::world_seed_never_changes_player_policy": ci.GAMEPLAY_TARGETS[
-                "workshop"
-            ],
+            "scenario_tests::world_seed_never_changes_player_policy": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
             "primitive_liberation_contract_tests::primitive_liberation_content_closes_the_pre_smelting_processing_gap": ci.GAMEPLAY_CONTRACTS_TARGET,
         }.items():
             with self.subTest(selector=selector):
@@ -3646,19 +3647,19 @@ class ExactTestCommandTests(unittest.TestCase):
 
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
-            "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
-            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
-            "woodworking_keeps_pre_action_non_saw_choice_when_realized_saw_is_cheaper": ci.GAMEPLAY_TARGETS["woodworking"],
+            "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+            "woodworking_keeps_pre_action_non_saw_choice_when_realized_saw_is_cheaper": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
-            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": ci.GAMEPLAY_TARGETS["settlement"],
+            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
             "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": ci.GAMEPLAY_TARGETS["foundry"],
-            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": ci.GAMEPLAY_TARGETS["woodworking"],
-            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
-            "preservation_storage_routes_are_authored_recoverable_tradeoffs": ci.GAMEPLAY_TARGETS["survival"],
+            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
+            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+            "preservation_storage_routes_are_authored_recoverable_tradeoffs": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
             "ore_probe_generation_varies_feed_and_operating_state": ci.GAMEPLAY_TARGETS["ore"],
-            "primitive_recovery_and_reinforcement_routes_remain_connected": ci.GAMEPLAY_TARGETS["progression"],
-            "progression_generators_cover_distinct_search_and_economic_pressures": ci.GAMEPLAY_TARGETS["progression"],
-            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": ci.GAMEPLAY_TARGETS["workshop"],
+            "primitive_recovery_and_reinforcement_routes_remain_connected": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
+            "progression_generators_cover_distinct_search_and_economic_pressures": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
+            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
         }
         for selector, expected_target in cases.items():
             target, _name = run_test.resolve_automatic_exact_selection(selector, None)
@@ -3698,11 +3699,11 @@ class ExactTestCommandTests(unittest.TestCase):
             "lib",
         )
         for selector, expected in {
-            "workshop_contract_tests": ci.GAMEPLAY_TARGETS["workshop"],
-            "prospecting_instrument_contract_tests": gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
-            "settlement_wire_contract_tests": ci.GAMEPLAY_TARGETS["settlement"],
-            "survival_contract_tests": ci.GAMEPLAY_TARGETS["survival"],
-            "progression_contract_tests": ci.GAMEPLAY_TARGETS["progression"],
+            "workshop_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
+            "prospecting_instrument_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+            "settlement_wire_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
+            "survival_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
+            "progression_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "ore_contract_tests": ci.GAMEPLAY_TARGETS["ore"],
             "foundry_contract_tests": ci.GAMEPLAY_TARGETS["foundry"],
         }.items():
@@ -3855,7 +3856,9 @@ class ExactTestCommandTests(unittest.TestCase):
             "survey_investment_requires_a_material_disclosed_attention_payoff"
         )
         target, name = run_test.resolve_automatic_exact_selection(selector, None)
-        self.assertEqual(target, gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET)
+        self.assertEqual(
+            target, gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"]
+        )
         self.assertEqual(name, selector)
 
     def test_source_catalog_matches_default_library_test_names_without_building(self) -> None:
@@ -3902,7 +3905,9 @@ class ExactTestCommandTests(unittest.TestCase):
                 focused,
                 f"focused gameplay scope {scope} must resolve in its dedicated target",
             )
-        settlement = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
+        settlement = run_test.source_test_catalog(
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"], None
+        )
         self.assertIn(
             "settlement_wire_contract_tests::flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield",
             settlement,
@@ -3911,14 +3916,9 @@ class ExactTestCommandTests(unittest.TestCase):
             ci.GAMEPLAY_TARGETS["settlement"], None
         )
         self.assertIn(ci.GAMEPLAY_TESTS["settlement"], focused_settlement)
-        self.assertTrue(
-            any(
-                name.startswith("settlement_wire_contract_tests::")
-                for name in focused_settlement
-            )
-        )
+        self.assertEqual(focused_settlement, [ci.GAMEPLAY_TESTS["settlement"]])
         fieldwork_contracts = run_test.source_test_catalog(
-            gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
             None,
         )
         self.assertIn(
@@ -3927,7 +3927,12 @@ class ExactTestCommandTests(unittest.TestCase):
         )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
         self.assertIn("gameplay_agency_counterfactuals", workshop)
-        self.assertIn("scenario_tests::world_seed_never_changes_player_policy", workshop)
+        workshop_contracts = run_test.source_test_catalog(
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"], None
+        )
+        self.assertIn(
+            "scenario_tests::world_seed_never_changes_player_policy", workshop_contracts
+        )
         contracts = run_test.source_test_catalog(ci.GAMEPLAY_CONTRACTS_TARGET, None)
         self.assertIn(
             "primitive_liberation_contract_tests::primitive_liberation_content_closes_the_pre_smelting_processing_gap",

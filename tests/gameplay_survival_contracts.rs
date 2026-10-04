@@ -1,11 +1,20 @@
-//! Focused survival gameplay target for the fast edit/test loop.
+//! Survival world-generation and preservation contracts kept off the frequent lived probe.
+
+#![allow(
+    dead_code,
+    unused_imports,
+    reason = "contract-only crate reuses survival modules whose lived-probe entrypoint belongs to the focused target"
+)]
 
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
 macro_rules! include_survival_probe_contract_tests {
-    () => {};
+    () => {
+        #[path = "survival_probe/provisioning_support_tests.rs"]
+        mod provisioning_support_tests;
+    };
 }
 
 #[path = "gameplay_harness/direct_consumption_timing.rs"]
@@ -16,8 +25,6 @@ mod environment;
 mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
@@ -42,6 +49,8 @@ mod prospecting_timing;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/survival_contract_tests.rs"]
+mod survival_contract_tests;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
 #[path = "gameplay_harness/temporal.rs"]
@@ -50,12 +59,3 @@ mod temporal;
 mod tick_observation;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
-
-#[cfg(test)]
-#[test]
-fn gameplay_survival_provisioning_probe() {
-    focused_runner::run_focused_probe(
-        "survival-provisioning",
-        survival_probe::run_survival_provisioning_probe,
-    );
-}

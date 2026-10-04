@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
-GAMEPLAY_FIELDWORK_CONTRACTS_TARGET = "gameplay_fieldwork_contracts"
 GAMEPLAY_FEATURE = "test-gameplay"
 GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
 GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
@@ -62,6 +61,15 @@ GAMEPLAY_SCOPE_SPECS = {
 
 GAMEPLAY_TARGETS = {scope: spec.target for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
 GAMEPLAY_TESTS = {scope: spec.test for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
+GAMEPLAY_SCOPE_CONTRACT_TARGETS = {
+    "workshop": "gameplay_workshop_contracts",
+    "survival": "gameplay_survival_contracts",
+    "progression": "gameplay_progression_contracts",
+    "settlement": "gameplay_settlement_contracts",
+    "woodworking": "gameplay_woodworking_contracts",
+    "fieldwork": "gameplay_fieldwork_contracts",
+}
+GAMEPLAY_OWNER_CONTRACT_TARGETS = frozenset(GAMEPLAY_SCOPE_CONTRACT_TARGETS.values())
 GAMEPLAY_PROBE_TARGETS = {spec.test: spec.target for spec in GAMEPLAY_SCOPE_SPECS.values()}
 GAMEPLAY_PROBE_TARGETS["gameplay_agency_counterfactuals"] = GAMEPLAY_TARGETS["workshop"]
 GAMEPLAY_PROBE_TESTS = frozenset(GAMEPLAY_PROBE_TARGETS)

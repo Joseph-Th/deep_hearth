@@ -1,4 +1,4 @@
-//! Cheap primitive-progression topology and generator contracts.
+//! Primitive-progression topology and generator contracts.
 
 use std::collections::BTreeSet;
 
@@ -20,14 +20,37 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::material::CommodityKey;
+use deep_hearth::production::ProcessId;
 use deep_hearth::registry::{
-    CommoditySource, ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily,
+    CommoditySource, ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily, Registries,
 };
 
 use super::environment::ROOM_TEMPERATURE;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
+
+fn authored_manual_output_mass(
+    registries: &Registries,
+    process: ProcessId,
+    output: CommodityKey,
+) -> Mass {
+    registries
+        .crafting()
+        .get_manual(process)
+        .unwrap_or_else(|| panic!("manual craft {} disappeared", process.value()))
+        .outputs()
+        .iter()
+        .find(|candidate| candidate.commodity() == output)
+        .map(|candidate| candidate.mass())
+        .unwrap_or_else(|| {
+            panic!(
+                "manual craft {} no longer produces {}",
+                process.value(),
+                output.value()
+            )
+        })
+}
 
 #[test]
 fn bootstrap_planning_excludes_faster_required_equipment_producers() {
@@ -48,10 +71,11 @@ fn bootstrap_planning_excludes_faster_required_equipment_producers() {
         "bootstrap-planning regression requires a competing required-equipment board route"
     );
 
+    let one_batch = authored_manual_output_mass(&registries, PROCESS_SHAPE_WOOD_BOARDS, boards);
     let (selected, batches) = manual_craft_topology_plan_for_output_from_inputs(
         &registries,
         boards,
-        Mass::from_milligrams(800_000),
+        one_batch,
         &[CommodityKey::new(MATERIAL_WOOD, FORM_LOG)],
         "bootstrap-planning regression",
     );
@@ -125,13 +149,17 @@ fn current_manual_craft_planning_ignores_unowned_salvage_inputs() {
     deep_hearth::survival::initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual-craft planning player setup failed: {error}"));
     let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let one_batch = authored_manual_output_mass(&registries, PROCESS_SHAPE_WOOD_BOARDS, boards);
+    let two_batches = one_batch
+        .checked_add(one_batch)
+        .unwrap_or_else(|| panic!("two authored board batches overflowed mass"));
 
     let (selected, batches, selected_source) = manual_craft_plan_for_available_output(
         &registries,
         &state,
         &[raw],
         boards,
-        Mass::from_milligrams(1_600_000),
+        two_batches,
         "available board-route regression",
     );
 
@@ -156,13 +184,18 @@ fn current_manual_craft_planning_checks_each_actor_visible_source() {
     );
     deep_hearth::survival::initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual-craft multisource player setup failed: {error}"));
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let one_batch = authored_manual_output_mass(&registries, PROCESS_SHAPE_WOOD_BOARDS, boards);
+    let two_batches = one_batch
+        .checked_add(one_batch)
+        .unwrap_or_else(|| panic!("two authored board batches overflowed mass"));
 
     let (selected, batches, selected_source) = manual_craft_plan_for_available_output(
         &registries,
         &state,
         &[empty, logs],
-        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-        Mass::from_milligrams(1_600_000),
+        boards,
+        two_batches,
         "multisource board-route regression",
     );
 
@@ -191,11 +224,16 @@ fn primitive_topology_planning_does_not_select_unacquired_cast_stock() {
         cast_route.duration() < native_route.duration(),
         "regression requires the later cast-stock route to be the globally faster route"
     );
+    let one_batch = authored_manual_output_mass(
+        &registries,
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        reinforcement,
+    );
 
     let (selected, batches) = manual_craft_topology_plan_for_output_from_inputs(
         &registries,
         reinforcement,
-        Mass::from_milligrams(20_000),
+        one_batch,
         &[native],
         "primitive native-copper topology regression",
     );

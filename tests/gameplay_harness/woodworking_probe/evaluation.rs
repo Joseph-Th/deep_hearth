@@ -1214,5 +1214,4 @@ fn evaluate_woodworking_probe(
 }
 
 #[cfg(test)]
-#[path = "evaluation_tests.rs"]
-mod tests;
+include_woodworking_evaluation_contract_tests!();

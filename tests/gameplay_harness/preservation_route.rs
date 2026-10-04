@@ -37,17 +37,6 @@ impl PreservationConstructionPlan {
     }
 }
 
-#[cfg(test)]
-pub(super) fn is_disclosed_preservation_raw_material(commodity: CommodityKey) -> bool {
-    commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
-        || commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
-        || commodity == CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)
-        // Native copper is a legitimate post-processing settlement input. Survival scenarios may
-        // disclose a finite owned quantity exactly as they disclose logs or stone; the route still
-        // has to perform canonical cold-working before copper can enter an enclosure assembly.
-        || commodity == CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)
-}
-
 pub(super) fn preservation_construction_plan(
     registries: &Registries,
     profile: &MaterialAssemblyProfile,

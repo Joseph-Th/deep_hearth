@@ -1,13 +1,21 @@
-//! Focused primitive-progression gameplay target for the fast edit/test loop.
+//! Primitive-progression topology and episode contracts kept off the frequent lived probe.
 
-#[cfg(test)]
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    reason = "contract-only crate reuses progression evaluator paths whose reporting entrypoints belong to the focused target"
+)]
+
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-#[cfg(test)]
 macro_rules! include_progression_probe_contract_tests {
-    () => {};
+    () => {
+        #[path = "progression_probe/steady_state_tests.rs"]
+        mod steady_state_tests;
+    };
 }
 
 #[path = "gameplay_harness/environment.rs"]
@@ -16,15 +24,10 @@ mod environment;
 mod equipment_support;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
-#[cfg(not(test))]
-#[path = "gameplay_harness/fresh_seed.rs"]
-mod fresh_seed;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
@@ -45,18 +48,14 @@ mod manual_power_timing;
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
-#[cfg(not(test))]
-#[path = "gameplay_harness/physical_time.rs"]
-mod physical_time;
 #[path = "gameplay_harness/primitive_workload.rs"]
 mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
-#[allow(
-    dead_code,
-    unused_variables,
-    reason = "focused progression executes the player-facing probe; owner contracts and report examples consume additional diagnostic evidence from the shared evaluator"
-)]
+#[path = "gameplay_harness/progression_contract_tests.rs"]
+mod progression_contract_tests;
+#[path = "gameplay_harness/progression_episode_contract_tests.rs"]
+mod progression_episode_contract_tests;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
 #[path = "gameplay_harness/prospecting_timing.rs"]
@@ -67,19 +66,3 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-#[cfg(test)]
-#[test]
-fn gameplay_primitive_progression_probe() {
-    focused_runner::run_focused_probe(
-        "primitive-progression",
-        progression_probe::run_primitive_progression_probe,
-    );
-}
-
-#[cfg(not(test))]
-pub(super) fn run_report() {
-    focused_runner::run_focused_report(
-        "primitive-progression",
-        progression_probe::run_primitive_progression_probe,
-    );
-}
