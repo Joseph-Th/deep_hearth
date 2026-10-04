@@ -285,11 +285,9 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         power, r"project=\[consumer:stone-crusher feed:(\d+)mg"
     )
     project_work = _numeric_values(power, r"\bwork:(\d+)nJ")
-    buffer_lower_bound_charges = _numeric_values(
-        power, r"buffer-lower-bound-charges:(\d+)"
-    )
-    consumer_projected_charges = _numeric_values(
-        power, r"consumer-projected-charges:(\d+)"
+    declared_charge_events = _numeric_values(power, r"declared-charge-events:(\d+)")
+    consumer_projected_batches = _numeric_values(
+        power, r"consumer-projected-batches:(\d+)"
     )
     metabolic_wins = 0
     for line in power:
@@ -317,8 +315,8 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"organic-choice=[{_choice_counts_text(organic_choice_counts)}] "
         f"project=[crusher-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "
-        f"buffer-lower-bound-charges:{_span(buffer_lower_bound_charges)} "
-        f"consumer-projected-charges:{_span(consumer_projected_charges)}] "
+        f"declared-charge-events:{_span(declared_charge_events)} "
+        f"consumer-projected-batches:{_span(consumer_projected_batches)}] "
         f"project-experience=[charges:{_span(lived['charge_events'])} "
         f"services:{_span(lived['services'])} "
         f"feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
@@ -331,7 +329,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"provisioning:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
         f"market-regimes={_span(market_regimes)} "
-        f"scale=[job:{_span(buffer_lower_bound_charges)} "
+        f"scale=[charges:{_span(declared_charge_events)} "
         f"treadle:{_span(treadle_thresholds)} wheel:{_span(walking_thresholds)}] "
         f"pristine-rate-break-even={_span(pristine_break_evens)} "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
@@ -355,7 +353,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"lived-project=[executed:{lived_samples}/{len(power)} "
         f"selected-attention-gap:{_span(lived['attention_gap'], 't')} "
         f"charge-events:{_span(lived['charge_events'])} "
-        f"consumer-projected-charges:{_span(lived['projected_charge_events'])} "
+        f"consumer-projected-charge-events:{_span(lived['projected_charge_events'])} "
         f"wear-projected-extra-charges:{_span(lived['wear_projected_extra_charge_events'])} "
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])} "
         f"projected-services:{_span(lived['projected_services'])} "
