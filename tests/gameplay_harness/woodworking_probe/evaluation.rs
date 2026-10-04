@@ -29,7 +29,11 @@ struct WoodworkingDemandPlan {
     saw_input_mass: Mass,
 }
 
-fn plan_woodworking_demand(registries: &Registries, seed: u64) -> WoodworkingDemandPlan {
+fn plan_woodworking_demand(
+    registries: &Registries,
+    seed: u64,
+    stratified: bool,
+) -> WoodworkingDemandPlan {
     let adze_board_definition = registries
         .crafting()
         .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
@@ -43,17 +47,39 @@ fn plan_woodworking_demand(registries: &Registries, seed: u64) -> WoodworkingDem
     let saw_board_mass_per_batch = authored_output_mass(saw_board_definition, board_commodity);
     let immediate_roll = mix64(seed ^ 0x574F_4F44_5052_4F4A);
     let queued_roll = mix64(seed ^ 0x574F_4F44_5155_4555);
-    let project_queue = queued_roll % 51;
-    // Preserve three player-visible planning horizons so organic samples include genuinely small
-    // jobs as well as project-scale queues; otherwise the equipment-free route is rarely viable.
-    let (horizon, immediate_scale, queued_scale) = match project_queue {
-        0..=5 => ("immediate-only", 1 + immediate_roll % 3, 0),
-        6..=15 => (
-            "short-queue",
-            2 + immediate_roll % 4,
-            1 + (queued_roll >> 8) % 6,
-        ),
-        _ => ("project", 3 + immediate_roll % 10, project_queue),
+    let (horizon, immediate_scale, queued_scale) = if stratified {
+        // Low world-seed bits are a disclosed workload stratum, not an expected route. A four-case
+        // exploratory sample therefore spans genuinely small work, a short queue, and two project
+        // scales while the remaining seed entropy still varies the exact order inside each band.
+        match seed & 0b11 {
+            0 => ("immediate-only", 1 + immediate_roll % 3, 0),
+            1 => (
+                "short-queue",
+                2 + immediate_roll % 4,
+                1 + (queued_roll >> 8) % 6,
+            ),
+            2 => (
+                "project",
+                3 + immediate_roll % 5,
+                16 + (queued_roll >> 8) % 18,
+            ),
+            _ => (
+                "project",
+                8 + immediate_roll % 5,
+                34 + (queued_roll >> 8) % 17,
+            ),
+        }
+    } else {
+        let project_queue = queued_roll % 51;
+        match project_queue {
+            0..=5 => ("immediate-only", 1 + immediate_roll % 3, 0),
+            6..=15 => (
+                "short-queue",
+                2 + immediate_roll % 4,
+                1 + (queued_roll >> 8) % 6,
+            ),
+            _ => ("project", 3 + immediate_roll % 10, project_queue),
+        }
     };
     let pipeline_scale = immediate_scale
         .checked_add(queued_scale)
@@ -165,7 +191,11 @@ fn protected_future_copper_reserve(registries: &Registries) -> Mass {
     )
 }
 
-fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWorld {
+fn build_woodworking_world(
+    registries: &Registries,
+    seed: u64,
+    stratified: bool,
+) -> WoodworkingWorld {
     let blade_input = registries
         .crafting()
         .get_manual(PROCESS_COLD_WORK_COPPER_SAW_BLADE)
@@ -179,11 +209,23 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
     let below_blade = blade_input
         .checked_sub(Mass::from_milligrams(1))
         .unwrap_or(Mass::ZERO);
-    let copper_available = match mix64(seed ^ 0x574F_4F44_434F_5050) % 4 {
-        0 => below_blade,
-        1 => blade_input,
-        2 => just_reserve_safe,
-        _ => checked_mass_times(just_reserve_safe, 2, "abundant copper opportunity"),
+    let copper_available = if stratified {
+        // Couple the same four-case sample only to coarse, actor-visible copper pressure. This keeps
+        // small exploratory reports from accidentally presenting four identical funded workshops;
+        // policy remains independently seeded and the selected route still comes from live economics.
+        match seed & 0b11 {
+            0 => below_blade,
+            1 => blade_input,
+            2 => just_reserve_safe,
+            _ => checked_mass_times(just_reserve_safe, 2, "abundant copper opportunity"),
+        }
+    } else {
+        match mix64(seed ^ 0x574F_4F44_434F_5050) % 4 {
+            0 => below_blade,
+            1 => blade_input,
+            2 => just_reserve_safe,
+            _ => checked_mass_times(just_reserve_safe, 2, "abundant copper opportunity"),
+        }
     };
     let stone_supply = Mass::from_milligrams(5_000_000);
     let wood_supply = Mass::from_milligrams(75_000_000);
@@ -1182,8 +1224,12 @@ fn evaluate_woodworking_probe(
 ) -> (&'static str, u64, Option<u64>) {
     let seed = case.seed();
     let behavior_seed = case.required_behavior_seed("woodworking investment policy");
-    let demand = plan_woodworking_demand(registries, seed);
-    let world = build_woodworking_world(registries, seed);
+    let stratified = matches!(
+        case.role(),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
+    );
+    let demand = plan_woodworking_demand(registries, seed, stratified);
+    let world = build_woodworking_world(registries, seed, stratified);
     let decision = plan_woodworking_investment(registries, behavior_seed, demand, &world);
     let lifecycle = execute_woodworking_lifecycle(registries, &world, demand, decision);
     let metrics = evaluate_woodworking_lifecycle(case, &world, decision, &lifecycle);

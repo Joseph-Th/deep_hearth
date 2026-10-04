@@ -12,6 +12,7 @@ pub(super) enum InitialShortfallTerminal {
 pub(super) fn demand_sized_followup_sites(
     remaining: Mass,
     observed_site_upper: Mass,
+    productive_site_prior_ppm: u128,
     available_sites: u64,
 ) -> u64 {
     assert!(
@@ -22,11 +23,21 @@ pub(super) fn demand_sized_followup_sites(
         available_sites > 0,
         "fieldwork shortfall horizon requires at least one candidate site"
     );
+    assert!(
+        productive_site_prior_ppm <= 1_000_000,
+        "fieldwork productive-site prior must be normalized"
+    );
     let comparable_site_mass = observed_site_upper.milligrams().max(1);
-    remaining
-        .milligrams()
-        .div_ceil(comparable_site_mass)
-        .clamp(1, available_sites)
+    let productive_sites_needed = remaining.milligrams().div_ceil(comparable_site_mass);
+    if productive_site_prior_ppm == 0 {
+        return available_sites;
+    }
+    let attempts = u128::from(productive_sites_needed)
+        .checked_mul(1_000_000)
+        .map(|scaled| scaled.div_ceil(productive_site_prior_ppm))
+        .and_then(|value| u64::try_from(value).ok())
+        .unwrap_or(u64::MAX);
+    attempts.clamp(1, available_sites)
 }
 
 pub(super) fn shortfall_terminal(

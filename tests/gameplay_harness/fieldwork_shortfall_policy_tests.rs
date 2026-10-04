@@ -11,28 +11,45 @@ fn shortfall_survey_horizon_scales_with_visible_remaining_demand_and_caps_at_loc
     let site_upper = Mass::from_milligrams(1_000_000);
     let available_sites = 6;
     assert_eq!(
-        demand_sized_followup_sites(Mass::from_milligrams(1), site_upper, available_sites),
-        1
-    );
-    assert_eq!(
-        demand_sized_followup_sites(site_upper, site_upper, available_sites),
-        1
-    );
-    assert_eq!(
         demand_sized_followup_sites(
-            Mass::from_milligrams(site_upper.milligrams() + 1),
+            Mass::from_milligrams(1),
             site_upper,
+            500_000,
             available_sites,
         ),
         2
     );
     assert_eq!(
+        demand_sized_followup_sites(site_upper, site_upper, 500_000, available_sites),
+        2
+    );
+    assert_eq!(
+        demand_sized_followup_sites(
+            Mass::from_milligrams(site_upper.milligrams() + 1),
+            site_upper,
+            500_000,
+            available_sites,
+        ),
+        4
+    );
+    assert_eq!(
         demand_sized_followup_sites(
             Mass::from_milligrams(site_upper.milligrams() * 20),
             site_upper,
+            500_000,
             available_sites,
         ),
         available_sites
+    );
+    assert_eq!(
+        demand_sized_followup_sites(site_upper, site_upper, 1_000_000, available_sites),
+        1,
+        "a certain productive-site prior needs no barren-ground allowance"
+    );
+    assert_eq!(
+        demand_sized_followup_sites(site_upper, site_upper, 0, available_sites),
+        available_sites,
+        "with no expected productive yield, the bounded local search is the only honest horizon"
     );
 }
 

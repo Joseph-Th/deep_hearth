@@ -115,11 +115,17 @@ pub(in super::super) fn provisioning_world(
         })
         .collect::<Vec<_>>();
     let preserving_storage = preservation_candidates(registries);
-    let maximum_preservation_capacity = preserving_storage
+    let preservation_capacities = preserving_storage
         .iter()
-        .map(|candidate| candidate.capacity)
-        .max()
-        .unwrap_or_else(|| unreachable!("preservation candidates are nonempty"));
+        .map(|candidate| candidate.capacity.milligrams())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let maximum_preservation_capacity = Mass::from_milligrams(
+        *preservation_capacities
+            .last()
+            .unwrap_or_else(|| unreachable!("preservation candidates are nonempty")),
+    );
     let witness_options = compact_indices
         .iter()
         .copied()
@@ -138,16 +144,42 @@ pub(in super::super) fn provisioning_world(
     let witness_food = foods[witness_index];
     let minimum_reserve_mass = offered_masses[witness_index];
     // Reserve demand is a world need, not a property of whichever container happens to exist.
-    // Generate several meal-equivalents first, then choose inherited storage from the authored
-    // enclosures capable of holding that reserve. This keeps capacity strategically relevant without
-    // coupling the desired stockpile size to container identity.
-    let reserve_servings = 4 + mix64(seed ^ 0x5052_4553_5253_5256) % 21;
-    let requested_reserve_mg = minimum_reserve_mass
-        .milligrams()
-        .checked_mul(reserve_servings)
-        .unwrap_or_else(|| panic!("survival preserved-reserve demand overflowed"));
-    let preserved_reserve_mass =
-        Mass::from_milligrams(requested_reserve_mg.min(maximum_preservation_capacity.milligrams()));
+    // A four-case exploratory sample deliberately spans the current authored capacity frontier so
+    // preservation is experienced both as a choice-rich investment and as genuine bulk pressure.
+    // High seed entropy still varies the exact reserve inside each capacity band.
+    let requested_band = usize::try_from(seed & 0b11)
+        .unwrap_or_else(|_| unreachable!("two-bit preservation stratum fits usize"));
+    let requested_capacity_index = requested_band
+        .checked_mul(preservation_capacities.len().saturating_sub(1))
+        .map(|scaled| scaled / 3)
+        .unwrap_or_else(|| unreachable!("bounded preservation capacity index cannot overflow"));
+    let minimum_reserve_mg = minimum_reserve_mass.milligrams();
+    let capacity_index = if preservation_capacities[requested_capacity_index] >= minimum_reserve_mg
+    {
+        requested_capacity_index
+    } else {
+        preservation_capacities
+            .iter()
+            .position(|capacity| *capacity >= minimum_reserve_mg)
+            .unwrap_or_else(|| unreachable!("witness filtering guarantees a fitting enclosure"))
+    };
+    let reserve_upper_mg = preservation_capacities[capacity_index];
+    let reserve_lower_mg = if capacity_index == 0 {
+        minimum_reserve_mg
+    } else {
+        preservation_capacities[capacity_index - 1]
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("preservation capacity-band lower bound overflowed"))
+            .max(minimum_reserve_mg)
+    };
+    assert!(reserve_lower_mg <= reserve_upper_mg);
+    let reserve_span = reserve_upper_mg - reserve_lower_mg;
+    let reserve_offset = if reserve_span == 0 {
+        0
+    } else {
+        mix64(seed ^ 0x5052_4553_5253_5256) % (reserve_span + 1)
+    };
+    let preserved_reserve_mass = Mass::from_milligrams(reserve_lower_mg + reserve_offset);
     let inherited_options = preserving_storage
         .iter()
         .filter(|candidate| candidate.capacity >= preserved_reserve_mass)

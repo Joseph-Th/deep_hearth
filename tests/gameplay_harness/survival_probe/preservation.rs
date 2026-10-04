@@ -28,10 +28,12 @@ pub(in super::super) fn preservation_minimum_return_ppm(behavior_seed: u64) -> u
 pub(in super::super) fn preservation_material_budget_ppm(behavior_seed: u64) -> u32 {
     // Construction matter competes with tools, power, and later storage. Use legible commitment
     // bands instead of a continuous fraction: a continuous sample almost never reaches exactly
-    // 100%, which would accidentally make an all-in preservation investment unreachable.
+    // 100%, which would accidentally make an all-in preservation investment unreachable. Focused
+    // behavior seeds stratify their low two bits independently from world pressure, so a four-case
+    // exploratory report covers every material-commitment band without forcing any storage choice.
     const BUDGETS: [u32; 4] = [400_000, 600_000, 850_000, 1_000_000];
-    let index = usize::try_from(mix64(behavior_seed ^ 0x5052_4553_4D41_544C) % 4)
-        .unwrap_or_else(|_| unreachable!("preservation material budget index is bounded"));
+    let index = usize::try_from(behavior_seed & 0b11)
+        .unwrap_or_else(|_| unreachable!("two-bit preservation material budget fits usize"));
     BUDGETS[index]
 }
 

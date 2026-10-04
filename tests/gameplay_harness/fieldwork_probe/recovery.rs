@@ -365,6 +365,10 @@ pub(super) fn execute_initial_shortfall_recovery(
     let planned_sites = demand_sized_followup_sites(
         remaining,
         review.observed_resource_mass.upper(),
+        review
+            .survey_campaign
+            .investment_policy
+            .productive_site_prior_ppm(),
         available_sites,
     );
     let survey_decision = decide_fieldwork_survey_strategy(

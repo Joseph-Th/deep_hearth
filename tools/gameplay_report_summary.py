@@ -148,6 +148,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "provisioning",
         "balanced-diet-counterfactual",
         "inherited-preservation",
+        "preservation-opportunity",
         "preservation-investment",
         "organic-preservation",
     ),
@@ -414,6 +415,11 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         if evidence_shape is not None and marker in evidence_shape:
             ratio = evidence_shape.split(marker, 1)[1].split(" ", 1)[0].rstrip("]")
             continuity = f"continuity=[primitive:{ratio} later:separate] "
+        shape = (
+            f"evidence=[single-state-progression:{ratio} later-domain-episodes:separate]"
+            if continuity
+            else compact_fields(summary, ("evidence-shape",))
+        )
         core = compact_fields(
             summary,
             (
@@ -436,7 +442,9 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             ),
         )
         return (
-            f"GAMEPLAY loop {continuity}{core}".rstrip()
+            f"GAMEPLAY loop-shape {shape}".rstrip()
+            + "\n"
+            + f"GAMEPLAY loop {continuity}{core}".rstrip()
             + "\n"
             + f"GAMEPLAY loop-dynamics {dynamics} {investment}".rstrip()
         )

@@ -40,6 +40,53 @@ fn is_disclosed_preservation_raw_material(commodity: CommodityKey) -> bool {
         || commodity == CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)
 }
 
+#[test]
+fn four_world_survival_sample_spans_choice_rich_and_bulk_preservation_capacity_pressure() {
+    let registries = build_registries();
+    let base = 0xBCE8_0742_3D33_E090_u64;
+    let worlds = (0_u64..4)
+        .map(|offset| {
+            super::survival_probe::provisioning_world::provisioning_world(
+                &registries,
+                base + offset,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        worlds
+            .iter()
+            .map(|world| world.preserved_reserve_mass)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        worlds.len(),
+        "bounded preservation pressure must retain organic reserve variation"
+    );
+    let ambient_preservation =
+        StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm();
+    let feasible_counts = worlds
+        .iter()
+        .map(|world| {
+            registries
+                .storage()
+                .definitions()
+                .filter(|definition| {
+                    definition.storage_profile().preservation_multiplier_ppm()
+                        > ambient_preservation
+                        && definition.maximum_stockpile_capacity() >= world.preserved_reserve_mass
+                })
+                .count()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        feasible_counts.iter().any(|count| *count > 1),
+        "four-world survival exploration must include a real preservation market"
+    );
+    assert!(
+        feasible_counts.iter().any(|count| *count == 1),
+        "four-world survival exploration must retain genuine bulk-capacity pressure"
+    );
+}
+
 fn storage_capacity(
     registries: &deep_hearth::registry::Registries,
     definition: deep_hearth::inventory::StorageDefinitionId,
@@ -639,28 +686,13 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
             .iter()
             .all(|value| (1_000_000..=4_000_000).contains(value))
     );
-    let preservation_material_budgets = (1_u64..=32)
+    let preservation_material_budgets = (0_u64..4)
         .map(preservation_material_budget_ppm)
         .collect::<BTreeSet<_>>();
-    assert!(
-        preservation_material_budgets.len() >= 3,
-        "maintained behavior sampling must exercise several material-commitment levels"
-    );
-    assert!(
-        preservation_material_budgets
-            .iter()
-            .all(|value| (1..=1_000_000).contains(value)),
-        "preservation material budgets must remain valid fractions of disclosed opportunity"
-    );
-    assert!(
-        preservation_material_budgets
-            .iter()
-            .any(|value| *value <= 500_000),
-        "maintained behavior sampling must retain a meaningfully conservative material budget"
-    );
-    assert!(
-        preservation_material_budgets.contains(&1_000_000),
-        "maintained behavior sampling must retain an all-in material-budget endpoint"
+    assert_eq!(
+        preservation_material_budgets,
+        BTreeSet::from([400_000, 600_000, 850_000, 1_000_000]),
+        "four independently stratified behavior cases must cover every preservation material-commitment band"
     );
     let projection_world = provisioning_world(&registries, 0x51A2_0001);
     let projected = project_preservation_candidates_with_raw_opportunity(
