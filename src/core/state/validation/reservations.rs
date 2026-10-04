@@ -41,6 +41,9 @@ pub(super) fn validate_reserved_inbound(
     if let Some(PlayerWork::StorageEnclosureDismantling { work }) = state.player_work().active() {
         expected.add(work.recovery_destination(), work.recovered_mass())?;
     }
+    if let Some(PlayerWork::SurfaceGathering { work }) = state.player_work().active() {
+        expected.add(work.destination(), work.gathered_mass())?;
+    }
     for stockpile in state.systems.inventory.stockpiles() {
         let expected_mass = expected.get(stockpile.id());
         if stockpile.reserved_inbound() != expected_mass {

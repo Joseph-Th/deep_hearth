@@ -49,6 +49,7 @@ incomplete.
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
 | Logistics | Persistent player/carried custody and world locations for stockpiles, equipment, energy stores, and fluid stores; local pickup/drop and access checks. |
+| Loose surface matter | Persistent finite world-space resource records, exact-local actor observation, timed same-voxel gathering, destination reservation, survival cost, depletion, interruption cleanup, persistence, and conservation. Source generation remains controlled-fixture-only rather than ordinary world generation. |
 | Energy and fluids | Finite typed energy stores with power/loss limits and finite homogeneous fluid stores with exact withdrawal. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Material-backed members, support topology, loads, damage, and failure cascades. |

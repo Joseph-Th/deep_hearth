@@ -11,6 +11,7 @@ impl Error for StateValidationError {
             Self::Fluid(error) => Some(error),
             Self::Equipment(error) => Some(error),
             Self::Structure(error) => Some(error),
+            Self::Surface(error) => Some(error),
             Self::StructureAnalysis(error) => Some(error),
             Self::Geology(error) => Some(error),
             Self::GeologicalKnowledge(error) => Some(error),
@@ -194,6 +195,8 @@ impl Error for StateValidationError {
             | Self::FutureEnergyRevisionDemandOverflow
             | Self::FutureEquipmentRevisionCapacityExhausted { .. }
             | Self::FutureEquipmentRevisionDemandOverflow
+            | Self::FutureSurfaceRevisionCapacityExhausted { .. }
+            | Self::FutureSurfaceRevisionDemandOverflow
             | Self::FutureMiningRevisionCapacityExhausted { .. }
             | Self::FutureMiningRevisionDemandOverflow
             | Self::FutureStructureRevisionCapacityExhausted { .. }

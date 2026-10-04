@@ -26,6 +26,7 @@ use crate::structural::{
     bind_structural_construction_selection, resolve_structural_material_requirement,
     validate_activate_structural_element, validate_structural_construction,
 };
+use crate::surface::{GeneratedSurfaceResourceSpec, insert_generated_surface_resource};
 use crate::survival::{
     initialize_player_survival_at_hunger_warning_boundary_for_fixture,
     initialize_player_survival_at_hydration_warning_boundary_for_fixture,
@@ -43,6 +44,30 @@ pub(super) fn assert_pre_admission(state: &AppState, operation: &str) {
         state.survival().player().is_none() && state.logistics().player().is_none(),
         "gameplay bootstrap {operation} must occur before actor admission"
     );
+}
+
+/// Seeds finite loose matter at one world voxel for controlled pre-admission world setup.
+///
+/// The fixture owns only world generation and deliberately does not return the generated identity.
+/// Actor code must locate the visible resource through the public local observation surface before
+/// using the canonical gathering path.
+pub fn seed_surface_resource(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+    commodity: CommodityKey,
+    mass: Mass,
+    temperature: Temperature,
+    composition: MaterialComposition,
+) {
+    assert_pre_admission(state, "surface-resource seed");
+    let spec =
+        GeneratedSurfaceResourceSpec::new(position, commodity, mass, temperature, composition)
+            .unwrap_or_else(|error| {
+                panic!("gameplay bootstrap surface-resource specification failed: {error}")
+            });
+    let _resource = insert_generated_surface_resource(registries, state, spec)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap surface-resource seed failed: {error}"));
 }
 
 /// Establishes one material-backed, already-existing equipment instance at a disclosed location.

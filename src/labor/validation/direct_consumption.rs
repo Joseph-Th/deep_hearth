@@ -53,7 +53,8 @@ pub(super) fn validate_direct_consumption_binding(
         Some(PlayerWork::Eating { work }) => validate_eating_binding(work, pending),
         Some(PlayerWork::Drinking { work }) => validate_drinking_binding(work, pending),
         Some(
-            PlayerWork::ManualProduction { .. }
+            PlayerWork::SurfaceGathering { .. }
+            | PlayerWork::ManualProduction { .. }
             | PlayerWork::Mining { .. }
             | PlayerWork::ManualPower { .. }
             | PlayerWork::Prospecting { .. }
@@ -66,7 +67,8 @@ pub(super) fn validate_direct_consumption_binding(
             Ok(())
         }
         Some(
-            PlayerWork::ManualProduction { .. }
+            PlayerWork::SurfaceGathering { .. }
+            | PlayerWork::ManualProduction { .. }
             | PlayerWork::Mining { .. }
             | PlayerWork::ManualPower { .. }
             | PlayerWork::Prospecting { .. }

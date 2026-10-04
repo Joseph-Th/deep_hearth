@@ -16,9 +16,23 @@ impl Error for PlayerWorkValidationError {
             Self::ManualProductionAccess(error) => Some(error),
             Self::StorageDismantlingAccess(error) => Some(error),
             Self::StorageDismantlingRecoveryStorage(error) => Some(error),
+            Self::SurfaceGatheringDestinationAccess(error) => Some(error),
+            Self::SurfaceGatheringDestinationStorage(error) => Some(error),
             Self::WorkWithoutPlayer
             | Self::RevisionExhausted
             | Self::SurvivalRevisionExhausted
+            | Self::SurfaceGatheringMethodMissing
+            | Self::SurfaceGatheringResourceMissing
+            | Self::SurfaceGatheringResourceDepleted
+            | Self::SurfaceGatheringSourceMassMismatch
+            | Self::SurfaceGatheringMassInvalid
+            | Self::SurfaceGatheringPlayerNotLocated
+            | Self::SurfaceGatheringPlayerRemote
+            | Self::SurfaceGatheringDestinationMissing
+            | Self::SurfaceGatheringDestinationMounted
+            | Self::SurfaceGatheringReservationMissing
+            | Self::SurfaceGatheringScheduleInvalid
+            | Self::SurfaceGatheringDurationMismatch
             | Self::ManualProductionJobMissing
             | Self::ManualProductionProcessMismatch
             | Self::ManualProductionScheduleInvalid

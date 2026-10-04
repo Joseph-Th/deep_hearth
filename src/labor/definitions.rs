@@ -1,9 +1,11 @@
 //! Immutable player-labor definitions; subsystem execution owns runtime admission and mutation.
 
+mod gathering;
 mod manual_power;
 mod prospecting;
 mod registry;
 
+pub use gathering::{SurfaceGatheringDefinition, SurfaceGatheringMethodId};
 pub use manual_power::{ManualPowerDefinition, ManualPowerMethodId};
 pub(crate) use prospecting::ProspectingRegionError;
 pub use prospecting::{

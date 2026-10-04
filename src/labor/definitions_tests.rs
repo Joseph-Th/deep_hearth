@@ -68,7 +68,7 @@ fn manual_power_authoring_rejects_methods_without_a_physical_provider() {
         1,
         active_exertion(),
     );
-    let registry = LaborRegistry::new([method], std::iter::empty());
+    let registry = LaborRegistry::new(std::iter::empty(), [method], std::iter::empty());
     let mut capabilities = CapabilityRegistry::new();
     capabilities.register_capability(CapabilityDefinition::new(
         power_capability,
@@ -117,7 +117,7 @@ fn prospecting_authoring_rejects_structurally_installed_instruments() {
         active_exertion(),
         ProspectingEquipmentProfile::new(EQUIPMENT_JAW_CRUSHER, 1),
     );
-    let labor = LaborRegistry::new(std::iter::empty(), [prospecting]);
+    let labor = LaborRegistry::new(std::iter::empty(), std::iter::empty(), [prospecting]);
 
     let result = std::panic::catch_unwind(|| {
         labor.validate_references(
@@ -142,7 +142,7 @@ fn prospecting_authoring_rejects_duration_beyond_pristine_tool_lifetime() {
         active_exertion(),
         ProspectingEquipmentProfile::new(EQUIPMENT_STONE_GEOLOGICAL_HAMMER, 1_000_000),
     );
-    let labor = LaborRegistry::new(std::iter::empty(), [prospecting]);
+    let labor = LaborRegistry::new(std::iter::empty(), std::iter::empty(), [prospecting]);
 
     let result = std::panic::catch_unwind(|| {
         labor.validate_references(

@@ -14,6 +14,7 @@ use crate::logistics::LogisticsState;
 use crate::mining::MiningState;
 use crate::production::ProductionState;
 use crate::structural::StructureState;
+use crate::surface::{SurfaceResourceRecord, SurfaceResourceState};
 use crate::survival::SurvivalState;
 
 use super::time::SimulationTick;
@@ -61,6 +62,7 @@ impl Debug for AppState {
             .field("fluid", &self.systems.fluid)
             .field("equipment", &self.systems.equipment)
             .field("structures", &self.systems.structures)
+            .field("surface", &self.systems.surface)
             .field("geological_knowledge", &self.systems.geological_knowledge)
             .field("inventory", &self.systems.inventory)
             .field("logistics", &self.systems.logistics)
@@ -105,6 +107,8 @@ struct SystemState {
     fluid: FluidState,
     equipment: EquipmentState,
     structures: StructureState,
+    #[serde(serialize_with = "crate::surface::serialize_surface_resource_state")]
+    surface: SurfaceResourceState,
     geology: GeologyState,
     geological_knowledge: GeologicalKnowledgeState,
     inventory: InventoryState,
@@ -137,6 +141,7 @@ impl AppState {
                 fluid: FluidState::new(),
                 equipment: EquipmentState::new(),
                 structures: StructureState::new(),
+                surface: SurfaceResourceState::new(),
                 geology: GeologyState::new(),
                 geological_knowledge: GeologicalKnowledgeState::new(),
                 inventory: InventoryState::new(),
@@ -195,6 +200,29 @@ impl AppState {
         &mut self.systems.structures
     }
 
+    /// Returns finite loose world matter to owning core systems only.
+    #[must_use]
+    pub(crate) const fn surface(&self) -> &SurfaceResourceState {
+        &self.systems.surface
+    }
+
+    /// Iterates currently gatherable loose matter at the admitted player's exact voxel.
+    ///
+    /// No resources are observable before logistics admission. Callers cannot supply an arbitrary
+    /// voxel, so this surface cannot be used to scan remote world state.
+    pub fn available_surface_resources(&self) -> impl Iterator<Item = &SurfaceResourceRecord> {
+        let player_position = self
+            .systems
+            .logistics
+            .player()
+            .map(|player| player.position());
+        self.systems.surface.available_resources_at(player_position)
+    }
+
+    pub(crate) fn surface_state_mut(&mut self) -> &mut SurfaceResourceState {
+        &mut self.systems.surface
+    }
+
     /// Returns authoritative geological truth to owning core systems only.
     ///
     /// Player-facing adapters must use `geological_knowledge()` rather than enumerating hidden
@@ -250,8 +278,9 @@ impl AppState {
         self.systems.geological_knowledge.rebuild_derived_indexes();
         self.systems.production.rebuild_derived_indexes();
         self.systems.mining.rebuild_derived_indexes();
-        // Survival, player work, logistics, and geology hold no derived indexes: their persisted
-        // records are the complete continuation state, so there is nothing to rebuild.
+        // Survival, player work, logistics, geology, and surface resources hold no derived indexes:
+        // their persisted records are the complete continuation state, so there is nothing to
+        // rebuild.
     }
 
     /// Returns read-only authoritative production scheduling state.

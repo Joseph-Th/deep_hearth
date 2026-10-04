@@ -29,6 +29,10 @@ use crate::production::{
     apply_completion_plan, decide_due_completions,
 };
 use crate::registry::Registries;
+use crate::surface::{
+    SurfaceGatheringOutcome, SurfaceGatheringTickPlan, apply_surface_gathering_tick,
+    decide_surface_gathering_tick,
+};
 use crate::survival::{
     SurvivalAssessment, apply_survival_tick, assess_survival, decide_survival_tick,
 };
@@ -43,6 +47,7 @@ pub struct TickOutcome {
     production_availability_changes: Vec<ProductionAvailabilityChange>,
     production_completions: Vec<ProcessCompletion>,
     ready_mining_job: Option<MiningJobId>,
+    surface_gathering: Option<SurfaceGatheringOutcome>,
     manual_power: Option<ManualPowerOutcome>,
     equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
     storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
@@ -76,6 +81,12 @@ impl TickOutcome {
         self.ready_mining_job
     }
 
+    /// Returns loose surface matter gathered into ordinary inventory on this tick, if any.
+    #[must_use]
+    pub const fn surface_gathering(&self) -> Option<&SurfaceGatheringOutcome> {
+        self.surface_gathering.as_ref()
+    }
+
     /// Returns direct player-powered energy generation that completed during this tick.
     #[must_use]
     pub const fn manual_power(&self) -> Option<ManualPowerOutcome> {
@@ -105,6 +116,24 @@ impl TickOutcome {
     pub const fn survival(&self) -> Option<SurvivalAssessment> {
         self.survival
     }
+}
+
+fn decide_surface_gathering_after_completions(
+    registries: &Registries,
+    state: &AppState,
+    completion_plan: &CompletionPlan,
+    next_tick: SimulationTick,
+) -> Result<Option<SurfaceGatheringTickPlan>, TickError> {
+    if state
+        .player_work()
+        .surface_gathering_due_at(next_tick)
+        .is_none()
+    {
+        return Ok(None);
+    }
+    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
+    decide_surface_gathering_tick(registries, state, projected_inventory.as_ref(), next_tick)
+        .map_err(Into::into)
 }
 
 fn checked_revision_steps(
@@ -174,6 +203,8 @@ pub fn advance_tick(
     // deferral fail-closed (a newly freed store, tool, or calorie is denied this tick rather than
     // admitted against stale facts), so no additional projection is needed for those phases.
     let mut completion_plan = decide_due_completions(registries, state, next_tick)?;
+    let surface_gathering_plan =
+        decide_surface_gathering_after_completions(registries, state, &completion_plan, next_tick)?;
     let storage_enclosure_dismantling_plan = decide_storage_dismantling_after_completions(
         registries,
         state,
@@ -269,6 +300,7 @@ pub fn advance_tick(
         availability_changes: production_availability_changes,
     } = apply_completion_plan(state, completion_plan)?;
     let ready_mining_job = apply_mining_tick(state, mining_plan);
+    let surface_gathering = apply_surface_gathering_tick(state, surface_gathering_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
     let equipment_maintenance = apply_equipment_maintenance_tick(state, equipment_maintenance_plan);
     apply_passive_energy_dissipation(state, passive_energy_plan);
@@ -287,6 +319,7 @@ pub fn advance_tick(
         production_availability_changes,
         production_completions,
         ready_mining_job,
+        surface_gathering,
         manual_power,
         equipment_maintenance,
         storage_enclosure_dismantling,

@@ -8,13 +8,16 @@ use crate::production::ProductionJobId;
 
 use super::{
     DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, ProspectingWork,
-    StorageEnclosureDismantlingWork,
+    StorageEnclosureDismantlingWork, SurfaceGatheringWork,
 };
 
 /// Durable activity currently monopolizing the local player's labor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum PlayerWork {
+    SurfaceGathering {
+        work: SurfaceGatheringWork,
+    },
     ManualProduction {
         job: ProductionJobId,
     },
@@ -42,6 +45,22 @@ pub enum PlayerWork {
 }
 
 impl PlayerWork {
+    /// Future surface-owner revisions still owed directly by this work record after admission.
+    #[must_use]
+    pub(in crate::labor) const fn future_surface_revision_demand(self) -> u64 {
+        match self {
+            Self::SurfaceGathering { .. } => 1,
+            Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
+            | Self::StorageEnclosureDismantling { .. } => 0,
+        }
+    }
+
     /// Future inventory-owner revisions still owed by this direct-work record after admission.
     ///
     /// Manual production and mining keep their delayed owner effects in their own durable job
@@ -49,6 +68,7 @@ impl PlayerWork {
     #[must_use]
     pub(in crate::labor) const fn future_inventory_revision_demand(self) -> u64 {
         match self {
+            Self::SurfaceGathering { .. } => 1,
             Self::StorageEnclosureDismantling { .. } => 2,
             Self::ManualProduction { .. }
             | Self::Mining { .. }
@@ -65,7 +85,8 @@ impl PlayerWork {
     pub(in crate::labor) const fn future_energy_revision_demand(self) -> u64 {
         match self {
             Self::ManualPower { .. } => 1,
-            Self::ManualProduction { .. }
+            Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }
             | Self::Eating { .. }
@@ -84,7 +105,8 @@ impl PlayerWork {
         match self {
             Self::ManualPower { .. } | Self::EquipmentMaintenance { .. } => 1,
             Self::Prospecting { work } if work.equipment().is_some() => 1,
-            Self::ManualProduction { .. }
+            Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }
             | Self::Eating { .. }
@@ -97,7 +119,8 @@ impl PlayerWork {
     pub(crate) const fn prospecting(self) -> Option<ProspectingWork> {
         match self {
             Self::Prospecting { work } => Some(work),
-            Self::ManualProduction { .. }
+            Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
             | Self::Eating { .. }
@@ -111,7 +134,8 @@ impl PlayerWork {
     pub(crate) const fn manual_power(self) -> Option<ManualPowerWork> {
         match self {
             Self::ManualPower { work } => Some(work),
-            Self::ManualProduction { .. }
+            Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }
             | Self::Eating { .. }
@@ -124,6 +148,7 @@ impl PlayerWork {
     #[must_use]
     pub(crate) const fn inline_schedule(self) -> Option<(SimulationTick, SimulationTick)> {
         match self {
+            Self::SurfaceGathering { work } => Some((work.started_at(), work.completes_at())),
             Self::ManualPower { work } => Some((work.started_at(), work.completes_at())),
             Self::Prospecting { work } => Some((work.started_at(), work.completes_at())),
             Self::Eating { work } => Some((work.started_at(), work.completes_at())),
@@ -140,7 +165,8 @@ impl PlayerWork {
     pub(crate) const fn equipment_maintenance(self) -> Option<EquipmentMaintenanceWork> {
         match self {
             Self::EquipmentMaintenance { work } => Some(work),
-            Self::ManualProduction { .. }
+            Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
             | Self::Prospecting { .. }
@@ -154,13 +180,29 @@ impl PlayerWork {
     pub(crate) const fn storage_dismantling(self) -> Option<StorageEnclosureDismantlingWork> {
         match self {
             Self::StorageEnclosureDismantling { work } => Some(work),
-            Self::ManualProduction { .. }
+            Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
             | Self::Prospecting { .. }
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn surface_gathering(self) -> Option<SurfaceGatheringWork> {
+        match self {
+            Self::SurfaceGathering { work } => Some(work),
+            Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
+            | Self::StorageEnclosureDismantling { .. } => None,
         }
     }
 }

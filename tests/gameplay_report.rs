@@ -7,6 +7,8 @@ mod output;
 
 #[path = "gameplay_harness/agency.rs"]
 mod agency;
+#[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
+mod bulk_fieldwork_workload;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
 #[path = "gameplay_harness/capital_investment_policy.rs"]

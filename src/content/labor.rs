@@ -7,6 +7,7 @@ use crate::geology::GeologicalEvidenceKind;
 use crate::labor::{
     LaborRegistry, ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition,
     ProspectingEquipmentProfile, ProspectingMethodId, ProspectingSpatialResolution,
+    SurfaceGatheringDefinition, SurfaceGatheringMethodId,
 };
 use crate::survival::SurvivalExertion;
 
@@ -20,6 +21,8 @@ use super::equipment::{
 };
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
+pub const SURFACE_GATHERING_HAND_SCAVENGE: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(1);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
 pub const MANUAL_POWER_TREADLE_DYNAMO: ManualPowerMethodId = ManualPowerMethodId::new(4);
@@ -33,6 +36,15 @@ pub const PROSPECTING_SHALLOW_CORE_SURVEY: ProspectingMethodId = ProspectingMeth
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
+        [SurfaceGatheringDefinition::new(
+            SURFACE_GATHERING_HAND_SCAVENGE,
+            Mass::from_milligrams(5_000_000),
+            TickSpan::new(60),
+            SurvivalExertion::new(
+                Energy::from_nanojoules(1_200_000_000_000),
+                Volume::from_microliters(300),
+            ),
+        )],
         [
             ManualPowerDefinition::new(
                 MANUAL_POWER_HAND_CRANK,
@@ -200,5 +212,5 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
 
 #[cfg(test)]
 pub(super) fn empty_labor_registry() -> LaborRegistry {
-    LaborRegistry::new(std::iter::empty(), std::iter::empty())
+    LaborRegistry::new(std::iter::empty(), std::iter::empty(), std::iter::empty())
 }

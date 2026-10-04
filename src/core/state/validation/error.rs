@@ -27,6 +27,7 @@ use crate::spatial::VoxelCoord;
 use crate::structural::{
     StructuralAnalysisError, StructuralDamageEvent, StructuralElementId, StructureValidationError,
 };
+use crate::surface::SurfaceResourceValidationError;
 use crate::survival::SurvivalValidationError;
 use crate::thermal::ThermalJobValidationError;
 
@@ -37,6 +38,7 @@ pub enum StateValidationError {
     Fluid(FluidValidationError),
     Equipment(EquipmentValidationError),
     Structure(StructureValidationError),
+    Surface(SurfaceResourceValidationError),
     StructureAnalysis(StructuralAnalysisError),
     UnresolvedStructuralDamage {
         event: StructuralDamageEvent,
@@ -286,6 +288,11 @@ pub enum StateValidationError {
         required: u64,
     },
     FutureEquipmentRevisionDemandOverflow,
+    FutureSurfaceRevisionCapacityExhausted {
+        revision: u64,
+        required: u64,
+    },
+    FutureSurfaceRevisionDemandOverflow,
     FutureMiningRevisionCapacityExhausted {
         revision: u64,
         required: u64,

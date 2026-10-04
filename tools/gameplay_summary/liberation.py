@@ -99,13 +99,23 @@ def _kit_acquisition(lines: list[str]) -> str:
         raise ValueError(
             "primitive liberation route lost runtime kit-acquisition continuity"
         )
-    fixture_sources = sum(
-        " raw-origin=pre-admission-fixture " in line for line in witnesses
+    surface_sources = sum(
+        " raw-origin=controlled-finite-surface " in line for line in witnesses
     )
-    runtime_pickups = sum(" pickup=same-voxel-runtime " in line for line in witnesses)
-    if witnesses and runtime_pickups != len(witnesses):
-        raise ValueError("primitive liberation kit acquisition bypassed runtime pickup")
-    world_gathering = sum(" world-gathering-proved=true " in line for line in witnesses)
+    if witnesses and surface_sources != len(witnesses):
+        raise ValueError("primitive liberation kit acquisition lost controlled finite surface sourcing")
+    runtime_gathering = sum(
+        " runtime-surface-gathering-proved=true " in line for line in witnesses
+    )
+    if witnesses and runtime_gathering != len(witnesses):
+        raise ValueError("primitive liberation kit acquisition bypassed runtime surface gathering")
+    ordinary_generation = sum(
+        " ordinary-world-source-generation-proved=true " in line for line in witnesses
+    )
+    if ordinary_generation:
+        raise ValueError(
+            "primitive liberation controlled fixture cannot claim ordinary world-source generation"
+        )
     incremental = [line for line in witnesses if " incremental-attention:" in line]
     if incremental:
         if len(incremental) != len(witnesses):
@@ -121,6 +131,8 @@ def _kit_acquisition(lines: list[str]) -> str:
         inherited_min_condition: list[int] = []
         inherited_max_condition: list[int] = []
         inherited_mass: list[int] = []
+        gathering_attention: list[int] = []
+        fabrication_attention: list[int] = []
         adze_attention: list[int] = []
         extension_attention: list[int] = []
         riddle_attention: list[int] = []
@@ -137,11 +149,12 @@ def _kit_acquisition(lines: list[str]) -> str:
                 line,
             )
             build_attention = re.search(r"incremental-attention:(\d+)t", line)
+            gathering = re.search(r" gathering:(\d+)t ", line)
             fabrication = re.search(
-                r"fabrication=\[adze:(\d+)t extension-components:(\d+)t riddle-panel:(\d+)t\]",
+                r"fabrication=\[total:(\d+)t adze:(\d+)t extension-components:(\d+)t riddle-panel:(\d+)t\]",
                 line,
             )
-            if None in (raw, raw_use, inherited, build_attention, fabrication):
+            if None in (raw, raw_use, inherited, build_attention, gathering, fabrication):
                 raise ValueError(
                     "primitive liberation incremental kit report lost continuity or fabrication evidence"
                 )
@@ -149,6 +162,7 @@ def _kit_acquisition(lines: list[str]) -> str:
             assert raw_use is not None
             assert inherited is not None
             assert build_attention is not None
+            assert gathering is not None
             assert fabrication is not None
             stone.append(int(raw.group(1)))
             wood.append(int(raw.group(2)))
@@ -159,12 +173,14 @@ def _kit_acquisition(lines: list[str]) -> str:
             inherited_max_condition.append(int(inherited.group(2)))
             inherited_mass.append(int(inherited.group(3)))
             attention.append(int(build_attention.group(1)))
-            adze_attention.append(int(fabrication.group(1)))
-            extension_attention.append(int(fabrication.group(2)))
-            riddle_attention.append(int(fabrication.group(3)))
+            gathering_attention.append(int(gathering.group(1)))
+            fabrication_attention.append(int(fabrication.group(1)))
+            adze_attention.append(int(fabrication.group(2)))
+            extension_attention.append(int(fabrication.group(3)))
+            riddle_attention.append(int(fabrication.group(4)))
         return (
             "kit-acquisition=["
-            f"source=[fixture:{fixture_sources} pickup:{runtime_pickups} gather:{world_gathering}] "
+            f"source=[fixture-surface:{surface_sources} gather:{runtime_gathering} world-gen:{ordinary_generation}] "
             f"carryover=[processing-line:{len(incremental)}/{len(witnesses)} "
             f"condition:{min(inherited_min_condition)}..{max(inherited_max_condition)}ppm "
             f"embodied:{scaled_span(inherited_mass, 1_000_000, 'kg')}] "
@@ -175,7 +191,9 @@ def _kit_acquisition(lines: list[str]) -> str:
             f"remaining:{scaled_span(remaining, 1_000_000, 'kg')}] "
             f"incremental-attn:{_span(attention, 't')} "
             f"time:{physical_duration_span(lines, attention)} "
-            f"phases=[adze:{_span(adze_attention, 't')} "
+            f"phases=[gather:{_span(gathering_attention, 't')} "
+            f"fabricate:{_span(fabrication_attention, 't')} "
+            f"adze:{_span(adze_attention, 't')} "
             f"parts:{_span(extension_attention, 't')} "
             f"riddle:{_span(riddle_attention, 't')}]]"
         )

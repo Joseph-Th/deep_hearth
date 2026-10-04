@@ -9,7 +9,7 @@ use crate::inventory::{InventoryState, StockpileId};
 
 use super::work::{
     EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
-    StorageEnclosureDismantlingWork,
+    StorageEnclosureDismantlingWork, SurfaceGatheringWork,
 };
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
@@ -26,6 +26,14 @@ impl PlayerWorkState {
         Self {
             revision: 0,
             active: None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn future_surface_revision_demand(&self) -> u64 {
+        match self.active {
+            Some(work) => work.future_surface_revision_demand(),
+            None => 0,
         }
     }
 
@@ -75,6 +83,13 @@ impl PlayerWorkState {
 
     #[must_use]
     pub(crate) fn future_material_lot_id_demand(&self, inventory: &InventoryState) -> u64 {
+        if self
+            .active
+            .and_then(PlayerWork::surface_gathering)
+            .is_some()
+        {
+            return 1;
+        }
         let Some(work) = self.active.and_then(PlayerWork::storage_dismantling) else {
             return 0;
         };
@@ -86,6 +101,17 @@ impl PlayerWorkState {
             });
         u64::try_from(enclosure.embodied_material().len())
             .unwrap_or_else(|_| unreachable!("resident enclosure trace count fits u64"))
+    }
+
+    /// Returns admitted surface-gathering work that completes on `tick`, if any.
+    #[must_use]
+    pub(crate) fn surface_gathering_due_at(
+        &self,
+        tick: SimulationTick,
+    ) -> Option<SurfaceGatheringWork> {
+        self.active
+            .and_then(PlayerWork::surface_gathering)
+            .filter(|work| work.completes_at() == tick)
     }
 
     /// Returns the admitted enclosure-dismantling work that completes on `tick`, if any.

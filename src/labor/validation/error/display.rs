@@ -14,6 +14,42 @@ impl Display for PlayerWorkValidationError {
             Self::SurvivalRevisionExhausted => formatter.write_str(
                 "active player work cannot reserve survival revisions through its completion tick",
             ),
+            Self::SurfaceGatheringMethodMissing => formatter
+                .write_str("surface gathering work references a missing authored method"),
+            Self::SurfaceGatheringResourceMissing => formatter
+                .write_str("surface gathering work references a missing world resource"),
+            Self::SurfaceGatheringResourceDepleted => formatter
+                .write_str("surface gathering work references an already depleted world resource"),
+            Self::SurfaceGatheringSourceMassMismatch => formatter.write_str(
+                "surface gathering work disagrees with the remaining world-resource mass",
+            ),
+            Self::SurfaceGatheringMassInvalid => formatter
+                .write_str("surface gathering mass exceeds the current authored hand-gather batch"),
+            Self::SurfaceGatheringPlayerNotLocated => formatter
+                .write_str("surface gathering requires initialized player world position"),
+            Self::SurfaceGatheringPlayerRemote => formatter
+                .write_str("surface gathering resource is no longer at the player's voxel"),
+            Self::SurfaceGatheringDestinationAccess(error) => write!(
+                formatter,
+                "surface gathering destination access is invalid: {error}"
+            ),
+            Self::SurfaceGatheringDestinationMissing => formatter
+                .write_str("surface gathering work references a missing destination stockpile"),
+            Self::SurfaceGatheringDestinationMounted => formatter.write_str(
+                "surface gathering requires an unmounted destination so structural load is not bypassed",
+            ),
+            Self::SurfaceGatheringDestinationStorage(error) => write!(
+                formatter,
+                "surface gathering destination cannot accept the source material: {error}"
+            ),
+            Self::SurfaceGatheringReservationMissing => formatter.write_str(
+                "surface gathering destination no longer retains its reserved inbound capacity",
+            ),
+            Self::SurfaceGatheringScheduleInvalid => formatter
+                .write_str("surface gathering work has an invalid persisted schedule"),
+            Self::SurfaceGatheringDurationMismatch => formatter.write_str(
+                "surface gathering duration disagrees with its current authored labor method",
+            ),
             Self::ManualProductionJobMissing => {
                 formatter.write_str("player work references missing manual production job")
             }

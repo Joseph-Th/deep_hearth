@@ -177,6 +177,8 @@ mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 
+#[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
+mod bulk_fieldwork_workload;
 #[path = "gameplay_harness/capital_investment_policy_tests.rs"]
 mod capital_investment_policy_tests;
 #[path = "gameplay_harness/configuration_tests.rs"]

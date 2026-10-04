@@ -284,7 +284,8 @@ fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u
     let completes_at = match active {
         PlayerWork::Eating { work } => work.completes_at(),
         PlayerWork::Drinking { work } => work.completes_at(),
-        other @ (PlayerWork::ManualProduction { .. }
+        other @ (PlayerWork::SurfaceGathering { .. }
+        | PlayerWork::ManualProduction { .. }
         | PlayerWork::Mining { .. }
         | PlayerWork::ManualPower { .. }
         | PlayerWork::Prospecting { .. }

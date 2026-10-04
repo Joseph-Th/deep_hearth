@@ -19,14 +19,12 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{MiningOrderRequest, resolve_mining_order};
 use deep_hearth::registry::Registries;
 
+use super::bulk_fieldwork_workload::{BULK_FIELDWORK_ORDER_MIN_BATCHES, bulk_fieldwork_order_mass};
 use super::equipment_support::pristine_equipment_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED;
 use super::manual_construction_planning::manual_construction_route_from_roots;
-use super::primitive_workload::{
-    BULK_FIELDWORK_ORDER_MIN_BATCHES, STOCKPILE_WORK_ORDER_CYCLES, bulk_fieldwork_order_mass,
-    primitive_mining_cycle_mass,
-};
+use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
 
 const FIELDWORK_KNOWN_SITE_REPEAT_HORIZON: u64 = 12;

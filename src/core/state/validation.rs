@@ -11,6 +11,7 @@ use crate::mining::{validate_loaded_mining, validate_loaded_mining_jobs};
 use crate::production::{validate_loaded_production, validate_loaded_production_schedule_history};
 use crate::registry::Registries;
 use crate::structural::validate_loaded_structure;
+use crate::surface::validate_loaded_surface_resources;
 use crate::survival::validate_loaded_survival;
 
 use super::AppState;
@@ -61,6 +62,8 @@ pub fn validate_loaded_state(
         registries.core().gravity(),
     )
     .map_err(StateValidationError::Structure)?;
+    validate_loaded_surface_resources(registries.materials(), &state.systems.surface, state.tick())
+        .map_err(StateValidationError::Surface)?;
     validate_loaded_inventory(
         registries.materials(),
         &state.systems.inventory,
@@ -171,6 +174,18 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
             },
         );
     }
+    let surface_required = state
+        .checked_future_surface_revision_demand()
+        .ok_or(StateValidationError::FutureSurfaceRevisionDemandOverflow)?;
+    let surface_revision = state.surface().revision();
+    if surface_revision.checked_add(surface_required).is_none() {
+        return Err(
+            StateValidationError::FutureSurfaceRevisionCapacityExhausted {
+                revision: surface_revision,
+                required: surface_required,
+            },
+        );
+    }
     let mining_required = state
         .checked_future_mining_revision_demand()
         .ok_or(StateValidationError::FutureMiningRevisionDemandOverflow)?;
@@ -231,6 +246,10 @@ pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &A
     debug_assert!(
         state.systems.structures.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): structural ID cursor must remain valid"
+    );
+    debug_assert!(
+        state.systems.surface.has_valid_id_cursor(),
+        "Runtime Invariant 8 (No Lost Runtime State): surface resource ID cursor must remain above every allocated resource"
     );
     debug_assert!(
         state.systems.geology.has_valid_id_cursor(),

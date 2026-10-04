@@ -8,9 +8,7 @@ use crate::registry::Registries;
 use super::{MaterialIngressEntry, MaterialIngressError};
 use crate::inventory::coalescing::LotMergePolicy;
 use crate::inventory::lot_identity::LotIdentityPlanner;
-use crate::inventory::state::{
-    InventoryState, MaterialLotId, MaterialStorageHistory, StockpileId, StockpileRecord,
-};
+use crate::inventory::state::{InventoryState, MaterialLotId, StockpileId, StockpileRecord};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct IngressIdentityPlan {
@@ -61,7 +59,6 @@ pub(super) fn replay_ingress_identity_plan(
     let preservation_multiplier_ppm = destination_record
         .storage_profile()
         .preservation_multiplier_ppm();
-    let storage_history = MaterialStorageHistory::new(current_tick);
     let mut identity_planner = LotIdentityPlanner::new(state, excluded_existing.iter().copied());
     let mut lot_ids = Vec::with_capacity(entries.len());
     for (entry, merge_policy) in entries.iter().zip(&merge_policies) {
@@ -70,7 +67,7 @@ pub(super) fn replay_ingress_identity_plan(
                 .plan(
                     destination,
                     &entry.profile,
-                    storage_history,
+                    entry.storage_history_at(current_tick),
                     current_tick,
                     preservation_multiplier_ppm,
                     *merge_policy,

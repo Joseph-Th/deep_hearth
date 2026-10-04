@@ -13,6 +13,7 @@ impl Display for StateValidationError {
             Self::Fluid(error) => write!(formatter, "invalid fluid state: {error}"),
             Self::Equipment(error) => write!(formatter, "invalid equipment state: {error}"),
             Self::Structure(error) => write!(formatter, "invalid structural state: {error}"),
+            Self::Surface(error) => write!(formatter, "invalid surface-resource state: {error}"),
             Self::StructureAnalysis(error) => {
                 write!(formatter, "structural state cannot be analyzed: {error}")
             }
@@ -460,6 +461,13 @@ impl Display for StateValidationError {
             ),
             Self::FutureEquipmentRevisionDemandOverflow => formatter.write_str(
                 "already-admitted future equipment revision demand exceeds the representable u64 range",
+            ),
+            Self::FutureSurfaceRevisionCapacityExhausted { revision, required } => write!(
+                formatter,
+                "surface revision {revision} cannot reserve {required} already-admitted future revisions"
+            ),
+            Self::FutureSurfaceRevisionDemandOverflow => formatter.write_str(
+                "already-admitted future surface revision demand exceeds the representable u64 range",
             ),
             Self::FutureMiningRevisionCapacityExhausted { revision, required } => write!(
                 formatter,

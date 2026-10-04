@@ -31,6 +31,13 @@ pub(crate) fn player_work_exertion(
         return exertion;
     };
     match work {
+        PlayerWork::SurfaceGathering { work } => registries
+            .labor()
+            .get_surface_gathering(work.method())
+            .unwrap_or_else(|| {
+                panic!("runtime invariant broken: surface gathering has no authored method")
+            })
+            .exertion(),
         PlayerWork::ManualProduction { job } => {
             let record = state.production().get_job(job).unwrap_or_else(|| {
                 panic!(

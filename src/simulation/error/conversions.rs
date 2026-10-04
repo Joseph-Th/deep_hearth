@@ -3,6 +3,7 @@
 use crate::geology::FieldProspectingTickError;
 use crate::inventory::StorageEnclosureDismantlingTickError;
 use crate::production::{CompletionCommitError, CompletionPlanError};
+use crate::surface::SurfaceGatheringTickError;
 use crate::survival::SurvivalTickError;
 
 use super::TickError;
@@ -26,6 +27,16 @@ impl From<CompletionPlanError> for TickError {
                 remaining,
             },
             CompletionPlanError::StructuralLoad(error) => Self::StructuralLoad(error),
+        }
+    }
+}
+
+impl From<SurfaceGatheringTickError> for TickError {
+    fn from(error: SurfaceGatheringTickError) -> Self {
+        match error {
+            SurfaceGatheringTickError::MaterialLotIds => Self::MaterialLotIdExhausted,
+            SurfaceGatheringTickError::InventoryRevision => Self::InventoryRevisionExhausted,
+            SurfaceGatheringTickError::SurfaceRevision => Self::SurfaceRevisionExhausted,
         }
     }
 }

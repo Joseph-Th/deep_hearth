@@ -20,6 +20,10 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 
+use super::bulk_fieldwork_workload::{
+    BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, bulk_fieldwork_order_mass,
+    primitive_quarry_batch_mass,
+};
 use super::capital_investment_policy::CapitalInvestmentPolicy;
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
@@ -29,11 +33,7 @@ use super::manual_construction_planning::manual_construction_route_from_roots;
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
-use super::primitive_workload::{
-    BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES,
-    STOCKPILE_WORK_ORDER_CYCLES, bulk_fieldwork_order_mass, primitive_mining_cycle_mass,
-    primitive_quarry_batch_mass,
-};
+use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
 
 #[path = "power_provider_build.rs"]

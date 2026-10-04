@@ -52,16 +52,21 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
 
 
 def _bootstrap_boundary_evidence(liberation_kit: list[str]) -> str:
-    fixture_source = sum(
-        " raw-origin=pre-admission-fixture " in line for line in liberation_kit
+    surface_source = sum(
+        " raw-origin=controlled-finite-surface " in line for line in liberation_kit
     )
-    runtime_pickup = sum(" pickup=same-voxel-runtime " in line for line in liberation_kit)
-    world_gathering = sum(" world-gathering-proved=true " in line for line in liberation_kit)
+    runtime_gathering = sum(
+        " runtime-surface-gathering-proved=true " in line for line in liberation_kit
+    )
+    ordinary_generation = sum(
+        " ordinary-world-source-generation-proved=true " in line
+        for line in liberation_kit
+    )
     return (
         "bootstrap-boundary=["
-        f"fixture-source:{fixture_source}/{len(liberation_kit)} "
-        f"runtime-pickup:{runtime_pickup}/{len(liberation_kit)} "
-        f"world-gathering:{world_gathering}/{len(liberation_kit)}]"
+        f"fixture-surface:{surface_source}/{len(liberation_kit)} "
+        f"gather:{runtime_gathering}/{len(liberation_kit)} "
+        f"world-gen:{ordinary_generation}/{len(liberation_kit)}]"
     )
 
 

@@ -13,11 +13,13 @@ use crate::core::state::AppState;
 /// whole-milligram ledger would either lose information or manufacture matter through rounding.
 ///
 /// This is a diagnostic conservation surface, not actor-safe observation. In particular,
-/// `geological()` and `total()` include hidden finite geology and must not be used to authorize or
-/// choose player actions; actor policy derives geological information only from acquired knowledge.
+/// `geological()`, `surface()`, and `total()` include world truth that is not globally actor-visible
+/// and must not be used to authorize or choose player actions. Actor policy derives geology from
+/// acquired knowledge and loose surface matter from exact-local observation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MatterAccounting {
     geological: AggregateMass,
+    surface: AggregateMass,
     structural: AggregateMass,
     equipment: AggregateMass,
     energy_storage: AggregateMass,
@@ -33,6 +35,12 @@ impl MatterAccounting {
     #[must_use]
     pub const fn geological(self) -> AggregateMass {
         self.geological
+    }
+
+    /// Matter still owned by finite loose surface resources across the complete world state.
+    #[must_use]
+    pub const fn surface(self) -> AggregateMass {
+        self.surface
     }
 
     /// Matter embodied in structural members.
@@ -89,6 +97,7 @@ impl MatterAccounting {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MatterAccountingError {
     GeologicalMassOverflow,
+    SurfaceMassOverflow,
     StructuralMassOverflow,
     EquipmentMassOverflow,
     EnergyStorageMassOverflow,
@@ -104,6 +113,9 @@ impl Display for MatterAccountingError {
         match self {
             Self::GeologicalMassOverflow => {
                 formatter.write_str("geological world matter exceeds aggregate mass range")
+            }
+            Self::SurfaceMassOverflow => {
+                formatter.write_str("surface-resource world matter exceeds aggregate mass range")
             }
             Self::StructuralMassOverflow => {
                 formatter.write_str("structural world matter exceeds aggregate mass range")
@@ -130,6 +142,16 @@ impl Display for MatterAccountingError {
             }
         }
     }
+}
+
+fn calculate_surface_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    sum_masses(
+        state
+            .surface()
+            .resources()
+            .map(|resource| AggregateMass::from_mass(resource.remaining_mass())),
+        MatterAccountingError::SurfaceMassOverflow,
+    )
 }
 
 impl Error for MatterAccountingError {}
@@ -253,6 +275,7 @@ pub fn calculate_matter_accounting(
     state: &AppState,
 ) -> Result<MatterAccounting, MatterAccountingError> {
     let geological = calculate_geological_mass(state)?;
+    let surface = calculate_surface_mass(state)?;
     let structural = calculate_structural_mass(state)?;
     let equipment = calculate_equipment_mass(state)?;
     let energy_storage = calculate_energy_storage_mass(state)?;
@@ -262,6 +285,7 @@ pub fn calculate_matter_accounting(
     let consumed = calculate_consumed_mass(state)?;
     let total = calculate_total_mass(&[
         geological,
+        surface,
         structural,
         equipment,
         energy_storage,
@@ -272,6 +296,7 @@ pub fn calculate_matter_accounting(
     ])?;
     Ok(MatterAccounting {
         geological,
+        surface,
         structural,
         equipment,
         energy_storage,

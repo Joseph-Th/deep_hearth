@@ -6,7 +6,7 @@ use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
 
-use super::super::primitive_workload::{
+use super::super::bulk_fieldwork_workload::{
     BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, primitive_quarry_batch_mass,
 };
 use super::planning::{

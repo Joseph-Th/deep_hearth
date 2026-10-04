@@ -18,6 +18,7 @@ mod error;
 mod manual_power;
 mod prospecting;
 mod storage_enclosure_dismantling;
+mod surface_gathering;
 
 use direct_consumption::{
     validate_direct_consumption_binding, validate_drinking_work, validate_eating_work,
@@ -27,6 +28,7 @@ pub use error::PlayerWorkValidationError;
 use manual_power::validate_manual_power_work;
 use prospecting::validate_prospecting_work;
 use storage_enclosure_dismantling::validate_storage_enclosure_dismantling_work;
+use surface_gathering::validate_surface_gathering_work;
 
 #[derive(Default)]
 struct ActivePlayerJobs {
@@ -106,6 +108,14 @@ pub(crate) fn validate_loaded_player_work(
     let available_energy = player.metabolic_energy();
     let available_hydration = player.hydration();
     match work {
+        PlayerWork::SurfaceGathering { work } => validate_surface_gathering_work(
+            registries,
+            state,
+            &active_jobs,
+            work,
+            available_energy,
+            available_hydration,
+        ),
         PlayerWork::ManualProduction { job } => validate_manual_production_work(
             registries,
             state,

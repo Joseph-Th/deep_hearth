@@ -12,6 +12,8 @@ macro_rules! include_fieldwork_contract_tests {
 macro_rules! include_fieldwork_campaign_contract_tests {
     () => {};
 }
+#[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
+mod bulk_fieldwork_workload;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[allow(

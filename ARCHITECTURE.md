@@ -220,8 +220,9 @@ registry schemas.
 
 - Save/load preserves every value required for supported continuation.
 - Complete `AppState` persistence is serialized only through `SaveEnvelope`; the runtime root itself is not a
-  public serialization or deserialization target. This keeps hidden geology behind the persistence boundary
-  rather than ordinary read access. Untrusted bytes decode only through
+  public serialization or deserialization target. This keeps hidden geology and complete world-resource truth
+  behind the persistence boundary rather than ordinary read access; surface resources expose only exact-local
+  observation publicly. Untrusted bytes decode only through
   `LoadedSaveEnvelope`; `into_state` is the promotion boundary that checks exact schemas, rebuilds derived
   indexes, and validates the complete state graph before returning runtime state.
 - Derived indexes may be omitted from persistence only when they rebuild deterministically and validate

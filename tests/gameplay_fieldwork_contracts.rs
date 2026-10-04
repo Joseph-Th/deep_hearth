@@ -13,6 +13,9 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
+#[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
+mod bulk_fieldwork_workload;
+
 macro_rules! include_fieldwork_contract_tests {
     () => {
         #[path = "fieldwork_shortfall_policy_tests.rs"]

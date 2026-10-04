@@ -9,20 +9,32 @@ use crate::maintenance::{Condition, calculate_usable_condition_after_active_tick
 
 use super::{
     ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition, ProspectingMethodId,
+    SurfaceGatheringDefinition, SurfaceGatheringMethodId,
 };
 
 /// Immutable deterministic lookup for authored player-labor method semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LaborRegistry {
+    surface_gathering: BTreeMap<SurfaceGatheringMethodId, SurfaceGatheringDefinition>,
     manual_power: BTreeMap<ManualPowerMethodId, ManualPowerDefinition>,
     prospecting: BTreeMap<ProspectingMethodId, ProspectingDefinition>,
 }
 
 impl LaborRegistry {
     pub(crate) fn new(
+        surface_gathering_definitions: impl IntoIterator<Item = SurfaceGatheringDefinition>,
         manual_power_definitions: impl IntoIterator<Item = ManualPowerDefinition>,
         prospecting_definitions: impl IntoIterator<Item = ProspectingDefinition>,
     ) -> Self {
+        let mut surface_gathering = BTreeMap::new();
+        for definition in surface_gathering_definitions {
+            let id = definition.id();
+            assert!(
+                surface_gathering.insert(id, definition).is_none(),
+                "duplicate surface gathering method {}",
+                id.value()
+            );
+        }
         let mut manual_power = BTreeMap::new();
         for definition in manual_power_definitions {
             let id = definition.id();
@@ -42,9 +54,24 @@ impl LaborRegistry {
             );
         }
         Self {
+            surface_gathering,
             manual_power,
             prospecting,
         }
+    }
+
+    #[must_use]
+    pub fn get_surface_gathering(
+        &self,
+        id: SurfaceGatheringMethodId,
+    ) -> Option<&SurfaceGatheringDefinition> {
+        self.surface_gathering.get(&id)
+    }
+
+    pub fn surface_gathering_definitions(
+        &self,
+    ) -> impl Iterator<Item = &SurfaceGatheringDefinition> {
+        self.surface_gathering.values()
     }
 
     #[must_use]

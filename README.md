@@ -38,7 +38,7 @@ establish current reachability.
 | --- | --- |
 | Foundational vocabulary and root state | `src/core/`, `src/capability/`, `src/material/`, `src/maintenance/`, `src/spatial/` |
 | Immutable definition aggregation | `src/registry/`, `src/content/` |
-| Durable runtime owners | `src/energy/`, `src/equipment/`, `src/fluid/`, `src/geology/`, `src/inventory/`, `src/labor/`, `src/logistics/`, `src/mining/`, `src/production/`, `src/structural/`, `src/survival/` |
+| Durable runtime owners | `src/energy/`, `src/equipment/`, `src/fluid/`, `src/geology/`, `src/inventory/`, `src/labor/`, `src/logistics/`, `src/mining/`, `src/production/`, `src/structural/`, `src/surface/`, `src/survival/` |
 | Transformation/resolution overlays | `src/crafting/`, `src/ore_processing/`, `src/thermal/` |
 | Cross-owner accounting | `src/matter/` |
 | Persistence and orchestration | `src/persistence/`, `src/simulation/` |
@@ -59,6 +59,7 @@ establish current reachability.
 | Equipment, labor, maintenance, survival | `src/equipment/`, `src/labor/`, `src/maintenance/`, `src/survival/`; provider resolution and validators | [Equipment, labor, survival, energy, and fluids](TECHNICAL_DESIGN.md#equipment-labor-survival-energy-and-fluids) |
 | Energy and fluids | `src/energy/`, `src/fluid/`; finite stores and owner validators | [Equipment, labor, survival, energy, and fluids](TECHNICAL_DESIGN.md#equipment-labor-survival-energy-and-fluids) |
 | Structures and spatial support | `src/structural/`, `src/spatial/`; structural validators and analysis | [Structures](TECHNICAL_DESIGN.md#structures) |
+| Loose world matter and gathering | `src/surface/`, `src/labor/`, `src/logistics/`; exact-local observation and `validate_start_surface_gathering` | [Runtime owners](TECHNICAL_DESIGN.md#runtime-owners), [cross-owner edge atlas](TECHNICAL_DESIGN.md#cross-owner-edge-atlas) |
 | Textures and shaders | `src/texture/`, `src/shader/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` | [Spatial and presentation boundaries](TECHNICAL_DESIGN.md#spatial-and-presentation-boundaries), [shader contract](assets/shaders/README.md) |
 | Gameplay evaluation | `tests/gameplay_harness/`; production APIs after controlled setup | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) |
 | Verification tooling | `ci.py`, `.cargo/config.toml`, `tools/` | [`TESTING.md`](TESTING.md) |

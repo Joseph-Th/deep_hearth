@@ -101,6 +101,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                     "elements": {},
                     "supports_by_element": {}
                 },
+                "surface": {"revision": 0, "next_resource_id": 1, "resources": {}},
                 "geology": {"revision": 0, "next_deposit_id": 1, "deposits": {}},
                 "geological_knowledge": {
                     "revision": 0,
@@ -261,6 +262,7 @@ fn unknown_fields_are_rejected_at_envelope_and_nested_state_boundaries() {
         "fluid",
         "equipment",
         "structures",
+        "surface",
         "geology",
         "geological_knowledge",
         "inventory",

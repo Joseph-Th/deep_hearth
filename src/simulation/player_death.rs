@@ -24,10 +24,15 @@ use crate::mining::{
 };
 use crate::production::{CompletionPlan, plan_player_death_suspension};
 use crate::registry::Registries;
+use crate::surface::{
+    SurfaceGatheringCancellationPlan, apply_surface_gathering_cancellation,
+    decide_surface_gathering_cancellation,
+};
 
 use super::TickError;
 
 pub(super) enum PlayerDeathEffectPlan {
+    SurfaceGathering(SurfaceGatheringCancellationPlan),
     Mining(MiningCancellationPlan),
     StorageDismantling(StorageEnclosureDismantlingCancellationPlan),
     ManualPower(ManualPowerInterruptionPlan),
@@ -38,6 +43,7 @@ pub(super) enum PlayerDeathEffectPlan {
 impl PlayerDeathEffectPlan {
     pub(super) const fn equipment_revision_steps(&self) -> u64 {
         match self {
+            Self::SurfaceGathering(_) => 0,
             Self::Mining(plan) => plan.equipment_revision_steps(),
             Self::ManualPower(plan) => plan.equipment_revision_steps(),
             Self::Prospecting(plan) => plan.equipment_revision_steps(),
@@ -68,6 +74,17 @@ pub(super) fn decide_player_death_effects(
         return Ok(None);
     };
     match work {
+        PlayerWork::SurfaceGathering { work } => {
+            if work.completes_at() == next_tick {
+                return Ok(None);
+            }
+            let projected_inventory =
+                completion_plan.project_inventory_after_deposits(state.inventory());
+            decide_surface_gathering_cancellation(projected_inventory.as_ref(), work)
+                .map(PlayerDeathEffectPlan::SurfaceGathering)
+                .map(Some)
+                .map_err(Into::into)
+        }
         PlayerWork::Mining { job } => {
             let record = state.mining().get_job(job).unwrap_or_else(|| {
                 panic!("player mining job disappeared before death cancellation")
@@ -125,6 +142,9 @@ pub(super) fn apply_player_death_effects(
     plan: Option<PlayerDeathEffectPlan>,
 ) {
     match plan {
+        Some(PlayerDeathEffectPlan::SurfaceGathering(plan)) => {
+            apply_surface_gathering_cancellation(state, plan);
+        }
         Some(PlayerDeathEffectPlan::Mining(plan)) => apply_mining_cancellation(state, plan),
         Some(PlayerDeathEffectPlan::StorageDismantling(plan)) => {
             apply_storage_enclosure_dismantling_cancellation(state, plan);

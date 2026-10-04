@@ -8,16 +8,14 @@ use std::collections::BTreeSet;
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
-#[cfg(any(test, feature = "test-gameplay"))]
-use crate::material::MaterialLotSpec;
-use crate::material::{CommodityKey, FormId};
+use crate::material::{CommodityKey, FormId, MaterialLotSpec};
 use crate::registry::Registries;
 
 use super::coalescing::LotMergePolicy;
 use super::state::{
-    ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
-    MaterialLotProvenance, MaterialLotRecord, MaterialStorageHistory, StockpileId,
-    apply_insert_or_merge_new_lot, get_stockpile_mut_or_panic,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, ConsumedMaterialTrace, InventoryState, MaterialLotId,
+    MaterialLotProfile, MaterialLotProvenance, MaterialLotRecord, MaterialStorageHistory,
+    StockpileId, apply_insert_or_merge_new_lot, get_stockpile_mut_or_panic,
 };
 
 mod errors;
@@ -40,11 +38,11 @@ pub(crate) struct MaterialIngressEntry {
     mass: Mass,
     profile: MaterialLotProfile,
     provenance: MaterialLotProvenance,
+    storage_history: Option<MaterialStorageHistory>,
 }
 
 impl MaterialIngressEntry {
     /// Converts a newly created lot specification into an ingress parcel with exact provenance.
-    #[cfg(any(test, feature = "test-gameplay"))]
     #[must_use]
     pub(crate) fn from_lot_spec(
         specification: MaterialLotSpec,
@@ -59,7 +57,22 @@ impl MaterialIngressEntry {
                 particle_size: specification.particle_size_distribution().cloned(),
             },
             provenance: MaterialLotProvenance::single(created_at),
+            storage_history: None,
         }
+    }
+
+    /// Converts source-owned matter that has remained exposed to ambient conditions into an
+    /// inventory parcel without resetting its accumulated age at the custody boundary.
+    pub(crate) fn from_lot_spec_with_ambient_exposure(
+        specification: MaterialLotSpec,
+        created_at: SimulationTick,
+        exposed_until: SimulationTick,
+    ) -> Option<Self> {
+        let storage_history = MaterialStorageHistory::new(created_at)
+            .rebase(exposed_until, AMBIENT_PRESERVATION_MULTIPLIER_PPM)?;
+        let mut entry = Self::from_lot_spec(specification, created_at);
+        entry.storage_history = Some(storage_history);
+        Some(entry)
     }
 
     /// Preserves the complete material profile and lot provenance of matter transferred from
@@ -70,6 +83,7 @@ impl MaterialIngressEntry {
             mass: trace.mass(),
             profile: trace.profile().clone(),
             provenance: trace.provenance(),
+            storage_history: None,
         }
     }
 
@@ -86,7 +100,14 @@ impl MaterialIngressEntry {
             mass: trace.mass(),
             profile,
             provenance: trace.provenance(),
+            storage_history: None,
         }
+    }
+
+    #[must_use]
+    fn storage_history_at(&self, at: SimulationTick) -> MaterialStorageHistory {
+        self.storage_history
+            .unwrap_or_else(|| MaterialStorageHistory::new(at))
     }
 }
 
@@ -260,6 +281,7 @@ pub(crate) fn apply_material_ingress(
 
     let mut resulting_lots = Vec::with_capacity(entries.len());
     for ((entry, lot_id), merge_policy) in entries.into_iter().zip(lot_ids).zip(merge_policies) {
+        let storage_history = entry.storage_history_at(current_tick);
         let resulting = apply_insert_or_merge_new_lot(
             state,
             MaterialLotRecord {
@@ -268,7 +290,7 @@ pub(crate) fn apply_material_ingress(
                 mass: entry.mass,
                 profile: entry.profile,
                 provenance: entry.provenance,
-                storage_history: MaterialStorageHistory::new(current_tick),
+                storage_history,
             },
             merge_policy,
             current_tick,

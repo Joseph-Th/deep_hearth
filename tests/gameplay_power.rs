@@ -5,6 +5,8 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
+#[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
+mod bulk_fieldwork_workload;
 #[path = "gameplay_harness/capital_investment_policy.rs"]
 mod capital_investment_policy;
 #[path = "gameplay_harness/direct_consumption_timing.rs"]
