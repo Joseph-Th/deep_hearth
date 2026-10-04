@@ -173,9 +173,9 @@ wildcard_enum_match_arm = "deny"
 
 [profile.test]
 # Test failures already carry source locations and typed assertion context, so local verification
-# omits debug symbols. Cargo config owns dynamic linking. Keep one profile for exact unit tests,
-# focused gameplay targets, and broad checkpoints: per-lane compiler overrides fragment the local
-# incremental cache and make switching verification tools more expensive than either lane alone.
+# omits debug symbols. Keep one profile for exact unit tests, focused gameplay targets, and broad
+# checkpoints: per-lane compiler overrides fragment the local incremental cache and make switching
+# verification tools more expensive than either lane alone.
 debug = 0
 codegen-units = 128
 incremental = true

@@ -322,6 +322,56 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 experience_fields = tuple(
                     name for name in experience_fields if name != "knowledge"
                 )
+            if scoped:
+                overview = compact_fields(
+                    summary,
+                    tuple(
+                        name
+                        for name in experience_fields
+                        if name
+                        in {
+                            "sample-shape",
+                            "outcomes",
+                            "organic-outcomes",
+                            "orders",
+                            "reserve-knowledge",
+                            "organic-reserve-knowledge",
+                        }
+                    ),
+                ).replace("reserve-knowledge=", "reserve=")
+                information = compact_fields(
+                    summary,
+                    tuple(name for name in experience_fields if name == "knowledge"),
+                ).replace("knowledge=", "info=")
+                timing = compact_fields(
+                    summary,
+                    tuple(
+                        name
+                        for name in experience_fields
+                        if name in {"pacing-physical", "reuse-physical"}
+                    ),
+                )
+                adaptation = compact_fields(
+                    summary,
+                    ("geology", "tools", "depletion-adaptation"),
+                )
+                market = compact_fields(
+                    summary,
+                    ("survey-campaign", "heavy-tool-market"),
+                )
+                recovery = compact_fields(summary, ("shortfall-recovery",))
+                sections = [f"GAMEPLAY fieldwork{scope} {overview}".rstrip()]
+                for label, detail in (
+                    ("fieldwork-info", information),
+                    ("fieldwork-timing", timing),
+                    ("fieldwork-adaptation", adaptation),
+                    ("fieldwork-market", market),
+                ):
+                    if detail:
+                        sections.append(f"GAMEPLAY {label} {detail}")
+                if "gain:0/0" not in recovery:
+                    sections.append(f"GAMEPLAY fieldwork-recovery {recovery}".rstrip())
+                return "\n".join(sections)
             experience = compact_fields(
                 summary,
                 experience_fields,

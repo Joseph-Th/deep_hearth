@@ -4,19 +4,16 @@
 target-dir = "target/local-ci"
 # Repository entrypoints serialize separate Cargo builds. Cargo itself should use all host
 # parallelism inside that one build, so do not pin `jobs` here or in routine aliases.
-# Prefer dynamic dependencies for local verification so exact tests and focused harness binaries
-# relink cheaply. Keeping this in Cargo config, rather than Python wrappers, gives direct Cargo and
-# repository tools the same artifact shape.
-rustflags = ["-Cprefer-dynamic"]
 
 [target.x86_64-pc-windows-msvc]
-# LLVM is part of the supported local Windows toolchain. `lld-link` materially reduces the link cost
-# of the large gameplay/test binaries compared with the default MSVC linker.
+# Keep Rust's default static dependency linkage. Local focused-test benchmarks are faster than
+# `prefer-dynamic`, especially for warm relinks. `lld-link` also materially reduces the link cost of
+# the large gameplay/test binaries compared with the default MSVC linker.
 linker = "lld-link.exe"
 
 [alias]
 # Daily feedback stays on the smallest artifact that can catch the current class of mistake.
-# `check-fast` is an alternative when no executable contract fits; test preflights use
+# `check-fast` is only for production code when no executable contract fits. Test preflights use
 # `tools/run_test.py --build` so successful compilation warms the exact artifact that will run.
 # Every repository-owned lane keeps one test-profile shape so switching tools does not invalidate
 # local incremental reuse.

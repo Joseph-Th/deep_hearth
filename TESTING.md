@@ -11,7 +11,6 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
 | CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
-| Type-check one unstable gameplay/integration target without linking | `python tools/run_test.py --check <qualified-name-or-unique-substring>` |
 | Build/link one selected test target without running it | `python tools/run_test.py --build <qualified-name-or-unique-substring>` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
@@ -19,9 +18,9 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Production-library type-check when no executable test fits | `python ci.py gate` |
 
-Iteration is `quick`, then **one** proof. Use `--check` while gameplay/integration code is not yet worth linking; once an executable proof is runnable, run it directly. `gate` is an optional production-only type-check before library unit tests and does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes or append an audit.
+Iteration is `quick`, then **one** proof. Run an executable proof directly whenever one fits; a separate test-target type-check only spends compiler time on an artifact the executable cannot reuse. `gate` is an optional production-only type-check when no executable contract fits and does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes or append an audit.
 
-Use `run_test.py --list <substring>` for build-free discovery. `--check` cannot validate library unit bodies. Prefer the smallest authoritative gameplay target. Scoped reports reuse focused test artifacts when supported; do not add a second executable for the same graph. Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`; repository entrypoints normalize ambient overrides. Keep separate Cargo invocations serial, leave Cargo's internal job count uncapped, and parallelize only build-free `quick` checks.
+Use `run_test.py --list <substring>` for build-free discovery. Prefer the smallest authoritative gameplay target. Scoped reports reuse focused test artifacts when supported; do not add a second executable for the same graph. Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`; repository entrypoints normalize ambient overrides. Keep separate Cargo invocations serial, leave Cargo's internal job count uncapped, and parallelize only build-free `quick` checks.
 
 ## Escalation lanes
 

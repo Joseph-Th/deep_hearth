@@ -64,10 +64,17 @@ fn exploratory_demand_and_reserve_scale_are_not_coupled() {
         })
         .collect::<BTreeSet<_>>();
 
+    let expected = ["short", "project", "bulk"]
+        .into_iter()
+        .flat_map(|horizon| {
+            ["shallow", "common", "bulk"]
+                .into_iter()
+                .map(move |supply| (horizon, supply))
+        })
+        .collect::<BTreeSet<_>>();
     assert_eq!(
-        combinations.len(),
-        9,
-        "short/project/bulk demand must each occur against shallow/common/bulk reserves so the evaluator does not manufacture investment payback by correlating goals with hidden supply"
+        combinations, expected,
+        "every demand horizon must occur against every reserve scale so the evaluator does not manufacture investment payback by correlating goals with hidden supply"
     );
 }
 

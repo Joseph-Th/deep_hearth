@@ -322,53 +322,6 @@ def executed_test_counts(stdout: str) -> tuple[int, int] | None:
     return int(match.group("passed")), int(match.group("ignored"))
 
 
-def cargo_lint_command(args: argparse.Namespace) -> list[str]:
-    """Clippy one integration-test target without widening to all targets."""
-
-    if args.list:
-        raise ValueError("source catalog listing does not invoke Cargo")
-    if args.target is None:
-        raise ValueError("--lint requires an explicit test target")
-    if args.target == "lib":
-        raise ValueError("library lint belongs to `cargo lint-fast`; unit-test Clippy is not a fast lane")
-    command = ["cargo", "clippy", "--quiet", "--locked", "--profile", "test"]
-    command.extend(("--test", args.target))
-    requested_features = requested_target_features(args.target, args.features)
-    if requested_features:
-        command.extend(("--features", ",".join(sorted(requested_features))))
-    command.append("--no-deps")
-    command.extend(("--", "-D", "warnings"))
-    return command
-
-
-def cargo_check_command(args: argparse.Namespace) -> list[str]:
-    """Type-check one selected integration-test target without codegen or linking."""
-
-    if args.list:
-        raise ValueError("source catalog listing does not invoke Cargo")
-    if args.target is None:
-        raise ValueError("--check requires an explicit test target")
-    if args.target == "lib":
-        raise ValueError(
-            "library unit-test code requires an executable test build; "
-            "use the exact test or `--build`, or `python ci.py gate` for a production-library check"
-        )
-    command = [
-        "cargo",
-        "check",
-        "--quiet",
-        "--locked",
-        "--profile",
-        "test",
-        "--test",
-        args.target,
-    ]
-    requested_features = requested_target_features(args.target, args.features)
-    if requested_features:
-        command.extend(("--features", ",".join(sorted(requested_features))))
-    return command
-
-
 def cargo_build_command(args: argparse.Namespace) -> list[str]:
     """Build one selected test artifact without executing it, warming the eventual test cache."""
 
@@ -390,8 +343,8 @@ def cargo_build_command(args: argparse.Namespace) -> list[str]:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run one exact cached Rust test or bounded suite, type-check/build/lint one selected "
-            "target, or inspect the build-free source catalog."
+            "Run one exact cached Rust test or bounded suite, build one selected target, or "
+            "inspect the build-free source catalog."
         )
     )
     parser.add_argument(
@@ -406,25 +359,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="list exact source test names without compiling or linking",
     )
     compile_mode.add_argument(
-        "--check",
-        action="store_true",
-        help=(
-            "type-check the smallest matching integration-test target without codegen or linking; "
-            "library unit tests require an executable build"
-        ),
-    )
-    compile_mode.add_argument(
         "--build",
         action="store_true",
         help=(
             "compile and link the smallest matching test target without executing it; "
             "the resulting artifact is reused by the later test run"
         ),
-    )
-    compile_mode.add_argument(
-        "--lint",
-        action="store_true",
-        help="Clippy one integration test target without widening to all targets",
     )
     parser.add_argument(
         "--suite",
@@ -462,20 +402,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="replay DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED for this test execution",
     )
     args = parser.parse_args(argv)
-    if not args.list and not args.check and not args.lint and not args.build and not args.name:
+    if not args.list and not args.build and not args.name:
         parser.error("a test selector is required for test execution")
-    compile_only = args.check or args.lint or args.build
+    compile_only = args.build
     if args.suite and (args.list or compile_only):
-        parser.error(
-            "--suite is an execution mode and cannot be combined with --list/--check/--build/--lint"
-        )
+        parser.error("--suite is an execution mode and cannot be combined with --list/--build")
     if compile_only and args.target is None and not args.name:
-        parser.error(
-            "--check/--build/--lint requires either a source selector or explicit --target"
-        )
+        parser.error("--build requires either a source selector or explicit --target")
     if compile_only and args.target is not None and args.name:
         parser.error(
-            "with explicit --target, --check/--build/--lint validates the whole target; omit NAME"
+            "with explicit --target, --build validates the whole target; omit NAME"
         )
     if args.suite and args.ignored:
         parser.error("--ignored requires exact execution; use an exact ignored-test selector")
@@ -552,8 +488,8 @@ def resolve_automatic_selection(args: argparse.Namespace) -> tuple[str, list[str
         return None
 
 
-def resolve_automatic_compile_target(args: argparse.Namespace) -> bool:
-    """Resolve target-only compile modes to the smallest matching source target."""
+def resolve_automatic_build_target(args: argparse.Namespace) -> bool:
+    """Resolve `--build` to the smallest matching source target."""
 
     selector = args.name
     assert selector is not None
@@ -730,9 +666,6 @@ def report_cargo_success(
     elapsed: float,
     replay: dict[str, str] | None = None,
 ) -> None:
-    if getattr(args, "lint", False):
-        print(f"PASS lint {args.target} ({elapsed:.1f}s)")
-        return
     if getattr(args, "verbose", False) and result.stdout.strip():
         print(result.stdout.rstrip())
     if args.suite:
@@ -752,21 +685,9 @@ def report_cargo_success(
 
 def main() -> int:
     args = parse_args()
-    if (args.check or args.lint or args.build) and args.target is None:
-        if not resolve_automatic_compile_target(args):
+    if args.build and args.target is None:
+        if not resolve_automatic_build_target(args):
             return 2
-    if args.check:
-        try:
-            command = cargo_check_command(args)
-        except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-            print(f"FAIL check selection: {error}", file=sys.stderr)
-            return 2
-        result, elapsed = execute_cargo_command(command)
-        if result.returncode != 0:
-            report_cargo_failure(command, result, elapsed)
-            return result.returncode
-        print(f"PASS check {args.target} ({elapsed:.1f}s)")
-        return 0
     if args.build:
         try:
             command = cargo_build_command(args)
@@ -779,19 +700,6 @@ def main() -> int:
             return result.returncode
         print(f"PASS build {args.target} ({elapsed:.1f}s)")
         return 0
-    if args.lint:
-        try:
-            command = cargo_lint_command(args)
-        except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-            print(f"FAIL lint selection: {error}", file=sys.stderr)
-            return 2
-        result, elapsed = execute_cargo_command(command)
-        if result.returncode != 0:
-            report_cargo_failure(command, result, elapsed)
-            return result.returncode
-        report_cargo_success(args, None, result, elapsed)
-        return 0
-
     if args.list:
         if args.target is None:
             try:

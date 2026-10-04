@@ -244,32 +244,6 @@ class CargoToolingTests(unittest.TestCase):
             ],
         )
 
-    def test_targeted_lint_infers_required_features_without_widening_targets(self) -> None:
-        args = run_test.parse_args(
-            ["--lint", "--target", ci.GAMEPLAY_TARGETS["fieldwork"]]
-        )
-        self.assertEqual(
-            run_test.cargo_lint_command(args),
-            [
-                "cargo",
-                "clippy",
-                "--quiet",
-                "--locked",
-                "--profile",
-                "test",
-                "--test",
-                ci.GAMEPLAY_TARGETS["fieldwork"],
-                "--features",
-                "test-gameplay",
-                "--no-deps",
-                "--",
-                "-D",
-                "warnings",
-            ],
-        )
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            run_test.parse_args(["--lint"])
-
     def test_targeted_build_compiles_only_the_selected_test_artifact(self) -> None:
         args = run_test.parse_args(
             ["--build", "--target", ci.GAMEPLAY_TARGETS["fieldwork"]]
@@ -302,52 +276,9 @@ class CargoToolingTests(unittest.TestCase):
             ],
         )
 
-    def test_targeted_check_typechecks_only_the_selected_gameplay_target_without_linking(self) -> None:
-        args = run_test.parse_args(
-            ["--check", "--target", ci.GAMEPLAY_TARGETS["fieldwork"]]
-        )
-        command = run_test.cargo_check_command(args)
-        self.assertEqual(
-            command,
-            [
-                "cargo",
-                "check",
-                "--quiet",
-                "--locked",
-                "--profile",
-                "test",
-                "--test",
-                ci.GAMEPLAY_TARGETS["fieldwork"],
-                "--features",
-                "test-gameplay",
-            ],
-        )
-        self.assertNotIn("--no-run", command)
-
-    def test_targeted_check_resolves_named_gameplay_probe_without_executing_it(self) -> None:
-        args = run_test.parse_args(["--check", ci.GAMEPLAY_TESTS["fieldwork"]])
-        self.assertTrue(run_test.resolve_automatic_compile_target(args))
-        self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
-
-    def test_targeted_check_rejects_library_unit_test_surfaces(self) -> None:
-        explicit = run_test.parse_args(["--check", "--target", "lib"])
-        with self.assertRaisesRegex(ValueError, "library unit-test code requires"):
-            run_test.cargo_check_command(explicit)
-
-        selected = run_test.parse_args(
-            [
-                "--check",
-                "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
-            ]
-        )
-        self.assertTrue(run_test.resolve_automatic_compile_target(selected))
-        self.assertEqual(selected.target, "lib")
-        with self.assertRaisesRegex(ValueError, "exact test"):
-            run_test.cargo_check_command(selected)
-
     def test_targeted_build_resolves_named_gameplay_probe_without_executing_it(self) -> None:
         args = run_test.parse_args(["--build", ci.GAMEPLAY_TESTS["fieldwork"]])
-        self.assertTrue(run_test.resolve_automatic_compile_target(args))
+        self.assertTrue(run_test.resolve_automatic_build_target(args))
         self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
         self.assertNotIn("cargo", args.name)
 
@@ -360,7 +291,7 @@ class CargoToolingTests(unittest.TestCase):
             "resolve_automatic_suite_target",
             side_effect=AssertionError("known library selector must not scan gameplay targets"),
         ):
-            self.assertTrue(run_test.resolve_automatic_compile_target(args))
+            self.assertTrue(run_test.resolve_automatic_build_target(args))
         self.assertEqual(args.target, "lib")
 
     def test_targeted_build_does_not_turn_a_library_test_typo_into_a_green_owner_build(self) -> None:
@@ -368,7 +299,7 @@ class CargoToolingTests(unittest.TestCase):
             ["--build", "core::time::tests::not_a_real_test_name"]
         )
         with contextlib.redirect_stderr(io.StringIO()):
-            self.assertFalse(run_test.resolve_automatic_compile_target(args))
+            self.assertFalse(run_test.resolve_automatic_build_target(args))
         self.assertIsNone(args.target)
 
     def test_targeted_build_rejects_execution_only_options_and_ambiguous_target_selection(self) -> None:
@@ -377,20 +308,11 @@ class CargoToolingTests(unittest.TestCase):
             ["--build", "--target", ci.GAMEPLAY_TARGETS["fieldwork"], "fieldwork"],
             ["--build", "--verbose", ci.GAMEPLAY_TESTS["fieldwork"]],
             ["--build", "--variation-seed", "1", ci.GAMEPLAY_TESTS["fieldwork"]],
-            ["--check", "--suite", "fieldwork"],
-            ["--check", "--target", ci.GAMEPLAY_TARGETS["fieldwork"], "fieldwork"],
-            ["--check", "--verbose", ci.GAMEPLAY_TESTS["fieldwork"]],
-            ["--check", "--variation-seed", "1", ci.GAMEPLAY_TESTS["fieldwork"]],
         )
         for argv in invalid:
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     run_test.parse_args(argv)
-
-    def test_targeted_lint_rejects_the_slow_library_test_graph(self) -> None:
-        args = run_test.parse_args(["--lint", "--target", "lib"])
-        with self.assertRaisesRegex(ValueError, "cargo lint-fast"):
-            run_test.cargo_lint_command(args)
 
     def test_rust_diagnostics_orphans_include_test_linkage_only_when_requested(self) -> None:
         args = rust_diagnostics.parse_args(["modules", "orphans", "--tests"])
@@ -1382,7 +1304,7 @@ class TestTopologyContractTests(unittest.TestCase):
         )
         self.assertEqual(cargo_config["build"].get("target-dir"), "target/local-ci")
         self.assertNotIn("jobs", cargo_config["build"])
-        self.assertIn("-Cprefer-dynamic", cargo_config["build"].get("rustflags", []))
+        self.assertNotIn("-Cprefer-dynamic", cargo_config["build"].get("rustflags", []))
         self.assertEqual(
             cargo_config["target"]["x86_64-pc-windows-msvc"].get("linker"),
             "lld-link.exe",
@@ -2232,13 +2154,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
             result, _elapsed = run_test.execute_cargo_command(command)
         self.assertEqual(result.stdout.strip(), "None|None|None")
 
-    def test_lint_mode_accepts_selector_for_build_free_target_resolution(self) -> None:
-        args = run_test.parse_args(["--lint", "gameplay_fieldwork_probe"])
-        self.assertTrue(args.lint)
-        self.assertIsNone(args.target)
-        self.assertTrue(run_test.resolve_automatic_compile_target(args))
-        self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
-
 
 class GameplayReportContractTests(unittest.TestCase):
     def test_run_test_failure_output_is_bounded(self) -> None:
@@ -2984,11 +2899,22 @@ class GameplayReportContractTests(unittest.TestCase):
             summary,
         )
         digest = gameplay_report_summary._digest_summary(summary, scoped=True)
+        digest_lines = digest.splitlines()
         self.assertIn("orders=[short:0 project:0 bulk:1]", digest)
         self.assertIn("reserve=[workload-capped:1 tool-changed:1]", digest)
         self.assertIn("info=[frame=[n:1", digest)
         self.assertIn("geology=[soft:1 reinforcement:0 hard-specialist:0]", digest)
         self.assertIn("tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:0 hard-pick:0]", digest)
+        self.assertTrue(digest_lines[0].startswith("GAMEPLAY fieldwork scope=spatial-proxy "))
+        self.assertTrue(any(line.startswith("GAMEPLAY fieldwork-info ") for line in digest_lines))
+        self.assertTrue(
+            any(line.startswith("GAMEPLAY fieldwork-adaptation ") for line in digest_lines)
+        )
+        self.assertLessEqual(
+            max(map(len, digest_lines)),
+            650,
+            "scoped fieldwork digest should stay readable without dropping decision evidence",
+        )
 
     def test_fieldwork_summary_requires_separate_fixture_diagnostics(self) -> None:
         with self.assertRaisesRegex(
@@ -3774,11 +3700,6 @@ class ExactTestCommandTests(unittest.TestCase):
             "foundry_contract_tests": ci.GAMEPLAY_TARGETS["foundry"],
         }.items():
             self.assertEqual(run_test.resolve_automatic_suite_target(selector, None), expected)
-
-    def test_lint_mode_requires_a_selector_or_explicit_target(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                run_test.parse_args(["--lint"])
 
     def test_source_cfg_evaluation_treats_test_as_enabled_and_expands_local_features(self) -> None:
         declared = {
