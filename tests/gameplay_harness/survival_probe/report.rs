@@ -18,6 +18,29 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         protected_food,
         protected_reserve_mass,
     );
+    evaluate_survival_pressure_response_probe(registries, seed);
+    let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
+    let integrated_work = evaluate_integrated_survival_work_loop(registries, seed, behavior_seed);
+    if case.role() == FocusedProbeRole::MaintainedCoverage
+        && seed == SURVIVAL_CONTINUATION_COVERAGE_SEED
+    {
+        assert!(
+            integrated_work.followup_prospecting_triggered
+                && integrated_work.followup_found_continuation,
+            "survival continuation witness must turn acquired local evidence into a productive neighboring survey"
+        );
+        assert!(
+            integrated_work.power_triggered_by_observation
+                && integrated_work.manual_power_ticks > 0
+                && integrated_work.stored_work_nj > 0,
+            "survival continuation witness must turn the newly observed continuation into stored-work preparation"
+        );
+    }
+    let diet_comparison = evaluate_provisioning_comparison(registries, behavior_seed, &world);
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_none() {
+        return;
+    }
+
     let preservation_raw_opportunity = preservation_decision.opportunity.available();
     let preservation_opportunity_label =
         preservation_storage_report_label(registries, preservation_decision.opportunity.origin());
@@ -142,24 +165,6 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         },
         format_physical_duration(registries, protection_remaining_delta_magnitude)
     );
-    evaluate_survival_pressure_response_probe(registries, seed);
-    let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
-    let integrated_work = evaluate_integrated_survival_work_loop(registries, seed, behavior_seed);
-    if case.role() == FocusedProbeRole::MaintainedCoverage
-        && seed == SURVIVAL_CONTINUATION_COVERAGE_SEED
-    {
-        assert!(
-            integrated_work.followup_prospecting_triggered
-                && integrated_work.followup_found_continuation,
-            "survival continuation witness must turn acquired local evidence into a productive neighboring survey"
-        );
-        assert!(
-            integrated_work.power_triggered_by_observation
-                && integrated_work.manual_power_ticks > 0
-                && integrated_work.stored_work_nj > 0,
-            "survival continuation witness must turn the newly observed continuation into stored-work preparation"
-        );
-    }
     let prospecting_pressure = normalized_deficit_priority(
         work_pressure.prospecting_energy_deficit_ppm,
         work_pressure.prospecting_hydration_deficit_ppm,
@@ -170,7 +175,6 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     );
     let foods = world.foods.as_slice();
     let provisioning_wait_ticks = world.provisioning_wait_ticks;
-    let diet_comparison = evaluate_provisioning_comparison(registries, behavior_seed, &world);
     let compact = diet_comparison.compact;
     let balanced = diet_comparison.balanced;
     let natural_policy = diet_comparison.natural_policy;

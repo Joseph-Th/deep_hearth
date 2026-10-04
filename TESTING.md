@@ -81,16 +81,12 @@ Avoid assertions on error prose, wall-clock timing, incidental order/count, or c
 
 ## Gameplay evaluation
 
-Each gameplay scope owns a focused probe artifact. Keep cheap nearby contracts there, but move measured-heavy
-owner contracts to the scope's contract target so the frequent probe does not parse, codegen, or link unrelated
-test bodies. `tools/gameplay_targets.py` owns the scopes that use this split. Exact-test routing must resolve those
-contracts to their purpose-built target rather than the consolidated audit. All gameplay targets share
-`test-gameplay` and the same Cargo cache.
-
-`gate --gameplay contracts` is the small cross-scope contract target. Exact owner contracts resolve through
-`run_test.py` to their smallest purpose-built target. Scoped reports reuse focused artifacts when faithful; keep
-report-only examples only to exclude formatter/narration code from hot tests. The cross-system report owns the
-complete report graph.
+Each gameplay scope owns a focused probe artifact. Measured-heavy owner contracts use purpose-built contract
+targets so frequent probes do not compile unrelated test bodies. `tools/gameplay_targets.py` owns this routing;
+all targets share `test-gameplay` and one Cargo cache. Scoped reports reuse focused artifacts when their reporting
+code is already hot; workshop, progression, woodworking, and power keep report-only formatting out of frequent
+gate builds. Agency reuses the workshop test artifact because its compact summary is already part of that probe.
+`gate --gameplay contracts` remains the small cross-scope contract target.
 
 Routine gameplay runs maintained witnesses plus one fresh replayable case. Explicit roots reproduce failures; reports use broader bounded exploration. Gates stay quiet on success, failures print a narrow reproduction command, and reports retain replay inputs. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 

@@ -1,4 +1,4 @@
-//! Exploratory workshop/agency report entry point, separate from the routine workshop test root.
+//! Exploratory workshop report kept separate so report-only formatting stays out of the hot test target.
 #![cfg(not(test))]
 
 #[macro_use]

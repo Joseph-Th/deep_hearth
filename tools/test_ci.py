@@ -645,6 +645,11 @@ class BuildFreeCiTests(unittest.TestCase):
 
     def test_test_targets_exclude_report_only_formatter_modules(self) -> None:
         cases = {
+            "workshop": ROOT
+            / "tests"
+            / "gameplay_harness"
+            / "report"
+            / "workshop_output.rs",
             "progression": ROOT
             / "tests"
             / "gameplay_harness"
@@ -1397,15 +1402,14 @@ class TestTopologyContractTests(unittest.TestCase):
         for path in (ROOT / "src").rglob("*.rs"):
             self.assertNotIn("test-unit-shard", read_maintained_text(path))
 
-    def test_gameplay_report_examples_are_executable_only(self) -> None:
+    def test_report_examples_are_reserved_for_report_only_code_paths(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         examples = {
             definition["name"]: definition for definition in manifest.get("example", [])
         }
-        report_examples = {ci.GAMEPLAY_REPORT_EXAMPLE, *ci.FOCUSED_REPORT_EXAMPLES.values()}
-        self.assertTrue(report_examples)
-        for name in report_examples:
-            self.assertIs(examples[name].get("test"), False)
+        expected = {ci.GAMEPLAY_REPORT_EXAMPLE, *ci.SCOPED_REPORT_EXAMPLES.values()}
+        self.assertEqual(set(examples), expected)
+        self.assertTrue(all(examples[name].get("test") is False for name in expected))
 
     def test_gate_does_not_repeat_build_free_quick_checks(self) -> None:
         for args in (
@@ -2123,15 +2127,16 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertIn(ci.GAMEPLAY_TARGETS["ore"], command)
 
     def test_scoped_reports_use_the_configured_smallest_surface(self) -> None:
-        for scope in ci.SCOPED_TEST_REPORTS:
+        for scope in ci.REUSED_TEST_REPORTS:
             with self.subTest(scope=scope):
                 plan = ci.report_plan(scope)
                 self.assertEqual(plan[0][0], f"gameplay report {scope}")
+                target, test = ci.scoped_report_target(scope)
                 self.assertEqual(
                     plan[0][1],
                     ci.gameplay_target_command(
-                        ci.GAMEPLAY_TARGETS[scope],
-                        test_filter=ci.GAMEPLAY_TESTS[scope],
+                        target,
+                        test_filter=test,
                         nocapture=True,
                     ),
                 )
@@ -2139,12 +2144,11 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 self.assertIn("--exact", plan[0][1])
                 self.assertIn("--nocapture", plan[0][1])
 
-        for scope, example in ci.FOCUSED_REPORT_EXAMPLES.items():
+        for scope, example in ci.SCOPED_REPORT_EXAMPLES.items():
             with self.subTest(scope=scope):
-                arguments = ci.FOCUSED_REPORT_ARGUMENTS.get(scope, ())
                 self.assertEqual(
                     ci.report_plan(scope)[0][1],
-                    ci.gameplay_report_example_command(example, arguments),
+                    ci.gameplay_report_example_command(example),
                 )
 
         self.assertEqual(
@@ -2201,7 +2205,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
 
         agency_report = ci.parse_args(["report", "--scope", "agency"])
         ci.configure_report_mode_environment(agency_report, report_environment)
-        self.assertNotIn(ci.GAMEPLAY_REPORT_MODE_ENV, report_environment)
+        self.assertEqual(report_environment[ci.GAMEPLAY_REPORT_MODE_ENV], "1")
 
         gate = ci.parse_args(["gate", "--gameplay", "fieldwork"])
         gate_environment = {ci.GAMEPLAY_REPORT_MODE_ENV: "1"}
@@ -3238,29 +3242,20 @@ class AuthorityContractTests(unittest.TestCase):
         examples = {definition["name"] for definition in manifest.get("example", [])}
         self.assertEqual(
             examples,
-            {ci.GAMEPLAY_REPORT_EXAMPLE, *ci.FOCUSED_REPORT_EXAMPLES.values()},
+            {ci.GAMEPLAY_REPORT_EXAMPLE, *ci.SCOPED_REPORT_EXAMPLES.values()},
         )
         self.assertTrue(
             all(definition.get("test") is False for definition in manifest.get("example", [])),
-            "gameplay reports are executable tools, not cargo-test targets",
+            "report-only examples are executable tools, not cargo-test targets",
         )
-        tests_by_name = {
-            definition["name"]: definition for definition in manifest.get("test", [])
-        }
-        examples_by_name = {
-            definition["name"]: definition for definition in manifest.get("example", [])
-        }
-        for scope, example in ci.FOCUSED_REPORT_EXAMPLES.items():
-            owner_scope = "workshop" if scope == "agency" else scope
-            focused = tests_by_name[ci.GAMEPLAY_TARGETS[owner_scope]]
-            report = examples_by_name[example]
-            self.assertEqual(report.get("required-features"), focused.get("required-features"))
-            report_root = ROOT / report["path"]
-            focused_name = Path(focused["path"]).name
-            self.assertIn(
-                f'#[path = "{focused_name}"]',
-                report_root.read_text(encoding="utf-8"),
-            )
+        for scope in ci.REUSED_TEST_REPORTS:
+            command = ci.report_plan(scope)[0][1]
+            self.assertIn("--test", command)
+            self.assertNotIn("--example", command)
+        for scope in ci.SCOPED_REPORT_EXAMPLES:
+            command = ci.report_plan(scope)[0][1]
+            self.assertIn("--example", command)
+            self.assertNotIn("--test", command)
 
     def test_shader_validation_reuses_existing_test_profile(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))

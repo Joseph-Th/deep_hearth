@@ -930,8 +930,17 @@ fn gate_agency_worlds(variation_root: u64) -> Vec<AgencyWorld> {
 pub(super) fn run_gameplay_agency_counterfactuals() {
     let registries = build_registries();
     let variation_root = gate_agency_root();
-    let worlds = gate_agency_worlds(variation_root);
-    std::println!("AGENCY INPUT mode=gate organic=1 variation_root=0x{variation_root:016X}");
+    let explore = env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some();
+    let worlds = if explore {
+        exploratory_agency_worlds(variation_root)
+    } else {
+        gate_agency_worlds(variation_root)
+    };
+    std::println!(
+        "AGENCY INPUT mode={} organic={} variation_root=0x{variation_root:016X}",
+        if explore { "explore" } else { "gate" },
+        if explore { ORGANIC_UNFILTERED_COUNT } else { 1 },
+    );
     run_agency_probe(&registries, &worlds);
 }
 

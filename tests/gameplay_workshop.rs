@@ -5,6 +5,7 @@ macro_rules! include_agency_contract_tests {
     () => {};
 }
 
+#[cfg(test)]
 #[path = "gameplay_harness/agency.rs"]
 mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
@@ -71,22 +72,5 @@ fn gameplay_agency_counterfactuals() {
 
 #[cfg(not(test))]
 pub(super) fn run_report() {
-    let mut arguments = std::env::args().skip(1);
-    let mode = arguments.next();
-    if let Some(extra) = arguments.next() {
-        eprintln!("gameplay-workshop-report: unexpected extra argument {extra:?}");
-        std::process::exit(2);
-    }
-    match mode.as_deref() {
-        None | Some("workshop") => {
-            workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Explore);
-        }
-        Some("agency") => agency::run_exploratory_agency_counterfactuals(),
-        Some(mode) => {
-            eprintln!(
-                "gameplay-workshop-report: unknown mode {mode:?}; expected workshop or agency"
-            );
-            std::process::exit(2);
-        }
-    }
+    workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Explore);
 }

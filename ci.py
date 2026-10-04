@@ -32,14 +32,12 @@ from tools.replay_seed import parse_replay_seed
 ROOT = Path(__file__).resolve().parent
 
 GAMEPLAY_REPORT_EXAMPLE = "gameplay-report"
-FOCUSED_REPORT_EXAMPLES = {
+SCOPED_REPORT_EXAMPLES = {
     "workshop": "gameplay-workshop-report",
-    "agency": "gameplay-workshop-report",
     "progression": "gameplay-progression-report",
     "woodworking": "gameplay-woodworking-report",
     "power-provider": "gameplay-power-report",
 }
-FOCUSED_REPORT_ARGUMENTS = {"agency": ("agency",)}
 REPORT_BEHAVIOR_SCOPES = {
     "all",
     *(scope for scope, spec in GAMEPLAY_SCOPE_SPECS.items() if spec.uses_behavior_seed),
@@ -49,7 +47,9 @@ GAMEPLAY_SEED_ENV_KEYS = (
     GAMEPLAY_VARIATION_ENV,
     GAMEPLAY_BEHAVIOR_ENV,
 )
-SCOPED_TEST_REPORTS = frozenset(GAMEPLAY_SCOPE_SPECS) - frozenset(FOCUSED_REPORT_EXAMPLES)
+REUSED_TEST_REPORTS = (
+    frozenset(GAMEPLAY_SCOPE_SPECS) - frozenset(SCOPED_REPORT_EXAMPLES)
+) | {"agency"}
 
 
 def configure_gameplay_replay_environment(
@@ -111,9 +111,9 @@ def configure_report_replay_environment(
 
 
 def configure_report_mode_environment(args: argparse.Namespace, environ) -> None:
-    """Enable expanded sampling only when a scoped report reuses a focused test target."""
+    """Enable expanded sampling when a scoped report reuses a focused test artifact."""
 
-    if args.scope in SCOPED_TEST_REPORTS:
+    if args.scope in REUSED_TEST_REPORTS:
         environ[GAMEPLAY_REPORT_MODE_ENV] = "1"
     else:
         environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
@@ -442,10 +442,8 @@ def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
     return [(label, gameplay_command(scope))]
 
 
-def gameplay_report_example_command(
-    example: str, arguments: tuple[str, ...] = ()
-) -> list[str]:
-    """Build one explicit report-example command without exposing argument positions to callers."""
+def gameplay_report_example_command(example: str) -> list[str]:
+    """Build one report-only example command on the shared test-profile cache."""
 
     command = [
         "cargo",
@@ -459,9 +457,16 @@ def gameplay_report_example_command(
         "--features",
         GAMEPLAY_FEATURE,
     ]
-    if arguments:
-        command.extend(("--", *arguments))
     return command
+
+
+def scoped_report_target(scope: str) -> tuple[str, str]:
+    """Return the focused test artifact and exact test reused by one scoped report."""
+
+    if scope == "agency":
+        return GAMEPLAY_TARGETS["workshop"], "gameplay_agency_counterfactuals"
+    spec = GAMEPLAY_SCOPE_SPECS[scope]
+    return spec.target, spec.test
 
 
 def report_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
@@ -469,17 +474,17 @@ def report_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
 
     if scope not in REPORT_SCOPES:
         raise ValueError(f"unknown gameplay report scope: {scope}")
-    if scope in SCOPED_TEST_REPORTS:
-        spec = GAMEPLAY_SCOPE_SPECS[scope]
+    if scope == "all":
+        command = gameplay_report_example_command(GAMEPLAY_REPORT_EXAMPLE)
+    elif scope in SCOPED_REPORT_EXAMPLES:
+        command = gameplay_report_example_command(SCOPED_REPORT_EXAMPLES[scope])
+    else:
+        target, test = scoped_report_target(scope)
         command = gameplay_target_command(
-            spec.target,
-            test_filter=spec.test,
+            target,
+            test_filter=test,
             nocapture=True,
         )
-    else:
-        example = FOCUSED_REPORT_EXAMPLES.get(scope, GAMEPLAY_REPORT_EXAMPLE)
-        arguments = FOCUSED_REPORT_ARGUMENTS.get(scope, ())
-        command = gameplay_report_example_command(example, arguments)
     label = "gameplay report"
     if scope != "all":
         label = f"gameplay report {scope}"

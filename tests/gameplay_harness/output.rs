@@ -22,8 +22,8 @@ pub(super) fn has_trace_output() -> bool {
     env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
 }
 
-// Test binaries stay quiet during routine gates. Explicit scoped reports reuse the same artifact;
-// review output is enabled below, while narration still requires trace mode.
+// Test binaries stay quiet during routine gates. Scoped reports that reuse a focused test artifact
+// enable review output below; narration still requires trace mode.
 #[cfg(test)]
 #[allow(unused_macros)]
 macro_rules! println {
@@ -32,8 +32,6 @@ macro_rules! println {
             && std::env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
         {
             std::println!($($argument)*);
-        } else {
-            let _ = std::format_args!($($argument)*);
         }
     }};
 }
@@ -55,8 +53,6 @@ macro_rules! reviewln {
     ($($argument:tt)*) => {{
         if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
             std::println!($($argument)*);
-        } else {
-            let _ = std::format_args!($($argument)*);
         }
     }};
 }
