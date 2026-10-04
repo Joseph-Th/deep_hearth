@@ -143,6 +143,11 @@ important immediate/delayed consequences.
 Diagnostic truth may explain a decision after the fact but must not feed back into that decision. Keep committed
 runtime values distinct from projected next-decision values.
 
+Keep hidden fixture truth in a separate diagnostic representation from actor-playable state. Player-facing
+decision and experience evidence contains only legitimately observable state, acquired evidence, and explicit
+policy. Exact hidden reserve, grade, hardness, generated role identity, or other fixture truth may be retained for
+post-action evaluator checks, but belongs only in explicitly diagnostic output marked as non-policy input.
+
 Decision diagnostics preserve the control coordinate of the choice: owning authority/contract,
 authoritative owner or crossed edge, operation stage reached, relevant flow/currency, and evidence mode. This
 lets failures route back to production semantics instead of becoming actor-specific archaeology.

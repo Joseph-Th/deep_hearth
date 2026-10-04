@@ -2617,9 +2617,12 @@ class GameplayReportContractTests(unittest.TestCase):
 
     def test_fieldwork_summary_separates_world_constraints_from_selected_tool(self) -> None:
         lines = [
-            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 geology=quarry-soft full-order-tool=copper-reinforced-hard-pick tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
-            "FIELDWORK EXPERIENCE seed=0x2 sample=coverage outcome=known-target-supply order-horizon=project field-inspections=3 geology=quarry-reinforcement full-order-tool=stone-pick tool=copper-reinforced-quarry copper-opportunity=available requested=200mg planned-local-work=80mg mining=50mg resource-knowledge-effect=changed-tool",
-            "FIELDWORK EXPERIENCE seed=0x3 sample=organic outcome=completed order-horizon=project field-inspections=2 geology=hard-pick-specialist full-order-tool=stone-quarry tool=copper-reinforced-hard-pick copper-opportunity=available requested=300mg planned-local-work=300mg mining=300mg resource-knowledge-effect=same-tool",
+            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 full-order-tool=copper-reinforced-hard-pick tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
+            "FIELDWORK EXPERIENCE seed=0x2 sample=coverage outcome=known-target-supply order-horizon=project field-inspections=3 full-order-tool=stone-pick tool=copper-reinforced-quarry copper-opportunity=available requested=200mg planned-local-work=80mg mining=50mg resource-knowledge-effect=changed-tool",
+            "FIELDWORK EXPERIENCE seed=0x3 sample=organic outcome=completed order-horizon=project field-inspections=2 full-order-tool=stone-quarry tool=copper-reinforced-hard-pick copper-opportunity=available requested=300mg planned-local-work=300mg mining=300mg resource-knowledge-effect=same-tool",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 geology=quarry-soft policy-input=false report-only=true",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x2 geology=quarry-reinforcement policy-input=false report-only=true",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x3 geology=hard-pick-specialist policy-input=false report-only=true",
             "FIELDWORK DEPLETION seed=0x2 eligible=true repeat-orders=[complete:1 partial:1 horizon:2] extracted=50mg attention=20t/1.2m supply-ended=true terminal=known-target-supply condition-after=900000ppm body=[energy:1000nJ hydration:10uL] scope=matched-orders-on-known-site no-search=true no-new-tool=true diagnostic-only=true",
             "FIELDWORK DEPLETION RECOVERY seed=0x2 depletion-observed=true reroute-proved=true evidence=executed-from-depleted-state post-depletion-execution=true mining-tool-reused=false mining-tool-upgraded=false selected-tool=copper-reinforced-hard-pick retool=20t salvage=false ore-recovery=[reason:required-access ticks:8 feed:30mg native:20mg] survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search=10t/36s extraction=4t/14.4s extracted=40mg stop=short-claim",
             "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x2 initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=false survey-base-kit-reused=true strategy=indexed-channel survey-upgrade=40t projected-search=[point:234t indexed:202t] realized=[baseline-search:228t selected-search:162t upgrade:40t attention-delta:+26t total-attention-delta:+16t] adaptation=[hardness-tier-changes:2 tool-builds:1 tool-upgrades:0 tool-switches:1 blocked-sites:1 tool-preparation:10t ore-recovery-events:1 ore-recovery-required-access:0 ore-recovery-payback:1 ore-recovery:8t ore-feed:30mg native-recovered:20mg point-baseline-fulfilled:140mg survey-fulfillment-delta:+10mg] sites-visited=3 search=162t/9.7m extraction=12t/43.2s initial-extracted=50mg additional-extracted=100mg fulfilled=150mg requested=200mg fulfillment=750000ppm remaining=50mg terminal=local-search-area-exhausted",
@@ -2678,19 +2681,22 @@ class GameplayReportContractTests(unittest.TestCase):
     def test_fieldwork_summary_explains_bulk_tool_refusal_from_known_reserve(self) -> None:
         lines = [
             "FIELDWORK EXPERIENCE seed=0xA sample=organic outcome=completed order-horizon=bulk "
-            "field-inspections=2 geology=quarry-soft tool=stone-pick copper-opportunity=absent "
+            "field-inspections=2 tool=stone-pick copper-opportunity=absent "
             "requested=500mg planned-local-work=80mg mining=80mg resource-knowledge-effect=changed-tool",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0xA geology=quarry-soft policy-input=false report-only=true",
             "FIELDWORK BULK CROSSOVER seed=0xA available=true tool=stone-quarry order=100mg "
             "base-batches=10 current-order=80mg scope=diagnostic-visible-state no-hidden-reserve=true",
             "FIELDWORK EXPERIENCE seed=0xB sample=organic outcome=completed order-horizon=bulk "
-            "field-inspections=2 geology=quarry-soft tool=stone-quarry copper-opportunity=absent "
+            "field-inspections=2 tool=stone-quarry copper-opportunity=absent "
             "requested=500mg planned-local-work=150mg mining=150mg resource-knowledge-effect=same-tool",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0xB geology=quarry-soft policy-input=false report-only=true",
             "FIELDWORK BULK CROSSOVER seed=0xB available=true tool=stone-quarry order=100mg "
             "base-batches=10 current-order=150mg scope=diagnostic-visible-state no-hidden-reserve=true",
             "FIELDWORK EXPERIENCE seed=0xC sample=organic outcome=completed order-horizon=bulk "
-            "field-inspections=2 geology=hard-pick-specialist tool=copper-reinforced-hard-pick "
+            "field-inspections=2 tool=copper-reinforced-hard-pick "
             "copper-opportunity=available requested=500mg planned-local-work=500mg mining=500mg "
             "resource-knowledge-effect=same-tool",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0xC geology=hard-pick-specialist policy-input=false report-only=true",
             "FIELDWORK BULK CROSSOVER seed=0xC available=false sampled-through=96-base-batches "
             "current-order=500mg scope=diagnostic-visible-state no-hidden-reserve=true",
         ]
@@ -2723,7 +2729,8 @@ class GameplayReportContractTests(unittest.TestCase):
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
             "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
-            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg geology=quarry-soft tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
+            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 geology=quarry-soft policy-input=false report-only=true",
             "FIELDWORK CONTINUATION seed=0x1 available=true reused-knowledge=true reused-tool=true requested=1mg extracted=1mg extraction=2t/7.2s avoided-search=10t/36.0s avoided-kit=50t/3.0m stop=order-complete scope=matched-repeat-order destination-capacity=diagnostic-only",
             "FIELDWORK DEPLETION seed=0x1 eligible=true repeat-orders=[complete:2 partial:1 horizon:12] extracted=5mg attention=6t/21.6s supply-ended=true terminal=short-claim condition-after=990000ppm body=[energy:1000000000000nJ hydration:1000uL] scope=matched-orders-on-known-site no-search=true no-new-tool=true diagnostic-only=true",
             "FIELDWORK DEPLETION RECOVERY seed=0x1 depletion-observed=true reroute-proved=true evidence=executed-from-depleted-state post-depletion-execution=true mining-tool-reused=false mining-tool-upgraded=false selected-tool=copper-reinforced-hard-pick retool=10t ore-recovery=[reason:payback ticks:8 feed:30mg native:20mg] survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search=10t/36.0s extraction=3t/10.8s extracted=1mg stop=order-complete",
@@ -2934,7 +2941,8 @@ class GameplayReportContractTests(unittest.TestCase):
 
     def test_fieldwork_digest_preserves_information_leverage_and_actor_context(self) -> None:
         lines = [
-            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor order-horizon=bulk requested=100mg planned-local-work=80mg mining=80mg outcome=known-target-supply geology=quarry-soft copper-opportunity=available tool=stone-quarry resource-knowledge-effect=changed-tool field-inspections=2",
+            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor order-horizon=bulk requested=100mg planned-local-work=80mg mining=80mg outcome=known-target-supply copper-opportunity=available tool=stone-quarry resource-knowledge-effect=changed-tool field-inspections=2",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 geology=quarry-soft policy-input=false report-only=true",
             "FIELDWORK KNOWLEDGE EXPERIENCE seed=0x1 basis=actor-evidence coarse=[first:50000..550000ppm second:100000..600000ppm overlapping:true selection:defer] specialist=channel-frame refined=[first:287500..312500ppm second:337500..362500ppm separation:25000ppm] selection=[refined:second changed:true] investment=[frame-components:260t raw-roots:finite] followup=[hammer-components:80t strategy:point-search transects:2 inspections:1 detailed:1 target:second] core=[setup:260t survey:12t hammer-reserve:20000000..25000000mg reserve:20000000..20250000mg crossover:24250000mg hammer-tool:copper-reinforced-quarry hammer-plan:362t core-tool:copper-reinforced-hard-pick core-plan:323t plan:20250000mg extracted:20000000mg stop:short-claim attention-saved:39t net:27t payback:10uses] instrument=[condition:988480ppm] scope=ordinary-raw-to-information-to-capital-consequence matter=conserved",
         ]
         summary = gameplay_report_summary.fieldwork_summary(lines)
@@ -2959,6 +2967,16 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("info=[frame=[n:1", digest)
         self.assertIn("geology=[soft:1 reinforcement:0 hard-specialist:0]", digest)
         self.assertIn("tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:0 hard-pick:0]", digest)
+
+    def test_fieldwork_summary_requires_separate_fixture_diagnostics(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "fieldwork experience missing fixture diagnostic for seed\\(s\\): 0x1"
+        ):
+            gameplay_report_summary.fieldwork_summary(
+                [
+                    "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed tool=stone-pick"
+                ]
+            )
 
     def test_concise_report_keeps_executed_settlement_specialization_decisions(self) -> None:
         output = "\n".join(

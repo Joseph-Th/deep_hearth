@@ -5,20 +5,13 @@ use super::*;
 pub(super) struct ProgressionWorldSetup {
     pub(super) state: AppState,
     pub(super) mined_mass: Mass,
-    pub(super) soft_ore_deposit_mass: Mass,
-    pub(super) hard_ore_deposit_mass: Mass,
-    pub(super) ore_copper_ppm: u32,
-    pub(super) hard_ore_copper_ppm: u32,
-    pub(super) trace_copper_ppm: u32,
     pub(super) raw_surplus: Mass,
     pub(super) stone_pick_batch_limit: Mass,
     pub(super) stone_hardness_limit: Pressure,
     pub(super) reinforced_hardness_limit: Pressure,
-    pub(super) hard_seam_hardness: Pressure,
     pub(super) pick_upgrade_native: Mass,
     pub(super) crank_upgrade_native: Mass,
     pub(super) concurrent_soft_mass: Mass,
-    pub(super) native_surplus: Mass,
     pub(super) raw: deep_hearth::inventory::StockpileId,
     pub(super) shaped: deep_hearth::inventory::StockpileId,
     pub(super) ore_storage: deep_hearth::inventory::StockpileId,
@@ -28,11 +21,26 @@ pub(super) struct ProgressionWorldSetup {
     pub(super) crushed_storage: deep_hearth::inventory::StockpileId,
     pub(super) separation_residue_storage: deep_hearth::inventory::StockpileId,
     pub(super) visible_clue_requests: [MiningTargetRequest; 4],
+    pub(super) refined_clue_sample_mass: Mass,
+}
+
+/// Hidden world truth used only after actor discovery for harness validation and diagnostics.
+///
+/// Keeping these values out of the playable setup prevents exact reserve, grade, hardness, and
+/// authored-role identity from becoming accidental inputs to the player's search policy.
+#[derive(Clone, Copy)]
+pub(super) struct ProgressionFixtureDiagnostics {
+    pub(super) soft_ore_deposit_mass: Mass,
+    pub(super) hard_ore_deposit_mass: Mass,
+    pub(super) ore_copper_ppm: u32,
+    pub(super) hard_ore_copper_ppm: u32,
+    pub(super) trace_copper_ppm: u32,
+    pub(super) hard_seam_hardness: Pressure,
+    pub(super) native_surplus: Mass,
     pub(super) soft_ore_target: MiningTargetRequest,
     pub(super) hard_ore_target: MiningTargetRequest,
     pub(super) native_target: MiningTargetRequest,
     pub(super) trace_target: MiningTargetRequest,
-    pub(super) refined_clue_sample_mass: Mass,
 }
 
 pub(super) fn setup_progression_world(
@@ -40,7 +48,7 @@ pub(super) fn setup_progression_world(
     seed: u64,
     low_trace_grade_regime: bool,
     ore_opportunity_batch_budget: u64,
-) -> ProgressionWorldSetup {
+) -> (ProgressionWorldSetup, ProgressionFixtureDiagnostics) {
     assert!(
         ore_opportunity_batch_budget >= SHALLOW_OPPORTUNITY_MIN_BATCHES,
         "primitive progression opportunity budget must leave room for discovery, convergence, and at least one repeated-work cycle"
@@ -270,36 +278,40 @@ pub(super) fn setup_progression_world(
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("primitive progression survival setup failed: {error}"));
 
-    ProgressionWorldSetup {
-        state,
-        mined_mass,
-        soft_ore_deposit_mass,
-        hard_ore_deposit_mass,
-        ore_copper_ppm,
-        hard_ore_copper_ppm,
-        trace_copper_ppm,
-        raw_surplus,
-        stone_pick_batch_limit,
-        stone_hardness_limit,
-        reinforced_hardness_limit,
-        hard_seam_hardness,
-        pick_upgrade_native,
-        crank_upgrade_native,
-        concurrent_soft_mass,
-        native_surplus,
-        raw,
-        shaped,
-        ore_storage,
-        hard_ore_storage,
-        refined_clue_storage,
-        native_storage,
-        crushed_storage,
-        separation_residue_storage,
-        visible_clue_requests,
-        soft_ore_target,
-        hard_ore_target,
-        native_target,
-        trace_target,
-        refined_clue_sample_mass,
-    }
+    (
+        ProgressionWorldSetup {
+            state,
+            mined_mass,
+            raw_surplus,
+            stone_pick_batch_limit,
+            stone_hardness_limit,
+            reinforced_hardness_limit,
+            pick_upgrade_native,
+            crank_upgrade_native,
+            concurrent_soft_mass,
+            raw,
+            shaped,
+            ore_storage,
+            hard_ore_storage,
+            refined_clue_storage,
+            native_storage,
+            crushed_storage,
+            separation_residue_storage,
+            visible_clue_requests,
+            refined_clue_sample_mass,
+        },
+        ProgressionFixtureDiagnostics {
+            soft_ore_deposit_mass,
+            hard_ore_deposit_mass,
+            ore_copper_ppm,
+            hard_ore_copper_ppm,
+            trace_copper_ppm,
+            hard_seam_hardness,
+            native_surplus,
+            soft_ore_target,
+            hard_ore_target,
+            native_target,
+            trace_target,
+        },
+    )
 }

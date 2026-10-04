@@ -5,7 +5,15 @@ use deep_hearth::content::build_registries;
 use deep_hearth::core::quantity::Mass;
 
 use super::super::preparation::assemble_sampling_hammer;
-use super::super::world::build_fieldwork_world;
+use super::super::world::{FieldworkWorld, build_fieldwork_world};
+
+fn has_visible_native_copper(world: &FieldworkWorld) -> bool {
+    world
+        .state
+        .inventory()
+        .get_stockpile(world.raw)
+        .is_some_and(|stockpile| !stockpile.get_mass(world.native_copper).is_zero())
+}
 
 #[test]
 fn maintained_fieldwork_witnesses_span_campaign_horizons() {
@@ -180,7 +188,7 @@ fn three_site_survey_decision_respects_both_expected_return_and_upgrade_supply()
     let mut funded =
         build_fieldwork_world(&registries, 1, requested, Mass::from_milligrams(4_500_000));
     assert!(
-        funded.copper_rich,
+        has_visible_native_copper(&funded),
         "maintained funded witness lost copper supply"
     );
     let _ = assemble_sampling_hammer(&registries, &mut funded.state, funded.raw, funded.parts);
@@ -202,7 +210,7 @@ fn three_site_survey_decision_respects_both_expected_return_and_upgrade_supply()
     let mut unfunded =
         build_fieldwork_world(&registries, 2, requested, Mass::from_milligrams(4_500_000));
     assert!(
-        !unfunded.copper_rich,
+        !has_visible_native_copper(&unfunded),
         "maintained unfunded witness unexpectedly gained copper supply"
     );
     let _ = assemble_sampling_hammer(

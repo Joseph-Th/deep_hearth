@@ -31,6 +31,7 @@ use super::shortfall_policy::InitialShortfallTerminal;
 use super::survey::{
     CHANNEL_COUNT, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, search_target,
 };
+use super::world::FieldworkFixtureDiagnostics;
 use super::{FieldworkEpisode, FieldworkResourceKnowledgeEffect};
 
 const fn sample_label(role: FocusedProbeRole) -> &'static str {
@@ -57,7 +58,6 @@ pub(super) struct FieldworkEpisodeReview<'a> {
     pub(super) state: &'a AppState,
     pub(super) case: FocusedProbeCase,
     pub(super) requested: Mass,
-    pub(super) deposit_mass: Mass,
     pub(super) order_horizon: &'static str,
     pub(super) raw: StockpileId,
     pub(super) parts: StockpileId,
@@ -85,8 +85,6 @@ pub(super) struct FieldworkEpisodeReview<'a> {
     pub(super) full_order_tool: Option<EquipmentDefinitionId>,
     pub(super) full_order_tool_label: &'static str,
     pub(super) resource_knowledge_effect: FieldworkResourceKnowledgeEffect,
-    pub(super) geology_label: &'static str,
-    pub(super) copper_rich: bool,
     pub(super) starting_native_copper: Mass,
     pub(super) native_copper: CommodityKey,
     pub(super) matter_before: AggregateMass,
@@ -592,8 +590,21 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
     );
 }
 
-pub(super) fn finalize_fieldwork_episode(review: FieldworkEpisodeReview<'_>) -> FieldworkEpisode {
+pub(super) fn finalize_fieldwork_episode(
+    review: FieldworkEpisodeReview<'_>,
+    fixture_diagnostics: FieldworkFixtureDiagnostics,
+) -> FieldworkEpisode {
     let extraction = review.extraction;
+    assert!(
+        review.observed_hardness.lower() <= fixture_diagnostics.excavation_hardness
+            && review.observed_hardness.upper() >= fixture_diagnostics.excavation_hardness,
+        "actor-visible hardness band must conservatively contain diagnostic geological truth"
+    );
+    assert!(
+        review.observed_resource_mass.lower() <= fixture_diagnostics.deposit_mass
+            && fixture_diagnostics.deposit_mass <= review.observed_resource_mass.upper(),
+        "actor-visible reserve band must conservatively contain diagnostic geological truth"
+    );
     assert_eq!(
         review
             .state
@@ -696,7 +707,7 @@ pub(super) fn finalize_fieldwork_episode(review: FieldworkEpisodeReview<'_>) -> 
         extraction.output_grade_ppm,
     );
     reviewln!(
-        "FIELDWORK EXPERIENCE seed=0x{:016X} sample={} outcome={} order-horizon={} demand=explicit-extraction-order search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} geology={} tool={} adaptation={} sampling-setup={}t/{} tool-prep={}t/{} copper-opportunity={} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{} condition={}ppm->{}ppm output-grade={}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
+        "FIELDWORK EXPERIENCE seed=0x{:016X} sample={} outcome={} order-horizon={} demand=explicit-extraction-order search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} tool={} adaptation={} sampling-setup={}t/{} tool-prep={}t/{} copper-opportunity={} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{} condition={}ppm->{}ppm output-grade={}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
         review.case.seed(),
         sample_label(review.case.role()),
         extraction.stop.outcome(),
@@ -712,14 +723,13 @@ pub(super) fn finalize_fieldwork_episode(review: FieldworkEpisodeReview<'_>) -> 
         review.planned_local_mass.milligrams(),
         review.full_order_tool_label,
         review.resource_knowledge_effect.label(),
-        review.geology_label,
         review.estimate.tool.label,
         extraction.adaptation.label(),
         review.sampling_setup_ticks,
         format_physical_duration(review.registries, review.sampling_setup_ticks),
         review.tool_prep_ticks,
         format_physical_duration(review.registries, review.tool_prep_ticks),
-        if review.copper_rich {
+        if !review.starting_native_copper.is_zero() {
             "available"
         } else {
             "absent"
@@ -752,9 +762,11 @@ pub(super) fn finalize_fieldwork_episode(review: FieldworkEpisodeReview<'_>) -> 
         review.sampling_setup_ticks + review.tool_prep_ticks,
     );
     reviewln!(
-        "FIELDWORK SUPPLY DIAGNOSTIC seed=0x{:016X} initial-reserve={}mg policy-input=false",
+        "FIELDWORK FIXTURE DIAGNOSTIC seed=0x{:016X} geology={} exact-hardness={}Pa initial-reserve={}mg policy-input=false report-only=true",
         review.case.seed(),
-        review.deposit_mass.milligrams(),
+        fixture_diagnostics.geology_label,
+        fixture_diagnostics.excavation_hardness.pascals(),
+        fixture_diagnostics.deposit_mass.milligrams(),
     );
     FieldworkEpisode {
         tool: review.estimate.tool.target,

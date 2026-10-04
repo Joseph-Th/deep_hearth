@@ -35,15 +35,19 @@ fn organic_woodworking_generation_varies_demand_and_disclosed_copper_pressure() 
     assert!(
         worlds
             .iter()
-            .map(|world| world.copper_available.milligrams())
+            .map(|world| visible_native_copper(world).milligrams())
             .collect::<BTreeSet<_>>()
             .len()
             > 1,
         "organic woodworking generation collapsed to one copper opportunity"
     );
     assert!(
-        worlds.iter().any(|world| world.saw_fundable)
-            && worlds.iter().any(|world| !world.saw_fundable),
+        worlds
+            .iter()
+            .any(|world| visible_native_copper(world) >= world.blade_input)
+            && worlds
+                .iter()
+                .any(|world| visible_native_copper(world) < world.blade_input),
         "organic woodworking generation must exercise both fundable and blocked saw opportunities"
     );
 }

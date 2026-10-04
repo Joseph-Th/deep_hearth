@@ -8,7 +8,7 @@ use discovery::{ProgressionDiscovery, ProgressionDiscoveryPlan, discover_primiti
 
 #[path = "episode/world.rs"]
 mod world;
-use world::{ProgressionWorldSetup, setup_progression_world};
+use world::{ProgressionFixtureDiagnostics, ProgressionWorldSetup, setup_progression_world};
 
 pub(super) fn run_primitive_progression_case(
     registries: &Registries,
@@ -18,23 +18,22 @@ pub(super) fn run_primitive_progression_case(
     ore_opportunity_batch_budget: u64,
     emit_detail: bool,
 ) -> PrimitiveProgressionExperience {
+    let (world, fixture_diagnostics) = setup_progression_world(
+        registries,
+        seed,
+        low_trace_grade_regime,
+        ore_opportunity_batch_budget,
+    );
     let ProgressionWorldSetup {
         mut state,
         mined_mass,
-        soft_ore_deposit_mass,
-        hard_ore_deposit_mass,
-        ore_copper_ppm,
-        hard_ore_copper_ppm,
-        trace_copper_ppm,
         raw_surplus,
         stone_pick_batch_limit,
         stone_hardness_limit,
         reinforced_hardness_limit,
-        hard_seam_hardness,
         pick_upgrade_native,
         crank_upgrade_native,
         concurrent_soft_mass,
-        native_surplus,
         raw,
         shaped,
         ore_storage,
@@ -44,17 +43,8 @@ pub(super) fn run_primitive_progression_case(
         crushed_storage,
         separation_residue_storage,
         visible_clue_requests,
-        soft_ore_target,
-        hard_ore_target,
-        native_target,
-        trace_target,
         refined_clue_sample_mass,
-    } = setup_progression_world(
-        registries,
-        seed,
-        low_trace_grade_regime,
-        ore_opportunity_batch_budget,
-    );
+    } = world;
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| {
             panic!("primitive progression initial matter audit failed: {error}")
@@ -114,19 +104,19 @@ pub(super) fn run_primitive_progression_case(
     // Fixture truth validates the authored world only after the actor has made every geological
     // choice from acquired evidence. These identities must never become policy inputs.
     assert_eq!(
-        direct_copper_clue.request, native_target,
+        direct_copper_clue.request, fixture_diagnostics.native_target,
         "strongest player-visible copper evidence no longer identifies the authored direct-copper occurrence"
     );
     assert_eq!(
-        bulk_ore_clue.request, soft_ore_target,
+        bulk_ore_clue.request, fixture_diagnostics.soft_ore_target,
         "best remaining mineable copper evidence no longer identifies the authored bulk processing feed"
     );
     assert_eq!(
-        hard_clue.request, hard_ore_target,
+        hard_clue.request, fixture_diagnostics.hard_ore_target,
         "actor-visible hardness ranking no longer identifies the authored blocked seam"
     );
     assert_eq!(
-        alternative_clue_request, trace_target,
+        alternative_clue_request, fixture_diagnostics.trace_target,
         "actor-visible lower-priority alternative no longer identifies the authored trace occurrence"
     );
     let natural_priority = observed_primitive_priority(hard_clue, bulk_sample);
@@ -869,6 +859,19 @@ pub(super) fn run_primitive_progression_case(
             panic!("primitive progression flywheel disappeared after repeated crushing")
         });
     assert!(drive_remaining <= machine.drive_capacity);
+    let ProgressionFixtureDiagnostics {
+        soft_ore_deposit_mass,
+        hard_ore_deposit_mass,
+        ore_copper_ppm,
+        hard_ore_copper_ppm,
+        trace_copper_ppm,
+        hard_seam_hardness,
+        native_surplus,
+        soft_ore_target: _,
+        hard_ore_target: _,
+        native_target: _,
+        trace_target: _,
+    } = fixture_diagnostics;
     let survival_after = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("primitive progression final survival state disappeared"));
     let total_ore_reserve = soft_ore_deposit_mass

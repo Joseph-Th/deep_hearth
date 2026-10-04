@@ -20,7 +20,15 @@ use super::retooling::{
 use super::survey::{
     CHANNEL_START_X, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
 };
-use super::world::build_fieldwork_world;
+use super::world::{FieldworkWorld, build_fieldwork_world};
+
+fn has_visible_native_copper(world: &FieldworkWorld) -> bool {
+    world
+        .state
+        .inventory()
+        .get_stockpile(world.raw)
+        .is_some_and(|stockpile| !stockpile.get_mass(world.native_copper).is_zero())
+}
 
 #[test]
 fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
@@ -97,7 +105,7 @@ fn owned_base_tool_uses_the_authored_in_place_upgrade_before_fresh_rebuild() {
     let limits = fieldwork_mining_limits(&registries);
     let requested = limits.base_quarry_batch;
     let mut world = build_fieldwork_world(&registries, 1, requested, requested);
-    assert!(world.copper_rich);
+    assert!(has_visible_native_copper(&world));
     let (pick, _) = assemble_fieldwork_tool(
         &registries,
         &mut world.state,
@@ -272,7 +280,7 @@ fn obsolete_specialization_can_be_salvaged_into_the_new_geology_tool() {
     let limits = fieldwork_mining_limits(&registries);
     let requested = limits.base_quarry_batch;
     let mut world = build_fieldwork_world(&registries, 1, requested, requested);
-    assert!(world.copper_rich);
+    assert!(has_visible_native_copper(&world));
     let (hammer, _) =
         assemble_sampling_hammer(&registries, &mut world.state, world.raw, world.parts);
     let _ = upgrade_sampling_hammer(
@@ -355,7 +363,7 @@ fn owned_ore_specialization_can_pay_back_before_the_current_tool_is_blocked() {
         Mass::from_milligrams(28_000_000),
     );
     assert!(
-        world.copper_rich,
+        has_visible_native_copper(&world),
         "specialization payoff witness requires the two initial reinforcement parcels"
     );
     let (hammer, _) =
@@ -485,7 +493,7 @@ fn owned_ore_can_fund_a_harder_site_tool_after_relocation() {
     let mut world =
         build_fieldwork_world(&registries, 2, requested, Mass::from_milligrams(28_000_000));
     assert!(
-        !world.copper_rich,
+        !has_visible_native_copper(&world),
         "coverage world must begin without free native copper"
     );
     let (hammer, _) =

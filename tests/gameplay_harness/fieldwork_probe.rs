@@ -15,6 +15,7 @@ use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::geology::{ExcavationHardnessEstimate, ResourceMassEstimate};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
+use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{MiningOrderRequest, resolve_mining_order};
 use deep_hearth::registry::Registries;
 
@@ -83,7 +84,7 @@ use survey::{
 
 #[path = "fieldwork_probe/world.rs"]
 mod world;
-use world::{FieldworkWorld, build_fieldwork_world, fieldwork_supply};
+use world::{FieldworkWorld, build_fieldwork_world_with_diagnostics, fieldwork_supply};
 
 /// Visible demand spans one immediate local order, the finite twelve-cycle ore workload that
 /// ordinary primitive progression prices before mechanizing, and a settlement-scale bulk order.
@@ -277,6 +278,8 @@ fn run_fieldwork_with_supply(
     deposit_mass: Mass,
 ) -> FieldworkEpisode {
     let seed = case.seed();
+    let (world, fixture_diagnostics) =
+        build_fieldwork_world_with_diagnostics(registries, seed, requested_mine_mass, deposit_mass);
     let FieldworkWorld {
         mut state,
         raw,
@@ -287,14 +290,17 @@ fn run_fieldwork_with_supply(
         recovery_residue,
         channel_voxels,
         mining_limits,
-        geology_label,
-        excavation_hardness,
-        copper_rich,
-        starting_native_copper,
         native_copper,
-        matter_before,
-    } = build_fieldwork_world(registries, seed, requested_mine_mass, deposit_mass);
+    } = world;
     let order_horizon = fieldwork_order_horizon(registries, requested_mine_mass);
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("fieldwork initial matter audit failed: {error}"))
+        .total();
+    let starting_native_copper = state
+        .inventory()
+        .get_stockpile(raw)
+        .map(|stockpile| stockpile.get_mass(native_copper))
+        .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared before actor play"));
 
     let episode_started_at = state.tick();
     let survival_before = *state
@@ -323,16 +329,6 @@ fn run_fieldwork_with_supply(
     assert_eq!(indexed_surveys, 0);
     let target_region = target.region();
     let search_ticks = state.tick().value() - search_started_at.value();
-    assert!(
-        observed_hardness.lower() <= excavation_hardness
-            && observed_hardness.upper() >= excavation_hardness,
-        "actor-visible hardness band must conservatively contain diagnostic geological truth"
-    );
-    assert!(
-        observed_resource_mass.lower() <= deposit_mass
-            && deposit_mass <= observed_resource_mass.upper(),
-        "actor-visible reserve band must conservatively contain diagnostic geological truth"
-    );
     let planned_local_mass = requested_mine_mass.min(observed_resource_mass.upper());
     assert!(
         !planned_local_mass.is_zero(),
@@ -471,45 +467,45 @@ fn run_fieldwork_with_supply(
             batch_limit: estimate.batch,
         },
     );
-    finalize_fieldwork_episode(FieldworkEpisodeReview {
-        registries,
-        state: &state,
-        case,
-        requested: requested_mine_mass,
-        deposit_mass,
-        order_horizon,
-        raw,
-        parts,
-        ore_source: destination,
-        followup_destination,
-        recovery_crushed,
-        recovery_residue,
-        sampling_hammer: hammer,
-        channel_voxels,
-        mining_equipment,
-        target_region,
-        estimate: &estimate,
-        extraction: &extraction,
-        survey_campaign: &survey_campaign,
-        episode_started_at: episode_started_at.value(),
-        sampling_setup_ticks,
-        search_ticks,
-        tool_prep_ticks,
-        transects,
-        field_inspections,
-        detailed_surveys,
-        observed_hardness,
-        observed_resource_mass,
-        planned_local_mass,
-        full_order_tool,
-        full_order_tool_label,
-        resource_knowledge_effect,
-        geology_label,
-        copper_rich,
-        starting_native_copper,
-        native_copper,
-        matter_before,
-        survival_before_energy: survival_before.metabolic_energy(),
-        survival_before_hydration: survival_before.hydration(),
-    })
+    finalize_fieldwork_episode(
+        FieldworkEpisodeReview {
+            registries,
+            state: &state,
+            case,
+            requested: requested_mine_mass,
+            order_horizon,
+            raw,
+            parts,
+            ore_source: destination,
+            followup_destination,
+            recovery_crushed,
+            recovery_residue,
+            sampling_hammer: hammer,
+            channel_voxels,
+            mining_equipment,
+            target_region,
+            estimate: &estimate,
+            extraction: &extraction,
+            survey_campaign: &survey_campaign,
+            episode_started_at: episode_started_at.value(),
+            sampling_setup_ticks,
+            search_ticks,
+            tool_prep_ticks,
+            transects,
+            field_inspections,
+            detailed_surveys,
+            observed_hardness,
+            observed_resource_mass,
+            planned_local_mass,
+            full_order_tool,
+            full_order_tool_label,
+            resource_knowledge_effect,
+            starting_native_copper,
+            native_copper,
+            matter_before,
+            survival_before_energy: survival_before.metabolic_energy(),
+            survival_before_hydration: survival_before.hydration(),
+        },
+        fixture_diagnostics,
+    )
 }

@@ -615,12 +615,48 @@ def fieldwork_summary(lines: list[str]) -> str | None:
     fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
     if not fieldwork:
         return None
+    fixture_diagnostics = [
+        line
+        for line in lines
+        if line.startswith("FIELDWORK FIXTURE DIAGNOSTIC ")
+    ]
+    geology_by_seed: dict[str, str] = {}
+    for line in fixture_diagnostics:
+        seed = field(line, "seed")
+        geology = field(line, "geology")
+        if seed is None or geology is None:
+            raise ValueError(f"malformed fieldwork fixture diagnostic: {line}")
+        if field(line, "policy-input") != "false" or field(line, "report-only") != "true":
+            raise ValueError(
+                "fieldwork fixture diagnostic must be explicitly report-only and excluded from policy: "
+                + line
+            )
+        previous = geology_by_seed.setdefault(seed, geology)
+        if previous != geology:
+            raise ValueError(
+                f"fieldwork fixture diagnostic disagrees for seed {seed}: "
+                f"{previous} != {geology}"
+            )
+    experience_seed_list = [field(line, "seed") for line in fieldwork]
+    if any(seed is None for seed in experience_seed_list):
+        raise ValueError("fieldwork experience is missing its replay seed")
+    experience_seeds = {seed for seed in experience_seed_list if seed is not None}
+    missing_diagnostics = sorted(experience_seeds - geology_by_seed.keys())
+    if missing_diagnostics:
+        raise ValueError(
+            "fieldwork experience missing fixture diagnostic for seed(s): "
+            + ", ".join(missing_diagnostics)
+        )
     count = lambda marker: sum(marker in line for line in fieldwork)
     count_field = lambda name, value: sum(
         field(line, name) == value for line in fieldwork
     )
+    geology_count = lambda geology: sum(
+        geology_by_seed[seed] == geology for seed in experience_seeds
+    )
     geology_tool_count = lambda geology, tool: sum(
-        field(line, "geology") == geology and field(line, "tool") == tool
+        geology_by_seed.get(field(line, "seed") or "") == geology
+        and field(line, "tool") == tool
         for line in fieldwork
     )
     organic_fieldwork = organic_only(fieldwork)
@@ -653,9 +689,9 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         f"{_survey_campaign_summary(lines)} "
         f"{_heavy_tool_market_summary(lines, fieldwork)} "
         f"{_bulk_crossover_summary(lines)} "
-        f"geology=[soft:{count('geology=quarry-soft')} "
-        f"reinforcement:{count('geology=quarry-reinforcement')} "
-        f"hard-specialist:{count('geology=hard-pick-specialist')}] "
+        f"geology=[soft:{geology_count('quarry-soft')} "
+        f"reinforcement:{geology_count('quarry-reinforcement')} "
+        f"hard-specialist:{geology_count('hard-pick-specialist')}] "
         f"copper=[available:{count('copper-opportunity=available')} "
         f"absent:{count('copper-opportunity=absent')}] "
         f"tools=[stone-pick:{count_field('tool', 'stone-pick')} "

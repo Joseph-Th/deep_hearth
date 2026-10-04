@@ -7,11 +7,10 @@ use deep_hearth::content::{
     FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER,
     PROSPECTING_LOCAL_TRANSECT,
 };
-use deep_hearth::core::quantity::{AggregateMass, Mass, Pressure};
+use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
-use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::initialize_player_survival;
 
@@ -34,12 +33,18 @@ pub(super) struct FieldworkWorld {
     pub(super) recovery_residue: StockpileId,
     pub(super) channel_voxels: i64,
     pub(super) mining_limits: FieldworkMiningLimits,
+    pub(super) native_copper: CommodityKey,
+}
+
+/// Fixture truth retained only for post-action audit/reporting.
+///
+/// This type is deliberately separate from [`FieldworkWorld`]. Actor planning must operate on the
+/// playable world plus acquired runtime evidence and must never receive exact geological truth.
+#[derive(Clone, Copy)]
+pub(super) struct FieldworkFixtureDiagnostics {
     pub(super) geology_label: &'static str,
     pub(super) excavation_hardness: Pressure,
-    pub(super) copper_rich: bool,
-    pub(super) starting_native_copper: Mass,
-    pub(super) native_copper: CommodityKey,
-    pub(super) matter_before: AggregateMass,
+    pub(super) deposit_mass: Mass,
 }
 
 #[derive(Clone, Copy)]
@@ -215,12 +220,12 @@ fn seed_channel_deposit(
     );
 }
 
-pub(super) fn build_fieldwork_world(
+fn build_fieldwork_world_inner(
     registries: &Registries,
     seed: u64,
     requested_mine_mass: Mass,
     deposit_mass: Mass,
-) -> FieldworkWorld {
+) -> (FieldworkWorld, FieldworkFixtureDiagnostics) {
     assert!(!requested_mine_mass.is_zero());
     assert!(!deposit_mass.is_zero());
     let channel_voxels = i64::try_from(
@@ -242,10 +247,6 @@ pub(super) fn build_fieldwork_world(
     if !copper_rich {
         raw_opportunity.remove(&native_copper);
     }
-    let starting_native_copper = raw_opportunity
-        .get(&native_copper)
-        .copied()
-        .unwrap_or(Mass::ZERO);
     let raw_capacity = raw_opportunity
         .values()
         .copied()
@@ -337,27 +338,52 @@ pub(super) fn build_fieldwork_world(
             followup_profile,
         );
     }
-    let matter_before = calculate_matter_accounting(&state)
-        .unwrap_or_else(|error| panic!("fieldwork initial matter audit failed: {error}"))
-        .total();
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("fieldwork survival setup failed: {error}"));
 
-    FieldworkWorld {
-        state,
-        raw,
-        parts,
-        destination,
-        followup_destination,
-        recovery_crushed,
-        recovery_residue,
-        channel_voxels,
-        mining_limits,
-        geology_label,
-        excavation_hardness: profile.hardness,
-        copper_rich,
-        starting_native_copper,
-        native_copper,
-        matter_before,
-    }
+    (
+        FieldworkWorld {
+            state,
+            raw,
+            parts,
+            destination,
+            followup_destination,
+            recovery_crushed,
+            recovery_residue,
+            channel_voxels,
+            mining_limits,
+            native_copper,
+        },
+        FieldworkFixtureDiagnostics {
+            geology_label,
+            excavation_hardness: profile.hardness,
+            deposit_mass,
+        },
+    )
+}
+
+/// Builds only the actor-playable world. Tests of player choices should prefer this surface so
+/// hidden fixture truth cannot accidentally enter policy code.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "the focused fieldwork test target excludes owner contracts; the separate fieldwork contract target uses this actor-only fixture surface"
+)]
+pub(super) fn build_fieldwork_world(
+    registries: &Registries,
+    seed: u64,
+    requested_mine_mass: Mass,
+    deposit_mass: Mass,
+) -> FieldworkWorld {
+    build_fieldwork_world_inner(registries, seed, requested_mine_mass, deposit_mass).0
+}
+
+/// Builds the playable world plus hidden truth for post-action evidence audits.
+pub(super) fn build_fieldwork_world_with_diagnostics(
+    registries: &Registries,
+    seed: u64,
+    requested_mine_mass: Mass,
+    deposit_mass: Mass,
+) -> (FieldworkWorld, FieldworkFixtureDiagnostics) {
+    build_fieldwork_world_inner(registries, seed, requested_mine_mass, deposit_mass)
 }

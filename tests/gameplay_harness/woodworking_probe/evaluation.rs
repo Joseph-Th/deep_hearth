@@ -102,9 +102,16 @@ struct WoodworkingWorld {
     matter_before: deep_hearth::core::quantity::AggregateMass,
     blade_input: Mass,
     reinforcement_input: Mass,
-    copper_available: Mass,
-    saw_fundable: bool,
     protected_copper_reserve: Mass,
+}
+
+fn visible_native_copper(world: &WoodworkingWorld) -> Mass {
+    world
+        .state
+        .inventory()
+        .get_stockpile(world.raw)
+        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)))
+        .unwrap_or_else(|| panic!("woodworking raw stockpile disappeared"))
 }
 
 fn adze_reinforcement_native_copper(registries: &Registries) -> Mass {
@@ -254,8 +261,6 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
         matter_before,
         blade_input,
         reinforcement_input,
-        copper_available,
-        saw_fundable: copper_available >= blade_input,
         protected_copper_reserve,
     }
 }
@@ -344,6 +349,7 @@ fn plan_woodworking_investment(
     world: &WoodworkingWorld,
 ) -> WoodworkingDecisionPlan {
     let preference = WoodworkingInvestmentPreference::from_behavior_seed(behavior_seed);
+    let copper_available = visible_native_copper(world);
     let bare_pipeline_projection = resolve_manual_craft(
         registries,
         &world.state,
@@ -364,7 +370,7 @@ fn plan_woodworking_investment(
         world.raw,
         EQUIPMENT_STONE_WOODWORKING_ADZE,
     );
-    let reinforced_adze_fundable = world.copper_available >= world.reinforcement_input;
+    let reinforced_adze_fundable = copper_available >= world.reinforcement_input;
     let reinforced_adze_budget = reinforced_adze_fundable.then(|| {
         project_woodworking_construction_budget(
             registries,
@@ -407,8 +413,7 @@ fn plan_woodworking_investment(
             .checked_add(work)
             .unwrap_or_else(|| panic!("woodworking reinforced-adze projected attention overflowed"))
     });
-    let saw_budget = world
-        .saw_fundable
+    let saw_budget = (copper_available >= world.blade_input)
         .then(|| project_saw_setup_budget(registries, &world.state, world.raw));
     let nominal_saw_timber = saw_budget.map(|(_, timber)| {
         timber
@@ -424,12 +429,10 @@ fn plan_woodworking_investment(
         demand.adze_batches,
         "nominal adze work",
     );
-    let reserve_safe_now = world
-        .copper_available
+    let reserve_safe_now = copper_available
         .checked_sub(world.blade_input)
         .is_some_and(|remaining| remaining >= world.protected_copper_reserve);
-    let reinforced_reserve_safe_now = world
-        .copper_available
+    let reinforced_reserve_safe_now = copper_available
         .checked_sub(world.reinforcement_input)
         .is_some_and(|remaining| remaining >= world.protected_copper_reserve);
     let setup_attention_budget_met = saw_budget.is_some_and(|(ticks, _)| {
@@ -562,7 +565,7 @@ fn execute_saw_counterfactual(
     common_state: &AppState,
     adze: EquipmentId,
 ) -> Option<SawCounterfactual> {
-    world.saw_fundable.then(|| {
+    decision.saw_budget.map(|_| {
         let mut state = common_state.clone();
         let setup = assemble_saw(registries, &mut state, world.raw, world.saw_parts, adze);
         let (projected_setup_ticks, projected_setup_timber) = decision
@@ -683,7 +686,7 @@ fn execute_woodworking_lifecycle(
     validate_loaded_state(registries, &adze_state)
         .unwrap_or_else(|error| panic!("woodworking adze counterfactual state invalid: {error}"));
 
-    let reinforced_adze = (world.copper_available >= world.reinforcement_input).then(|| {
+    let reinforced_adze = (visible_native_copper(world) >= world.reinforcement_input).then(|| {
         let mut state = common_state.clone();
         let reinforcement_ticks =
             reinforce_adze(registries, &mut state, world.raw, world.adze_parts, adze);
@@ -853,6 +856,7 @@ fn evaluate_woodworking_lifecycle(
     decision: WoodworkingDecisionPlan,
     evidence: &WoodworkingLifecycleEvidence,
 ) -> WoodworkingLifecycleMetrics {
+    let initial_copper = visible_native_copper(world);
     let saw_total_timber = evidence.saw.as_ref().map(|saw| {
         saw.setup
             .raw_timber
@@ -880,7 +884,7 @@ fn evaluate_woodworking_lifecycle(
         evidence
             .reinforced_adze
             .as_ref()
-            .map_or(world.copper_available, |reinforced| {
+            .map_or(initial_copper, |reinforced| {
                 reinforced
                     .state
                     .inventory()
@@ -892,8 +896,7 @@ fn evaluate_woodworking_lifecycle(
                         panic!("woodworking raw stockpile disappeared after reinforced adze")
                     })
             });
-    let reinforced_adze_copper_consumed = world
-        .copper_available
+    let reinforced_adze_copper_consumed = initial_copper
         .checked_sub(copper_after_reinforced)
         .unwrap_or_else(|| panic!("woodworking reinforced adze increased available native copper"));
     if evidence.reinforced_adze.is_some() {
@@ -922,7 +925,7 @@ fn evaluate_woodworking_lifecycle(
             "saw lifecycle copper",
         )
     });
-    let copper_after_saw = evidence.saw.as_ref().map_or(world.copper_available, |saw| {
+    let copper_after_saw = evidence.saw.as_ref().map_or(initial_copper, |saw| {
         saw.state
             .inventory()
             .get_stockpile(world.raw)
@@ -931,8 +934,7 @@ fn evaluate_woodworking_lifecycle(
             })
             .unwrap_or_else(|| panic!("woodworking raw stockpile disappeared after saw lifecycle"))
     });
-    let saw_copper_consumed = world
-        .copper_available
+    let saw_copper_consumed = visible_native_copper(world)
         .checked_sub(copper_after_saw)
         .unwrap_or_else(|| panic!("woodworking saw lifecycle increased available native copper"));
     assert_eq!(
