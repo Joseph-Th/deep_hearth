@@ -177,8 +177,8 @@ pub fn validate_drink(
     volume: Volume,
 ) -> Result<ValidatedDrink, DrinkError> {
     let attention = validate_player_attention(state).map_err(map_player_attention_error)?;
-    let source = resolve_drink_source(registries, state, store)?;
     validate_player_fluid_store_access(state, store).map_err(DrinkError::Access)?;
+    let source = resolve_drink_source(registries, state, store)?;
     let physiology = registries.survival().physiology();
     let player = state
         .survival()

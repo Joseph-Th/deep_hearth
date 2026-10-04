@@ -6,8 +6,13 @@ use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::logistics::{
+    PlayerFluidStoreAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_fluid_store, validate_place_ground_stockpile,
+};
 use crate::material::CommodityKey;
 use crate::simulation::advance_tick;
+use crate::spatial::VoxelCoord;
 use crate::survival::{NutritionReserves, Vitality, initialize_player_survival, player_record};
 
 fn set_player_reserves(state: &mut AppState, metabolic_energy: Energy, hydration: Volume) {
@@ -358,4 +363,90 @@ fn selected_water_store_default_use_preserves_canonical_temperature_rejection() 
             }
         )) if rejected == store && found == temperature
     ));
+}
+
+#[test]
+fn selected_food_stack_rejects_remote_source_before_disclosing_stack_mass() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote selected-stack survival setup failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote selected-stack depletion tick failed: {error}"));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote selected-stack logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote selected-stack logistics commit failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote selected-stack stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(1),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("remote selected-stack food failed: {error}"));
+    let source_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, source, source_position)
+        .unwrap_or_else(|error| panic!("remote selected-stack placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote selected-stack placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_eat_lot_to_full(&registries, &state, lot).err(),
+        Some(EatLotToTargetError::Eat(EatError::Access(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: source,
+                stockpile_position: source_position,
+                player_position,
+            }
+        )))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn selected_water_store_rejects_remote_source_before_disclosing_volume() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote selected-vessel survival setup failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote selected-vessel depletion tick failed: {error}"));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote selected-vessel logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote selected-vessel logistics commit failed: {error}"));
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(1),
+        FLUID_WATER,
+        Volume::from_microliters(1),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("remote selected-vessel water failed: {error}"));
+    let store_position = VoxelCoord::new(1, 0, 0);
+    validate_place_fluid_store(&state, store, store_position)
+        .unwrap_or_else(|error| panic!("remote selected-vessel placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote selected-vessel placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_drink_store_to_full(&registries, &state, store).err(),
+        Some(DrinkStoreToTargetError::Drink(DrinkError::Access(
+            PlayerFluidStoreAccessError::RemoteKnownFluidStore {
+                store,
+                store_position,
+                player_position,
+            }
+        )))
+    );
+    assert_eq!(state, before);
 }

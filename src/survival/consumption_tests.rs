@@ -59,7 +59,7 @@ fn drinking_rejects_known_remote_fluid_store() {
         volume,
         FLUID_WATER,
         volume,
-        Temperature::from_millikelvin(293_150),
+        Temperature::from_millikelvin(340_000),
     )
     .unwrap_or_else(|error| panic!("remote drinking water fixture failed: {error}"));
     let store_position = VoxelCoord::new(1, 0, 0);

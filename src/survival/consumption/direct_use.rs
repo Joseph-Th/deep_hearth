@@ -7,6 +7,7 @@ use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::state::AppState;
 use crate::fluid::FluidStoreId;
 use crate::inventory::{MaterialLotId, MaterialLotSelection};
+use crate::logistics::{validate_player_fluid_store_access, validate_player_stockpile_access};
 use crate::material::CommodityKey;
 use crate::registry::Registries;
 
@@ -226,6 +227,9 @@ fn validate_eat_lot_up_to(
         .inventory()
         .get_lot(lot)
         .ok_or(EatLotToTargetError::UnknownLot { lot })?;
+    let source = lot_record.stockpile();
+    validate_player_stockpile_access(state, source)
+        .map_err(|error| EatLotToTargetError::Eat(EatError::Access(error)))?;
     let direct = registries.survival().physiology().direct_consumption();
     let available = lot_record.mass();
     let portion = desired.min(available).min(direct.maximum_meal_mass());
@@ -236,7 +240,6 @@ fn validate_eat_lot_up_to(
             required: direct.minimum_meal_mass(),
         });
     }
-    let source = lot_record.stockpile();
     validate_eat(
         registries,
         state,
@@ -253,6 +256,8 @@ fn validate_drink_store_up_to(
     store: FluidStoreId,
     desired: Volume,
 ) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
+    validate_player_fluid_store_access(state, store)
+        .map_err(|error| DrinkStoreToTargetError::Drink(DrinkError::Access(error)))?;
     let store_record = state
         .fluid()
         .get_store(store)
@@ -296,6 +301,9 @@ pub fn validate_eat_lot_to_metabolic_target(
         .inventory()
         .get_lot(lot)
         .ok_or(EatLotToTargetError::UnknownLot { lot })?;
+    let source = lot_record.stockpile();
+    validate_player_stockpile_access(state, source)
+        .map_err(|error| EatLotToTargetError::Eat(EatError::Access(error)))?;
     let food = registries
         .survival()
         .get_food(lot_record.commodity())
@@ -321,7 +329,6 @@ pub fn validate_eat_lot_to_metabolic_target(
             required,
         });
     }
-    let source = lot_record.stockpile();
     validate_eat(
         registries,
         state,
@@ -347,6 +354,8 @@ pub fn validate_drink_store_to_hydration_target(
         .player()
         .copied()
         .ok_or(DrinkStoreToTargetError::SurvivalNotInitialized)?;
+    validate_player_fluid_store_access(state, store)
+        .map_err(|error| DrinkStoreToTargetError::Drink(DrinkError::Access(error)))?;
     let store_record = state
         .fluid()
         .get_store(store)
