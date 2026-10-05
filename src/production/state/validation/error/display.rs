@@ -346,7 +346,7 @@ impl Display for ProductionValidationError {
                 expected,
             } => write!(
                 formatter,
-                "energy occupancy index for store {} records job {:?} but active jobs require {:?}",
+                "energy occupancy index for store {} records job {:?} but durable jobs require {:?}",
                 store.value(),
                 indexed.map(ProductionJobId::value),
                 expected.map(ProductionJobId::value)
@@ -362,7 +362,7 @@ impl Display for ProductionValidationError {
                 expected,
             } => write!(
                 formatter,
-                "equipment occupancy index for equipment {} records job {:?} but active jobs require {:?}",
+                "equipment occupancy index for equipment {} records job {:?} but durable jobs require {:?}",
                 equipment.value(),
                 indexed.map(ProductionJobId::value),
                 expected.map(ProductionJobId::value)
@@ -374,7 +374,7 @@ impl Display for ProductionValidationError {
             ),
             Self::OutputStockpileOccupancyIndexMismatch { stockpile } => write!(
                 formatter,
-                "output-stockpile occupancy index for stockpile {} disagrees with active production jobs",
+                "output-stockpile occupancy index for stockpile {} disagrees with durable production jobs",
                 stockpile.value()
             ),
         }

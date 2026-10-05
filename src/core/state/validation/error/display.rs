@@ -135,7 +135,7 @@ impl Display for StateValidationError {
                 second_position,
             } => write!(
                 formatter,
-                "running production job {} has separated known endpoints: {first} at ({},{},{}) and {second} at ({},{},{})",
+                "production job {} has separated known endpoints: {first} at ({},{},{}) and {second} at ({},{},{})",
                 job.value(),
                 first_position.x(),
                 first_position.y(),
@@ -489,7 +489,7 @@ impl Display for StateValidationError {
                 expected,
             } => write!(
                 formatter,
-                "stockpile {} reserves {} mg inbound but active jobs require {} mg",
+                "stockpile {} reserves {} mg inbound but admitted work requires {} mg",
                 stockpile.value(),
                 reserved.milligrams(),
                 expected.milligrams()

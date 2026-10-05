@@ -10,7 +10,7 @@ use crate::content::{
     make_test_registries_with_standard_screening,
     make_test_registries_with_standard_sensible_heating,
 };
-use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
+use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
@@ -42,8 +42,9 @@ use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructuralElementId, add_structural_element, materialize_structural_element_for_test,
-    validate_activate_structural_element,
+    StructuralElementId, StructuralLoadKind, add_structural_element,
+    materialize_structural_element_for_test, validate_activate_structural_element,
+    validate_set_structural_load,
 };
 use crate::survival::{FoodFreshness, assess_food_freshness};
 use crate::thermal::{
@@ -374,6 +375,92 @@ fn trusted_load_rejects_running_process_with_separated_active_endpoints() {
         [resources.equipment.value().to_string()] = serde_json::json!({"x": 1, "y": 0, "z": 0});
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("running production-site decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::JobSpatialEndpointMismatch {
+                job,
+                first: ProductionSiteEndpoint::Equipment(resources.equipment),
+                first_position: remote_position,
+                second: ProductionSiteEndpoint::Destination(destination),
+                second_position: position,
+            }
+        ))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_suspended_process_with_separated_retained_endpoints() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resources = add_test_heating_resources(&registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| panic!("suspended production-site placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("suspended production-site placement commit failed: {error}")
+            });
+    }
+    let equipment_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        equipment_revision,
+        equipment_revision + 1,
+        resources.equipment,
+        position,
+    );
+    let energy_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        energy_revision,
+        energy_revision + 1,
+        resources.energy,
+        position,
+    );
+    let support = add_active_stockpile_support(&registries, &mut state, 0);
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap_or_else(|error| panic!("suspended production-site mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("suspended production-site mount commit failed: {error}"));
+    let resolved = resolve_test_heating(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    let job = validate_start_process(&registries, &state, &resolved, source, destination)
+        .unwrap_or_else(|error| panic!("suspended production-site validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("suspended production-site commit failed: {error}"));
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("suspended production-site overload failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("suspended production-site overload commit failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("suspended production-site transition failed: {error}"));
+    assert!(
+        state
+            .production()
+            .get_job(job)
+            .is_some_and(ProductionJobRecord::is_suspended)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let remote_position = VoxelCoord::new(1, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("suspended production-site serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["equipment_locations"]
+        [resources.equipment.value().to_string()] = serde_json::json!({"x": 1, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("suspended production-site decode failed: {error}"));
 
     assert_eq!(
         decoded.into_state(&registries),

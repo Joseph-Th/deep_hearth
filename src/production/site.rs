@@ -107,14 +107,15 @@ pub(crate) fn validate_process_start_site(
     Ok(())
 }
 
-/// Replays only the spatial obligations that still participate after production admission.
-pub(crate) fn validate_running_job_site(
+/// Replays the spatial obligations that remain durable after production admission.
+///
+/// Suspension stops active time but does not dissolve the job's retained equipment, released-energy
+/// sink, or output destinations. Those endpoints must therefore remain co-located while suspended
+/// as well as while running, otherwise a loaded job could later resume physically remote work.
+pub(crate) fn validate_retained_job_site(
     state: &AppState,
     job: &ProductionJobRecord,
 ) -> Result<(), ProductionSiteMismatch> {
-    if job.is_suspended() {
-        return Ok(());
-    }
     let mut anchor = None;
     if let Some(provider) = job.equipment_provider() {
         bind_known_endpoint(
