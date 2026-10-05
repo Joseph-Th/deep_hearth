@@ -3,11 +3,10 @@
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_SPINDLE_DRILL, FORM_LOG, FORM_REINFORCEMENT, FORM_SCRAP, FORM_SCREEN_PLATE,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_WOOD,
-    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_PIERCE_COPPER_SCREEN_PLATE,
-    PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
-    build_registries,
+    EQUIPMENT_TIMBER_SPINDLE_DRILL, FORM_REINFORCEMENT, FORM_SCRAP, FORM_SCREEN_PLATE,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+    PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -94,29 +93,11 @@ pub(super) fn run_spindle_drill_investment_experience() {
         spindle_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    let upgrade_raw = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(4_020_000),
-        StockpileStorageProfile::unbounded_solid_only(),
-    );
-    seed_material(
+    let (upgrade_raw, upgrade_parts) = super::settlement_workshop_investment::seed_upgrade_raw(
         &registries,
         &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(4_000_000),
-    );
-    seed_material(
-        &registries,
-        &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_COPPER, deep_hearth::content::FORM_NATIVE_METAL),
-        Mass::from_milligrams(20_000),
-    );
-    let upgrade_parts = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(4_020_000),
-        StockpileStorageProfile::unbounded_solid_only(),
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        "spindle-drill investment",
     );
     let work_mass = Mass::from_milligrams(
         PROJECT_PLATE_ORDER

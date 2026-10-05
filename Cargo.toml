@@ -132,6 +132,11 @@ path = "tests/gameplay_fieldwork_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_prospecting_contracts"
+path = "tests/gameplay_prospecting_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_power"
 path = "tests/gameplay_power.rs"
 required-features = ["test-gameplay"]

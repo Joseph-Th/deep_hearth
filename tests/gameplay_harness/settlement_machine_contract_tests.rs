@@ -5,14 +5,13 @@ use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
     EQUIPMENT_TIMBER_SPRING_POLE_LATHE, EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_BOARD, FORM_CHIP,
-    FORM_FLYWHEEL, FORM_LOG, FORM_SCRAP, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_GRIND_STONE_SCRAP_TOOL,
-    PROCESS_POWER_GRIND_STONE_SCRAP_TOOL, PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
-    PROCESS_SHAPE_TIMBER_FLYWHEEL, build_registries,
+    FORM_FLYWHEEL, FORM_LOG, FORM_SCRAP, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_STONE,
+    MATERIAL_WOOD, PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+    PROCESS_POWER_TURN_TIMBER_FLYWHEEL, PROCESS_SHAPE_TIMBER_FLYWHEEL, build_registries,
 };
 #[cfg(test)]
 use deep_hearth::content::{
-    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_NATIVE_METAL,
+    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_SASH_SAWMILL,
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_SAW_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE,
 };
@@ -110,29 +109,11 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         &[],
         "sawmill prior workshop",
     );
-    let upgrade_raw = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(6_020_000),
-        StockpileStorageProfile::unbounded_solid_only(),
-    );
-    seed_material(
+    let (upgrade_raw, upgrade_parts) = super::settlement_workshop_investment::seed_upgrade_raw(
         &registries,
         &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(6_000_000),
-    );
-    seed_material(
-        &registries,
-        &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        Mass::from_milligrams(20_000),
-    );
-    let upgrade_parts = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(7_000_000),
-        StockpileStorageProfile::unbounded_solid_only(),
+        EQUIPMENT_TIMBER_SASH_SAWMILL,
+        "sawmill investment",
     );
     let project_input_mass = Mass::from_milligrams(
         PROJECT_LUMBER_ORDER

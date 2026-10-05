@@ -3,9 +3,8 @@
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_WIRE_DRAWBENCH, FORM_ELECTRICAL_WINDING, FORM_LOG, FORM_LUMP,
-    FORM_NATIVE_METAL, FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    EQUIPMENT_TIMBER_WIRE_DRAWBENCH, FORM_ELECTRICAL_WINDING, FORM_REINFORCEMENT,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
     PROCESS_DRAW_COPPER_ELECTRICAL_WINDING, PROCESS_POWER_DRAW_COPPER_ELECTRICAL_WINDING,
     PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
     build_registries,
@@ -94,37 +93,11 @@ pub(super) fn run_wire_drawbench_investment_experience() {
         powered_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    // Every automation addition is fabricated from ordinary raw stone, logs, and native copper.
-    let upgrade_raw = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(5_020_000),
-        StockpileStorageProfile::unbounded_solid_only(),
-    );
-    seed_material(
+    let (upgrade_raw, upgrade_parts) = super::settlement_workshop_investment::seed_upgrade_raw(
         &registries,
         &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        Mass::from_milligrams(1_000_000),
-    );
-    seed_material(
-        &registries,
-        &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(4_000_000),
-    );
-    seed_material(
-        &registries,
-        &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        Mass::from_milligrams(20_000),
-    );
-    let upgrade_parts = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(5_020_000),
-        StockpileStorageProfile::unbounded_solid_only(),
+        EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH,
+        "flywheel drawbench investment",
     );
 
     let order_mass = Mass::from_milligrams(

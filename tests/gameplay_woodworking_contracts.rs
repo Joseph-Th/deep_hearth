@@ -29,10 +29,6 @@ mod environment;
 mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_seeds.rs"]
-mod focused_seeds;
-#[path = "gameplay_harness/focused_witnesses.rs"]
-mod focused_witnesses;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
@@ -53,8 +49,6 @@ mod production_timing;
 mod saw_bench_contract_tests;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
-#[path = "gameplay_harness/seed_input.rs"]
-mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 #[path = "gameplay_harness/woodworking_contract_tests.rs"]

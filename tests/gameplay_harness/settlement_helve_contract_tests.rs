@@ -3,10 +3,10 @@
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_HELVE_HAMMER,
-    EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_LOG, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_WOOD,
-    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
-    PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+    EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT, PROCESS_SHAPE_WOOD_BOARDS,
+    PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -66,29 +66,11 @@ pub(super) fn run_helve_hammer_investment_experience() {
         &[],
         "helve-hammer prior workshop",
     );
-    let upgrade_raw = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(3_020_000),
-        StockpileStorageProfile::unbounded_solid_only(),
-    );
-    seed_material(
+    let (upgrade_raw, upgrade_parts) = super::settlement_workshop_investment::seed_upgrade_raw(
         &registries,
         &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(3_000_000),
-    );
-    seed_material(
-        &registries,
-        &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        Mass::from_milligrams(20_000),
-    );
-    let upgrade_parts = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(3_020_000),
-        StockpileStorageProfile::unbounded_solid_only(),
+        EQUIPMENT_TIMBER_HELVE_HAMMER,
+        "helve-hammer investment",
     );
     let order_mass = Mass::from_milligrams(
         PROJECT_COPPER_ORDER

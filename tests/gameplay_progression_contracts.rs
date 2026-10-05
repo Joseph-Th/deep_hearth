@@ -24,8 +24,6 @@ mod environment;
 mod equipment_support;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_seeds.rs"]
-mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
 #[path = "gameplay_harness/inventory_support.rs"]
@@ -62,7 +60,5 @@ mod progression_probe;
 mod prospecting_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
-#[path = "gameplay_harness/seed_input.rs"]
-mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;

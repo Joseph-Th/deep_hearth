@@ -1,4 +1,4 @@
-//! Fieldwork planning, adaptation, and prospecting-instrument contracts.
+//! Fieldwork planning and adaptation contracts.
 //!
 //! The lived fieldwork probe has its own smaller target. Keeping these contract-only tests here
 //! avoids linking dozens of unrelated test bodies during the common probe iteration loop while
@@ -44,24 +44,20 @@ mod equipment_support;
 mod fieldwork_probe;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
+#[path = "gameplay_harness/focused_seeds.rs"]
+mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
-#[path = "gameplay_harness/manual_assembly_planning.rs"]
-mod manual_assembly_planning;
 #[path = "gameplay_harness/manual_construction_planning.rs"]
 mod manual_construction_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
-#[path = "gameplay_harness/manual_craft_planning.rs"]
-mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
-#[path = "gameplay_harness/manual_craft_topology_planning.rs"]
-mod manual_craft_topology_planning;
 #[path = "gameplay_harness/manual_ore_recovery.rs"]
 mod manual_ore_recovery;
 #[path = "gameplay_harness/material_selection.rs"]
@@ -76,8 +72,6 @@ mod physical_time;
 mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
-#[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
-mod prospecting_instrument_contract_tests;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
 #[path = "gameplay_harness/seed.rs"]

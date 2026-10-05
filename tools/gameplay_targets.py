@@ -70,7 +70,15 @@ GAMEPLAY_SCOPE_CONTRACT_TARGETS = {
     "woodworking": "gameplay_woodworking_contracts",
     "fieldwork": "gameplay_fieldwork_contracts",
 }
-GAMEPLAY_OWNER_CONTRACT_TARGETS = frozenset(GAMEPLAY_SCOPE_CONTRACT_TARGETS.values())
+GAMEPLAY_PROSPECTING_CONTRACT_TARGET = "gameplay_prospecting_contracts"
+GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
+    sorted(
+        (
+            *GAMEPLAY_SCOPE_CONTRACT_TARGETS.values(),
+            GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
+        )
+    )
+)
 GAMEPLAY_PROBE_TARGETS = {spec.test: spec.target for spec in GAMEPLAY_SCOPE_SPECS.values()}
 GAMEPLAY_PROBE_TARGETS["gameplay_agency_counterfactuals"] = GAMEPLAY_TARGETS["workshop"]
 GAMEPLAY_PROBE_SCOPES = {

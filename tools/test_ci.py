@@ -539,16 +539,20 @@ class BuildFreeCiTests(unittest.TestCase):
             ci.quick_plan(),
         )
 
-    def test_focused_gameplay_roots_are_closed_over_harness_dependencies(self) -> None:
+    def test_gameplay_repair_roots_are_closed_over_harness_dependencies(self) -> None:
         harness = ROOT / "tests" / "gameplay_harness"
-        for scope, target in ci.GAMEPLAY_TARGETS.items():
+        targets = [
+            *((f"focused scope {scope!r}", target) for scope, target in ci.GAMEPLAY_TARGETS.items()),
+            *((f"owner contract target {target!r}", target) for target in gameplay_targets.GAMEPLAY_OWNER_CONTRACT_TARGETS),
+        ]
+        for label, target in targets:
             missing = run_test.missing_root_modules(target, harness)
             if missing:
                 snippet = "\n".join(
                     _harness_root_declaration(harness, module) for module in missing
                 )
                 self.fail(
-                    f"focused gameplay target {scope!r} is missing root-level harness "
+                    f"{label} is missing root-level harness "
                     f"modules {missing}; add to tests/{target}.rs:\n{snippet}"
                 )
 
@@ -1500,7 +1504,7 @@ class TestTopologyContractTests(unittest.TestCase):
             "progression": "progression_contract_tests::",
             "settlement": "settlement_wire_contract_tests::",
             "woodworking": "woodworking_contract_tests::",
-            "fieldwork": "prospecting_instrument_contract_tests::",
+            "fieldwork": "fieldwork_probe::planning_tests::",
         }
         for scope, prefix in contract_prefixes.items():
             focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)
@@ -1966,7 +1970,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             },
         )
 
-    def test_run_test_focused_probe_adds_one_fresh_replayable_case(self) -> None:
+    def test_run_test_focused_probe_defaults_to_maintained_witnesses(self) -> None:
         args = run_test.parse_args(
             [
                 "--target",
@@ -1976,18 +1980,15 @@ class GameplayCiRoutingTests(unittest.TestCase):
             ]
         )
         self.assertIn("--nocapture", run_test.cargo_command(args))
-        with mock.patch.dict(os.environ, {}, clear=True):
-            rolls = iter((0xAAAA, 0xBBBB))
-            self.assertEqual(
-                run_test.gameplay_replay_environment(
-                    args, randbits=lambda _bits: next(rolls)
+        self.assertEqual(
+            run_test.gameplay_replay_environment(
+                args,
+                randbits=lambda _bits: self.fail(
+                    "maintained-only exact probes must not consume sampling entropy"
                 ),
-                {
-                    run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
-                    run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "survival",
-                    run_test.GAMEPLAY_BEHAVIOR_ENV: "0x000000000000BBBB",
-                },
-            )
+            ),
+            {},
+        )
 
         replay = run_test.parse_args(
             [
@@ -2009,20 +2010,28 @@ class GameplayCiRoutingTests(unittest.TestCase):
             },
         )
 
-    def test_run_test_non_actor_probe_adds_only_a_fresh_world_case(self) -> None:
+    def test_run_test_non_actor_probe_adds_only_an_explicit_world_case(self) -> None:
         args = run_test.parse_args(
-            ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
+            [
+                "--target",
+                ci.GAMEPLAY_TARGETS["foundry"],
+                "--variation-seed",
+                "0xAAAA",
+                ci.GAMEPLAY_TESTS["foundry"],
+            ]
         )
-        with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(
-                run_test.gameplay_replay_environment(
-                    args, randbits=lambda _bits: 0xAAAA
+        self.assertEqual(
+            run_test.gameplay_replay_environment(
+                args,
+                randbits=lambda _bits: self.fail(
+                    "non-actor replay must not consume actor-policy entropy"
                 ),
-                {
-                    run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
-                    run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "foundry",
-                },
-            )
+            ),
+            {
+                run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "foundry",
+            },
+        )
 
     def test_run_test_organic_roots_produce_a_copyable_replay_command(self) -> None:
         args = run_test.parse_args(
@@ -2039,7 +2048,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             "python tools/run_test.py --target gameplay_survival --variation-seed 0x000000000000AAAA --behavior-seed 0x000000000000BBBB gameplay_survival_provisioning_probe",
         )
 
-    def test_run_test_replaces_ambient_replay_roots_with_fresh_roots(self) -> None:
+    def test_run_test_ignores_ambient_replay_roots_without_explicit_replay(self) -> None:
         args = run_test.parse_args(
             ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
         )
@@ -2050,12 +2059,12 @@ class GameplayCiRoutingTests(unittest.TestCase):
         ):
             self.assertEqual(
                 run_test.gameplay_replay_environment(
-                    args, randbits=lambda _bits: 0xAAAA
+                    args,
+                    randbits=lambda _bits: self.fail(
+                        "ambient replay state must not trigger exact-test sampling"
+                    ),
                 ),
-                {
-                    run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
-                    run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "foundry",
-                },
+                {},
             )
 
     def test_run_test_behavior_replay_requires_a_world_root(self) -> None:
@@ -3803,7 +3812,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
             "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": ci.GAMEPLAY_TARGETS["foundry"],
             "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
-            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
             "ore_probe_generation_varies_feed_and_operating_state": ci.GAMEPLAY_TARGETS["ore"],
             "primitive_recovery_and_reinforcement_routes_remain_connected": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
@@ -3849,7 +3858,7 @@ class ExactTestCommandTests(unittest.TestCase):
         )
         for selector, expected in {
             "workshop_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
-            "prospecting_instrument_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+            "prospecting_instrument_contract_tests": gameplay_targets.GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             "settlement_wire_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
             "survival_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
             "progression_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],

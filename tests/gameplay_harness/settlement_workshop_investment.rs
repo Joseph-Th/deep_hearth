@@ -109,7 +109,7 @@ fn upgrade_setup_steps(
         .collect()
 }
 
-fn seed_upgrade_raw(
+pub(super) fn seed_upgrade_raw(
     registries: &Registries,
     state: &mut AppState,
     target: EquipmentDefinitionId,

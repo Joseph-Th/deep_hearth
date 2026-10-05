@@ -27,8 +27,6 @@ mod manual_craft_topology_planning;
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
 mod material_selection;
-#[path = "gameplay_harness/physical_time.rs"]
-mod physical_time;
 #[path = "gameplay_harness/powered_craft_planning.rs"]
 mod powered_craft_planning;
 #[path = "gameplay_harness/production_timing.rs"]
