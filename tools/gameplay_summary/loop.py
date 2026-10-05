@@ -21,6 +21,7 @@ class _LoopEvidenceLines:
     settlement: list[str]
     power_projects: list[str]
     survival: list[str]
+    preservation_paths: list[str]
     survey_campaigns: list[str]
     shortfall_recoveries: list[str]
     bulk_crossovers: list[str]
@@ -43,6 +44,7 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
         settlement=_lines_with_prefix(lines, "SETTLEMENT EXPERIENCE "),
         power_projects=_lines_with_prefix(lines, "POWER PROJECT EXPERIENCE "),
         survival=_lines_with_prefix(lines, "SURVIVAL EXPERIENCE "),
+        preservation_paths=_lines_with_prefix(lines, "SURVIVAL PRESERVATION PATH "),
         survey_campaigns=_lines_with_prefix(lines, "FIELDWORK SURVEY CAMPAIGN "),
         shortfall_recoveries=_lines_with_prefix(
             lines, "FIELDWORK INITIAL SHORTFALL RECOVERY "
@@ -210,6 +212,7 @@ def _prepare_invest_evidence(
     liberation_kit: list[str],
     survey_campaigns: list[str],
     shortfall_recoveries: list[str],
+    preservation_paths: list[str],
 ) -> str:
     invested_woodworking = sum(
         field(line, "choice") not in (None, "bare-hands") for line in woodworking
@@ -225,6 +228,12 @@ def _prepare_invest_evidence(
         " continuity=separate-episode-inherited-progression-line " in line
         for line in liberation_kit
     )
+    preservation_investment = ""
+    if preservation_paths:
+        preservation_builds = sum(" action=build " in line for line in preservation_paths)
+        preservation_investment = (
+            f"preservation-build:{preservation_builds}/{len(preservation_paths)} "
+        )
     return (
         "prepare-invest=["
         f"liberation-ext:{len(liberation_kit)} "
@@ -232,6 +241,7 @@ def _prepare_invest_evidence(
         f"woodworking-tool:{invested_woodworking}/{len(woodworking)} "
         f"power-market:{len(power)}/{len(power)} "
         f"settlement-machine:{settlement_builds}/{len(settlement)} "
+        f"{preservation_investment}"
         f"knowledge-tech=[campaign:{indexed_campaigns}/{len(survey_campaigns)} "
         f"lived-shortfall:{indexed_shortfalls}/{len(shortfall_recoveries)}]]"
     )
@@ -297,7 +307,7 @@ def _delegate_reinvest_evidence(
 
 
 def _survival_adaptation_evidence(
-    survival: list[str], power_projects: list[str]
+    survival: list[str], power_projects: list[str], preservation_paths: list[str]
 ) -> str:
     followup_surveys = sum(" followup-survey:true:" in line for line in survival)
     continuations = sum(" continuation:true " in line for line in survival)
@@ -337,6 +347,15 @@ def _survival_adaptation_evidence(
         if serving_floor_ul
         else "n/a"
     )
+    preservation = ""
+    if preservation_paths:
+        preservation = (
+            " preservation=["
+            f"build:{sum(' action=build ' in line for line in preservation_paths)} "
+            f"decline:{sum(' action=decline ' in line for line in preservation_paths)} "
+            f"fresh:{sum(' outcome=fresh ' in line for line in preservation_paths)} "
+            f"spoiled:{sum(' outcome=spoiled ' in line for line in preservation_paths)}]"
+        )
     return (
         "survive-adapt=["
         "short-expedition=["
@@ -349,7 +368,8 @@ def _survival_adaptation_evidence(
         f"policy:task-floor{task_floor}/working-reserve{working_reserve}] "
         f"sustained-project-provisioning=[breaks:{sum(value > 0 for value in project_breaks)}/{len(project_breaks)} "
         f"events:{sum(project_breaks)} drinks:{sum(project_drinks)} meals:{sum(project_meals)}] "
-        f"warning-safe:{sum(' warning-safe:true' in line for line in survival)}/{len(survival)}]"
+        f"warning-safe:{sum(' warning-safe:true' in line for line in survival)}/{len(survival)}"
+        f"{preservation}]"
     )
 
 
@@ -526,11 +546,11 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_evidence_shape(evidence)} "
         f"{_bootstrap_boundary_evidence(evidence.liberation_kit)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
-        f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries)} "
+        f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries, evidence.preservation_paths)} "
         f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted)} "
         f"{_thermal_bootstrap_evidence(evidence.first_foundry)} "
         f"{_world_feedback_evidence(lines, evidence.fieldwork)} "
-        f"{_survival_adaptation_evidence(evidence.survival, evidence.power_projects)} "
+        f"{_survival_adaptation_evidence(evidence.survival, evidence.power_projects, evidence.preservation_paths)} "
         f"{_maintenance_evidence(evidence.woodworking, evidence.power_projects)} "
         f"{delegate} "
         f"{reinvest} "

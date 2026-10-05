@@ -388,7 +388,7 @@ fn spring_pole_lathe_specializes_round_timber_work_without_changing_yield() {
 
     for (process, input_mass, hand_ticks, lathe_ticks) in [
         (PROCESS_SHAPE_WOOD_HANDLE, 1_000_000, 40, 12),
-        (PROCESS_SHAPE_TIMBER_FLYWHEEL, 2_400_000, 120, 27),
+        (PROCESS_SHAPE_TIMBER_FLYWHEEL, 2_400_000, 90, 27),
     ] {
         let selection = MaterialLotSelection::new(log, Mass::from_milligrams(input_mass));
         let hand = resolve_manual_craft(

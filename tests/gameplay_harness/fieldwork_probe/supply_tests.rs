@@ -19,6 +19,47 @@ fn replay(seed: u64) -> FocusedProbeCase {
 }
 
 #[test]
+fn four_case_organic_fieldwork_sample_spans_every_demand_horizon() {
+    use super::super::focused_seeds::{FocusedProbeSeedPlan, focused_probe_cases_from};
+
+    let registries = deep_hearth::content::build_registries();
+    // Generate the same way the focused runner does so maintained seed identities cannot
+    // accidentally intercept a hand-authored "organic" test seed before the organic routing.
+    let cases = focused_probe_cases_from(FocusedProbeSeedPlan {
+        variation_count: 4,
+        scenario_raw: None,
+        variation_raw: Some("0x1234"),
+        behavior_raw: Some("0x5678"),
+        maintained_seed: 1,
+        maintained_coverage_seeds: &[0, 2, 3, 5, 6, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED, 11],
+        probe_salt: 0x4649_454C_4450_5242,
+        default_variation_root: 0,
+        default_behavior_root: Some(0),
+    })
+    .unwrap_or_else(|error| panic!("fieldwork organic horizon seed plan failed: {error:?}"));
+    let horizons = cases
+        .into_iter()
+        .filter(|case| case.role() == FocusedProbeRole::OrganicVariation)
+        .map(|case| {
+            fieldwork_order_horizon(&registries, fieldwork_order_for_case(&registries, case))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        horizons.iter().copied().collect::<BTreeSet<_>>(),
+        BTreeSet::from(["short", "project", "bulk"]),
+        "one four-case organic fieldwork sample must experience immediate, project, and bulk demand"
+    );
+    assert_eq!(
+        horizons
+            .iter()
+            .filter(|horizon| **horizon == "project")
+            .count(),
+        2,
+        "project-scale work should remain the common middle regime while short and bulk each receive one stratum"
+    );
+}
+
+#[test]
 fn exploratory_supply_spans_shallow_common_and_bulk_opportunities() {
     let registries = deep_hearth::content::build_registries();
     let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;

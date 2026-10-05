@@ -25,6 +25,8 @@ use super::bulk_fieldwork_workload::{
     primitive_quarry_batch_mass,
 };
 use super::capital_investment_policy::CapitalInvestmentPolicy;
+#[cfg(not(test))]
+use super::capital_investment_policy::clears_attention_return;
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
@@ -988,6 +990,31 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         }
         SettlementPowerChoice::WalkingWheel => settlement_walking_project,
     };
+    #[cfg(not(test))]
+    {
+        let actual_crank_attention = primitive_crank_project.active_attention_ticks();
+        let actual_treadle_attention = primitive_treadle_project.active_attention_ticks();
+        let actual_treadle_return_floor = investment_policy.minimum_attention_return(
+            plan.crank_build.attention_ticks,
+            plan.treadle_build.attention_ticks,
+        );
+        let actual_treadle_is_eligible = clears_attention_return(
+            actual_crank_attention,
+            actual_treadle_attention,
+            actual_treadle_return_floor,
+        );
+        match plan.choice {
+            PrimitivePowerChoice::Crank => assert!(
+                !actual_treadle_is_eligible,
+                "primitive provider planner kept the crank even though the fully executed treadle saved enough attention to repay its declared capital-return floor"
+            ),
+            PrimitivePowerChoice::Treadle => assert!(
+                actual_treadle_is_eligible,
+                "primitive provider planner selected the treadle but its fully executed project did not repay the declared capital-return floor"
+            ),
+            PrimitivePowerChoice::WalkingWheel => {}
+        }
+    }
     #[cfg(not(test))]
     let primitive_actual_attention_minimum = [
         primitive_crank_project.active_attention_ticks(),

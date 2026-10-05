@@ -35,29 +35,34 @@ impl ProjectExecutionResources {
     }
 }
 
-pub(super) fn charge_store_to_maximum_destination(
+pub(super) fn charge_store_to_destination_target(
     registries: &Registries,
     state: &mut AppState,
     method: ManualPowerMethodId,
     equipment: EquipmentId,
     store: EnergyStoreId,
-    energy_limit: Energy,
+    target: Energy,
     context: &'static str,
 ) -> ChargeOutcome {
-    let envelope = assess_manual_power_energy_envelope(
+    let assessment = assess_manual_power_destination_target(
         registries,
         state,
-        ManualPowerEnergyEnvelopeRequest::new(method, equipment, store, energy_limit),
+        ManualPowerDestinationTargetRequest::new(method, equipment, store, target),
     )
     .unwrap_or_else(|error| {
-        panic!("power provider {context} maximum-destination planning failed: {error}")
+        panic!("power provider {context} destination-target planning failed: {error}")
     });
-    let generated = envelope.energy_for_maximum_destination();
-    assert!(
-        !generated.is_zero(),
-        "power provider {context} requested a recharge when no positive generation is currently feasible"
+    let ManualPowerDestinationTargetAssessment::Feasible(projection) = assessment else {
+        panic!(
+            "power provider {context} requested a destination target that was not a feasible positive charge: {assessment:?}"
+        );
+    };
+    let generated = projection.generated_energy();
+    let expected_destination = projection.destination_energy_after();
+    assert_eq!(
+        expected_destination, target,
+        "power provider {context} target projection must reach the requested stored work exactly"
     );
-    let expected_destination = envelope.maximum_destination_energy();
     let before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("power provider {context} lost the player before charging"));
     let charge = validate_start_manual_power(
@@ -77,7 +82,7 @@ pub(super) fn charge_store_to_maximum_destination(
             .get_store(store)
             .map(|record| record.stored()),
         Some(expected_destination),
-        "power provider {context} maximum-destination projection diverged from executed stored work"
+        "power provider {context} destination-target projection diverged from executed stored work"
     );
     let after = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("power provider {context} lost the player after charging"));

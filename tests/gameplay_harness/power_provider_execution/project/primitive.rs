@@ -83,37 +83,45 @@ fn recharge_primitive_store(
     resources: ProjectExecutionResources,
     plan: PrimitivePowerPlan,
     route: PrimitiveProjectRoute,
+    target_nj: u128,
 ) -> (ChargeOutcome, ProvisioningOutcome) {
+    assert!(
+        target_nj > 0 && target_nj <= plan.capacity_nj,
+        "primitive recharge target must be positive and fit the selected accumulator"
+    );
     let provider_record = state
         .equipment()
         .get_equipment(route.provider)
         .unwrap_or_else(|| panic!("selected primitive provider disappeared before recharge"));
-    let maximum_charge = project_manual_power(
+    // Provision against the conservative from-empty cost of reaching this batch's target. Runtime
+    // charging below uses the current-state destination-target projection, which credits retained
+    // work and accounts for passive loss during the manual-power action exactly.
+    let target_charge = project_manual_power(
         registries,
         route.method,
         provider_record.definition(),
         provider_record.condition(),
         plan.store_definition,
-        Energy::from_nanojoules(plan.capacity_nj),
+        Energy::from_nanojoules(target_nj),
     )
     .unwrap_or_else(|error| {
-        panic!("selected primitive maximum recharge projection failed: {error}")
+        panic!("selected primitive target recharge projection failed: {error}")
     });
     let provisioning = provision_for_project_leg(
         registries,
         state,
         resources.provisions,
-        maximum_charge.resource_budget().metabolic_energy(),
-        maximum_charge.resource_budget().hydration(),
+        target_charge.resource_budget().metabolic_energy(),
+        target_charge.resource_budget().hydration(),
         "selected primitive accumulator recharge",
     );
-    let charge = super::charge_store_to_maximum_destination(
+    let charge = super::charge_store_to_destination_target(
         registries,
         state,
         route.method,
         route.provider,
         route.drive,
-        Energy::from_nanojoules(plan.capacity_nj),
+        Energy::from_nanojoules(target_nj),
         route.label,
     );
     (charge, provisioning)
@@ -251,12 +259,33 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         )
         .unwrap_or_else(|error| panic!("selected primitive batch planning failed: {error}"));
         let remaining_mass = stockpile_mass(&selected_state, consumer.source());
-        let mut upper_batch_mass = remaining_project_mass
+        let replenished_upper_batch_mass = remaining_project_mass
             .min(remaining_mass)
-            .min(envelope.maximum_mass());
-        if upper_batch_mass.is_zero() {
-            let (charge, charge_provisioning) =
-                recharge_primitive_store(registries, &mut selected_state, resources, plan, route);
+            .min(envelope.maximum_mass_with_replenished_energy());
+        assert!(
+            !replenished_upper_batch_mass.is_zero(),
+            "selected primitive crusher has remaining feed but no positive replenished batch"
+        );
+        let preliminary_leg = largest_survivable_primitive_leg(
+            registries,
+            &selected_state,
+            route,
+            replenished_upper_batch_mass,
+        );
+        if preliminary_leg.batch_mass < replenished_upper_batch_mass {
+            survival_limited_batches = survival_limited_batches
+                .checked_add(1)
+                .unwrap_or_else(|| panic!("primitive survival-limited batch count overflowed"));
+        }
+        if envelope.maximum_mass() < preliminary_leg.batch_mass {
+            let (charge, charge_provisioning) = recharge_primitive_store(
+                registries,
+                &mut selected_state,
+                resources,
+                plan,
+                route,
+                preliminary_leg.required_nj,
+            );
             provisioning.add(charge_provisioning);
             provider_attention_ticks = provider_attention_ticks
                 .checked_add(charge.attention_ticks)
@@ -274,16 +303,11 @@ pub(in super::super::super) fn execute_selected_primitive_project(
             .unwrap_or_else(|error| {
                 panic!("selected primitive post-recharge batch planning failed: {error}")
             });
-            upper_batch_mass = remaining_project_mass
-                .min(remaining_mass)
-                .min(envelope.maximum_mass());
+            assert!(
+                envelope.maximum_mass() >= preliminary_leg.batch_mass,
+                "demand-sized primitive recharge must fund the planned crusher batch"
+            );
         }
-        assert!(
-            !upper_batch_mass.is_zero(),
-            "selected primitive crusher has remaining feed but no positive batch after canonical accumulator recharge"
-        );
-        let preliminary_leg =
-            largest_survivable_primitive_leg(registries, &selected_state, route, upper_batch_mass);
         let leg_provisioning = provision_for_project_leg(
             registries,
             &mut selected_state,
@@ -309,13 +333,14 @@ pub(in super::super::super) fn execute_selected_primitive_project(
             .unwrap_or_else(|error| {
                 panic!("selected primitive post-provisioning batch planning failed: {error}")
             });
-            if envelope.maximum_mass().is_zero() {
+            if envelope.maximum_mass() < preliminary_leg.batch_mass {
                 let (charge, charge_provisioning) = recharge_primitive_store(
                     registries,
                     &mut selected_state,
                     resources,
                     plan,
                     route,
+                    preliminary_leg.required_nj,
                 );
                 provisioning.add(charge_provisioning);
                 provider_attention_ticks = provider_attention_ticks
@@ -335,21 +360,21 @@ pub(in super::super::super) fn execute_selected_primitive_project(
                     panic!("selected primitive post-break recharge planning failed: {error}")
                 });
             }
-            upper_batch_mass = remaining_project_mass
-                .min(remaining_mass)
-                .min(envelope.maximum_mass());
+            assert!(
+                envelope.maximum_mass() >= preliminary_leg.batch_mass,
+                "post-break primitive recharge must restore the planned crusher batch"
+            );
         }
-        let leg = largest_survivable_primitive_leg(
+        let leg = project_primitive_leg(
             registries,
             &selected_state,
             route,
-            upper_batch_mass.min(preliminary_leg.batch_mass),
+            preliminary_leg.batch_mass,
         );
-        if leg.batch_mass < upper_batch_mass {
-            survival_limited_batches = survival_limited_batches
-                .checked_add(1)
-                .unwrap_or_else(|| panic!("primitive survival-limited batch count overflowed"));
-        }
+        assert_eq!(
+            leg.required_nj, preliminary_leg.required_nj,
+            "primitive batch work target changed before execution without a consumer-state change"
+        );
         let executed_consumer_ticks = consume_primitive_work(
             registries,
             &mut selected_state,

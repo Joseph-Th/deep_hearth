@@ -44,7 +44,7 @@ fn treadle_and_paired_flywheel_are_craftable_from_raw_ordinary_materials() {
             PROCESS_SHAPE_TIMBER_FLYWHEEL,
             wood,
             Mass::from_milligrams(2_400_000),
-            120,
+            90,
         ),
         (
             PROCESS_SHAPE_WOOD_BOARDS,

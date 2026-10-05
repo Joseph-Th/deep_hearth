@@ -43,7 +43,11 @@ fn shape_timber_flywheel() -> ManualCraftDefinition {
         PROCESS_SHAPE_TIMBER_FLYWHEEL,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         Mass::from_milligrams(2_400_000),
-        TickSpan::new(120),
+        // The larger timber wheel remains a material commitment, but wood should buy some
+        // fabrication advantage over dressed stone. This keeps the foot treadle's up-front
+        // attention hurdle low enough to repay on genuine bulk work without changing its
+        // throughput or erasing the later walking-wheel tier.
+        TickSpan::new(90),
         wood_exertion(),
         vec![
             ManualCraftOutput::new(

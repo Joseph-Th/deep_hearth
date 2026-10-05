@@ -118,6 +118,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "organic-choice",
         "organic-workload",
         "scale",
+        "calibration",
         "lifecycle-obligations",
         "settlement-choice",
         "organic-settlement-choice",
@@ -149,7 +150,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "balanced-diet-counterfactual",
         "inherited-preservation",
         "preservation-opportunity",
-        "preservation-investment",
+        "selected-preservation",
         "organic-preservation",
     ),
 }

@@ -316,6 +316,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     treadle_load = _selected_project_mass(power, "stone-crusher", "treadle")
     lived = _project_experience(projects, "primitive")
     lived_samples = lived["samples"][0]
+    exact_selection_matches = sum(gap == 0 for gap in lived["attention_gap"])
     return (
         f"choice=[{_choice_counts_text(choice_counts)}] "
         f"market=[{_provider_market_text(choice_counts)}] "
@@ -331,6 +332,8 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"provisioning-stops:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])} "
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])}] "
+        f"calibration=[{exact_selection_matches}/{lived_samples} "
+        f"gap:{_span(lived['attention_gap'], 't')}] "
         f"lifecycle-obligations=[services:{_span(lived['services'])} "
         f"prep:{_span(lived['maintenance_preparation_ticks'], 't')} "
         f"share:{_span(lived['maintenance_active_share_percent'], '%')} "

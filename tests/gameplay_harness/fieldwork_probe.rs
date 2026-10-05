@@ -150,6 +150,24 @@ fn fieldwork_order_horizon(registries: &Registries, requested: Mass) -> &'static
     }
 }
 
+fn organic_fieldwork_order(registries: &Registries, seed: u64) -> Mass {
+    let batch = fieldwork_mining_limits(registries).base_quarry_batch;
+    // A four-case exploratory sample should experience all three player-visible demand scales
+    // instead of relying on a second random draw that can collapse a small report to routine work.
+    // Only the coarse demand horizon is stratified. Exact mass, geology, reserve scale, and actor
+    // policy still come from independent mixed entropy, so replay remains organic rather than a
+    // fixed scenario script.
+    match seed & 0b11 {
+        0 => short_fieldwork_order(batch, seed),
+        3 => bulk_fieldwork_order_mass(registries, seed),
+        _ => multiplied_mass(
+            primitive_mining_cycle_mass(registries, seed),
+            STOCKPILE_WORK_ORDER_CYCLES,
+            "current primitive processing project",
+        ),
+    }
+}
+
 fn fieldwork_order_for_case(registries: &Registries, case: FocusedProbeCase) -> Mass {
     if case.seed() == FIELDWORK_REINFORCED_BULK_COVERAGE_SEED {
         return multiplied_mass(
@@ -181,7 +199,14 @@ fn fieldwork_order_for_case(registries: &Registries, case: FocusedProbeCase) -> 
         );
         return project;
     }
-    fieldwork_order(registries, case.seed())
+    match case.role() {
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            organic_fieldwork_order(registries, case.seed())
+        }
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
+            fieldwork_order(registries, case.seed())
+        }
+    }
 }
 
 fn fieldwork_supply_for_case(registries: &Registries, case: FocusedProbeCase) -> Mass {

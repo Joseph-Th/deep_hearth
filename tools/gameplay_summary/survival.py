@@ -60,7 +60,11 @@ def survival_summary(lines: list[str]) -> str | None:
     survival = [line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")]
     if not survival:
         return None
+    preservation_paths = [
+        line for line in lines if line.startswith("SURVIVAL PRESERVATION PATH ")
+    ]
     count = lambda marker: sum(marker in line for line in survival)
+    path_count = lambda marker: sum(marker in line for line in preservation_paths)
     organic_survival = organic_only(survival)
     candidate_counts = [
         int(match.group(1))
@@ -79,6 +83,11 @@ def survival_summary(lines: list[str]) -> str | None:
     inherited_preservation_ppm = []
     inherited_retained_mg = []
     inherited_age_saved_ticks = []
+    selected_remaining_fresh_ticks = [
+        int(match.group(1))
+        for line in preservation_paths
+        if (match := re.search(r"\bremaining-fresh=(\d+)t", line)) is not None
+    ]
     for line in survival:
         integrated = re.search(
             r"integrated=\[hydration-policy:([^\s]+) initial-drink:(\d+)uL/\d+t "
@@ -133,12 +142,10 @@ def survival_summary(lines: list[str]) -> str | None:
         f"maximum:{count('storage-policy:maximum-protection')}] "
         f"commitment=[cleared:{count('commitment-reason:return-clears-threshold')} "
         f"declined-return:{count('commitment-reason:return-does-not-clear-threshold')}] "
-        f"preservation-investment=[separate-executed:true "
-        f"declined:{count('storage-policy:decline')} "
-        f"efficient:{count('storage-policy:attention-efficient')} "
-        f"singleton:{count('storage-policy:enclosure-singleton')} "
-        f"frontier:{count('storage-policy:balanced-frontier')} "
-        f"maximum:{count('storage-policy:maximum-protection')}] "
+        f"selected-preservation=[build:{path_count(' action=build ')} "
+        f"decline:{path_count(' action=decline ')} "
+        f"fresh:{path_count(' outcome=fresh ')} spoiled:{path_count(' outcome=spoiled ')} "
+        f"remaining-fresh:{_span(selected_remaining_fresh_ticks, 't')}] "
         f"preservation-commitment=[cleared:{count('commitment-reason:return-clears-threshold')} "
         f"declined-return:{count('commitment-reason:return-does-not-clear-threshold')}] "
         f"work-interlock=[serving-floor:{scaled_span([int(match.group(1)) for line in survival if (match := re.search(r'short-loop-serving-floor:(\d+)uL', line))], 1_000, 'mL')} "

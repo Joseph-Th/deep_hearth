@@ -21,8 +21,9 @@ use deep_hearth::equipment::{
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{
-    ManualPowerEnergyEnvelopeRequest, ManualPowerMethodId, ManualPowerRequest,
-    assess_manual_power_energy_envelope, project_manual_power, validate_start_manual_power,
+    ManualPowerDestinationTargetAssessment, ManualPowerDestinationTargetRequest,
+    ManualPowerMethodId, ManualPowerRequest, assess_manual_power_destination_target,
+    project_manual_power, validate_start_manual_power,
 };
 use deep_hearth::maintenance::MaintenanceBand;
 use deep_hearth::matter::calculate_matter_accounting;
