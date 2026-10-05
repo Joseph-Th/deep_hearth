@@ -54,6 +54,14 @@ def _frontier_evidence(lines: list[str]) -> tuple[str, str]:
         else "mixed-or-unknown"
     )
     count = len(frontier_lines)
+    authored_manual_electrical = sum(
+        "manual-electrical-reachability=authored-acquisition-edge" in line
+        for line in frontier_lines
+    )
+    if frontier_lines and authored_manual_electrical != count:
+        raise ValueError(
+            "primitive liberation frontier lost the authored acquisition boundary for manual electrical power"
+        )
     readiness = (
         "industrial-foundry-readiness=["
         f"furnace-assembly-edge:{sum('assembly-edge=[furnace:true' in line for line in frontier_lines)}/{count} "
@@ -61,6 +69,7 @@ def _frontier_evidence(lines: list[str]) -> tuple[str, str]:
         f"electrical-buffer-assembly-edge:{sum('electrical-buffer:true' in line for line in frontier_lines)}/{count} "
         f"thermal-sink-assembly-edge:{sum('thermal-sink:true' in line for line in frontier_lines)}/{count} "
         f"manual-electrical-generation:{sum('manual-electrical-generation:true' in line for line in frontier_lines)}/{count} "
+        f"manual-electrical-authored-edge:{authored_manual_electrical}/{count} "
         f"support-required:{sum('support-required=[furnace:true mold:true]' in line for line in frontier_lines)}/{count}]"
     )
     manual_power: list[int] = []

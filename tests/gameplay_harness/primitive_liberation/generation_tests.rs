@@ -62,3 +62,38 @@ fn organic_liberation_generation_varies_live_feed_and_campaign() {
         "organic liberation generation collapsed to one disclosed campaign horizon"
     );
 }
+
+#[test]
+fn liberation_frontier_electrical_power_uses_only_current_acquirable_providers() {
+    let registries = deep_hearth::content::build_registries();
+    let providers = ordinary_manual_electrical_power_providers(&registries);
+
+    assert!(
+        !providers.is_empty(),
+        "ordinary liberation-to-foundry continuity requires an authored electrical manual-power provider"
+    );
+    for (method, equipment, power) in providers {
+        let method = registries
+            .labor()
+            .get_manual_power(method)
+            .unwrap_or_else(|| {
+                panic!("frontier electrical provider referenced an unknown labor method")
+            });
+        let equipment = registries
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("frontier electrical provider referenced unknown equipment"));
+        assert_eq!(
+            method.carrier(),
+            deep_hearth::energy::EnergyCarrier::Electrical
+        );
+        assert!(equipment.has_authored_acquisition_edge());
+        assert_eq!(
+            equipment
+                .capabilities()
+                .get_capability(method.power_capability()),
+            Some(deep_hearth::capability::CapabilityValue::Power(power))
+        );
+        assert!(!power.is_zero());
+    }
+}

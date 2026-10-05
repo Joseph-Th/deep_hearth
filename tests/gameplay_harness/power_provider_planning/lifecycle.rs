@@ -130,25 +130,52 @@ impl ManualPowerRoute {
             "power-provider {} lifecycle requires positive declared work",
             self.context
         );
+        assert!(
+            !self.requested.is_zero(),
+            "power-provider {} lifecycle requires positive buffer capacity",
+            self.context
+        );
         let mut remaining_nj = declared_work.nanojoules();
         let full_request_nj = self.requested.nanojoules();
+        self.project_sequence(
+            registries,
+            std::iter::from_fn(move || {
+                if remaining_nj == 0 {
+                    return None;
+                }
+                let requested_nj = remaining_nj.min(full_request_nj);
+                remaining_nj = remaining_nj.checked_sub(requested_nj).unwrap_or_else(|| {
+                    unreachable!("projected charge is bounded by remaining work")
+                });
+                Some(Energy::from_nanojoules(requested_nj))
+            }),
+        )
+    }
+
+    /// Projects the provider lifecycle for an explicit charge schedule.
+    ///
+    /// Productive consumers may be constrained to batches much smaller than the energy store.
+    /// Manual-power duration is rounded per admitted charge, so callers that know the canonical
+    /// consumer batch schedule must preserve it instead of coalescing equal total work.
+    pub(super) fn project_sequence(
+        self,
+        registries: &Registries,
+        requests: impl IntoIterator<Item = Energy>,
+    ) -> ManualPowerLifecycleCost {
         let mut lifecycle = LifecycleAccumulator::empty();
-
-        // Charge only useful work. The final event may be a partial buffer charge instead of
-        // fictitious excess work introduced by ceiling division.
-        while remaining_nj > 0 {
-            let requested_nj = remaining_nj.min(full_request_nj);
-            let charge = self.project_requested(
-                registries,
-                lifecycle.condition,
-                Energy::from_nanojoules(requested_nj),
-            );
+        let mut count = 0_u64;
+        for requested in requests {
+            let charge = self.project_requested(registries, lifecycle.condition, requested);
             lifecycle.record_charge(charge, self.context);
-            remaining_nj = remaining_nj
-                .checked_sub(requested_nj)
-                .unwrap_or_else(|| unreachable!("projected charge is bounded by remaining work"));
+            count = count.checked_add(1).unwrap_or_else(|| {
+                panic!("power-provider {} charge sequence overflowed", self.context)
+            });
         }
-
+        assert!(
+            count > 0,
+            "power-provider {} lifecycle requires at least one consumer charge",
+            self.context
+        );
         lifecycle.finish()
     }
 

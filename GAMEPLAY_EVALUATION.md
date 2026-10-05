@@ -191,9 +191,10 @@ scope may establish.
 
 Routine focused gameplay gates execute maintained witnesses plus one fresh replayable organic case. Broad gameplay
 audits keep all maintained witnesses but spend the same organic budget on one replay-stable rotating scope rather
-than multiplying variation across every probe. Exact focused-probe execution is a deterministic repair surface: it
-runs maintained witnesses only unless an explicit variation root requests one organic case. Reports own the broader
-bounded organic sample and agency qualification searches. Maintained cases prove contracts, not prevalence; organic
+than multiplying variation across every probe. Exact focused-probe execution uses the same maintained witnesses plus
+one fresh replayable organic case, so repeated cold-agent repairs exercise slightly different playable pressure
+without widening the Cargo target or rebuilding unrelated code. Exact owner/unit/contract tests remain deterministic.
+Reports own the broader bounded organic sample and agency qualification searches. Maintained cases prove contracts, not prevalence; organic
 samples are bounded evidence, not population estimates. A named qualitative regime must have a maintained witness;
 exploratory organic cases probe generator, policy, and integration drift between those anchors without turning
 qualitative coverage into a probabilistic requirement. Organic generator ranges that are intended to straddle an
@@ -203,7 +204,7 @@ disclosed world condition or player goal, not when it is standing in for an auth
 reports may stratify a few low world-seed bits across actor-visible pressure classes so a small sample does not
 accidentally collapse to one side of a live decision frontier. The remaining seed entropy stays fresh, and
 actor-policy roots remain independent from those world strata. Supplying roots to an exact focused probe adds and
-reproduces that sampled case without changing the default repair cost.
+reproduces that sampled case instead of drawing a new one.
 An organic seed must materially affect actor-visible world pressure, actor policy, or both; changing only a replay
 label is not variation. For bounded generators whose purpose depends on spanning distinct pressures or decision
 regimes, keep a cheap direct generator contract that samples enough seeds to detect collapse without replacing the

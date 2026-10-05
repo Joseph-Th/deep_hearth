@@ -20,7 +20,7 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 
 Iteration is `quick`, then **one** proof. Run an executable proof directly whenever one fits; a separate test-target type-check only spends compiler time on an artifact the executable cannot reuse. `gate` is an optional production-only type-check when no executable contract fits and does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes or append an audit.
 
-Use `run_test.py --list <substring>` for build-free discovery and prefer the smallest authoritative target. Exact gameplay probes use maintained witnesses only; add `--variation-seed` to run or replay one organic case. `ci.py gate --gameplay <scope>` is the maintained-plus-one-organic system check. Scoped reports reuse focused artifacts. Library tests use additive `test-gameplay` so exact tests and core/all audits share one artifact; production check/Clippy stay feature-minimal. Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`. Keep Cargo invocations serial and parallelize only build-free `quick` checks.
+Use `run_test.py --list <substring>` for build-free discovery and prefer the smallest authoritative target. Exact owner/unit/contract tests stay deterministic; exact focused gameplay probes run maintained witnesses plus one fresh replayable organic case and print its roots. Pass replay roots to repeat it. `ci.py gate --gameplay <scope>` uses the same maintained-plus-one-organic shape. Scoped reports reuse focused artifacts. Library tests use additive `test-gameplay` so exact tests and core/all audits share one artifact; production check/Clippy stay feature-minimal. Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`. Keep Cargo invocations serial and parallelize only build-free `quick` checks.
 
 ## Escalation lanes
 
@@ -87,7 +87,7 @@ code is already hot; workshop, progression, woodworking, and power keep report-o
 gate builds. Agency reuses the workshop test artifact because its compact summary is already part of that probe.
 `gate --gameplay contracts` remains the small cross-scope contract target.
 
-Focused gates add one fresh organic case; broad audits rotate one through one scope. Exact probes stay maintained-only unless given replay roots. Reports own broader exploration; failures print a narrow reproduction command. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Focused gates and exact focused probes add one fresh organic case; broad audits rotate one through one scope. Reports own broader exploration; failures print a narrow reproduction command with replay roots. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 

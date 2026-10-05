@@ -6,13 +6,12 @@ use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK,
     EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, MANUAL_POWER_FOOT_TREADLE,
-    MANUAL_POWER_HAND_CRANK, MANUAL_POWER_TREADLE_DYNAMO, MANUAL_POWER_WALKING_WHEEL,
+    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, MANUAL_POWER_HAND_CRANK,
     MATERIAL_COPPER, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
     PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER,
     PROCESS_SCREEN_CRUSHED_ORE,
 };
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::quantity::{Mass, Power};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::{EnergyCarrier, EnergyStoreId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
@@ -36,6 +35,33 @@ use super::manual_ore_recovery::ManualOreRecoveryPlan;
 use super::manual_ore_recovery_evaluation::evaluate_manual_ore_recovery;
 use super::ore_fixture::copper_ore_composition;
 use super::seed::mix64;
+
+fn ordinary_manual_electrical_power_providers(
+    registries: &Registries,
+) -> Vec<(ManualPowerMethodId, EquipmentDefinitionId, Power)> {
+    registries
+        .labor()
+        .manual_power_definitions()
+        .filter(|method| method.carrier() == EnergyCarrier::Electrical)
+        .flat_map(|method| {
+            registries
+                .equipment()
+                .definitions()
+                .filter(|equipment| equipment.has_authored_acquisition_edge())
+                .filter_map(move |equipment| {
+                    match equipment
+                        .capabilities()
+                        .get_capability(method.power_capability())
+                    {
+                        Some(CapabilityValue::Power(power)) if !power.is_zero() => {
+                            Some((method.id(), equipment.id(), power))
+                        }
+                        Some(_) | None => None,
+                    }
+                })
+        })
+        .collect()
+}
 
 #[path = "primitive_liberation/acquisition.rs"]
 mod acquisition;
@@ -655,15 +681,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .energy()
         .get_store(ENERGY_THERMAL_SINK)
         .unwrap_or_else(|| panic!("foundry frontier thermal sink definition disappeared"));
-    let manual_electrical_generation = [
-        MANUAL_POWER_HAND_CRANK,
-        MANUAL_POWER_FOOT_TREADLE,
-        MANUAL_POWER_WALKING_WHEEL,
-        MANUAL_POWER_TREADLE_DYNAMO,
-    ]
-    .into_iter()
-    .filter_map(|method| registries.labor().get_manual_power(method))
-    .any(|method| method.carrier() == EnergyCarrier::Electrical);
+    let ordinary_manual_electrical = ordinary_manual_electrical_power_providers(registries);
+    let manual_electrical_generation = !ordinary_manual_electrical.is_empty();
     let melting = registries
         .thermal()
         .get_melting(PROCESS_MELT_PURE_COPPER)
@@ -679,31 +698,13 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         ),
         None => panic!("foundry furnace lost its authored heating capability"),
     };
-    let maximum_manual_electrical_power = [
-        MANUAL_POWER_HAND_CRANK,
-        MANUAL_POWER_FOOT_TREADLE,
-        MANUAL_POWER_WALKING_WHEEL,
-        MANUAL_POWER_TREADLE_DYNAMO,
-    ]
-    .into_iter()
-    .filter_map(|method| registries.labor().get_manual_power(method))
-    .filter(|method| method.carrier() == EnergyCarrier::Electrical)
-    .flat_map(|method| {
-        registries
-            .equipment()
-            .definitions()
-            .filter_map(move |equipment| {
-                match equipment
-                    .capabilities()
-                    .get_capability(method.power_capability())
-                {
-                    Some(CapabilityValue::Power(power)) => Some(power),
-                    Some(_) | None => None,
-                }
-            })
-    })
-    .max()
-    .unwrap_or_else(|| panic!("ordinary manual electrical power has no authored provider"));
+    let maximum_manual_electrical_power = ordinary_manual_electrical
+        .iter()
+        .map(|(_, _, power)| *power)
+        .max()
+        .unwrap_or_else(|| {
+            panic!("ordinary manual electrical power has no acquirable authored provider")
+        });
     let manual_microwatts = maximum_manual_electrical_power
         .whole_microwatts()
         .unwrap_or_else(|| panic!("manual electrical frontier power is not a whole microwatt"));
@@ -715,7 +716,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .checked_div(maximum_manual_electrical_power.picowatts())
         .unwrap_or_else(|| panic!("manual electrical frontier power unexpectedly vanished"));
     let foundry_frontier = format!(
-        "assembly-edge=[furnace:{} mold:{} electrical-buffer:{} thermal-sink:{}] manual-electrical-generation:{} support-required=[furnace:{} mold:{}] energy-scale=[manual-electrical-max:{}uW industrial-furnace-transfer-ceiling:{}uW ceiling-ratio:{}x melting-carrier:{:?} conversion-path:present]",
+        "assembly-edge=[furnace:{} mold:{} electrical-buffer:{} thermal-sink:{}] manual-electrical-generation:{} manual-electrical-reachability=authored-acquisition-edge support-required=[furnace:{} mold:{}] energy-scale=[manual-electrical-max:{}uW industrial-furnace-transfer-ceiling:{}uW ceiling-ratio:{}x melting-carrier:{:?} conversion-path:present]",
         furnace.assembly_profile().is_some(),
         mold.assembly_profile().is_some(),
         electrical_buffer.assembly_profile().is_some(),

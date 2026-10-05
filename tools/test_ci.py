@@ -1970,7 +1970,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             },
         )
 
-    def test_run_test_focused_probe_defaults_to_maintained_witnesses(self) -> None:
+    def test_run_test_focused_probe_adds_one_fresh_replayable_case(self) -> None:
         args = run_test.parse_args(
             [
                 "--target",
@@ -1980,14 +1980,17 @@ class GameplayCiRoutingTests(unittest.TestCase):
             ]
         )
         self.assertIn("--nocapture", run_test.cargo_command(args))
+        rolls = iter((0xAAAA, 0xBBBB))
         self.assertEqual(
             run_test.gameplay_replay_environment(
                 args,
-                randbits=lambda _bits: self.fail(
-                    "maintained-only exact probes must not consume sampling entropy"
-                ),
+                randbits=lambda _bits: next(rolls),
             ),
-            {},
+            {
+                run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "survival",
+                run_test.GAMEPLAY_BEHAVIOR_ENV: "0x000000000000BBBB",
+            },
         )
 
         replay = run_test.parse_args(
@@ -2010,22 +2013,14 @@ class GameplayCiRoutingTests(unittest.TestCase):
             },
         )
 
-    def test_run_test_non_actor_probe_adds_only_an_explicit_world_case(self) -> None:
+    def test_run_test_non_actor_probe_adds_only_a_fresh_world_case(self) -> None:
         args = run_test.parse_args(
-            [
-                "--target",
-                ci.GAMEPLAY_TARGETS["foundry"],
-                "--variation-seed",
-                "0xAAAA",
-                ci.GAMEPLAY_TESTS["foundry"],
-            ]
+            ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
         )
         self.assertEqual(
             run_test.gameplay_replay_environment(
                 args,
-                randbits=lambda _bits: self.fail(
-                    "non-actor replay must not consume actor-policy entropy"
-                ),
+                randbits=lambda _bits: 0xAAAA,
             ),
             {
                 run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
@@ -2048,7 +2043,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             "python tools/run_test.py --target gameplay_survival --variation-seed 0x000000000000AAAA --behavior-seed 0x000000000000BBBB gameplay_survival_provisioning_probe",
         )
 
-    def test_run_test_ignores_ambient_replay_roots_without_explicit_replay(self) -> None:
+    def test_run_test_replaces_ambient_replay_roots_with_fresh_roots(self) -> None:
         args = run_test.parse_args(
             ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
         )
@@ -2060,11 +2055,12 @@ class GameplayCiRoutingTests(unittest.TestCase):
             self.assertEqual(
                 run_test.gameplay_replay_environment(
                     args,
-                    randbits=lambda _bits: self.fail(
-                        "ambient replay state must not trigger exact-test sampling"
-                    ),
+                    randbits=lambda _bits: 0xAAAA,
                 ),
-                {},
+                {
+                    run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                    run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "foundry",
+                },
             )
 
     def test_run_test_behavior_replay_requires_a_world_root(self) -> None:
@@ -2811,7 +2807,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
             "LIBERATION FRONTIER CAPABILITY seed=0x1 sample=anchor cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] inherited-condition=1000000..1000000ppm resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
-            "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
+            "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true manual-electrical-reachability=authored-acquisition-edge support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
             "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-frozen-before-action=true feedback-scope=next-order",
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
@@ -3246,7 +3242,7 @@ class GameplayReportContractTests(unittest.TestCase):
         lines = [
             "LIBERATION ROUTE TRADEOFF seed=0x2 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches kit-payback:not-applicable economics:not-applicable justified:not-applicable] base-kit=[not-executed-this-sample] continuity=controlled-preassembled-kit",
             "LIBERATION FRONTIER CAPABILITY seed=0x2 cleanup-executed=true reason=required-native-copper-conversion concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
-            "LIBERATION FRONTIER seed=0x2 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]]",
+            "LIBERATION FRONTIER seed=0x2 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true manual-electrical-reachability=authored-acquisition-edge support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]]",
         ]
         with self.assertRaisesRegex(ValueError, "lost runtime kit-acquisition continuity"):
             gameplay_report_summary.ordinary_gameplay_summary(lines)

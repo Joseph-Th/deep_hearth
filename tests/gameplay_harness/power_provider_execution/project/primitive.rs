@@ -189,6 +189,20 @@ pub(in super::super::super) fn execute_selected_primitive_project(
             "selected primitive walking-wheel project",
         ),
     };
+    let (expected_provider_attention, expected_provider_condition) = match plan.choice {
+        PrimitivePowerChoice::Crank => (
+            plan.crank_lifecycle_attention,
+            plan.crank_lifecycle_condition,
+        ),
+        PrimitivePowerChoice::Treadle => (
+            plan.treadle_lifecycle_attention,
+            plan.treadle_lifecycle_condition,
+        ),
+        PrimitivePowerChoice::WalkingWheel => (
+            plan.walking_lifecycle_attention,
+            plan.walking_lifecycle_condition,
+        ),
+    };
     let (provider, provider_build) = build_provider(
         registries,
         &mut selected_state,
@@ -423,6 +437,17 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         .get_equipment(provider)
         .map(|record| record.condition().parts_per_million())
         .unwrap_or_else(|| panic!("selected primitive provider disappeared"));
+    if survival_limited_batches == 0 && provisioning.stops == 0 {
+        assert_eq!(
+            provider_attention_ticks, expected_provider_attention,
+            "primitive provider planning diverged from the canonical consumer batch/recharge schedule"
+        );
+        assert_eq!(
+            provider_condition_ppm,
+            expected_provider_condition.parts_per_million(),
+            "primitive provider condition projection diverged from canonical executed charging"
+        );
+    }
     let consumer_condition_ppm = selected_state
         .equipment()
         .get_equipment(consumer.equipment())

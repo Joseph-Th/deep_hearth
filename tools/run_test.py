@@ -403,8 +403,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--variation-seed",
         type=replay_seed.parse_replay_seed,
         help=(
-            "add or replay one organic gameplay case for an exact probe; exact gameplay tests "
-            "otherwise run maintained witnesses only"
+            "replay the organic gameplay case for an exact probe with a fixed world root; "
+            "exact gameplay probes otherwise generate one fresh replayable case"
         ),
     )
     parser.add_argument(
@@ -526,7 +526,7 @@ def gameplay_replay_environment(
     *,
     randbits=secrets.randbits,
 ) -> dict[str, str]:
-    """Add one organic case only when an exact gameplay probe explicitly requests it."""
+    """Give every exact gameplay probe one fresh or explicitly replayed organic case."""
 
     if args.suite or args.name not in GAMEPLAY_PROBE_TESTS:
         if args.variation_seed or args.behavior_seed:
@@ -535,9 +535,7 @@ def gameplay_replay_environment(
     uses_behavior_seed = args.name in GAMEPLAY_BEHAVIOR_PROBE_TESTS
     if args.behavior_seed and not uses_behavior_seed:
         raise ValueError(f"{args.name} does not consume an actor-policy behavior seed")
-    if args.variation_seed is None:
-        return {}
-    variation = args.variation_seed
+    variation = args.variation_seed or f"0x{randbits(64):016X}"
     replay = {
         GAMEPLAY_VARIATION_ENV: variation,
         GAMEPLAY_VARIATION_SCOPE_ENV: GAMEPLAY_PROBE_SCOPES[args.name],

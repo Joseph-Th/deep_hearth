@@ -413,6 +413,7 @@ pub(super) struct PrimitivePowerPlan {
         allow(dead_code, reason = "exploratory power-provider report telemetry")
     )]
     pub(super) treadle_lifecycle_hydration_ul: u64,
+    pub(super) walking_lifecycle_attention: u64,
     #[cfg_attr(
         test,
         allow(dead_code, reason = "exploratory power-provider report telemetry")
@@ -423,6 +424,7 @@ pub(super) struct PrimitivePowerPlan {
         allow(dead_code, reason = "exploratory power-provider report telemetry")
     )]
     pub(super) treadle_lifecycle_condition: Condition,
+    pub(super) walking_lifecycle_condition: Condition,
     #[cfg_attr(
         test,
         allow(dead_code, reason = "exploratory power-provider report telemetry")
@@ -1111,19 +1113,30 @@ pub(super) fn primitive_power_plan(
         projected_work_nj, project.declared_work_nj,
         "consumer-aware batch projection must preserve the declared useful work"
     );
+    let charge_sequence = consumer_order
+        .batches()
+        .iter()
+        .map(|batch| batch.required_energy())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        u64::try_from(charge_sequence.len())
+            .unwrap_or_else(|_| panic!("power-provider projected charge sequence exceeds u64")),
+        consumer_projected_batches,
+        "primitive provider charge schedule must follow the canonical consumer batch schedule"
+    );
     let candidates = routes.map(|candidate| {
         primitive_candidate_projection(
             candidate,
-            candidate.route.project_lifecycle(
-                registries,
-                Energy::from_nanojoules(project.declared_work_nj),
-            ),
+            candidate
+                .route
+                .project_sequence(registries, charge_sequence.iter().copied()),
         )
     });
     let (choice, minimum_attention_return_ticks) =
         select_primitive_candidate(investment_policy, &candidates);
     let crank = primitive_projection_for(&candidates, PrimitivePowerChoice::Crank);
     let treadle = primitive_projection_for(&candidates, PrimitivePowerChoice::Treadle);
+    let walking = primitive_projection_for(&candidates, PrimitivePowerChoice::WalkingWheel);
     PrimitivePowerPlan {
         choice,
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
@@ -1144,8 +1157,10 @@ pub(super) fn primitive_power_plan(
         treadle_lifecycle_metabolic_nj: treadle.lifecycle_metabolic_nj,
         crank_lifecycle_hydration_ul: crank.lifecycle_hydration_ul,
         treadle_lifecycle_hydration_ul: treadle.lifecycle_hydration_ul,
+        walking_lifecycle_attention: walking.lifecycle_attention,
         crank_lifecycle_condition: crank.lifecycle_condition,
         treadle_lifecycle_condition: treadle.lifecycle_condition,
+        walking_lifecycle_condition: walking.lifecycle_condition,
         minimum_attention_return_ticks,
     }
 }
