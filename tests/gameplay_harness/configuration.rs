@@ -93,7 +93,8 @@ pub(super) enum GameplayHarnessConfigError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ScenarioSeedSource {
-    AnchorVariation,
+    Maintained,
+    MaintainedVariation,
     Custom,
 }
 
@@ -109,13 +110,14 @@ pub(super) struct ScenarioSeedPlan {
     source: ScenarioSeedSource,
     cases: Vec<ScenarioSeedPair>,
     variation_seed: Option<u64>,
-    behavior_seed_root: u64,
+    behavior_seed_root: Option<u64>,
 }
 
 impl ScenarioSeedPlan {
     pub(super) const fn source_label(&self) -> &'static str {
         match self.source {
-            ScenarioSeedSource::AnchorVariation => "anchor+variation",
+            ScenarioSeedSource::Maintained => "maintained",
+            ScenarioSeedSource::MaintainedVariation => "maintained+variation",
             ScenarioSeedSource::Custom => "custom",
         }
     }
@@ -133,8 +135,8 @@ impl ScenarioSeedPlan {
 
     pub(super) fn variation_seed_count(&self) -> usize {
         match self.source {
-            ScenarioSeedSource::Custom => 0,
-            ScenarioSeedSource::AnchorVariation => {
+            ScenarioSeedSource::Maintained | ScenarioSeedSource::Custom => 0,
+            ScenarioSeedSource::MaintainedVariation => {
                 self.cases.len().saturating_sub(self.anchor_seed_count())
             }
         }
@@ -142,7 +144,7 @@ impl ScenarioSeedPlan {
 
     pub(super) fn custom_seed_count(&self) -> usize {
         match self.source {
-            ScenarioSeedSource::AnchorVariation => 0,
+            ScenarioSeedSource::Maintained | ScenarioSeedSource::MaintainedVariation => 0,
             ScenarioSeedSource::Custom => self.cases.len(),
         }
     }
@@ -154,10 +156,15 @@ impl ScenarioSeedPlan {
     }
 
     pub(super) fn behavior_label(&self) -> String {
-        format!("0x{:016X}", self.behavior_seed_root)
+        self.behavior_seed_root
+            .map(|seed| format!("0x{seed:016X}"))
+            .unwrap_or_else(|| "n/a".to_owned())
     }
 
     pub(super) fn replay_label(&self) -> String {
+        if self.source == ScenarioSeedSource::Maintained {
+            return "maintained".to_owned();
+        }
         self.cases
             .iter()
             .map(|case| format!("0x{:016X}@0x{:016X}", case.world_seed, case.behavior_seed))
@@ -238,26 +245,32 @@ pub(super) fn scenario_seeds_from(
             source: ScenarioSeedSource::Custom,
             cases: custom_cases(world_seeds, behavior_seed_root),
             variation_seed: None,
-            behavior_seed_root,
+            behavior_seed_root: Some(behavior_seed_root),
         });
     }
 
     let variation_count = match mode {
         #[cfg(test)]
-        // Keep direct Cargo execution faithful to the repository-owned gate: both run the
-        // maintained witnesses plus one bounded organic case. The repository runner replaces
-        // the deterministic default roots with fresh replayable roots; direct Cargo keeps the
-        // same evidence shape without introducing unreproducible failures.
-        ScenarioPlanMode::Gate => 1,
+        // The runner supplies at most one organic root to a routine workshop gate. A broad audit
+        // may omit it when another gameplay scope owns that run's organic sampling budget.
+        ScenarioPlanMode::Gate => usize::from(variation_raw.is_some()),
         ScenarioPlanMode::Explore => EXPLORATORY_VARIATION_SCENARIO_COUNT,
     };
-    let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
-    let variation_seed = resolve_variation_seed(variation_raw, default_variation_seed)?;
+    let behavior_seed_root = if variation_count > 0 {
+        resolve_behavior_seed(behavior_raw, default_behavior_seed)?
+    } else {
+        default_behavior_seed
+    };
+    let variation_seed = (variation_count > 0)
+        .then(|| resolve_variation_seed(variation_raw, default_variation_seed))
+        .transpose()?;
     let mut world_seeds = MAINTAINED_ANCHORS
         .iter()
         .map(|(_, world_seed)| *world_seed)
         .collect::<Vec<_>>();
-    append_variation_seeds(&mut world_seeds, variation_seed, variation_count);
+    if let Some(variation_seed) = variation_seed {
+        append_variation_seeds(&mut world_seeds, variation_seed, variation_count);
+    }
     let mut cases = maintained_cases();
     cases.extend(
         world_seeds[MAINTAINED_ANCHORS.len()..]
@@ -271,9 +284,13 @@ pub(super) fn scenario_seeds_from(
             }),
     );
     Ok(ScenarioSeedPlan {
-        source: ScenarioSeedSource::AnchorVariation,
+        source: if variation_count == 0 {
+            ScenarioSeedSource::Maintained
+        } else {
+            ScenarioSeedSource::MaintainedVariation
+        },
         cases,
-        variation_seed: Some(variation_seed),
-        behavior_seed_root,
+        variation_seed,
+        behavior_seed_root: (variation_count > 0).then_some(behavior_seed_root),
     })
 }

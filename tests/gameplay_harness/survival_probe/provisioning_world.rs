@@ -252,8 +252,7 @@ pub(in super::super) fn provisioning_world(
 }
 
 pub(super) struct ProvisioningPlan {
-    pub(super) selected_indices: Vec<usize>,
-    pub(super) selected_masses: Vec<Mass>,
+    pub(super) selections: Vec<MaterialLotSelection>,
 }
 
 pub(super) fn maximum_direct_provisioning_ticks(registries: &Registries) -> u64 {
@@ -271,47 +270,100 @@ pub(super) fn maximum_direct_provisioning_ticks(registries: &Registries) -> u64 
         .unwrap_or_else(|| panic!("survival direct-provisioning horizon overflowed"))
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ObservedProvisioningFood {
+    pub(super) lot: MaterialLotId,
+    pub(super) food: FoodDefinition,
+    pub(super) mass: Mass,
+}
+
+pub(super) fn observed_provisioning_foods(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+) -> Vec<ObservedProvisioningFood> {
+    assert!(
+        state.inventory().get_stockpile(source).is_some(),
+        "survival actor food source disappeared before observation"
+    );
+    state
+        .inventory()
+        .lot_ids(source)
+        .filter_map(|lot| {
+            let record = state
+                .inventory()
+                .get_lot(lot)
+                .unwrap_or_else(|| unreachable!("stockpile lot index references a live lot"));
+            let food = registries
+                .survival()
+                .get_food(record.commodity())
+                .copied()?;
+            if !matches!(
+                assess_food_freshness(registries, state, lot),
+                Ok(FoodFreshness::Fresh { .. })
+            ) {
+                return None;
+            }
+            Some(ObservedProvisioningFood {
+                lot,
+                food,
+                mass: record.mass(),
+            })
+        })
+        .collect()
+}
+
 pub(super) fn provisioning_plan(
     registries: &Registries,
-    world: &ProvisioningWorld,
     prepared: &PreparedProvisioningWorld,
     policy: DietProvisioningPolicy,
 ) -> ProvisioningPlan {
-    let foods = world.foods.as_slice();
     let physiology = registries.survival().physiology();
     let before = assess_survival(registries, &prepared.state)
         .unwrap_or_else(|| panic!("survival provisioning plan lost the player"));
-    let selected_indices = selected_food_indices(foods, policy);
-    assert!(!selected_indices.is_empty());
+    // Reconstruct the decision set from admitted runtime state plus the live registry. The
+    // generated world is setup history, not actor input.
+    let available = observed_provisioning_foods(registries, &prepared.state, prepared.ambient_meal);
+    let available_foods = available
+        .iter()
+        .map(|observed| observed.food)
+        .collect::<Vec<_>>();
+    let selected_available_indices = selected_food_indices(&available_foods, policy);
+    assert!(!selected_available_indices.is_empty());
     assert!(
         before.metabolic_energy() <= physiology.maximum_metabolic_energy(),
         "survival provisioning energy exceeded authored maximum"
     );
-    let desired_masses =
-        desired_policy_meal_masses(registries, &prepared.state, foods, &selected_indices);
-    let selected_masses = selected_indices
+    let desired_masses = desired_policy_meal_masses(
+        registries,
+        &prepared.state,
+        &available_foods,
+        &selected_available_indices,
+    );
+    let selections = selected_available_indices
         .iter()
         .zip(desired_masses)
-        .map(|(index, desired)| desired.min(world.offered_masses[*index]))
+        .map(|(available_index, desired)| {
+            let observed = available[*available_index];
+            MaterialLotSelection::new(observed.lot, desired.min(observed.mass))
+        })
         .collect::<Vec<_>>();
-    let selected_total = selected_masses
+    let selected_total = selections
         .iter()
-        .try_fold(Mass::ZERO, |total, mass| total.checked_add(*mass))
+        .try_fold(Mass::ZERO, |total, selection| {
+            total.checked_add(selection.mass())
+        })
         .unwrap_or_else(|| panic!("survival selected meal mass overflowed"));
     assert!(
         selected_total >= physiology.direct_consumption().minimum_meal_mass(),
-        "generated survival food opportunity must still support one legal policy meal"
+        "current survival food inventory must still support one legal policy meal"
     );
-    ProvisioningPlan {
-        selected_indices,
-        selected_masses,
-    }
+    ProvisioningPlan { selections }
 }
 
 pub(super) struct PreparedProvisioningWorld {
     pub(super) state: AppState,
     pub(super) ambient_meal: StockpileId,
-    pub(super) prepared_lots: Vec<MaterialLotId>,
     pub(super) preserved_witness: MaterialLotId,
     pub(super) drink_store: FluidStoreId,
     pub(super) ambient_age: u64,
@@ -487,7 +539,6 @@ pub(super) fn prepare_provisioning_world(
     PreparedProvisioningWorld {
         state,
         ambient_meal,
-        prepared_lots,
         preserved_witness,
         drink_store,
         ambient_age,

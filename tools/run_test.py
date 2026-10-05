@@ -36,7 +36,10 @@ CATALOG_DISPLAY_LIMIT = 40
 GAMEPLAY_VARIATION_ENV = gameplay_targets.GAMEPLAY_VARIATION_ENV
 GAMEPLAY_BEHAVIOR_ENV = gameplay_targets.GAMEPLAY_BEHAVIOR_ENV
 GAMEPLAY_REPORT_MODE_ENV = gameplay_targets.GAMEPLAY_REPORT_MODE_ENV
+GAMEPLAY_VARIATION_SCOPE_ENV = gameplay_targets.GAMEPLAY_VARIATION_SCOPE_ENV
+GAMEPLAY_FEATURE = gameplay_targets.GAMEPLAY_FEATURE
 GAMEPLAY_PROBE_TESTS = gameplay_targets.GAMEPLAY_PROBE_TESTS
+GAMEPLAY_PROBE_SCOPES = gameplay_targets.GAMEPLAY_PROBE_SCOPES
 GAMEPLAY_BEHAVIOR_PROBE_TESTS = gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS
 
 
@@ -78,10 +81,15 @@ def cargo_test_target_definition(target: str) -> dict:
 
 
 def requested_target_features(target: str, raw: str | None) -> set[str]:
-    """Return explicit features plus the target's Cargo-declared required features."""
+    """Return one cache-stable local test feature shape plus any explicit features."""
 
     requested = feature_set(raw)
-    if target != "lib":
+    if target == "lib":
+        # Exact/suite unit tests share the additive gameplay-test library artifact used by
+        # `ci.py audit --all`. The library test catalog is identical with this feature enabled,
+        # while switching between owner tests and gameplay checkpoints avoids a full lib rebuild.
+        requested.add(GAMEPLAY_FEATURE)
+    else:
         requested.update(cargo_test_target_definition(target).get("required-features", []))
     return requested
 
@@ -515,19 +523,20 @@ def gameplay_replay_environment(
     *,
     randbits=secrets.randbits,
 ) -> dict[str, str]:
-    """Give exact gameplay probes one fresh replayable case without perturbing contract tests."""
+    """Give one exact gameplay probe a fresh replayable organic case by default."""
 
     if args.suite or args.name not in GAMEPLAY_PROBE_TESTS:
         if args.variation_seed or args.behavior_seed:
             raise ValueError("gameplay replay seeds require one exact gameplay probe")
         return {}
-
-    replay = {
-        GAMEPLAY_VARIATION_ENV: args.variation_seed or f"0x{randbits(64):016X}",
-    }
     uses_behavior_seed = args.name in GAMEPLAY_BEHAVIOR_PROBE_TESTS
     if args.behavior_seed and not uses_behavior_seed:
         raise ValueError(f"{args.name} does not consume an actor-policy behavior seed")
+    variation = args.variation_seed or f"0x{randbits(64):016X}"
+    replay = {
+        GAMEPLAY_VARIATION_ENV: variation,
+        GAMEPLAY_VARIATION_SCOPE_ENV: GAMEPLAY_PROBE_SCOPES[args.name],
+    }
     if uses_behavior_seed:
         replay[GAMEPLAY_BEHAVIOR_ENV] = (
             args.behavior_seed or f"0x{randbits(64):016X}"
@@ -540,7 +549,12 @@ def execute_cargo_command(
     environment_overrides: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], float]:
     environment = cargo_env.local_cargo_environment()
-    for key in (GAMEPLAY_REPORT_MODE_ENV, GAMEPLAY_VARIATION_ENV, GAMEPLAY_BEHAVIOR_ENV):
+    for key in (
+        GAMEPLAY_REPORT_MODE_ENV,
+        GAMEPLAY_VARIATION_ENV,
+        GAMEPLAY_BEHAVIOR_ENV,
+        GAMEPLAY_VARIATION_SCOPE_ENV,
+    ):
         environment.pop(key, None)
     if environment_overrides:
         environment.update(environment_overrides)
@@ -584,10 +598,8 @@ def report_cargo_failure(
     print(f"reproduce: {' '.join(command)}", file=sys.stderr)
     if replay is not None:
         print(f"replay: {replay}", file=sys.stderr)
-    if result.stdout.strip():
-        print(bounded_failure_output(result.stdout), file=sys.stderr)
-    if result.stderr.strip():
-        print(bounded_failure_output(result.stderr), file=sys.stderr)
+    for diagnostic in bounded_failure_streams(result.stdout, result.stderr):
+        print(diagnostic, file=sys.stderr)
 
 
 def bounded_failure_output(output: str) -> str:
@@ -605,6 +617,19 @@ def bounded_failure_output(output: str) -> str:
             *lines[-FAILURE_TAIL_LINES:],
         ]
     )
+
+
+def bounded_failure_streams(stdout: str, stderr: str) -> list[str]:
+    """Return non-empty bounded diagnostics once, even when Cargo duplicates captured streams."""
+
+    rendered: list[str] = []
+    for stream in (stdout, stderr):
+        if not stream.strip():
+            continue
+        bounded = bounded_failure_output(stream)
+        if bounded not in rendered:
+            rendered.append(bounded)
+    return rendered
 
 
 def suite_result_detail(stdout: str) -> str:

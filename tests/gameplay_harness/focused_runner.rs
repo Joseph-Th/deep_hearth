@@ -47,6 +47,28 @@ fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u6
     }
 }
 
+fn probe_scope(name: &str) -> &'static str {
+    match name {
+        "survival-provisioning" => "survival",
+        "primitive-progression" => "progression",
+        "primitive-liberation" => "liberation",
+        "woodworking" => "woodworking",
+        "fieldwork" => "fieldwork",
+        "power-provider" => "power-provider",
+        "settlement" => "settlement",
+        "foundry-bootstrap" => "foundry-bootstrap",
+        "ore-preparation" => "ore",
+        "foundry" => "foundry",
+        unknown => panic!("unknown focused gameplay probe {unknown:?}"),
+    }
+}
+
+fn routine_variation_selected(name: &str) -> bool {
+    env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE")
+        .ok()
+        .is_none_or(|scope| scope == probe_scope(name))
+}
+
 fn print_simulation_time(registries: &Registries) {
     std::println!(
         "SIMULATION TIME physical-tick-us={}",
@@ -216,25 +238,26 @@ pub(super) fn run_focused_probe_with_registries(
         None
     };
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
-    let requested_variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    // Direct Cargo invocation still gets one deterministic organic case. Repository runners
-    // replace the root with a fresh replayable one, so the fast path varies without making
-    // failures irreproducible.
+    let requested_variation_raw = routine_variation_selected(name)
+        .then(|| env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok())
+        .flatten();
+    // Focused gates receive one runner-owned organic case. Broad audits set a scope selector so
+    // only one probe pays that runtime cost; reports retain their broader bounded sample.
     let variation_count = if explore {
         exploratory_variation_count(name)
-    } else {
+    } else if requested_variation_raw.is_some() {
         1
+    } else {
+        0
     };
     let variation_raw = (variation_count > 0)
-        .then_some(requested_variation_raw)
+        .then(|| requested_variation_raw.as_deref())
         .flatten();
-    let behavior_raw = (variation_count > 0 || scenario_raw.is_some())
-        .then(|| {
-            uses_behavior_seed
-                .then(|| env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok())
-                .flatten()
-        })
-        .flatten();
+    let behavior_raw = if uses_behavior_seed && (variation_count > 0 || scenario_raw.is_some()) {
+        env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok()
+    } else {
+        None
+    };
     let cases = focused_probe_cases_from(FocusedProbeSeedPlan {
         variation_count,
         scenario_raw: scenario_raw.as_deref(),
@@ -255,25 +278,29 @@ pub(super) fn run_focused_probe_with_registries(
             })
         })
         .collect::<Vec<_>>();
-    let replay = cases
-        .iter()
-        .map(|case| {
-            if uses_behavior_seed {
-                let behavior_seed = case.behavior_seed().unwrap_or_else(|| {
-                    panic!("focused actor probe {name:?} lost its behavior seed")
-                });
-                format!(
-                    "{}:0x{:016X}@0x{:016X}",
-                    case.role().label(),
-                    case.seed(),
-                    behavior_seed,
-                )
-            } else {
-                format!("{}:0x{:016X}", case.role().label(), case.seed(),)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(",");
+    let replay = if variation_count == 0 && scenario_raw.is_none() {
+        "maintained".to_owned()
+    } else {
+        cases
+            .iter()
+            .map(|case| {
+                if uses_behavior_seed {
+                    let behavior_seed = case.behavior_seed().unwrap_or_else(|| {
+                        panic!("focused actor probe {name:?} lost its behavior seed")
+                    });
+                    format!(
+                        "{}:0x{:016X}@0x{:016X}",
+                        case.role().label(),
+                        case.seed(),
+                        behavior_seed,
+                    )
+                } else {
+                    format!("{}:0x{:016X}", case.role().label(), case.seed(),)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    };
     std::println!(
         "PROBE INPUT name={name} mode={} samples={} organic={} world_root={} behavior_root={} replay={replay}",
         if explore { "explore" } else { "gate" },

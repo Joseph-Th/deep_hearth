@@ -882,12 +882,6 @@ fn configured_agency_root() -> Option<u64> {
         })
 }
 
-#[cfg(test)]
-fn gate_agency_root() -> u64 {
-    configured_agency_root()
-        .unwrap_or_else(|| mix64(MAINTAINED_VARIATION_ROOT ^ 0xA63E_4E43_595F_4741))
-}
-
 #[cfg(not(test))]
 fn exploratory_agency_root() -> u64 {
     configured_agency_root()
@@ -920,26 +914,42 @@ fn maintained_agency_worlds() -> Vec<AgencyWorld> {
 }
 
 #[cfg(test)]
-fn gate_agency_worlds(variation_root: u64) -> Vec<AgencyWorld> {
+fn gate_agency_worlds(variation_root: Option<u64>) -> Vec<AgencyWorld> {
     let mut worlds = maintained_agency_worlds();
-    worlds.extend(organic_agency_worlds(variation_root, 1));
+    if let Some(variation_root) = variation_root {
+        worlds.extend(organic_agency_worlds(variation_root, 1));
+    }
     worlds
 }
 
 #[cfg(test)]
 pub(super) fn run_gameplay_agency_counterfactuals() {
     let registries = build_registries();
-    let variation_root = gate_agency_root();
     let explore = env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some();
-    let worlds = if explore {
-        exploratory_agency_worlds(variation_root)
+    let routine_variation_selected = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE")
+        .ok()
+        .is_none_or(|scope| scope == "agency");
+    let configured_root = (explore || routine_variation_selected)
+        .then(configured_agency_root)
+        .flatten();
+    let (worlds, variation_root, organic_count) = if explore {
+        let root = configured_root
+            .unwrap_or_else(|| mix64(MAINTAINED_VARIATION_ROOT ^ 0xA63E_4E43_595F_4741));
+        (
+            exploratory_agency_worlds(root),
+            format!("0x{root:016X}"),
+            ORGANIC_UNFILTERED_COUNT,
+        )
     } else {
-        gate_agency_worlds(variation_root)
+        (
+            gate_agency_worlds(configured_root),
+            configured_root.map_or_else(|| "n/a".to_owned(), |root| format!("0x{root:016X}")),
+            usize::from(configured_root.is_some()),
+        )
     };
     std::println!(
-        "AGENCY INPUT mode={} organic={} variation_root=0x{variation_root:016X}",
+        "AGENCY INPUT mode={} organic={organic_count} variation_root={variation_root}",
         if explore { "explore" } else { "gate" },
-        if explore { ORGANIC_UNFILTERED_COUNT } else { 1 },
     );
     run_agency_probe(&registries, &worlds);
 }

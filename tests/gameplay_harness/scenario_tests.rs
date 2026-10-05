@@ -23,23 +23,23 @@ fn behavior_seed_never_changes_physical_scenario_inputs() {
 }
 
 #[test]
-fn default_gate_organic_case_is_a_real_world_variation_not_only_a_replay_label() {
+fn explicit_gate_variation_changes_real_world_pressure_not_only_a_replay_label() {
     let registries = build_registries();
     let plan = scenario_seeds_from(
         ScenarioPlanMode::Gate,
         None,
-        None,
-        None,
+        Some("0x1234"),
+        Some("0xCAFE"),
         MAINTAINED_VARIATION_ROOT,
         MAINTAINED_BEHAVIOR_ROOT,
     )
-    .unwrap_or_else(|error| panic!("default workshop gate seed plan failed: {error:?}"));
+    .unwrap_or_else(|error| panic!("explicit workshop replay plan failed: {error:?}"));
     let organic_case = plan
         .cases()
         .iter()
         .find(|case| case.anchor.is_none())
         .copied()
-        .unwrap_or_else(|| panic!("default workshop gate lost its organic world"));
+        .unwrap_or_else(|| panic!("explicit workshop replay lost its organic world"));
     let organic = ScenarioVariation::from_seeds(
         &registries,
         organic_case.world_seed,
@@ -66,9 +66,8 @@ fn default_gate_organic_case_is_a_real_world_variation_not_only_a_replay_label()
                 || witness.ore != organic.ore
                 || witness.crusher != organic.crusher
                 || witness.structure != organic.structure
-                || witness.delivery != organic.delivery
         }),
-        "default organic workshop case must materially vary actor-visible world pressure instead of only changing replay identity"
+        "explicit workshop replay must materially vary actor-visible world pressure instead of only changing replay identity"
     );
 }
 

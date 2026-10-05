@@ -11,17 +11,31 @@ pub(super) fn run_provisioning_case(
     policy: DietProvisioningPolicy,
     comparison_horizon_ticks: u64,
 ) -> SurvivalCaseReview {
-    let foods = world.foods.as_slice();
-    let witness_index = world.witness_index;
     let preservation_multiplier_ppm = world.inherited_preservation_multiplier_ppm;
     let age_ticks = world.age_ticks;
     let provisioning_wait_ticks = world.provisioning_wait_ticks;
-    let drink = world.drink;
     let physiology = registries.survival().physiology();
-    let witness_food = foods[witness_index];
-    let witness_mass = world.preserved_reserve_mass;
-    let selected_indices = plan.selected_indices.as_slice();
-    let selected_masses = plan.selected_masses.as_slice();
+    let drink_fluid = prepared
+        .state
+        .fluid()
+        .get_store(prepared.drink_store)
+        .and_then(|store| store.contents())
+        .map(|contents| contents.fluid())
+        .unwrap_or_else(|| {
+            panic!("survival provisioning drink source disappeared before decision")
+        });
+    let witness_record = prepared
+        .state
+        .inventory()
+        .get_lot(prepared.preserved_witness)
+        .unwrap_or_else(|| panic!("survival preserved witness disappeared before provisioning"));
+    let witness_food = registries
+        .survival()
+        .get_food(witness_record.commodity())
+        .copied()
+        .unwrap_or_else(|| panic!("survival preserved witness is no longer edible"));
+    let witness_mass = witness_record.mass();
+    let selections = plan.selections.as_slice();
     let ambient_age = prepared.ambient_age;
     let preserved_age = prepared.preserved_age;
     let preservation_age_saved_ticks = prepared.preservation_age_saved_ticks;
@@ -50,14 +64,22 @@ pub(super) fn run_provisioning_case(
             mix64(behavior_seed ^ 0x5052_4F56_4953_494F).is_multiple_of(2)
         }
     };
-    let selections = selected_indices
+    let selected_categories = selections
         .iter()
-        .zip(selected_masses)
-        .map(|(index, mass)| MaterialLotSelection::new(prepared.prepared_lots[*index], *mass))
-        .collect::<Vec<_>>();
-    let selected_categories = selected_indices
-        .iter()
-        .map(|index| foods[*index].category())
+        .map(|selection| {
+            let lot = prepared
+                .state
+                .inventory()
+                .get_lot(selection.lot())
+                .unwrap_or_else(|| {
+                    panic!("selected survival food lot disappeared before execution")
+                });
+            registries
+                .survival()
+                .get_food(lot.commodity())
+                .unwrap_or_else(|| panic!("selected survival lot is no longer edible"))
+                .category()
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         selected_categories
@@ -72,7 +94,7 @@ pub(super) fn run_provisioning_case(
     let recovery_rate_before = before.diet_supported_vitality_recovery_ppm_per_tick();
     let mut no_provision_baseline = state.clone();
     let actions =
-        execute_provisioning_actions(registries, &mut state, prepared, &selections, drink_first);
+        execute_provisioning_actions(registries, &mut state, prepared, selections, drink_first);
     let provisioning_elapsed_ticks = actions.elapsed_ticks;
     let meal = actions.meal;
     let drank_volume = actions.drank_volume;
@@ -164,11 +186,12 @@ pub(super) fn run_provisioning_case(
         .unwrap_or_else(|error| panic!("survival probe final persistence audit failed: {error}"));
 
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
-        let available_categories = foods
-            .iter()
-            .map(|food| format!("{:?}", food.category()))
-            .collect::<Vec<_>>()
-            .join("+");
+        let available_categories =
+            observed_provisioning_foods(registries, &prepared.state, prepared.ambient_meal)
+                .iter()
+                .map(|observed| format!("{:?}", observed.food.category()))
+                .collect::<Vec<_>>()
+                .join("+");
         let selected_categories = selected_categories
             .iter()
             .map(|category| format!("{category:?}"))
@@ -190,7 +213,7 @@ pub(super) fn run_provisioning_case(
             after.diet_quality_ppm(),
             recovery_rate_before,
             recovery_rate_after,
-            drink.fluid().value(),
+            drink_fluid.value(),
             drank_volume.microliters(),
             hydration_offered.microliters(),
             state.tick().value(),
@@ -222,8 +245,6 @@ pub(super) fn evaluate_provisioning_comparison(
     behavior_seed: u64,
     world: &ProvisioningWorld,
 ) -> DietComparisonReview {
-    let foods = world.foods.as_slice();
-    let available_category_count = food_category_count(foods);
     let authored_category_count = registries
         .survival()
         .foods()
@@ -232,15 +253,19 @@ pub(super) fn evaluate_provisioning_comparison(
         .len();
     let drink_supply = provisioning_drink_supply(registries, world);
     let prepared = prepare_provisioning_world(registries, world, drink_supply);
+    let available_category_count =
+        observed_provisioning_foods(registries, &prepared.state, prepared.ambient_meal)
+            .iter()
+            .map(|observed| observed.food.category())
+            .collect::<BTreeSet<_>>()
+            .len();
     let compact_plan = provisioning_plan(
         registries,
-        world,
         &prepared,
         DietProvisioningPolicy::CompactCalories,
     );
     let balanced_plan = provisioning_plan(
         registries,
-        world,
         &prepared,
         DietProvisioningPolicy::BalancedRecovery,
     );

@@ -24,6 +24,8 @@ from tools.gameplay_targets import (
     GAMEPLAY_TARGETS,
     GAMEPLAY_TESTS,
     GAMEPLAY_VARIATION_ENV,
+    GAMEPLAY_VARIATION_SCOPE_ENV,
+    GAMEPLAY_ROUTINE_VARIATION_SCOPES,
 )
 from tools.gameplay_report_summary import concise_gameplay_report
 from tools.replay_seed import parse_replay_seed
@@ -46,6 +48,7 @@ GAMEPLAY_SEED_ENV_KEYS = (
     "DEEP_HEARTH_GAMEPLAY_SEEDS",
     GAMEPLAY_VARIATION_ENV,
     GAMEPLAY_BEHAVIOR_ENV,
+    GAMEPLAY_VARIATION_SCOPE_ENV,
 )
 REUSED_TEST_REPORTS = (
     frozenset(GAMEPLAY_SCOPE_SPECS) - frozenset(SCOPED_REPORT_EXAMPLES)
@@ -119,8 +122,8 @@ def configure_report_mode_environment(args: argparse.Namespace, environ) -> None
         environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
 
 
-def gameplay_sampling_behavior(args: argparse.Namespace) -> bool | None:
-    """Return actor-root usage for bounded gameplay sampling, or None when sampling is inactive."""
+def gameplay_uses_behavior_seed(args: argparse.Namespace) -> bool | None:
+    """Return whether the selected gameplay lane accepts an actor-policy replay root."""
 
     if args.preset == "report":
         return args.scope in REPORT_BEHAVIOR_SCOPES
@@ -129,6 +132,20 @@ def gameplay_sampling_behavior(args: argparse.Namespace) -> bool | None:
     if args.preset == "audit" and (args.gameplay is not None or args.all):
         return True
     return None
+
+
+def gameplay_scope_uses_behavior_seed(scope: str) -> bool:
+    """Return whether one concrete gameplay sample scope varies actor policy."""
+
+    return scope != "agency" and GAMEPLAY_SCOPE_SPECS[scope].uses_behavior_seed
+
+
+def audit_variation_scope(variation: str) -> str:
+    """Choose one replay-stable gameplay scope from the world root alone."""
+
+    return GAMEPLAY_ROUTINE_VARIATION_SCOPES[
+        int(variation, 0) % len(GAMEPLAY_ROUTINE_VARIATION_SCOPES)
+    ]
 
 
 def clear_gameplay_seed_environment(environ) -> None:
@@ -143,20 +160,28 @@ def configure_gameplay_verification_environment(
     environ,
     *,
     randbits=secrets.randbits,
-) -> tuple[str, str]:
-    """Run maintained witnesses plus one fresh or explicitly replayed organic case."""
+) -> tuple[str, str, str]:
+    """Add one fresh replayable organic case without widening every gameplay scope."""
 
-    use_behavior_seed = gameplay_sampling_behavior(args)
-    assert use_behavior_seed is not None
+    assert gameplay_uses_behavior_seed(args) is not None
     environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
     clear_gameplay_seed_environment(environ)
-    return configure_gameplay_replay_environment(
-        environ,
-        variation_override=args.variation_seed,
-        behavior_override=args.behavior_seed,
-        use_behavior_seed=use_behavior_seed,
-        randbits=randbits,
-    )
+    variation = args.variation_seed or f"0x{randbits(64):016X}"
+    if args.preset == "gate":
+        assert args.gameplay not in (None, "contracts", "all")
+        scope = args.gameplay
+    else:
+        # The physical root owns broad-audit routing. Actor-policy entropy may change a choice
+        # inside that sampled world, but must never reroute replay to a different subsystem.
+        scope = audit_variation_scope(variation)
+    use_behavior_seed = gameplay_scope_uses_behavior_seed(scope)
+    behavior = "unused"
+    if use_behavior_seed:
+        behavior = args.behavior_seed or f"0x{randbits(64):016X}"
+        environ[GAMEPLAY_BEHAVIOR_ENV] = behavior
+    environ[GAMEPLAY_VARIATION_ENV] = variation
+    environ[GAMEPLAY_VARIATION_SCOPE_ENV] = scope
+    return scope, variation, behavior
 
 
 REPORT_SCOPES = ("all", *GAMEPLAY_SCOPE_SPECS, "agency")
@@ -202,6 +227,16 @@ def rust_test_summary(stdout: str) -> str | None:
     return detail
 
 
+def replay_root_detail(world: str, behavior: str) -> str | None:
+    """Render only the replay roots a caller must actually supply."""
+
+    if world in {"n/a", "maintained", "none", "None"}:
+        return None
+    if behavior in {"n/a", "maintained", "unused", "none", "None"}:
+        return f"variation={world}"
+    return f"roots={world}/{behavior}"
+
+
 def gameplay_replay_summary(stdout: str) -> str | None:
     """Return one compact reproduction token from captured focused-gameplay output."""
 
@@ -209,7 +244,7 @@ def gameplay_replay_summary(stdout: str) -> str | None:
         if line.startswith("PROBE INPUT ") and " replay=" in line:
             roots = GAMEPLAY_REPLAY_ROOTS.search(line)
             if roots is not None and roots.group("world") != "explicit":
-                return f"roots={roots.group('world')}/{roots.group('behavior')}"
+                return replay_root_detail(roots.group("world"), roots.group("behavior"))
             replay = line.split(" replay=", 1)[1]
             if roots is not None:
                 return f"roots={roots.group('world')}/{roots.group('behavior')}; replay={replay}"
@@ -220,7 +255,7 @@ def gameplay_replay_summary(stdout: str) -> str | None:
                 return f"custom={plan.group('custom')}"
             match = GAMEPLAY_REPLAY_ROOTS.search(line)
             if match is not None:
-                return f"roots={match.group('world')}/{match.group('behavior')}"
+                return replay_root_detail(match.group("world"), match.group("behavior"))
     return None
 
 
@@ -239,15 +274,18 @@ def report_repair_hint(label: str, output: str) -> str | None:
 
 
 def gameplay_environment_summary(label: str, environ) -> str | None:
-    """Return replay roots for gameplay sampling whose output stayed captured."""
+    """Return explicitly supplied replay roots when gameplay output stayed captured."""
 
     if not label.startswith("gameplay") or label == "gameplay contracts":
         return None
     variation = environ.get(GAMEPLAY_VARIATION_ENV)
     if variation is None:
         return None
-    behavior = environ.get(GAMEPLAY_BEHAVIOR_ENV, "n/a")
-    return f"roots={variation}/{behavior}"
+    replay = replay_root_detail(variation, environ.get(GAMEPLAY_BEHAVIOR_ENV, "n/a"))
+    scope = environ.get(GAMEPLAY_VARIATION_SCOPE_ENV)
+    if scope is None:
+        return replay
+    return f"sample={scope}; {replay}" if replay is not None else f"sample={scope}"
 
 
 def quick_plan() -> list[tuple[str, list[str]]]:
@@ -394,6 +432,19 @@ def bounded_failure_output(output: str) -> str:
             *lines[-FAILURE_TAIL_LINES:],
         ]
     )
+
+
+def bounded_failure_streams(stdout: str, stderr: str) -> list[str]:
+    """Return non-empty bounded diagnostics once, even if both captured streams duplicate them."""
+
+    rendered: list[str] = []
+    for stream in (stdout, stderr):
+        if not stream.strip():
+            continue
+        bounded = bounded_failure_output(stream)
+        if bounded not in rendered:
+            rendered.append(bounded)
+    return rendered
 
 
 def gameplay_target_command(
@@ -660,10 +711,8 @@ def report_stage(
         print(f"reproduce: {' '.join(command)}", file=sys.stderr)
     else:
         print(f"repair: {hint}", file=sys.stderr)
-    if result.stdout.strip():
-        print(bounded_failure_output(result.stdout), file=sys.stderr)
-    if result.stderr.strip():
-        print(bounded_failure_output(result.stderr), file=sys.stderr)
+    for diagnostic in bounded_failure_streams(result.stdout, result.stderr):
+        print(diagnostic, file=sys.stderr)
     return None
 
 
@@ -838,7 +887,7 @@ def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Name
             f"report scope {args.scope!r} does not consume actor-policy variation; omit --behavior-seed"
         )
     if args.variation_seed is not None or args.behavior_seed is not None:
-        variation_behavior = gameplay_sampling_behavior(args)
+        variation_behavior = gameplay_uses_behavior_seed(args)
         if variation_behavior is None:
             parser.error("--variation-seed and --behavior-seed require a gameplay gate, audit, or report")
         if args.behavior_seed is not None and variation_behavior is False:
@@ -876,7 +925,7 @@ def main() -> int:
         except ValueError as error:
             print(f"gameplay replay: {error}", file=sys.stderr)
             return 2
-    elif gameplay_sampling_behavior(args) is not None:
+    elif gameplay_uses_behavior_seed(args) is not None:
         configure_gameplay_verification_environment(args, os.environ)
     elif args.preset == "gate" and args.gameplay == "contracts":
         os.environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
@@ -901,17 +950,17 @@ def main() -> int:
                 len(plan),
                 label,
                 command,
-                echo_success=args.preset in ("report", "bca"),
+                echo_success=(
+                    args.preset == "report"
+                    or (args.preset == "bca" and args.hotspots)
+                ),
                 show_replay=(
                     (
                         args.preset == "report"
                         and os.environ.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is None
                         and os.environ.get("DEEP_HEARTH_GAMEPLAY_TRACE") is None
                     )
-                    or (
-                        args.preset in ("gate", "audit")
-                        and args.variation_seed is not None
-                    )
+                    or args.preset in ("gate", "audit")
                 ),
             )
             if elapsed is None:

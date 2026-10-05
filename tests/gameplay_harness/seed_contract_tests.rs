@@ -54,7 +54,7 @@ fn exploratory_sample_density_tracks_each_probes_independent_market_shape() {
     );
     assert_eq!(
         exploratory_variation_count("power-provider"),
-        EXPLORATORY_VARIATION_COUNT * 2
+        EXPLORATORY_VARIATION_COUNT
     );
     assert_eq!(
         exploratory_variation_count("foundry-bootstrap"),

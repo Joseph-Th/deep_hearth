@@ -44,20 +44,27 @@ fn gameplay_agency_bounded_search_preserves_unfiltered_replay() {
 }
 
 #[test]
-fn gameplay_agency_gate_keeps_witnesses_and_varies_one_organic_world() {
-    let first = gate_agency_worlds(0x1111);
-    let second = gate_agency_worlds(0x2222);
+fn gameplay_agency_gate_is_maintained_only_unless_variation_is_requested() {
+    let maintained = gate_agency_worlds(None);
+    let first = gate_agency_worlds(Some(0x1111));
+    let second = gate_agency_worlds(Some(0x2222));
     let maintained_count = maintained_agency_worlds().len();
 
+    assert_eq!(maintained.len(), maintained_count);
+    assert!(maintained.iter().all(|world| world.anchor.is_some()));
     assert_eq!(first.len(), maintained_count + 1);
-    assert!(
-        first[..maintained_count]
-            .iter()
-            .zip(&second[..maintained_count])
-            .all(|(left, right)| left.world_seed == right.world_seed
-                && left.focus == right.focus
-                && left.anchor == right.anchor)
-    );
+    for variation in [&first, &second] {
+        assert!(
+            variation[..maintained_count]
+                .iter()
+                .zip(&maintained)
+                .all(
+                    |(actual, expected)| actual.world_seed == expected.world_seed
+                        && actual.focus == expected.focus
+                        && actual.anchor == expected.anchor
+                )
+        );
+    }
     assert_eq!(first[maintained_count].focus, AgencyFocus::OrganicVariation);
     assert_eq!(first[maintained_count].anchor, None);
     assert_ne!(

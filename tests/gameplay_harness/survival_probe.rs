@@ -95,7 +95,7 @@ include_survival_probe_contract_tests!();
 pub(super) mod provisioning_world;
 use provisioning_world::{
     PreparedProvisioningWorld, ProvisioningPlan, maximum_direct_provisioning_ticks,
-    prepare_provisioning_world, provisioning_plan,
+    observed_provisioning_foods, prepare_provisioning_world, provisioning_plan,
 };
 pub(super) use provisioning_world::{ProvisioningWorld, provisioning_world};
 
@@ -301,9 +301,7 @@ pub(super) fn selected_food_indices(
 
 struct DietRecoveryBranch<'a> {
     prepared: &'a AppState,
-    foods: &'a [FoodDefinition],
     food_store: StockpileId,
-    food_lots: &'a [MaterialLotId],
     drink_store: FluidStoreId,
     matter_total: AggregateMass,
     fluid_total: AggregateVolume,
@@ -345,7 +343,6 @@ fn provision_diet_recovery_branch(
         .min(physiology.maximum_hydration());
     let before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("diet-recovery player disappeared before provisioning"));
-    let selected_indices = selected_food_indices(branch.foods, policy);
     assert!(
         before.metabolic_energy() <= physiology.maximum_metabolic_energy(),
         "diet-recovery metabolic reserve exceeded authored maximum"
@@ -359,20 +356,24 @@ fn provision_diet_recovery_branch(
         if meal_actions > 0 && current.metabolic_energy() >= metabolic_target {
             break;
         }
+        let available = observed_provisioning_foods(registries, &state, branch.food_store);
+        let available_foods = available
+            .iter()
+            .map(|observed| observed.food)
+            .collect::<Vec<_>>();
+        let selected_indices = selected_food_indices(&available_foods, policy);
+        assert!(
+            !selected_indices.is_empty(),
+            "diet-recovery actor found no fresh edible food in the current local stockpile"
+        );
         let selected_masses =
-            desired_policy_meal_masses(registries, &state, branch.foods, &selected_indices);
+            desired_policy_meal_masses(registries, &state, &available_foods, &selected_indices);
         let selections = selected_indices
             .iter()
-            .zip(&selected_masses)
-            .filter_map(|(index, desired)| {
-                let available = state
-                    .inventory()
-                    .get_lot(branch.food_lots[*index])
-                    .unwrap_or_else(|| panic!("diet-recovery food lot disappeared"))
-                    .mass();
-                let portion = (*desired).min(available);
-                (!portion.is_zero())
-                    .then(|| MaterialLotSelection::new(branch.food_lots[*index], portion))
+            .zip(selected_masses)
+            .map(|(index, desired)| {
+                let observed = available[*index];
+                MaterialLotSelection::new(observed.lot, desired.min(observed.mass))
             })
             .collect::<Vec<_>>();
         let offered = selections
@@ -549,21 +550,16 @@ fn evaluate_diet_recovery_consequence(
         food_capacity,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    let food_lots = world
-        .foods
-        .iter()
-        .zip(&offered_masses)
-        .map(|(food, mass)| {
-            seed_lot(
-                registries,
-                &mut state,
-                food_store,
-                food.commodity(),
-                *mass,
-                ROOM_TEMPERATURE,
-            )
-        })
-        .collect::<Vec<_>>();
+    for (food, mass) in world.foods.iter().zip(&offered_masses) {
+        seed_lot(
+            registries,
+            &mut state,
+            food_store,
+            food.commodity(),
+            *mass,
+            ROOM_TEMPERATURE,
+        );
+    }
     let drink_supply = world
         .drink
         .minimum_volume_for_hydration(physiology.maximum_hydration())
@@ -618,9 +614,7 @@ fn evaluate_diet_recovery_consequence(
         .total();
     let branch = DietRecoveryBranch {
         prepared: &state,
-        foods: &world.foods,
         food_store,
-        food_lots: &food_lots,
         drink_store,
         matter_total,
         fluid_total,

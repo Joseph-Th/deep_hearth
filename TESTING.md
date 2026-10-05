@@ -20,7 +20,7 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 
 Iteration is `quick`, then **one** proof. Run an executable proof directly whenever one fits; a separate test-target type-check only spends compiler time on an artifact the executable cannot reuse. `gate` is an optional production-only type-check when no executable contract fits and does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes or append an audit.
 
-Use `run_test.py --list <substring>` for build-free discovery. Prefer the smallest authoritative gameplay target. Scoped reports reuse focused test artifacts when supported; do not add a second executable for the same graph. Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`; repository entrypoints normalize ambient overrides. Keep separate Cargo invocations serial, leave Cargo's internal job count uncapped, and parallelize only build-free `quick` checks.
+Use `run_test.py --list <substring>` for build-free discovery. Prefer the smallest authoritative gameplay target. Scoped reports reuse focused test artifacts; do not add a second executable for the same graph. Library test execution uses additive `test-gameplay` throughout so exact tests, `audit --core`, and `audit --all` reuse one artifact. Production `gate`/Clippy remain feature-minimal. Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`; entrypoints normalize ambient overrides. Keep Cargo invocations serial, leave Cargo's internal job count uncapped, and parallelize only build-free `quick` checks.
 
 ## Escalation lanes
 
@@ -31,7 +31,7 @@ Use `run_test.py --list <substring>` for build-free discovery. Prefer the smalle
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. `audit --all` runs core unit tests and the consolidated gameplay audit in one additive `test-gameplay` feature shape; negative `test-gameplay` gating is forbidden. `audit --core` remains feature-minimal. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
+`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. Focused gameplay runs maintained witnesses plus one fresh replayable case. Broad gameplay audits rotate that one-case budget through one scope instead of sampling every scope. `report` owns broader exploration. Core tests and `audit --all` share the additive `test-gameplay` library shape; negative `test-gameplay` gating is forbidden. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
 
 ## Evidence ladder
 
@@ -61,7 +61,7 @@ Widen only when the evidence crosses another owner or runtime boundary.
 
 ## Complexity review
 
-`bca.toml` and `.bca-baseline.toml` own the `quick` complexity ratchet. Use `python ci.py bca` for changed code and `--hotspots` for existing concentration. Refactor for clarity, not a score. [`tools/README.md`](tools/README.md) owns optional diagnostics.
+`bca.toml` and `.bca-baseline.toml` own the `quick` complexity ratchet. Use `python ci.py bca` for a concise changed-code review and `--hotspots` when the full diagnostic report is useful. Refactor for clarity, not a score. [`tools/README.md`](tools/README.md) owns optional diagnostics.
 
 ## Unit tests
 
@@ -87,7 +87,7 @@ code is already hot; workshop, progression, woodworking, and power keep report-o
 gate builds. Agency reuses the workshop test artifact because its compact summary is already part of that probe.
 `gate --gameplay contracts` remains the small cross-scope contract target.
 
-Routine gameplay runs maintained witnesses plus one fresh replayable case. Explicit roots reproduce failures; reports use broader bounded exploration. Gates stay quiet on success, failures print a narrow reproduction command, and reports retain replay inputs. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Routine focused gameplay runs maintained witnesses plus one fresh organic case; broad audits rotate one organic case through one scope. Every sampled case is replayable from reported roots. Reports own broader bounded exploration. Gates stay concise, failures print a narrow reproduction command, and reports retain replay inputs. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 

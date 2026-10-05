@@ -273,6 +273,8 @@ class CargoToolingTests(unittest.TestCase):
                 "--locked",
                 "--no-run",
                 "--lib",
+                "--features",
+                "test-gameplay",
             ],
         )
 
@@ -707,6 +709,18 @@ unknown_macro!();
                 "tests/gameplay_survival.rs",
             ],
         )
+
+    def test_bca_success_is_concise_by_default_and_hotspot_output_is_opt_in(self) -> None:
+        for argv, expected_echo in ((["ci.py", "bca"], False), (["ci.py", "bca", "--hotspots"], True)):
+            with self.subTest(argv=argv):
+                with (
+                    mock.patch.object(sys, "argv", argv),
+                    mock.patch.object(ci, "run_stage", return_value=0.1) as run,
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    self.assertEqual(ci.main(), 0)
+                self.assertEqual(run.call_args.kwargs["echo_success"], expected_echo)
 
     def test_bca_hotspot_preset_reuses_the_same_history_aware_review_without_change_filtering(self) -> None:
         plan = ci.bca_review_plan(
@@ -1591,10 +1605,23 @@ class GameplayCiRoutingTests(unittest.TestCase):
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
-                "HARNESS INPUT plan=anchor+variation anchors=3 variation=1 custom=0 "
+                "PROBE INPUT name=progression mode=gate samples=2 organic=1 "
+                "world_root=0x333 behavior_root=unused replay=anchor:0xA,organic:0xC\n"
+            ),
+            "variation=0x333",
+        )
+        self.assertEqual(
+            ci.gameplay_replay_summary(
+                "HARNESS INPUT plan=maintained+variation anchors=3 variation=1 custom=0 "
                 "world_root=0x1234 behavior_root=0x5678 replay=ignored\n"
             ),
             "roots=0x1234/0x5678",
+        )
+        self.assertIsNone(
+            ci.gameplay_replay_summary(
+                "HARNESS INPUT plan=maintained anchors=3 variation=0 custom=0 "
+                "world_root=n/a behavior_root=n/a replay=maintained\n"
+            )
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
@@ -1715,12 +1742,18 @@ class GameplayCiRoutingTests(unittest.TestCase):
             "combined audit assumes test-gameplay only adds fixture/test capability",
         )
 
-    def test_core_repair_loop_stays_feature_minimal_while_gameplay_is_explicit(self) -> None:
+    def test_core_and_exact_tests_share_the_additive_gameplay_library_shape(self) -> None:
         config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
         core_alias = config["alias"]["test-core"]
         gameplay = " ".join(ci.gameplay_command("all"))
-        self.assertNotIn("--features", core_alias)
-        self.assertEqual(core_alias, "test --quiet --locked --lib")
+        self.assertEqual(
+            core_alias,
+            "test --quiet --locked --lib --features test-gameplay",
+        )
+        exact = run_test.parse_args(
+            ["--target", "lib", "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound"]
+        )
+        self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", " ".join(run_test.cargo_command(exact)))
         self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", gameplay)
 
     def test_scoped_audits_do_not_build_the_other_broad_surface(self) -> None:
@@ -1784,7 +1817,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
 
     def test_broad_gameplay_failure_without_test_name_reuses_replayable_audit(self) -> None:
         output = (
-            "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
+            "HARNESS INPUT plan=maintained+variation anchors=7 variation=1 custom=0 "
             "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
         )
         self.assertEqual(
@@ -1875,7 +1908,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
 
     def test_workshop_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
-            "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
+            "HARNESS INPUT plan=maintained+variation anchors=7 variation=1 custom=0 "
             "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
             "failures:\n    gameplay_harness_gate\n"
         )
@@ -1903,11 +1936,14 @@ class GameplayCiRoutingTests(unittest.TestCase):
 
     def test_failure_output_keeps_context_and_tail_without_unbounded_transcripts(self) -> None:
         lines = [f"line-{index}" for index in range(100)]
-        bounded = ci.bounded_failure_output("\n".join(lines))
+        raw = "\n".join(lines)
+        bounded = ci.bounded_failure_output(raw)
         self.assertIn("line-0", bounded)
         self.assertIn("line-99", bounded)
         self.assertIn("20 line(s) omitted", bounded)
         self.assertNotIn("line-20\n", bounded)
+        self.assertEqual(ci.bounded_failure_streams(raw, raw), [bounded])
+        self.assertEqual(run_test.bounded_failure_streams(raw, raw), [bounded])
 
     def test_run_test_replay_flags_map_to_existing_harness_environment(self) -> None:
         args = run_test.parse_args(
@@ -1925,11 +1961,12 @@ class GameplayCiRoutingTests(unittest.TestCase):
             run_test.gameplay_replay_environment(args),
             {
                 "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "workshop",
                 "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
             },
         )
 
-    def test_run_test_focused_probe_gets_one_fresh_replayable_case(self) -> None:
+    def test_run_test_focused_probe_adds_one_fresh_replayable_case(self) -> None:
         args = run_test.parse_args(
             [
                 "--target",
@@ -1947,11 +1984,32 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 ),
                 {
                     run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                    run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "survival",
                     run_test.GAMEPLAY_BEHAVIOR_ENV: "0x000000000000BBBB",
                 },
             )
 
-    def test_run_test_non_actor_probe_gets_one_fresh_world_root(self) -> None:
+        replay = run_test.parse_args(
+            [
+                "--target",
+                ci.GAMEPLAY_TARGETS["survival"],
+                "--variation-seed",
+                "0xAAAA",
+                ci.GAMEPLAY_TESTS["survival"],
+            ]
+        )
+        self.assertEqual(
+            run_test.gameplay_replay_environment(
+                replay, randbits=lambda _bits: 0xBBBB
+            ),
+            {
+                run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "survival",
+                run_test.GAMEPLAY_BEHAVIOR_ENV: "0x000000000000BBBB",
+            },
+        )
+
+    def test_run_test_non_actor_probe_adds_only_a_fresh_world_case(self) -> None:
         args = run_test.parse_args(
             ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
         )
@@ -1960,7 +2018,10 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 run_test.gameplay_replay_environment(
                     args, randbits=lambda _bits: 0xAAAA
                 ),
-                {run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA"},
+                {
+                    run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                    run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "foundry",
+                },
             )
 
     def test_run_test_organic_roots_produce_a_copyable_replay_command(self) -> None:
@@ -1991,7 +2052,10 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 run_test.gameplay_replay_environment(
                     args, randbits=lambda _bits: 0xAAAA
                 ),
-                {run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA"},
+                {
+                    run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                    run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "foundry",
+                },
             )
 
     def test_run_test_behavior_replay_requires_a_world_root(self) -> None:
@@ -2140,7 +2204,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             "-c",
             "import os; print('|'.join(str(os.getenv(key)) for key in "
             "('DEEP_HEARTH_GAMEPLAY_REPORT','DEEP_HEARTH_GAMEPLAY_VARIATION_SEED',"
-            "'DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED')))",
+            "'DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED','DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE')))",
         ]
         with mock.patch.dict(
             os.environ,
@@ -2148,11 +2212,12 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 run_test.GAMEPLAY_REPORT_MODE_ENV: "1",
                 run_test.GAMEPLAY_VARIATION_ENV: "0x1111",
                 run_test.GAMEPLAY_BEHAVIOR_ENV: "0x2222",
+                run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "fieldwork",
             },
             clear=False,
         ):
             result, _elapsed = run_test.execute_cargo_command(command)
-        self.assertEqual(result.stdout.strip(), "None|None|None")
+        self.assertEqual(result.stdout.strip(), "None|None|None|None")
 
 
 class GameplayReportContractTests(unittest.TestCase):
@@ -2295,7 +2360,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         for argv, expected in expectations:
             with self.subTest(argv=argv):
-                self.assertIs(ci.gameplay_sampling_behavior(ci.parse_args(argv)), expected)
+                self.assertIs(ci.gameplay_uses_behavior_seed(ci.parse_args(argv)), expected)
 
     def test_gameplay_gate_and_audit_accept_complete_replay_roots(self) -> None:
         progression = ci.parse_args(
@@ -2344,7 +2409,7 @@ class GameplayReportContractTests(unittest.TestCase):
                 ):
                     ci.parse_args(argv)
 
-    def test_routine_gameplay_sampling_replaces_ambient_roots_with_one_fresh_case(self) -> None:
+    def test_routine_gameplay_verification_adds_one_fresh_replayable_scope(self) -> None:
         args = ci.parse_args(["gate", "--gameplay", "survival"])
         environment = {
             "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
@@ -2357,12 +2422,13 @@ class GameplayReportContractTests(unittest.TestCase):
             ci.configure_gameplay_verification_environment(
                 args, environment, randbits=lambda _bits: next(rolls)
             ),
-            ("0x000000000000AAAA", "0x000000000000BBBB"),
+            ("survival", "0x000000000000AAAA", "0x000000000000BBBB"),
         )
         self.assertEqual(
             environment,
             {
                 "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "survival",
                 "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
                 "KEEP": "yes",
             },
@@ -2386,12 +2452,13 @@ class GameplayReportContractTests(unittest.TestCase):
         }
         self.assertEqual(
             ci.configure_gameplay_verification_environment(replay, replay_environment),
-            ("0x0000000000001234", "0x0000000000005678"),
+            ("survival", "0x0000000000001234", "0x0000000000005678"),
         )
         self.assertEqual(
             replay_environment,
             {
                 "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000001234",
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "survival",
                 "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x0000000000005678",
             },
         )
@@ -2406,15 +2473,88 @@ class GameplayReportContractTests(unittest.TestCase):
                 variation_environment,
                 randbits=lambda _bits: 0xBBBB,
             ),
-            ("0x0000000000000099", "0x000000000000BBBB"),
+            ("survival", "0x0000000000000099", "0x000000000000BBBB"),
         )
         self.assertEqual(
             variation_environment,
             {
                 "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000000099",
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "survival",
                 "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
             },
         )
+
+    def test_broad_audit_rotates_one_replay_stable_organic_scope(self) -> None:
+        observed = {
+            ci.audit_variation_scope(f"0x{index:X}")
+            for index in range(len(gameplay_targets.GAMEPLAY_ROUTINE_VARIATION_SCOPES))
+        }
+        self.assertEqual(
+            observed,
+            set(gameplay_targets.GAMEPLAY_ROUTINE_VARIATION_SCOPES),
+        )
+
+        args = ci.parse_args(["audit", "--all"])
+        environment = {
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "stale",
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "stale",
+        }
+        scope, variation, behavior = ci.configure_gameplay_verification_environment(
+            args,
+            environment,
+            randbits=lambda _bits: 0,
+        )
+        self.assertEqual(scope, gameplay_targets.GAMEPLAY_ROUTINE_VARIATION_SCOPES[0])
+        self.assertEqual(variation, "0x0000000000000000")
+        self.assertEqual(environment[ci.GAMEPLAY_VARIATION_SCOPE_ENV], scope)
+        self.assertEqual(environment[ci.GAMEPLAY_VARIATION_ENV], variation)
+        self.assertEqual(
+            behavior != "unused",
+            ci.gameplay_scope_uses_behavior_seed(scope),
+        )
+
+        replay = ci.parse_args(
+            ["audit", "--all", "--variation-seed", variation]
+        )
+        replay_environment: dict[str, str] = {}
+        replay_scope, replay_variation, _replay_behavior = (
+            ci.configure_gameplay_verification_environment(
+                replay,
+                replay_environment,
+                randbits=lambda _bits: 0xBEEF,
+            )
+        )
+        self.assertEqual(replay_scope, scope)
+        self.assertEqual(replay_variation, variation)
+
+        behavior_index, behavior_scope = next(
+            (index, scope)
+            for index, scope in enumerate(
+                gameplay_targets.GAMEPLAY_ROUTINE_VARIATION_SCOPES
+            )
+            if ci.gameplay_scope_uses_behavior_seed(scope)
+        )
+        behavior_variation = f"0x{behavior_index:X}"
+        with_behavior = ci.parse_args(
+            [
+                "audit",
+                "--all",
+                "--variation-seed",
+                behavior_variation,
+                "--behavior-seed",
+                "0xCAFE",
+            ]
+        )
+        with_behavior_environment: dict[str, str] = {}
+        selected, selected_variation, selected_behavior = (
+            ci.configure_gameplay_verification_environment(
+                with_behavior,
+                with_behavior_environment,
+            )
+        )
+        self.assertEqual(selected, behavior_scope)
+        self.assertEqual(selected_variation, f"0x{behavior_index:016X}")
+        self.assertEqual(selected_behavior, "0x000000000000CAFE")
 
     def test_gameplay_sampling_surfaces_environment_replay_roots(self) -> None:
         environment = {
@@ -2427,6 +2567,23 @@ class GameplayReportContractTests(unittest.TestCase):
                     ci.gameplay_environment_summary(label, environment),
                     "roots=0xAAAA/0xBBBB",
                 )
+        self.assertEqual(
+            ci.gameplay_environment_summary(
+                "gameplay progression",
+                {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA"},
+            ),
+            "variation=0xAAAA",
+        )
+        self.assertEqual(
+            ci.gameplay_environment_summary(
+                "gameplay",
+                {
+                    "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
+                    "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "fieldwork",
+                },
+            ),
+            "sample=fieldwork; variation=0xAAAA",
+        )
         self.assertIsNone(ci.gameplay_environment_summary("core", environment))
         self.assertIsNone(ci.gameplay_environment_summary("gameplay contracts", environment))
         self.assertIsNone(ci.gameplay_environment_summary("check", environment))
@@ -2501,7 +2658,7 @@ class GameplayReportContractTests(unittest.TestCase):
                         self.assertEqual(
                             stderr.getvalue(),
                             "repair: python ci.py report --variation-seed 0x111 "
-                            f"--behavior-seed 0x222\n{bounded}\n{bounded}\n",
+                            f"--behavior-seed 0x222\n{bounded}\n",
                         )
                         self.assertNotIn("PASS total", stdout.getvalue())
 
@@ -2664,7 +2821,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "POWER SETTLEMENT seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:powered-saw feed:1600000000mg work:400000000000000nJ charge-events:80] buffer:5000000000000nJ decision=[selected:walking-wheel copper-policy:spend-available policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:2290t projected-attention-walking:2210t] treadle=[first-charge:14t second-charge:15t] walking-wheel=[first-charge:10t second-charge:11t] productive-cycle=[consumer:powered-saw treadle:56t walking:56t] projected-provider-lifecycle=[treadle:body:100000000000000nJ/200000uL condition:800000ppm walking-wheel:body:80000000000000nJ/150000uL condition:900000ppm] comparison=[charge-saving:4t metabolic-saving:1nJ pristine-rate-break-even:60charges market-frontier:1:stone-crank,3:copper-crank provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw]",
             "PROBE INPUT name=settlement mode=explore samples=1 organic=0",
             "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:20 mass:20000000mg] decision=[choice:frame-saw policy:min-player-attention baseline:139t mechanized:221t setup:181t charge-per-batch:2t margin:-82t] execution=[active:139t elapsed:139t/8.3m delegated:0t upgraded:false boards:18000000mg chips:2000000mg] survival=[energy-spent:150537000000000nJ hydration-spent:45175uL] prior-infrastructure=[frame-saw-condition:1000000ppm crank-condition:1000000ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
-            "HARNESS INPUT plan=anchor+variation anchors=1 variation=0 custom=0 world_root=0x1 behavior_root=0x2 replay=0x1@0x2",
+            "HARNESS INPUT plan=maintained anchors=1 variation=0 custom=0 world_root=n/a behavior_root=n/a replay=0x1@0x2",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=1 orders=[complete:1 partial:0 productive:1/1] adaptive=[total:0 condition:0 stored-work:0] stops=[structural:0 maintenance-required:1 energy:0 declined-manual:0 survival-limited-manual:0] maintenance-blockers=[replacement-supply:1 service-labor:0]",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt pressure-shape=[clean:1 single:0 multi-system:10] interlocks=[stored-work+throughput:11 body+power:5 wear+maintenance:6 structure+production:9] recovery=[suspensions:3 resumed:3 stranded:0]",
             "AGENCY SUMMARY worlds=1",
@@ -3784,7 +3941,7 @@ class ExactTestCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous.*2 matches"):
             run_test.resolve_test_name("preserves_mass", catalog)
 
-    def test_library_exact_command_uses_the_stable_feature_minimal_shape(self) -> None:
+    def test_library_exact_command_reuses_the_additive_gameplay_test_shape(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
@@ -3802,11 +3959,21 @@ class ExactTestCommandTests(unittest.TestCase):
                 "--quiet",
                 "--locked",
                 "--lib",
+                "--features",
+                "test-gameplay",
                 "module::tests::case",
                 "--",
                 "--exact",
             ],
         )
+
+    def test_additive_gameplay_feature_does_not_change_the_library_test_catalog(self) -> None:
+        root = ROOT / "src" / "lib.rs"
+        without_feature = sorted(run_test.reachable_test_names(root, set()))
+        with_feature = sorted(
+            run_test.reachable_test_names(root, {ci.GAMEPLAY_FEATURE})
+        )
+        self.assertEqual(with_feature, without_feature)
 
     def test_qualified_unit_selection_does_not_scan_gameplay_targets(self) -> None:
         with mock.patch.object(
@@ -3975,7 +4142,8 @@ class ExactTestCommandTests(unittest.TestCase):
             verbose=False,
         )
         command = run_test.cargo_command(args)
-        self.assertNotIn("--features", command)
+        self.assertIn("--features", command)
+        self.assertIn("test-gameplay", command)
         self.assertIn(args.name, command)
         self.assertNotIn("--exact", command)
 

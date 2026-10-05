@@ -132,10 +132,16 @@ fn maintained_survival_coverage_keeps_the_strongest_preservation_endpoint_action
         world.foods[world.witness_index],
         world.preserved_reserve_mass,
     );
+    let strongest_feasible = preservation_storage_definition_for_policy_with_constraints(
+        &registries,
+        PreservationInvestmentPolicy::MaximumProtection,
+        world.preserved_reserve_mass,
+        None,
+    );
     assert_eq!(
         decision.investment,
-        Some(STORAGE_INSULATED_TIMBER_PANTRY),
-        "maintained survival coverage must keep a patient, fully funded strongest-preservation choice visible"
+        Some(strongest_feasible),
+        "maintained survival coverage must keep the currently authored strongest capacity-feasible preservation choice actionable"
     );
 }
 

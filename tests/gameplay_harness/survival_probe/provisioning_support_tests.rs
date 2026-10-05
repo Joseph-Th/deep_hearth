@@ -94,3 +94,98 @@ fn balanced_meal_policy_pays_authoritative_eating_time_metabolism_or_hits_intake
         "balanced meal must cover its own eating-time metabolism unless the authored intake limit is the blocker"
     );
 }
+
+#[test]
+fn provisioning_plan_reobserves_live_food_after_canonical_consumption() {
+    let registries = deep_hearth::content::build_registries();
+    let direct = registries.survival().physiology().direct_consumption();
+    let minimum = direct.minimum_meal_mass();
+    let maximum = direct.maximum_meal_mass();
+
+    // Select a bounded ordinary generated world where one non-leading food lot can be exhausted as
+    // a sequence of legal meals while the leading remaining lot can still support replanning.
+    // Generation data is used only to choose the fixture before actor admission; the assertion below
+    // is explicitly about planning from the admitted runtime state afterward.
+    let can_exhaust_in_legal_meals = |mass: Mass| {
+        if mass < minimum {
+            return false;
+        }
+        let meal_count = mass.milligrams().div_ceil(maximum.milligrams());
+        mass.milligrams() >= meal_count.saturating_mul(minimum.milligrams())
+    };
+    let world = (1_u64..=256)
+        .map(|seed| provisioning_world(&registries, seed))
+        .find(|world| world.foods.len() >= 2)
+        .unwrap_or_else(|| panic!("bounded survival generation produced no multi-food witness"));
+    let drink_supply = provisioning_drink_supply(&registries, &world);
+    let mut prepared = prepare_provisioning_world(&registries, &world, drink_supply);
+    let observed = observed_provisioning_foods(&registries, &prepared.state, prepared.ambient_meal);
+    let consumed = observed
+        .iter()
+        .skip(1)
+        .copied()
+        .find(|food| can_exhaust_in_legal_meals(food.mass))
+        .unwrap_or_else(|| {
+            panic!("live survival inventory produced no exhaustible replan witness")
+        });
+    let consumed_lot = consumed.lot;
+    let initial_mass = consumed.mass;
+    let mut consumed_mass = Mass::ZERO;
+    while let Some(remaining) = prepared
+        .state
+        .inventory()
+        .get_lot(consumed_lot)
+        .map(|lot| lot.mass())
+    {
+        let remaining_meals = remaining.milligrams().div_ceil(maximum.milligrams());
+        let portion_mg = if remaining_meals == 1 {
+            remaining.milligrams()
+        } else {
+            maximum.milligrams().min(
+                remaining.milligrams() - (remaining_meals - 1).saturating_mul(minimum.milligrams()),
+            )
+        };
+        let portion = Mass::from_milligrams(portion_mg);
+        assert!(portion >= minimum && portion <= maximum);
+        let (meal, _elapsed) = execute_planned_meal(
+            &registries,
+            &mut prepared.state,
+            prepared.ambient_meal,
+            &[MaterialLotSelection::new(consumed_lot, portion)],
+        );
+        assert_eq!(meal.total_mass(), portion);
+        consumed_mass = consumed_mass
+            .checked_add(portion)
+            .unwrap_or_else(|| panic!("survival replan consumed mass overflowed"));
+    }
+    assert_eq!(consumed_mass, initial_mass);
+    assert!(
+        prepared.state.inventory().get_lot(consumed_lot).is_none(),
+        "canonical eating must remove the exhausted lot before replanning"
+    );
+
+    let replanned = provisioning_plan(
+        &registries,
+        &prepared,
+        DietProvisioningPolicy::BalancedRecovery,
+    );
+    assert!(
+        replanned
+            .selections
+            .iter()
+            .all(|selection| selection.lot() != consumed_lot),
+        "survival actor planning must not reuse a food lot that canonical gameplay already exhausted"
+    );
+    for selection in &replanned.selections {
+        let available = prepared
+            .state
+            .inventory()
+            .get_lot(selection.lot())
+            .unwrap_or_else(|| panic!("replanned survival food lot disappeared"))
+            .mass();
+        assert!(
+            selection.mass() <= available,
+            "survival actor meal selection exceeded currently visible inventory"
+        );
+    }
+}

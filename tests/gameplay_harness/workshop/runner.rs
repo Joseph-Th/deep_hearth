@@ -238,6 +238,12 @@ enum BatchSelection {
     Stop,
 }
 
+// One pre-batch decision can start at most one state-changing prerequisite before it must
+// re-observe: maintenance leaves active player work, while manual recovery completes and changes
+// stored work before the next pass. Keep the guard independent of fixture-authored supply counts so
+// generated hidden setup cannot alter actor control flow.
+const PRE_BATCH_TRANSITION_LIMIT: u64 = 3;
+
 struct BatchSelectionContext<'a> {
     policy: ScenarioPolicyVariation,
     nominal_batch_mass: Mass,
@@ -491,9 +497,6 @@ fn select_next_batch(
 }
 
 fn select_episode_batch(registries: &Registries, episode: &mut WorkshopEpisode) -> BatchSelection {
-    let transition_budget = u64::from(episode.variation.crusher.maintenance_replacement_units)
-        .checked_add(3)
-        .unwrap_or_else(|| panic!("workshop pre-batch transition budget overflowed"));
     let mut controller = ControlledDeliveryRuntime {
         delivery: episode.variation.delivery,
         authorization: &mut episode.delivery_authorization,
@@ -511,7 +514,7 @@ fn select_episode_batch(registries: &Registries, episode: &mut WorkshopEpisode) 
             report: &mut episode.report,
         },
         &mut controller,
-        transition_budget,
+        PRE_BATCH_TRANSITION_LIMIT,
     )
 }
 
@@ -891,8 +894,19 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     #[cfg(not(test))]
     let verbose = has_verbose_output();
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
-    let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let behavior_raw = env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok();
+    let routine_variation_selected = match mode {
+        #[cfg(test)]
+        ScenarioPlanMode::Gate => env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE")
+            .ok()
+            .is_none_or(|scope| scope == "workshop"),
+        ScenarioPlanMode::Explore => true,
+    };
+    let variation_raw = routine_variation_selected
+        .then(|| env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok())
+        .flatten();
+    let behavior_raw = routine_variation_selected
+        .then(|| env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok())
+        .flatten();
     let (default_world_root, default_behavior_root) = match mode {
         #[cfg(test)]
         ScenarioPlanMode::Gate => {
@@ -939,7 +953,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         );
         if verbose {
             std::println!(
-                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup ordinary-frontier-capability=LIBERATION-FRONTIER-CAPABILITY controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-witnesses+one-replayable-organic-case explicit-replay=gate+audit+report-roots exploration=broader-bounded-organic detailed-outcomes=PROGRESSION-REVIEW+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+POWER-PROVIDER-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup ordinary-frontier-capability=LIBERATION-FRONTIER-CAPABILITY controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] focused-gates=maintained+one-replayable-organic broad-audit=maintained+one-rotating-organic exploration=broader-bounded-organic detailed-outcomes=PROGRESSION-REVIEW+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+POWER-PROVIDER-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
             );
         }
     }

@@ -189,20 +189,20 @@ scope may establish.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Routine focused gameplay gates and the broad gameplay audit pair maintained deterministic witnesses with one fresh,
-replayable organic case. Explicit replay roots replace that fresh case when reproducing a run. Reports use a broader
-bounded organic sample and agency qualification searches. Maintained cases prove contracts, not prevalence;
-organic samples are bounded evidence, not population estimates. A named qualitative regime must have a maintained
-witness; exploratory organic cases probe generator, policy, and integration drift between those anchors without
-turning qualitative coverage into a probabilistic requirement. Organic generator ranges that are intended to
-straddle an authored threshold, equipment scale, storage capacity, or production crossover derive that scale from
-the current production definitions/projections. Fixed numeric pressure is appropriate only when the number itself
-is the disclosed world condition or player goal, not when it is standing in for an authored requirement.
-Bounded organic reports may stratify a few low world-seed bits across actor-visible pressure classes so a small
-sample does not accidentally collapse to one side of a live decision frontier. The remaining seed entropy stays
-fresh, and actor-policy roots remain independent from those world strata.
-Direct Cargo invocation also includes one deterministic organic case; repository-owned runners replace its root
-with a fresh replayable root so routine iteration varies without sacrificing reproduction.
+Routine focused gameplay gates execute maintained witnesses plus one fresh replayable organic case. Broad gameplay
+audits keep all maintained witnesses but spend the same organic budget on one replay-stable rotating scope rather
+than multiplying variation across every probe. Reports own the broader bounded organic sample and agency qualification
+searches. Maintained cases prove contracts, not prevalence; organic
+samples are bounded evidence, not population estimates. A named qualitative regime must have a maintained witness;
+exploratory organic cases probe generator, policy, and integration drift between those anchors without turning
+qualitative coverage into a probabilistic requirement. Organic generator ranges that are intended to straddle an
+authored threshold, equipment scale, storage capacity, or production crossover derive that scale from the current
+production definitions/projections. Fixed numeric pressure is appropriate only when the number itself is the
+disclosed world condition or player goal, not when it is standing in for an authored requirement. Bounded organic
+reports may stratify a few low world-seed bits across actor-visible pressure classes so a small sample does not
+accidentally collapse to one side of a live decision frontier. The remaining seed entropy stays fresh, and
+actor-policy roots remain independent from those world strata. Direct exact focused-probe execution follows the same
+maintained-plus-one-organic default as repository-owned focused gates. Supplying roots reproduces that sampled case.
 An organic seed must materially affect actor-visible world pressure, actor policy, or both; changing only a replay
 label is not variation. For bounded generators whose purpose depends on spanning distinct pressures or decision
 regimes, keep a cheap direct generator contract that samples enough seeds to detect collapse without replacing the
@@ -237,10 +237,10 @@ but a possible follow-up action discovered only after prospecting or another obs
 earlier provisioning choice. After new evidence arrives, reassess the newly disclosed work and provision from
 that state if needed.
 
-Project-owned routine gameplay verification ignores ambient replay state, preserves maintained witnesses, and adds
-one fresh replayable organic case. Explicit roots replay one requested case exactly. Reports reuse the same replay
-contract while generating a broader fresh sample. [`TESTING.md`](TESTING.md) owns command selection; command help
-owns exact option syntax.
+Project-owned routine gameplay verification ignores ambient replay state. Focused gates add one fresh replayable
+organic case; broad audits route one fresh case to a single root-selected scope while preserving maintained coverage
+everywhere. Reports reuse the replay contract while generating a broader fresh sample. [`TESTING.md`](TESTING.md) owns command selection;
+command help owns exact option syntax.
 
 Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
 labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their

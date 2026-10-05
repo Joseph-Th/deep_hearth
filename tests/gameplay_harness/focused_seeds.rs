@@ -9,15 +9,15 @@ pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 /// Returns the bounded organic sample size used by an exploratory report.
 ///
 /// Fieldwork combines independent demand, reserve scale, geology, and material-access regimes, so
-/// it uses a denser organic sample. Power samples distinct routine/bulk provider markets. First
-/// foundry samples three independent resource regimes whose build/defer outcome should be visible
-/// without relying on maintained witnesses. Explicit reports pay this runtime cost; routine gates
-/// still execute one organic case.
+/// it uses a denser organic sample. Four power cases already cover every declared workload stratum;
+/// the cheap generator contract covers the wider provider market. First foundry samples three
+/// independent resource regimes whose build/defer outcome should be visible
+/// without relying on maintained witnesses. Reports pay this broader runtime cost; routine runners
+/// supply only one organic case to a focused gate or one selected scope in a broad audit.
 pub(super) fn exploratory_variation_count(name: &str) -> usize {
     match name {
         "fieldwork" => EXPLORATORY_VARIATION_COUNT * 5,
         "foundry-bootstrap" => EXPLORATORY_VARIATION_COUNT * 3,
-        "power-provider" => EXPLORATORY_VARIATION_COUNT * 2,
         _ => EXPLORATORY_VARIATION_COUNT,
     }
 }
@@ -70,11 +70,11 @@ fn unique_stratified_world_seed(candidate: u64, stratum: u64, reserved: &[u64]) 
 
 /// Resolves maintained contract cases plus an optional bounded replayable variation sample.
 ///
-/// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
-/// focused gates run maintained witnesses plus one runner-seeded organic case; explicit replay roots
-/// replace that fresh case, while exploratory reports generate and run a broader sample.
-/// A probe-specific salt keeps concerns independent. Physical and actor variation use independent
-/// replay roots so changing a preference cannot silently change the world.
+/// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. The runner
+/// supplies one variation root for routine organic play and exploratory reports request a broader
+/// sample. A probe-specific salt keeps concerns
+/// independent. Physical and actor variation use independent replay roots so changing a preference
+/// cannot silently change the world.
 pub(super) fn focused_probe_cases_from(
     plan: FocusedProbeSeedPlan<'_>,
 ) -> Result<Vec<FocusedProbeCase>, FocusedProbeSeedError> {
@@ -146,9 +146,9 @@ pub(super) fn focused_probe_cases_from(
         let ordinal = u64::try_from(index + 1)
             .unwrap_or_else(|_| unreachable!("focused variation index fits u64"));
         variation = mix64(variation ^ ordinal.wrapping_mul(0xD1B5_4A32_D192_ED03));
-        // Preserve fresh high-bit entropy while cycling four coarse world-pressure strata. A
-        // routine one-case gate still lands on a fresh root-selected stratum; a four-case report
-        // covers all strata without paying for a much larger stochastic sample. Generators may use
+        // Preserve fresh high-bit entropy while cycling four coarse world-pressure strata. An
+        // explicit one-case replay retains its root-selected stratum; a four-case report covers all
+        // strata without paying for a much larger stochastic sample. Generators may use
         // these low bits only for actor-visible pressure classes, never actor policy or hidden
         // evaluator truth.
         let stratum = root.wrapping_add(ordinal - 1) & 0b11;
