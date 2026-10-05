@@ -183,7 +183,7 @@ scope may establish.
 | `settlement` | A lived lumber episode freezes its first frame-saw/sawmill investment against disclosed demand, then reveals a repeat order in the same worn state so owned machinery can be reused or later reinvestment can become rational. Separate executed crossover witnesses cover spindle drill, wire drawbench, helve hammer, and other machine families; the report labels those separately so they do not masquerade as one continuous settlement. |
 | `foundry-bootstrap` | First-foundry build/defer choice after inherited settlement workshop and powered ore-dressing capability plus already-owned assayed ore, bounded recovery of a visible copper shortfall through that inherited line when executable, casting campaign, thermal recovery, and cast-stock reinvestment proved by a real settlement-size cast when owned supply permits it. |
 | report `woodworking` | Bare-hand/adze/frame-saw investment, wear, maintenance, and attention/material payback. |
-| report `fieldwork` | Sampling, bounded search, depletion, retooling, salvage, survey investment, and evidence-driven extraction adaptation. Small organic samples stratify short/project/bulk demand horizons while exact mass, geology, reserve, and policy entropy remain fresh. |
+| report `fieldwork` | Sampling, bounded search, depletion, retooling, salvage, survey investment, and evidence-driven extraction adaptation. Organic reports stratify demand horizon and an independent geological reserve-scale regime so a bounded sample reaches both sides of live investment frontiers; exact reserve, geology, and policy entropy remain fresh, and reserve truth reaches the actor only through acquired evidence. |
 | report `power-provider` | Human-power provider and accumulator investment across primitive and settlement workloads with full lifecycle costs. Primitive play charges only to the next planned consumer batch's required stored work, including passive loss during charging, rather than wasting attention filling a lossy buffer to capacity. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, and recovery. Capability-only. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
@@ -201,9 +201,11 @@ qualitative coverage into a probabilistic requirement. Organic generator ranges 
 authored threshold, equipment scale, storage capacity, or production crossover derive that scale from the current
 production definitions/projections. Fixed numeric pressure is appropriate only when the number itself is the
 disclosed world condition or player goal, not when it is standing in for an authored requirement. Bounded organic
-reports may stratify a few low world-seed bits across actor-visible pressure classes so a small sample does not
-accidentally collapse to one side of a live decision frontier. The remaining seed entropy stays fresh, and
-actor-policy roots remain independent from those world strata. Supplying roots to an exact focused probe adds and
+reports may stratify a few low world-seed bits across independent physical pressure classes that are either
+visible initially or legitimately discoverable during the episode, so a small sample does not accidentally
+collapse to one side of a live decision frontier. Stratification controls the sampled world class, never actor
+knowledge: hidden values still reach policy only through their ordinary evidence path. The remaining seed entropy
+stays fresh, and actor-policy roots remain independent from those world strata. Supplying roots to an exact focused probe adds and
 reproduces that sampled case instead of drawing a new one.
 An organic seed must materially affect actor-visible world pressure, actor policy, or both; changing only a replay
 label is not variation. For bounded generators whose purpose depends on spanning distinct pressures or decision

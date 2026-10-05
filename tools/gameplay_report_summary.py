@@ -100,8 +100,8 @@ _ORDINARY_DIGEST_FIELDS = {
         "decision-coverage",
         "attention-payback",
         "timber-saving",
-        "lifecycle-feedback",
-        "forecast-calibration",
+        "saw-feedback",
+        "saw-calibration",
     ),
     "fieldwork": (
         "outcomes",

@@ -1,5 +1,7 @@
 //! Replayable seed selection for anchored plus bounded-variation gameplay probes.
 
+pub(super) const FIELDWORK_PROBE_SALT: u64 = 0x4649_454C_4450_5242;
+
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
@@ -48,14 +50,19 @@ pub(super) struct FocusedProbeSeedPlan<'a> {
     pub(super) default_behavior_root: Option<u64>,
 }
 
-fn unique_stratified_world_seed(candidate: u64, stratum: u64, reserved: &[u64]) -> u64 {
+fn unique_stratified_world_seed(
+    candidate: u64,
+    stratum: u64,
+    stratum_mask: u64,
+    reserved: &[u64],
+) -> u64 {
     let mut candidate = unique_mixed_seed(candidate, reserved);
     let attempt_budget = reserved
         .len()
         .checked_add(1)
         .unwrap_or_else(|| panic!("focused world-seed collision budget overflowed"));
     for _ in 0..attempt_budget {
-        let stratified = (candidate & !0b11) | (stratum & 0b11);
+        let stratified = (candidate & !stratum_mask) | (stratum & stratum_mask);
         if !reserved.contains(&stratified) {
             return stratified;
         }
@@ -64,7 +71,7 @@ fn unique_stratified_world_seed(candidate: u64, stratum: u64, reserved: &[u64]) 
     panic!(
         "focused world-seed mixer failed to escape {} reserved seed(s) within stratum {}",
         reserved.len(),
-        stratum & 0b11
+        stratum & stratum_mask
     );
 }
 
@@ -142,17 +149,22 @@ pub(super) fn focused_probe_cases_from(
         None => default_variation_root,
     };
     let mut variation = root ^ probe_salt;
+    let world_stratum_mask = if probe_salt == FIELDWORK_PROBE_SALT {
+        0b1111
+    } else {
+        0b11
+    };
     for index in 0..variation_count {
         let ordinal = u64::try_from(index + 1)
             .unwrap_or_else(|_| unreachable!("focused variation index fits u64"));
         variation = mix64(variation ^ ordinal.wrapping_mul(0xD1B5_4A32_D192_ED03));
-        // Preserve fresh high-bit entropy while cycling four coarse world-pressure strata. An
-        // explicit one-case replay retains its root-selected stratum; a four-case report covers all
-        // strata without paying for a much larger stochastic sample. Generators may use
-        // these low bits only for actor-visible pressure classes, never actor policy or hidden
-        // evaluator truth.
-        let stratum = root.wrapping_add(ordinal - 1) & 0b11;
-        variation = unique_stratified_world_seed(variation, stratum, &raw_seeds);
+        // Preserve fresh high-bit entropy while cycling only the pressure dimensions a probe owns.
+        // Ordinary probes use two low world bits. Fieldwork uses four so demand and later-acquired
+        // reserve scale can vary independently. These bits never encode actor policy or privileged
+        // evaluator-only truth.
+        let stratum = root.wrapping_add(ordinal - 1) & world_stratum_mask;
+        variation =
+            unique_stratified_world_seed(variation, stratum, world_stratum_mask, &raw_seeds);
         raw_seeds.push(variation);
         cases.push(FocusedProbeCase::new(
             variation,

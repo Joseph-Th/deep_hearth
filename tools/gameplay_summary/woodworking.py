@@ -42,10 +42,10 @@ def woodworking_summary(lines: list[str]) -> str | None:
     frozen_before_action = 0
     for line in feedback:
         attention = re.search(
-            r"attention=\[setup-budget-met:(true|false) actual-payback:(true|false)\]",
+            r"saw-attention=\[setup-budget-met:(true|false) actual-payback:(true|false)\]",
             line,
         )
-        timber = re.search(r"timber=\[nominal:([^ ]+) actual:([^\]]+)\]", line)
+        timber = re.search(r"saw-timber=\[nominal:([^ ]+) actual:([^\]]+)\]", line)
         if attention is not None:
             budget_met = attention.group(1) == "true"
             payback = attention.group(2) == "true"
@@ -74,14 +74,14 @@ def woodworking_summary(lines: list[str]) -> str | None:
         f"attention-payback={count('attention-payback:true')} "
         f"timber-saving={count('timber-saving:true')} "
         f"timber-neutral={count('timber-neutral:true')} "
-        f"lifecycle-feedback=[samples:{len(feedback)}/{len(woodworking)} "
+        f"saw-feedback=[samples:{len(feedback)}/{len(woodworking)} "
         f"setup-budget-met:{setup_budget_met}/{len(feedback)} "
         f"realized-payback:{realized_payback}/{len(feedback)} "
         f"budget-vs-payback=[conservative:{conservative_budget_misses} "
         f"optimistic:{optimistic_budget_misses}] "
         f"timber-model-agrees:{timber_model_agrees}/{len(feedback)} "
         f"frozen:{frozen_before_action}/{len(feedback)}] "
-        f"forecast-calibration=[samples:{len(feedback)}/{len(woodworking)} "
+        f"saw-calibration=[samples:{len(feedback)}/{len(woodworking)} "
         f"attention-exact:{attention_exact}/{len(feedback)} "
         f"attention-safe:{attention_safe}/{len(feedback)} "
         f"conservative:{conservative_budget_misses} optimistic:{optimistic_budget_misses} "

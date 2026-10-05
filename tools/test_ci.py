@@ -2809,7 +2809,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] inherited-condition=1000000..1000000ppm resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true manual-electrical-reachability=authored-acquisition-edge support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
-            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-frozen-before-action=true feedback-scope=next-order",
+            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model saw-attention=[setup-budget-met:false actual-payback:false] saw-timber=[nominal:costlier actual:costlier] selected=bare-hands choice-frozen-before-action=true feedback-scope=next-order",
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
             "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 geology=quarry-soft policy-input=false report-only=true",
             "FIELDWORK CONTINUATION seed=0x1 available=true reused-knowledge=true reused-tool=true requested=1mg extracted=1mg extraction=2t/7.2s avoided-search=10t/36.0s avoided-kit=50t/3.0m stop=order-complete scope=matched-repeat-order destination-capacity=diagnostic-only",
@@ -3307,13 +3307,13 @@ class GameplayReportContractTests(unittest.TestCase):
             "\n".join(
                 (
                     "WOODWORKING EXPERIENCE seed=0x1 demand-horizon=project choice=stone-adze reason=pipeline-timber-cost-not-recovered",
-                    "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:true] timber=[nominal:costlier actual:costlier] selected=stone-adze choice-frozen-before-action=true feedback-scope=next-order",
+                    "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model saw-attention=[setup-budget-met:false actual-payback:true] saw-timber=[nominal:costlier actual:costlier] selected=stone-adze choice-frozen-before-action=true feedback-scope=next-order",
                 )
             ),
             {},
         )
         self.assertIn(
-            "lifecycle-feedback=[samples:1/1 setup-budget-met:0/1 realized-payback:1/1 budget-vs-payback=[conservative:1 optimistic:0] timber-model-agrees:1/1 frozen:1/1]",
+            "saw-feedback=[samples:1/1 setup-budget-met:0/1 realized-payback:1/1 budget-vs-payback=[conservative:1 optimistic:0] timber-model-agrees:1/1 frozen:1/1]",
             summary,
         )
 

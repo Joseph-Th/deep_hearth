@@ -61,8 +61,11 @@ pub(super) const FIELDWORK_SHALLOW_SUPPLY_MIN_PPM: u64 = 1_200_000;
 pub(super) const FIELDWORK_SHALLOW_SUPPLY_MAX_PPM: u64 = 1_800_000;
 pub(super) const FIELDWORK_COMMON_SUPPLY_MIN_PPM: u64 = 8_000_000;
 pub(super) const FIELDWORK_COMMON_SUPPLY_MAX_PPM: u64 = 16_000_000;
-pub(super) const FIELDWORK_BULK_SUPPLY_MIN_PPM: u64 = 48_000_000;
-pub(super) const FIELDWORK_BULK_SUPPLY_MAX_PPM: u64 = 64_000_000;
+// Rich sites must extend beyond the current ordinary bulk-order envelope. Otherwise acquired
+// reserve evidence can trim every organic project back below the heavy-tool crossover and the
+// evaluator only experiences that investment in maintained scripts.
+pub(super) const FIELDWORK_BULK_SUPPLY_MIN_PPM: u64 = 64_000_000;
+pub(super) const FIELDWORK_BULK_SUPPLY_MAX_PPM: u64 = 112_000_000;
 
 pub(super) fn scaled_fieldwork_supply(base_batch: Mass, scale_ppm: u64) -> Mass {
     Mass::from_milligrams(
@@ -77,11 +80,12 @@ pub(super) fn scaled_fieldwork_supply(base_batch: Mass, scale_ppm: u64) -> Mass 
 pub(super) fn fieldwork_supply(registries: &Registries, seed: u64) -> Mass {
     let base_batch = fieldwork_mining_limits(registries).base_quarry_batch;
     let variation = mix64(seed ^ 0x4649_454C_4452_5356);
-    let shallow = mix64(seed ^ 0x4649_454C_4453_5554) % 4 == 1;
-    // Keep the two tail regimes common enough for a bounded exploratory report to experience them
-    // without coordinating reserve truth with demand. The independent hashes yield roughly one
-    // quarter shallow, one half common, and one quarter bulk opportunities.
-    let bulk = !shallow && mix64(seed ^ 0x4649_454C_4442_554C).is_multiple_of(3);
+    // Demand uses the lower two replay bits. Reserve scale uses the next two, so an exploratory
+    // sample can span both dimensions without correlating the player's goal with geological truth.
+    // Exact reserve remains high-entropy and the actor only receives the normal acquired estimate.
+    let reserve_stratum = (seed >> 2) & 0b11;
+    let shallow = reserve_stratum == 0;
+    let bulk = reserve_stratum == 2;
     let scale_ppm = if shallow {
         FIELDWORK_SHALLOW_SUPPLY_MIN_PPM
             + variation % (FIELDWORK_SHALLOW_SUPPLY_MAX_PPM - FIELDWORK_SHALLOW_SUPPLY_MIN_PPM + 1)

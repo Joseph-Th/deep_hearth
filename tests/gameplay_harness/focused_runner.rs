@@ -7,8 +7,8 @@ use deep_hearth::registry::Registries;
 
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_seeds::{
-    FocusedProbeSeedPlan, exploratory_variation_count, focused_probe_cases_from,
-    probe_uses_behavior_seed,
+    FIELDWORK_PROBE_SALT, FocusedProbeSeedPlan, exploratory_variation_count,
+    focused_probe_cases_from, probe_uses_behavior_seed,
 };
 use super::focused_witnesses::{
     FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED,
@@ -141,7 +141,7 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
                 FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED,
                 FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED,
             ],
-            0x4649_454C_4450_5242,
+            FIELDWORK_PROBE_SALT,
         ),
         // Keep one long-project coverage world because it crosses repeated crusher service and
         // survival provisioning, which short cycles do not exercise together. Organic variation

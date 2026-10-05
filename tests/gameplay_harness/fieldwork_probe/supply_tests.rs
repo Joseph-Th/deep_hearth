@@ -2,9 +2,10 @@
 
 use std::collections::BTreeSet;
 
+use super::super::bulk_fieldwork_workload::BULK_FIELDWORK_ORDER_MAX_BATCHES;
 use super::extraction::FieldworkStop;
 use super::world::{
-    FIELDWORK_BULK_SUPPLY_MIN_PPM, FIELDWORK_COMMON_SUPPLY_MAX_PPM,
+    FIELDWORK_BULK_SUPPLY_MAX_PPM, FIELDWORK_BULK_SUPPLY_MIN_PPM, FIELDWORK_COMMON_SUPPLY_MAX_PPM,
     FIELDWORK_COMMON_SUPPLY_MIN_PPM, FIELDWORK_SHALLOW_SUPPLY_MAX_PPM, scaled_fieldwork_supply,
 };
 use super::*;
@@ -20,7 +21,9 @@ fn replay(seed: u64) -> FocusedProbeCase {
 
 #[test]
 fn four_case_organic_fieldwork_sample_spans_every_demand_horizon() {
-    use super::super::focused_seeds::{FocusedProbeSeedPlan, focused_probe_cases_from};
+    use super::super::focused_seeds::{
+        FIELDWORK_PROBE_SALT, FocusedProbeSeedPlan, focused_probe_cases_from,
+    };
 
     let registries = deep_hearth::content::build_registries();
     // Generate the same way the focused runner does so maintained seed identities cannot
@@ -32,7 +35,7 @@ fn four_case_organic_fieldwork_sample_spans_every_demand_horizon() {
         behavior_raw: Some("0x5678"),
         maintained_seed: 1,
         maintained_coverage_seeds: &[0, 2, 3, 5, 6, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED, 11],
-        probe_salt: 0x4649_454C_4450_5242,
+        probe_salt: FIELDWORK_PROBE_SALT,
         default_variation_root: 0,
         default_behavior_root: Some(0),
     })
@@ -60,6 +63,61 @@ fn four_case_organic_fieldwork_sample_spans_every_demand_horizon() {
 }
 
 #[test]
+fn exploratory_fieldwork_sample_spans_demand_and_reserve_pressure_independently() {
+    use super::super::focused_seeds::{
+        FIELDWORK_PROBE_SALT, FocusedProbeSeedPlan, focused_probe_cases_from,
+    };
+
+    let registries = deep_hearth::content::build_registries();
+    let cases = focused_probe_cases_from(FocusedProbeSeedPlan {
+        variation_count: super::super::focused_seeds::exploratory_variation_count("fieldwork"),
+        scenario_raw: None,
+        variation_raw: Some("0x1234"),
+        behavior_raw: Some("0x5678"),
+        maintained_seed: 1,
+        maintained_coverage_seeds: &[0, 2, 3, 5, 6, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED, 11],
+        probe_salt: FIELDWORK_PROBE_SALT,
+        default_variation_root: 0,
+        default_behavior_root: Some(0),
+    })
+    .unwrap_or_else(|error| panic!("fieldwork exploratory seed plan failed: {error:?}"));
+    let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
+    let shallow_max =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_SHALLOW_SUPPLY_MAX_PPM).milligrams();
+    let bulk_min = scaled_fieldwork_supply(base_batch, FIELDWORK_BULK_SUPPLY_MIN_PPM).milligrams();
+    let combinations = cases
+        .into_iter()
+        .filter(|case| case.role() == FocusedProbeRole::OrganicVariation)
+        .map(|case| {
+            let supply = fieldwork_supply(&registries, case.seed()).milligrams();
+            let supply_class = if supply <= shallow_max {
+                "shallow"
+            } else if supply >= bulk_min {
+                "bulk"
+            } else {
+                "common"
+            };
+            (
+                fieldwork_order_horizon(&registries, fieldwork_order_for_case(&registries, case)),
+                supply_class,
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    let expected = ["short", "project", "bulk"]
+        .into_iter()
+        .flat_map(|horizon| {
+            ["shallow", "common", "bulk"]
+                .into_iter()
+                .map(move |supply| (horizon, supply))
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        combinations, expected,
+        "one exploratory report must experience every demand/reserve pressure pairing without coupling the two dimensions"
+    );
+}
+
+#[test]
 fn exploratory_supply_spans_shallow_common_and_bulk_opportunities() {
     let registries = deep_hearth::content::build_registries();
     let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
@@ -70,6 +128,17 @@ fn exploratory_supply_spans_shallow_common_and_bulk_opportunities() {
     let common_max =
         scaled_fieldwork_supply(base_batch, FIELDWORK_COMMON_SUPPLY_MAX_PPM).milligrams();
     let bulk_min = scaled_fieldwork_supply(base_batch, FIELDWORK_BULK_SUPPLY_MIN_PPM).milligrams();
+    let bulk_max = scaled_fieldwork_supply(base_batch, FIELDWORK_BULK_SUPPLY_MAX_PPM).milligrams();
+    assert!(
+        bulk_max
+            >= multiplied_mass(
+                base_batch,
+                BULK_FIELDWORK_ORDER_MAX_BATCHES,
+                "maximum organic bulk fieldwork order",
+            )
+            .milligrams(),
+        "bulk geological opportunities must be able to support the largest organic bulk order"
+    );
     let supplies = (0_u64..256)
         .map(|seed| fieldwork_supply(&registries, seed))
         .map(Mass::milligrams)

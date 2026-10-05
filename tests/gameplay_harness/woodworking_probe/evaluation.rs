@@ -318,6 +318,7 @@ struct WoodworkingDecisionPlan {
     reinforced_adze_budget: Option<u64>,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     reinforced_projected_attention: Option<u64>,
+    stone_projected_attention: u64,
     saw_budget: Option<(u64, Mass)>,
     reserve_safe_now: bool,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
@@ -330,6 +331,73 @@ struct WoodworkingDecisionPlan {
     invest_in_reinforced_adze: bool,
     use_bare_hands: bool,
     reason: WoodworkingInvestmentReason,
+}
+
+/// Prices an adze route the way the lived route will consume attention.
+///
+/// This is actor-side investment policy, not a second legality path: every productive batch uses
+/// the production-owned equipment projection, and service timing/material preparation follows the
+/// same authored maintenance threshold/profile used by canonical execution below. Keeping the
+/// condition stateful matters because a nominal pristine rate can otherwise make a long queue look
+/// substantially cheaper than the tool actually is once service enters the lifecycle.
+fn project_adze_lifecycle_attention(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    equipment: deep_hearth::equipment::EquipmentDefinitionId,
+    setup_ticks: u64,
+    batches: u64,
+) -> u64 {
+    let definition = registries
+        .equipment()
+        .get_equipment(equipment)
+        .unwrap_or_else(|| panic!("woodworking projected adze definition disappeared"));
+    let maintenance = definition
+        .maintenance_profile()
+        .unwrap_or_else(|| panic!("woodworking projected adze lost maintenance"));
+    let thresholds = definition.maintenance_thresholds();
+    let replacement_duration = resolve_manual_craft(
+        registries,
+        state,
+        &select_manual_craft_request(
+            registries,
+            state,
+            PROCESS_KNAP_STONE_TOOL,
+            raw,
+            1,
+            "woodworking maintenance projection",
+        ),
+    )
+    .unwrap_or_else(|error| panic!("woodworking maintenance projection failed: {error}"))
+    .duration()
+    .value();
+    let one_batch = NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one is nonzero"));
+    let mut condition = Condition::PRISTINE;
+    let mut attention = setup_ticks;
+    for _ in 0..batches {
+        if thresholds.classify(condition) == MaintenanceBand::Critical {
+            attention = attention
+                .checked_add(replacement_duration)
+                .and_then(|ticks| {
+                    ticks.checked_add(maintenance.required_service_duration(condition).value())
+                })
+                .unwrap_or_else(|| panic!("woodworking projected maintenance overflowed"));
+            condition = maintenance.restored_condition();
+        }
+        let projection = project_manual_craft_equipment(
+            registries,
+            PROCESS_SHAPE_WOOD_BOARDS,
+            one_batch,
+            equipment,
+            condition,
+        )
+        .unwrap_or_else(|error| panic!("woodworking adze lifecycle projection failed: {error}"));
+        attention = attention
+            .checked_add(projection.duration().value())
+            .unwrap_or_else(|| panic!("woodworking projected lifecycle overflowed"));
+        condition = projection.condition_after();
+    }
+    attention
 }
 
 fn project_woodworking_construction_budget(
@@ -422,38 +490,23 @@ fn plan_woodworking_investment(
         )
         .0
     });
-    let one_batch = NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one is nonzero"));
-    let stone_work_ticks = project_manual_craft_equipment(
+    let stone_projected_attention = project_adze_lifecycle_attention(
         registries,
-        PROCESS_SHAPE_WOOD_BOARDS,
-        one_batch,
+        &world.state,
+        world.raw,
         EQUIPMENT_STONE_WOODWORKING_ADZE,
-        Condition::PRISTINE,
-    )
-    .unwrap_or_else(|error| panic!("woodworking stone-adze planning failed: {error}"))
-    .duration()
-    .value()
-    .checked_mul(demand.adze_batches)
-    .unwrap_or_else(|| panic!("woodworking stone-adze nominal queue overflowed"));
-    let stone_projected_attention = adze_budget
-        .checked_add(stone_work_ticks)
-        .unwrap_or_else(|| panic!("woodworking stone-adze projected attention overflowed"));
+        adze_budget,
+        demand.adze_batches,
+    );
     let reinforced_projected_attention = reinforced_adze_budget.map(|setup| {
-        let work = project_manual_craft_equipment(
+        project_adze_lifecycle_attention(
             registries,
-            PROCESS_SHAPE_WOOD_BOARDS,
-            one_batch,
+            &world.state,
+            world.raw,
             EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
-            Condition::PRISTINE,
+            setup,
+            demand.adze_batches,
         )
-        .unwrap_or_else(|error| panic!("woodworking reinforced-adze planning failed: {error}"))
-        .duration()
-        .value()
-        .checked_mul(demand.adze_batches)
-        .unwrap_or_else(|| panic!("woodworking reinforced-adze nominal queue overflowed"));
-        setup
-            .checked_add(work)
-            .unwrap_or_else(|| panic!("woodworking reinforced-adze projected attention overflowed"))
     });
     let saw_budget = (copper_available >= world.blade_input)
         .then(|| project_saw_setup_budget(registries, &world.state, world.raw));
@@ -517,6 +570,7 @@ fn plan_woodworking_investment(
         adze_budget,
         reinforced_adze_budget,
         reinforced_projected_attention,
+        stone_projected_attention,
         saw_budget,
         reserve_safe_now,
         reinforced_reserve_safe_now,
@@ -1012,6 +1066,17 @@ fn evaluate_woodworking_lifecycle(
         saw_copper_consumed,
         copper_after_saw,
     };
+    assert_eq!(
+        decision.stone_projected_attention, adze_total_attention,
+        "pre-action stone-adze lifecycle projection must match canonical execution"
+    );
+    if let Some(projected) = decision.reinforced_projected_attention {
+        assert_eq!(
+            Some(projected),
+            reinforced_adze_total_attention,
+            "pre-action reinforced-adze lifecycle projection must match canonical execution"
+        );
+    }
     assert_woodworking_maintained_witness(case, decision, evidence, metrics);
     metrics
 }
