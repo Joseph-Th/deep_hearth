@@ -170,6 +170,8 @@ mod seed_input;
 mod settlement_power_planning;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
+#[path = "gameplay_harness/settlement_workshop_investment.rs"]
+mod settlement_workshop_investment;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/temporal.rs"]

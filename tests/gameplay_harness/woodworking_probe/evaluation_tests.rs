@@ -77,7 +77,7 @@ fn four_world_woodworking_sample_spans_workload_and_copper_pressure() {
         .collect::<Vec<_>>();
     let copper = worlds
         .iter()
-        .map(|world| visible_native_copper(world))
+        .map(visible_native_copper)
         .collect::<Vec<_>>();
     assert!(copper[0] < worlds[0].blade_input);
     assert_eq!(copper[1], worlds[1].blade_input);

@@ -63,6 +63,12 @@ impl<'a> FieldworkSiteToolRequest<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
+struct FieldworkPreparationStockpiles {
+    raw: StockpileId,
+    parts: StockpileId,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct ExistingToolProjection {
     batch: Mass,
     order_ticks: u64,
@@ -194,8 +200,7 @@ fn existing_tool_projection(
 fn owned_upgrade_projection(
     registries: &Registries,
     state: &AppState,
-    raw: StockpileId,
-    parts: StockpileId,
+    stockpiles: FieldworkPreparationStockpiles,
     equipment: EquipmentId,
     tool: FieldworkTool,
     observed_hardness_upper: Pressure,
@@ -243,8 +248,14 @@ fn owned_upgrade_projection(
         ),
     )
     .ok()?;
-    let (preparation_ticks, raw_required) =
-        estimate_fieldwork_upgrade_preparation(registries, state, raw, parts, tool.target).ok()?;
+    let (preparation_ticks, raw_required) = estimate_fieldwork_upgrade_preparation(
+        registries,
+        state,
+        stockpiles.raw,
+        stockpiles.parts,
+        tool.target,
+    )
+    .ok()?;
     let copper_raw = raw_required
         .get(&CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL))
         .copied()
@@ -274,6 +285,7 @@ fn best_owned_upgrade_projection(
     observed_hardness_upper: Pressure,
     order: Mass,
 ) -> Option<OwnedUpgradeProjection> {
+    let stockpiles = FieldworkPreparationStockpiles { raw, parts };
     let candidates = owned_equipment
         .iter()
         .flat_map(|&equipment| {
@@ -281,8 +293,7 @@ fn best_owned_upgrade_projection(
                 owned_upgrade_projection(
                     registries,
                     state,
-                    raw,
-                    parts,
+                    stockpiles,
                     equipment,
                     tool,
                     observed_hardness_upper,

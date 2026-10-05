@@ -251,7 +251,7 @@ pub(super) fn run_focused_probe_with_registries(
         0
     };
     let variation_raw = (variation_count > 0)
-        .then(|| requested_variation_raw.as_deref())
+        .then_some(requested_variation_raw.as_deref())
         .flatten();
     let behavior_raw = if uses_behavior_seed && (variation_count > 0 || scenario_raw.is_some()) {
         env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok()
@@ -261,7 +261,7 @@ pub(super) fn run_focused_probe_with_registries(
     let cases = focused_probe_cases_from(FocusedProbeSeedPlan {
         variation_count,
         scenario_raw: scenario_raw.as_deref(),
-        variation_raw: variation_raw.as_deref(),
+        variation_raw,
         behavior_raw: behavior_raw.as_deref(),
         maintained_seed,
         maintained_coverage_seeds,
@@ -315,7 +315,6 @@ pub(super) fn run_focused_probe_with_registries(
                     "n/a".to_owned()
                 } else {
                     variation_raw
-                        .as_deref()
                         .map_or_else(|| format!("0x{default_variation_root:016X}"), str::to_owned)
                 }
             },

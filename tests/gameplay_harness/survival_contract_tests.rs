@@ -82,7 +82,7 @@ fn four_world_survival_sample_spans_choice_rich_and_bulk_preservation_capacity_p
         "four-world survival exploration must include a real preservation market"
     );
     assert!(
-        feasible_counts.iter().any(|count| *count == 1),
+        feasible_counts.contains(&1),
         "four-world survival exploration must retain genuine bulk-capacity pressure"
     );
 }
