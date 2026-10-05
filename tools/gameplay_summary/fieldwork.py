@@ -526,6 +526,7 @@ def _heavy_tool_market_summary(lines: list[str], fieldwork: list[str]) -> str:
         line for line in organic_fieldwork if " order-horizon=bulk " in line
     ]
     crossover_by_seed: dict[str, int | None] = {}
+    no_crossover_reason_by_seed: dict[str, str] = {}
     for line in lines:
         if not line.startswith("FIELDWORK BULK CROSSOVER "):
             continue
@@ -538,15 +539,28 @@ def _heavy_tool_market_summary(lines: list[str], fieldwork: list[str]) -> str:
             if " available=true " in line and order is not None
             else None
         )
+        if " available=false " in line:
+            no_crossover_reason_by_seed[seed.lower()] = field(line, "reason") or "unknown"
     organic_payback_sized = 0
     organic_reserve_cut = 0
-    organic_no_market = 0
+    organic_no_crossover = {
+        "hardness": 0,
+        "raw-input": 0,
+        "order-limit": 0,
+        "no-payback": 0,
+        "unknown": 0,
+    }
     for line in organic_bulk_lines:
         seed = field(line, "seed")
         planned = re.search(r"\bplanned-local-work=(\d+)mg", line)
         crossover = crossover_by_seed.get(seed.lower()) if seed is not None else None
         if seed is None or seed.lower() not in crossover_by_seed or crossover is None:
-            organic_no_market += 1
+            reason = (
+                no_crossover_reason_by_seed.get(seed.lower(), "unknown")
+                if seed is not None
+                else "unknown"
+            )
+            organic_no_crossover[reason if reason in organic_no_crossover else "unknown"] += 1
         elif planned is not None and int(planned.group(1)) >= crossover:
             organic_payback_sized += 1
         else:
@@ -565,6 +579,11 @@ def _heavy_tool_market_summary(lines: list[str], fieldwork: list[str]) -> str:
             selected, r"\bheavy-total-delta=([+-]\d+)t"
         )
     ]
+    blocker_text = "/".join(
+        f"{reason}:{count}"
+        for reason, count in organic_no_crossover.items()
+        if count > 0
+    ) or "none"
     return (
         "heavy-tool-market=["
         f"selected:{len(selected)} "
@@ -574,7 +593,7 @@ def _heavy_tool_market_summary(lines: list[str], fieldwork: list[str]) -> str:
         f"bulk:{len(organic_bulk_lines)}/{len(organic_fieldwork)} "
         f"payback-sized:{organic_payback_sized}/{len(organic_bulk_lines)} "
         f"reserve-cut:{organic_reserve_cut}/{len(organic_bulk_lines)} "
-        f"no-market:{organic_no_market}/{len(organic_bulk_lines)}] "
+        f"blocked={blocker_text}] "
         "selected-payoff=["
         f"prep-extra:{_signed_span(signed_values(selected, r'\bheavy-preparation-extra=([+-]\d+)t'))} "
         f"order-saving:{_signed_span(signed_values(selected, r'\bheavy-order-saving=([+-]\d+)t'))} "

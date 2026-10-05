@@ -499,7 +499,18 @@ pub(super) fn foundry_resource_opportunity(
         }
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
             let copper_ppm = grade();
-            match mix64(case.seed() ^ 0x464F_554E_4452_5247) % 3 {
+            // The focused runner deliberately cycles the two low world-seed bits through a tiny
+            // bounded pressure sample. Use three of those strata for the three player-visible
+            // copper regimes so one exploratory report cannot randomly collapse to "always build"
+            // or "always defer". The fourth stratum remains fully seed-derived, preserving extra
+            // organic variation without making actor policy an input to the physical world.
+            let regime = match case.seed() & 0b11 {
+                0 => 0,
+                1 => 1,
+                2 => 2,
+                _ => mix64(case.seed() ^ 0x464F_554E_4452_5247) % 3,
+            };
+            match regime {
                 0 => {
                     let surplus_ppm = 25_000
                         + u32::try_from(mix64(case.seed() ^ 0x464F_554E_4452_5355) % 175_001)

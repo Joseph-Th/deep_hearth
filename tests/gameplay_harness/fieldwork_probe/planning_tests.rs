@@ -232,6 +232,41 @@ fn candidate_frame_respects_visible_hardness_and_finite_copper() {
 }
 
 #[test]
+fn bulk_crossover_diagnostic_explains_actor_visible_heavy_tool_blockers() {
+    let registries = deep_hearth::content::build_registries();
+    let limits = fieldwork_mining_limits(&registries);
+
+    let (funded_state, funded_raw, funded_parts) = fieldwork_planning_fixture(&registries, true);
+    assert_eq!(
+        fieldwork_bulk_crossover_blocker(
+            &registries,
+            &funded_state,
+            funded_raw,
+            funded_parts,
+            limits.reinforced_pick_hardness,
+            limits.base_quarry_batch,
+        ),
+        "hardness",
+        "when acquired hardness exceeds both quarry providers, the report must explain the physical blocker instead of calling it a missing market"
+    );
+
+    let (unfunded_state, unfunded_raw, unfunded_parts) =
+        fieldwork_planning_fixture(&registries, false);
+    assert_eq!(
+        fieldwork_bulk_crossover_blocker(
+            &registries,
+            &unfunded_state,
+            unfunded_raw,
+            unfunded_parts,
+            limits.reinforced_quarry_hardness,
+            limits.base_quarry_batch,
+        ),
+        "raw-input",
+        "when reinforcement is physically suitable but unavailable, the report must preserve the missing-input cause"
+    );
+}
+
+#[test]
 fn heavy_stone_quarry_pick_has_a_pre_copper_bulk_extraction_niche() {
     let registries = deep_hearth::content::build_registries();
     let limits = fieldwork_mining_limits(&registries);

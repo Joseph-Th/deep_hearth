@@ -414,10 +414,20 @@ fn run_fieldwork_with_supply(
             crossover.batches,
             planned_local_mass.milligrams(),
         ),
-        None => reviewln!(
-            "FIELDWORK BULK CROSSOVER seed=0x{seed:016X} available=false sampled-through=96-base-batches current-order={}mg scope=diagnostic-visible-state no-hidden-reserve=true",
-            planned_local_mass.milligrams(),
-        ),
+        None => {
+            let blocker = fieldwork_bulk_crossover_blocker(
+                registries,
+                &state,
+                raw,
+                parts,
+                observed_hardness.upper(),
+                mining_limits.base_quarry_batch,
+            );
+            reviewln!(
+                "FIELDWORK BULK CROSSOVER seed=0x{seed:016X} available=false reason={blocker} sampled-through=96-base-batches current-order={}mg scope=diagnostic-visible-state no-hidden-reserve=true",
+                planned_local_mass.milligrams(),
+            );
+        }
     }
     let raw_before: BTreeMap<_, _> = estimate
         .raw

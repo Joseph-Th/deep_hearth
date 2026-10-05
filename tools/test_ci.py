@@ -2748,7 +2748,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("orders=[short:1 project:2 bulk:0]", summary)
         self.assertIn(
             "heavy-tool-market=[selected:0 deferred:0 unavail:0 "
-            "organic=[heavy:0/1 bulk:0/1 payback-sized:0/0 reserve-cut:0/0 no-market:0/0]",
+            "organic=[heavy:0/1 bulk:0/1 payback-sized:0/0 reserve-cut:0/0 blocked=none]",
             summary,
         )
         self.assertIn(
@@ -2801,11 +2801,11 @@ class GameplayReportContractTests(unittest.TestCase):
             "resource-knowledge-effect=same-tool",
             "FIELDWORK FIXTURE DIAGNOSTIC seed=0xC geology=hard-pick-specialist policy-input=false report-only=true",
             "FIELDWORK BULK CROSSOVER seed=0xC available=false sampled-through=96-base-batches "
-            "current-order=500mg scope=diagnostic-visible-state no-hidden-reserve=true",
+            "reason=hardness current-order=500mg scope=diagnostic-visible-state no-hidden-reserve=true",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn(
-            "organic=[heavy:1/3 bulk:3/3 payback-sized:1/3 reserve-cut:1/3 no-market:1/3]",
+            "organic=[heavy:1/3 bulk:3/3 payback-sized:1/3 reserve-cut:1/3 blocked=hardness:1]",
             summary,
         )
 

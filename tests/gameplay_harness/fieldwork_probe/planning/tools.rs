@@ -466,6 +466,55 @@ pub(in super::super) fn fieldwork_bulk_crossover(
     None
 }
 
+/// Explains why the bounded visible-state bulk search found no heavy-tool crossover.
+///
+/// This uses only the same acquired hardness, owned materials, and authored order physics as the
+/// actor planner. It is report evidence, never a policy input.
+pub(in super::super) fn fieldwork_bulk_crossover_blocker(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    observed_upper: Pressure,
+    base_batch: Mass,
+) -> &'static str {
+    let order = multiplied_mass(base_batch, 96, "bulk crossover blocker diagnostic");
+    let heavy_results = FIELDWORK_TOOLS
+        .iter()
+        .filter(|tool| {
+            matches!(
+                tool.target,
+                EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
+            )
+        })
+        .map(|&tool| {
+            estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order)
+        })
+        .collect::<Vec<_>>();
+    if heavy_results.iter().any(Result::is_ok) {
+        return "no-payback";
+    }
+    if heavy_results
+        .iter()
+        .any(|result| matches!(result, Err(FieldworkToolBlocker::RawInput { .. })))
+    {
+        return "raw-input";
+    }
+    if heavy_results
+        .iter()
+        .all(|result| matches!(result, Err(FieldworkToolBlocker::AcquiredHardness { .. })))
+    {
+        return "hardness";
+    }
+    if heavy_results
+        .iter()
+        .any(|result| matches!(result, Err(FieldworkToolBlocker::Order(_))))
+    {
+        return "order-limit";
+    }
+    "mixed"
+}
+
 fn viable_fieldwork_tools(
     registries: &Registries,
     state: &AppState,

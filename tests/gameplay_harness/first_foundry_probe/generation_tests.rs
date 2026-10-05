@@ -13,6 +13,42 @@ enum OpportunityRegime {
     StillShort,
 }
 
+#[test]
+fn every_four_stratum_foundry_sample_exercises_build_recover_and_defer() {
+    let registries = deep_hearth::content::build_registries();
+    for root in [0_u64, 4, 0x1234_5678_9ABC_DEF0] {
+        let regimes = (0_u64..4)
+            .map(|offset| {
+                let seed = (root & !0b11) | offset;
+                let case = FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation);
+                let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries, case);
+                classify(
+                    &registries,
+                    foundry_resource_opportunity(
+                        &registries,
+                        case,
+                        &route_plan,
+                        ingots,
+                        settlement_cast,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(regimes[0], OpportunityRegime::NativeSufficient);
+        assert_eq!(regimes[1], OpportunityRegime::RecoverableOwnedOre);
+        assert_eq!(regimes[2], OpportunityRegime::StillShort);
+        assert_eq!(
+            regimes.into_iter().collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                OpportunityRegime::NativeSufficient,
+                OpportunityRegime::RecoverableOwnedOre,
+                OpportunityRegime::StillShort,
+            ]),
+            "one bounded organic foundry sample must expose build-now, recover-then-build, and defer"
+        );
+    }
+}
+
 fn opportunity_inputs(
     registries: &Registries,
     case: FocusedProbeCase,
