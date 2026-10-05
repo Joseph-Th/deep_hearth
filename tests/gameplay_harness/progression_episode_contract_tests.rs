@@ -13,6 +13,30 @@ use super::progression_probe::{
     manual_processing::manual_processing_setup, ore_opportunity,
     review::evaluate_primitive_progression_probe, varied_four_way_order,
 };
+use super::seed::mix64;
+
+#[test]
+fn organic_progression_worlds_cross_the_live_first_copper_decision_frontier() {
+    let registries = build_registries();
+    let priorities = (0_u64..4)
+        .map(|seed| {
+            evaluate_primitive_progression_probe(
+                &registries,
+                FocusedProbeCase::new(
+                    seed,
+                    Some(mix64(seed ^ 0x4F52_4741_4E49_435F)),
+                    FocusedProbeRole::OrganicVariation,
+                ),
+            )
+            .natural_priority
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        priorities.contains(&PrimitivePriority::PickFirst)
+            && priorities.contains(&PrimitivePriority::CrankFirst),
+        "the four organic world strata must exercise both evidence-driven scarce-copper choices: {priorities:?}"
+    );
+}
 
 #[test]
 fn autonomous_crushing_does_not_fill_idle_time_with_unbounded_feed_mining() {

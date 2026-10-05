@@ -16,6 +16,7 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreDefinitionId;
 use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
@@ -55,14 +56,13 @@ use execution::{
     execute_primitive_comparison, execute_selected_primitive_project,
     execute_selected_settlement_project, execute_settlement_comparison,
 };
-#[cfg(not(test))]
 use planning::{
-    PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
-};
-use planning::{
-    PrimitivePowerProject, SettlementCopperPolicy, assert_primitive_power_provider_market_current,
+    PrimitivePowerChoice, PrimitivePowerProject, SettlementCopperPolicy,
+    assert_primitive_power_provider_market_current,
     assert_settlement_power_provider_market_current, primitive_power_plan, settlement_power_plan,
 };
+#[cfg(not(test))]
+use planning::{PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan};
 use provisioning::seed_power_project_provisions;
 
 fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
@@ -320,10 +320,45 @@ impl PrimitiveCrushingWorkload {
     }
 }
 
-pub(super) fn declared_primitive_crushing_project(
+fn primitive_power_choice_for_project(
     registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    shaped: StockpileId,
+    store_definition: EnergyStoreDefinitionId,
+    mass: Mass,
+    work: Energy,
+    investment_policy: CapitalInvestmentPolicy,
+) -> PrimitivePowerChoice {
+    let capacity_nj = registries
+        .energy()
+        .get_store(store_definition)
+        .map(|definition| definition.capacity().nanojoules())
+        .unwrap_or_else(|| panic!("primitive power project accumulator disappeared"));
+    planning::primitive_power_plan_for_consumer(
+        registries,
+        state,
+        raw,
+        shaped,
+        store_definition,
+        capacity_nj,
+        EQUIPMENT_STONE_CRUSHER,
+        deep_hearth::maintenance::Condition::PRISTINE,
+        mass,
+        work.nanojoules(),
+        investment_policy,
+    )
+    .choice
+}
+
+fn declared_primitive_crushing_project(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    shaped: StockpileId,
     seed: u64,
     store_definition: EnergyStoreDefinitionId,
+    stratify_market_choice: bool,
 ) -> (Mass, Energy, PrimitiveCrushingWorkload) {
     // Early powered processing sees two ordinary disclosed workload scales. Routine stockpiling
     // follows the progression loop; bulk work carries forward the same large extraction order used
@@ -378,14 +413,77 @@ pub(super) fn declared_primitive_crushing_project(
             let ordinary = bulk_fieldwork_order_mass(registries, seed);
             let ordinary_batches = ordinary.milligrams() / quarry_batch.milligrams();
             let ordinal = ordinary_batches - BULK_FIELDWORK_ORDER_MIN_BATCHES;
-            let midpoint =
-                (BULK_FIELDWORK_ORDER_MIN_BATCHES + BULK_FIELDWORK_ORDER_MAX_BATCHES) / 2;
-            let (minimum, maximum) = if stratum == 2 {
-                (BULK_FIELDWORK_ORDER_MIN_BATCHES, midpoint)
+            let batches = if stratify_market_choice {
+                let desired_choice = if stratum == 2 {
+                    PrimitivePowerChoice::Crank
+                } else {
+                    PrimitivePowerChoice::Treadle
+                };
+                let [eager_policy, cautious_policy] = CapitalInvestmentPolicy::organic_bounds();
+                let span = BULK_FIELDWORK_ORDER_MAX_BATCHES - BULK_FIELDWORK_ORDER_MIN_BATCHES + 1;
+                let start = ordinal % span;
+                (0..span)
+                    .map(|offset| {
+                        BULK_FIELDWORK_ORDER_MIN_BATCHES + (start + offset) % span
+                    })
+                    .find(|&batches| {
+                        let mass = Mass::from_milligrams(
+                            quarry_batch
+                                .milligrams()
+                                .checked_mul(batches)
+                                .unwrap_or_else(|| {
+                                    panic!("primitive power bulk candidate mass overflowed")
+                                }),
+                        );
+                        let work = deep_hearth::energy::calculate_mass_specific_energy(
+                            mass,
+                            definition.specific_energy(),
+                        );
+                        let eager_choice = primitive_power_choice_for_project(
+                            registries,
+                            state,
+                            raw,
+                            shaped,
+                            store_definition,
+                            mass,
+                            work,
+                            eager_policy,
+                        );
+                        match desired_choice {
+                            PrimitivePowerChoice::Crank => eager_choice == PrimitivePowerChoice::Crank,
+                            PrimitivePowerChoice::Treadle => {
+                                eager_choice == PrimitivePowerChoice::Treadle
+                                    && primitive_power_choice_for_project(
+                                        registries,
+                                        state,
+                                        raw,
+                                        shaped,
+                                        store_definition,
+                                        mass,
+                                        work,
+                                        cautious_policy,
+                                    ) == PrimitivePowerChoice::Treadle
+                            }
+                            PrimitivePowerChoice::WalkingWheel => unreachable!(
+                                "ordinary primitive organic strata do not target industrial-scale walking-wheel work"
+                            ),
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "ordinary bulk fieldwork horizon no longer reaches the current primitive {desired_choice:?} market regime"
+                        )
+                    })
             } else {
-                (midpoint + 1, BULK_FIELDWORK_ORDER_MAX_BATCHES)
+                let midpoint =
+                    (BULK_FIELDWORK_ORDER_MIN_BATCHES + BULK_FIELDWORK_ORDER_MAX_BATCHES) / 2;
+                let (minimum, maximum) = if stratum == 2 {
+                    (BULK_FIELDWORK_ORDER_MIN_BATCHES, midpoint)
+                } else {
+                    (midpoint + 1, BULK_FIELDWORK_ORDER_MAX_BATCHES)
+                };
+                minimum + ordinal % (maximum - minimum + 1)
             };
-            let batches = minimum + ordinal % (maximum - minimum + 1);
             Mass::from_milligrams(
                 quarry_batch
                     .milligrams()
@@ -605,8 +703,20 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .get_store(store_definition)
         .map(|definition| definition.capacity().nanojoules())
         .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
+    let stratify_market_choice = matches!(
+        case.role(),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
+    );
     let (primitive_project_mass, primitive_project_work, _primitive_workload) =
-        declared_primitive_crushing_project(registries, seed, store_definition);
+        declared_primitive_crushing_project(
+            registries,
+            &state,
+            raw,
+            shaped,
+            seed,
+            store_definition,
+            stratify_market_choice,
+        );
     let primitive_available_mass = primitive_project_mass;
     let primitive_feed = add_solid_stockpile(&mut state, primitive_available_mass);
     let primitive_output = add_solid_stockpile(&mut state, primitive_available_mass);

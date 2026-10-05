@@ -118,7 +118,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "organic-choice",
         "organic-workload",
         "scale",
-        "calibration",
+        "policy-gap",
         "lifecycle-obligations",
         "settlement-choice",
         "organic-settlement-choice",

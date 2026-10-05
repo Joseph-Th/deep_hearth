@@ -368,6 +368,10 @@ pub(crate) fn evaluate_primitive_progression_probe(
         case.role(),
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
     );
+    let stratify_first_copper_choice = matches!(
+        case.role(),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
+    );
     let opportunity = ore_opportunity(seed, maintained_reinvestment_required);
     let ore_opportunity_batch_budget = opportunity.batch_budget();
     let extraction = run_primitive_progression_case(
@@ -375,6 +379,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
         seed,
         PrimitivePriority::PickFirst,
         low_trace_grade_regime,
+        stratify_first_copper_choice,
         ore_opportunity_batch_budget,
         true,
     );
@@ -383,6 +388,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
         seed,
         PrimitivePriority::CrankFirst,
         low_trace_grade_regime,
+        stratify_first_copper_choice,
         ore_opportunity_batch_budget,
         true,
     );

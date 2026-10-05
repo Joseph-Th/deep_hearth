@@ -2971,6 +2971,8 @@ class GameplayReportContractTests(unittest.TestCase):
             "scale=[charges:1..1 treadle:3..3 wheel:n/a]",
             concise,
         )
+        self.assertIn("policy-gap=[attention-min:0/1 gap:1..1t]", concise)
+        self.assertNotIn(" calibration=[", concise)
         power_summary = gameplay_report_summary.power_provider_summary(lines)
         self.assertIsNotNone(power_summary)
         assert power_summary is not None

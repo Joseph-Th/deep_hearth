@@ -30,7 +30,7 @@ use super::super::manual_construction_planning::manual_construction_route_from_r
 
 #[path = "power_provider_planning/lifecycle.rs"]
 mod lifecycle;
-use lifecycle::{ManualPowerRoute, charge_events_for_declared_work};
+use lifecycle::{ManualPowerRoute, charge_events_for_declared_work as lifecycle_charge_events};
 
 #[cfg(not(test))]
 const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
@@ -43,6 +43,14 @@ pub(super) const fn primitive_project_batch_limit() -> u64 {
 
 pub(super) const fn settlement_crossover_search_limit() -> u64 {
     MAX_SETTLEMENT_CROSSOVER_CHARGES
+}
+
+pub(super) fn charge_events_for_declared_work(
+    declared_work_nj: u128,
+    capacity_nj: u128,
+    context: &'static str,
+) -> u64 {
+    lifecycle_charge_events(declared_work_nj, capacity_nj, context)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1054,12 +1062,17 @@ pub(super) fn primitive_power_decision_frontier(
     frontier
 }
 
-pub(super) fn primitive_power_plan(
+pub(super) fn primitive_power_plan_for_consumer(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
     shaped: StockpileId,
-    project: PrimitivePowerProject,
+    store_definition: EnergyStoreDefinitionId,
+    capacity_nj: u128,
+    consumer_definition: EquipmentDefinitionId,
+    consumer_condition: Condition,
+    declared_mass: Mass,
+    declared_work_nj: u128,
     investment_policy: CapitalInvestmentPolicy,
 ) -> PrimitivePowerPlan {
     let routes = primitive_candidate_routes(
@@ -1067,32 +1080,23 @@ pub(super) fn primitive_power_plan(
         state,
         raw,
         shaped,
-        project.store_definition,
-        project.capacity_nj,
+        store_definition,
+        capacity_nj,
     );
     let crank_route = routes[0].route;
     let treadle_route = routes[1].route;
     let crank_charge = crank_route.project(registries, Condition::PRISTINE);
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
-    // The project owns a fixed amount of useful mechanical work. Buffer choice only determines
-    // how many charging events are needed; it cannot silently resize the player's project.
-    let charge_events = charge_events_for_declared_work(
-        project.declared_work_nj,
-        project.capacity_nj,
-        "primitive project",
-    );
-    let consumer_record = state
-        .equipment()
-        .get_equipment(project.consumer)
-        .unwrap_or_else(|| panic!("power-provider primitive consumer disappeared before planning"));
+    let charge_events =
+        charge_events_for_declared_work(declared_work_nj, capacity_nj, "primitive project");
     let consumer_order = project_powered_ore_order(
         registries,
         PROCESS_CRUSH_ORE,
-        consumer_record.definition(),
-        project.store_definition,
+        consumer_definition,
+        store_definition,
         PoweredOreOrderRequest::new(
-            consumer_record.condition(),
-            project.declared_mass,
+            consumer_condition,
+            declared_mass,
             MAX_PRIMITIVE_PROJECT_BATCHES,
             PoweredOreOrderMaintenancePolicy::ServiceAtCritical,
         ),
@@ -1110,7 +1114,7 @@ pub(super) fn primitive_power_plan(
         })
         .unwrap_or_else(|| panic!("power-provider projected consumer work overflowed"));
     assert_eq!(
-        projected_work_nj, project.declared_work_nj,
+        projected_work_nj, declared_work_nj,
         "consumer-aware batch projection must preserve the declared useful work"
     );
     let charge_sequence = consumer_order
@@ -1140,10 +1144,10 @@ pub(super) fn primitive_power_plan(
     PrimitivePowerPlan {
         choice,
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
-        store_definition: project.store_definition,
-        capacity_nj: project.capacity_nj,
-        declared_mass: project.declared_mass,
-        declared_work_nj: project.declared_work_nj,
+        store_definition,
+        capacity_nj,
+        declared_mass,
+        declared_work_nj,
         charge_events,
         consumer_projected_batches,
         consumer_projected_services: consumer_order.services(),
@@ -1163,4 +1167,31 @@ pub(super) fn primitive_power_plan(
         walking_lifecycle_condition: walking.lifecycle_condition,
         minimum_attention_return_ticks,
     }
+}
+
+pub(super) fn primitive_power_plan(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    shaped: StockpileId,
+    project: PrimitivePowerProject,
+    investment_policy: CapitalInvestmentPolicy,
+) -> PrimitivePowerPlan {
+    let consumer_record = state
+        .equipment()
+        .get_equipment(project.consumer)
+        .unwrap_or_else(|| panic!("power-provider primitive consumer disappeared before planning"));
+    primitive_power_plan_for_consumer(
+        registries,
+        state,
+        raw,
+        shaped,
+        project.store_definition,
+        project.capacity_nj,
+        consumer_record.definition(),
+        consumer_record.condition(),
+        project.declared_mass,
+        project.declared_work_nj,
+        investment_policy,
+    )
 }

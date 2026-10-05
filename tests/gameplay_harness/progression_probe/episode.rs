@@ -15,6 +15,7 @@ pub(super) fn run_primitive_progression_case(
     seed: u64,
     priority: PrimitivePriority,
     low_trace_grade_regime: bool,
+    stratify_first_copper_choice: bool,
     ore_opportunity_batch_budget: u64,
     emit_detail: bool,
 ) -> PrimitiveProgressionExperience {
@@ -22,6 +23,7 @@ pub(super) fn run_primitive_progression_case(
         registries,
         seed,
         low_trace_grade_regime,
+        stratify_first_copper_choice,
         ore_opportunity_batch_budget,
     );
     let ProgressionWorldSetup {

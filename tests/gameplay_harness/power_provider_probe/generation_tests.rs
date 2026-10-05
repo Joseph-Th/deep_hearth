@@ -14,6 +14,39 @@ use super::planning::{
 };
 use super::*;
 
+fn baseline_primitive_planning_state(
+    registries: &Registries,
+    store_definition: deep_hearth::energy::EnergyStoreDefinitionId,
+) -> (AppState, StockpileId, StockpileId) {
+    let mut state = AppState::new();
+    let primitive_roots = [
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+    ];
+    let requirements = power_raw_opportunity(
+        registries,
+        &primitive_roots,
+        &[
+            EQUIPMENT_STONE_CRUSHER,
+            EQUIPMENT_STONE_HAND_CRANK,
+            EQUIPMENT_TIMBER_TREADLE_DRIVE,
+            EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        ],
+        &[store_definition],
+        EQUIPMENT_STONE_CRUSHER,
+        planning::primitive_project_batch_limit(),
+        "primitive power generation contract",
+    );
+    let (raw, raw_capacity) = seed_raw_opportunity(
+        registries,
+        &mut state,
+        requirements,
+        "primitive power generation contract",
+    );
+    let shaped = add_solid_stockpile(&mut state, raw_capacity);
+    (state, raw, shaped)
+}
+
 #[test]
 fn played_power_provider_sets_match_current_buildable_mechanical_content() {
     let registries = deep_hearth::content::build_registries();
@@ -52,11 +85,20 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
             crusher.specific_energy(),
         ) > Mass::ZERO
     );
+    let (planning_state, planning_raw, planning_shaped) =
+        baseline_primitive_planning_state(&registries, store_definition);
     let primitive = (1_u64..=256)
         .map(|seed| {
             let cycle = primitive_mining_cycle_mass(&registries, seed);
-            let (mass, _work, workload) =
-                declared_primitive_crushing_project(&registries, seed, store_definition);
+            let (mass, _work, workload) = declared_primitive_crushing_project(
+                &registries,
+                &planning_state,
+                planning_raw,
+                planning_shaped,
+                seed,
+                store_definition,
+                false,
+            );
             (mass, cycle, workload)
         })
         .collect::<Vec<_>>();
@@ -147,35 +189,65 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
             .map(|offset| {
                 let seed = root + offset;
                 let cycle = primitive_mining_cycle_mass(&registries, seed);
-                let (mass, _work, workload) =
-                    declared_primitive_crushing_project(&registries, seed, store_definition);
-                (seed & 0b11, mass, cycle, workload)
+                let (mass, work, workload) = declared_primitive_crushing_project(
+                    &registries,
+                    &planning_state,
+                    planning_raw,
+                    planning_shaped,
+                    seed,
+                    store_definition,
+                    true,
+                );
+                (seed & 0b11, mass, work, cycle, workload)
             })
             .collect::<Vec<_>>();
         assert_eq!(
             bounded
                 .iter()
-                .map(|(stratum, _, _, _)| *stratum)
+                .map(|(stratum, _, _, _, _)| *stratum)
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from([0, 1, 2, 3])
         );
         assert!(
             bounded[..2]
                 .iter()
-                .all(|(_, _, _, workload)| *workload == PrimitiveCrushingWorkload::RoutineStockpile)
+                .all(|(_, _, _, _, workload)| *workload
+                    == PrimitiveCrushingWorkload::RoutineStockpile)
         );
         assert!(
             bounded[2..]
                 .iter()
-                .all(|(_, _, _, workload)| *workload == PrimitiveCrushingWorkload::BulkFieldwork)
+                .all(|(_, _, _, _, workload)| *workload == PrimitiveCrushingWorkload::BulkFieldwork)
         );
         assert!(
             bounded[0].1 < bounded[1].1,
             "routine strata must increase disclosed work"
         );
-        assert!(
-            bounded[2].1 < bounded[3].1,
-            "bulk strata must increase disclosed work"
+        let [eager_policy, cautious_policy] = CapitalInvestmentPolicy::organic_bounds();
+        let bulk_choices = bounded[2..]
+            .iter()
+            .map(|(_, mass, work, _, _)| {
+                [eager_policy, cautious_policy].map(|policy| {
+                    primitive_power_choice_for_project(
+                        &registries,
+                        &planning_state,
+                        planning_raw,
+                        planning_shaped,
+                        store_definition,
+                        *mass,
+                        *work,
+                        policy,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            bulk_choices,
+            vec![
+                [PrimitivePowerChoice::Crank, PrimitivePowerChoice::Crank],
+                [PrimitivePowerChoice::Treadle, PrimitivePowerChoice::Treadle],
+            ],
+            "organic physical workload strata must cross the current primitive provider frontier without depending on behavior policy"
         );
     }
 }
