@@ -14,6 +14,13 @@ import sys
 import time
 
 from tools.cargo_env import local_cargo_environment
+from tools.command_output import (
+    FAILURE_HEAD_LINES,
+    FAILURE_TAIL_LINES,
+    bounded_failure_output,
+    bounded_failure_streams,
+    rust_test_result_counts,
+)
 from tools.gameplay_targets import (
     GAMEPLAY_AUDIT_TARGET,
     GAMEPLAY_BEHAVIOR_ENV,
@@ -36,6 +43,7 @@ ROOT = Path(__file__).resolve().parent
 GAMEPLAY_REPORT_EXAMPLE = "gameplay-report"
 SCOPED_REPORT_EXAMPLES = {
     "workshop": "gameplay-workshop-report",
+    "survival": "gameplay-survival-report",
     "progression": "gameplay-progression-report",
     "woodworking": "gameplay-woodworking-report",
     "power-provider": "gameplay-power-report",
@@ -187,13 +195,6 @@ def configure_gameplay_verification_environment(
 REPORT_SCOPES = ("all", *GAMEPLAY_SCOPE_SPECS, "agency")
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
-RUST_TEST_RESULT = re.compile(
-    r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
-    r"(?P<ignored>\d+) ignored;"
-)
-
-FAILURE_HEAD_LINES = 16
-FAILURE_TAIL_LINES = 64
 GAMEPLAY_REPLAY_ROOTS = re.compile(
     r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
 )
@@ -216,11 +217,11 @@ def lint_command() -> list[str]:
 def rust_test_summary(stdout: str) -> str | None:
     """Return one compact count for successful Rust test output, if present."""
 
-    matches = list(RUST_TEST_RESULT.finditer(stdout))
-    if not matches:
+    counts = rust_test_result_counts(stdout)
+    if not counts:
         return None
-    passed = sum(int(match.group("passed")) for match in matches)
-    ignored = sum(int(match.group("ignored")) for match in matches)
+    passed = sum(result[0] for result in counts)
+    ignored = sum(result[1] for result in counts)
     detail = f"{passed} test{'s' if passed != 1 else ''}"
     if ignored:
         detail += f", {ignored} ignored"
@@ -300,6 +301,10 @@ def quick_plan() -> list[tuple[str, list[str]]]:
         (
             "repository contracts",
             [sys.executable, "tools/check_authority_docs.py"],
+        ),
+        (
+            "local CI contracts",
+            [sys.executable, "-m", "unittest", "tools.test_ci", "-q"],
         ),
     ]
 
@@ -415,36 +420,6 @@ def all_audit_command() -> list[str]:
         "--test",
         GAMEPLAY_AUDIT_TARGET,
     ]
-
-
-def bounded_failure_output(output: str) -> str:
-    """Keep failure diagnostics useful without dumping an entire gameplay transcript."""
-
-    lines = output.rstrip().splitlines()
-    limit = FAILURE_HEAD_LINES + FAILURE_TAIL_LINES
-    if len(lines) <= limit:
-        return "\n".join(lines)
-    omitted = len(lines) - limit
-    return "\n".join(
-        [
-            *lines[:FAILURE_HEAD_LINES],
-            f"... {omitted} line(s) omitted ...",
-            *lines[-FAILURE_TAIL_LINES:],
-        ]
-    )
-
-
-def bounded_failure_streams(stdout: str, stderr: str) -> list[str]:
-    """Return non-empty bounded diagnostics once, even if both captured streams duplicate them."""
-
-    rendered: list[str] = []
-    for stream in (stdout, stderr):
-        if not stream.strip():
-            continue
-        bounded = bounded_failure_output(stream)
-        if bounded not in rendered:
-            rendered.append(bounded)
-    return rendered
 
 
 def gameplay_target_command(

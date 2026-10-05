@@ -193,6 +193,8 @@ mod fixture_boundary_tests;
 mod foundry_contract_tests;
 #[path = "gameplay_harness/foundry_probe.rs"]
 mod foundry_probe;
+#[path = "gameplay_harness/foundry_probe_generation.rs"]
+mod foundry_probe_generation;
 #[path = "gameplay_harness/manual_craft_selection_tests.rs"]
 mod manual_craft_selection_tests;
 #[path = "gameplay_harness/ore_contract_tests.rs"]

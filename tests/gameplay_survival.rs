@@ -1,9 +1,11 @@
 //! Focused survival gameplay target for the fast edit/test loop.
 
+#[cfg(test)]
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
+#[cfg(test)]
 macro_rules! include_survival_probe_contract_tests {
     () => {};
 }
@@ -22,6 +24,9 @@ mod focused_runner;
 mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
+#[cfg(not(test))]
+#[path = "gameplay_harness/fresh_seed.rs"]
+mod fresh_seed;
 #[path = "gameplay_harness/manual_construction_planning.rs"]
 mod manual_construction_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
@@ -30,6 +35,7 @@ mod manual_craft_selection;
 mod manual_power_timing;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
+#[cfg(not(test))]
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/preservation_route.rs"]
@@ -55,6 +61,14 @@ mod world_admission;
 #[test]
 fn gameplay_survival_provisioning_probe() {
     focused_runner::run_focused_probe(
+        "survival-provisioning",
+        survival_probe::run_survival_provisioning_probe,
+    );
+}
+
+#[cfg(not(test))]
+pub(super) fn run_report() {
+    focused_runner::run_focused_report(
         "survival-provisioning",
         survival_probe::run_survival_provisioning_probe,
     );

@@ -183,7 +183,7 @@ def deserialized_named_structs(
 
 
 class CargoToolingTests(unittest.TestCase):
-    def test_local_cargo_environment_owns_one_incremental_verification_shape(self) -> None:
+    def test_local_cargo_environment_normalizes_both_incremental_profile_shapes(self) -> None:
         environment = cargo_env.local_cargo_environment(
             {
                 "RUSTFLAGS": "-Cdebuginfo=2",
@@ -193,6 +193,7 @@ class CargoToolingTests(unittest.TestCase):
                 "CARGO_BUILD_JOBS": "28",
                 "CARGO_PROFILE_TEST_DEBUG": "2",
                 "CARGO_PROFILE_TEST_CODEGEN_UNITS": "1",
+                "CARGO_PROFILE_UNIT_TEST_CODEGEN_UNITS": "1",
                 "KEEP": "yes",
             }
         )
@@ -204,13 +205,14 @@ class CargoToolingTests(unittest.TestCase):
             "CARGO_BUILD_JOBS",
             "CARGO_PROFILE_TEST_DEBUG",
             "CARGO_PROFILE_TEST_CODEGEN_UNITS",
+            "CARGO_PROFILE_UNIT_TEST_CODEGEN_UNITS",
         ):
             self.assertNotIn(key, environment)
         self.assertEqual(environment["CARGO_TARGET_DIR"], "elsewhere")
         self.assertEqual(environment["KEEP"], "yes")
         self.assertNotIn("CARGO_TARGET_DIR", cargo_env.local_cargo_environment({}))
 
-    def test_core_and_focused_gameplay_use_the_same_normalized_profile_environment(self) -> None:
+    def test_core_and_focused_gameplay_use_the_same_normalized_ambient_environment(self) -> None:
         success = ci.subprocess.CompletedProcess(["cargo", "test-core"], 0, "", "")
         with mock.patch.object(ci.subprocess, "run", return_value=success) as run:
             ci.execute_stage(["cargo", "test-core"])
@@ -272,6 +274,8 @@ class CargoToolingTests(unittest.TestCase):
                 "--quiet",
                 "--locked",
                 "--no-run",
+                "--profile",
+                run_test.UNIT_TEST_PROFILE,
                 "--lib",
                 "--features",
                 "test-gameplay",
@@ -467,7 +471,7 @@ class BuildFreeCiTests(unittest.TestCase):
         ):
             self.assertEqual(ci.main(), 0)
         self.assertEqual(stderr.getvalue(), "")
-        self.assertEqual(stdout.getvalue(), "quick ... PASS (0.5s; 3 checks)\n")
+        self.assertEqual(stdout.getvalue(), "quick ... PASS (0.5s; 4 checks)\n")
 
     def test_failed_quick_run_reports_only_failed_checks(self) -> None:
         stages = ci.quick_plan()
@@ -477,6 +481,7 @@ class BuildFreeCiTests(unittest.TestCase):
             tuple(stages[0][1]): (success, 0.1, None),
             tuple(stages[1][1]): (failure, 0.2, None),
             tuple(stages[2][1]): (success, 0.1, None),
+            tuple(stages[3][1]): (success, 0.1, None),
         }
         with (
             mock.patch.object(
@@ -490,7 +495,7 @@ class BuildFreeCiTests(unittest.TestCase):
             self.assertIsNone(ci.run_quick_stages(stages))
         self.assertEqual(
             stdout.getvalue(),
-            "quick ... FAIL (1/3 checks)\n[2/3] complexity ratchet ... FAIL (0.2s)\n",
+            "quick ... FAIL (1/4 checks)\n[2/4] complexity ratchet ... FAIL (0.2s)\n",
         )
         self.assertNotIn("format changed Rust", stdout.getvalue())
         self.assertNotIn("repository contracts", stdout.getvalue())
@@ -521,8 +526,8 @@ class BuildFreeCiTests(unittest.TestCase):
             check_format.formatting_policy_changed(["Cargo.toml", "src/lib.rs"])
         )
 
-    def test_quick_lane_does_not_retest_ci_tooling_for_unrelated_edits(self) -> None:
-        self.assertNotIn(
+    def test_quick_lane_includes_build_free_ci_contracts(self) -> None:
+        self.assertIn(
             (
                 "local CI contracts",
                 [sys.executable, "-m", "unittest", "tools.test_ci", "-q"],
@@ -539,20 +544,25 @@ class BuildFreeCiTests(unittest.TestCase):
             ci.quick_plan(),
         )
 
-    def test_gameplay_repair_roots_are_closed_over_harness_dependencies(self) -> None:
+    def test_gameplay_target_catalog_matches_manifest(self) -> None:
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        manifest_targets = {
+            definition["name"]
+            for definition in manifest.get("test", [])
+            if definition["name"].startswith("gameplay_")
+        }
+        self.assertEqual(set(gameplay_targets.GAMEPLAY_CARGO_TEST_TARGETS), manifest_targets)
+
+    def test_gameplay_target_roots_are_closed_over_harness_dependencies(self) -> None:
         harness = ROOT / "tests" / "gameplay_harness"
-        targets = [
-            *((f"focused scope {scope!r}", target) for scope, target in ci.GAMEPLAY_TARGETS.items()),
-            *((f"owner contract target {target!r}", target) for target in gameplay_targets.GAMEPLAY_OWNER_CONTRACT_TARGETS),
-        ]
-        for label, target in targets:
+        for target in gameplay_targets.GAMEPLAY_CARGO_TEST_TARGETS:
             missing = run_test.missing_root_modules(target, harness)
             if missing:
                 snippet = "\n".join(
                     _harness_root_declaration(harness, module) for module in missing
                 )
                 self.fail(
-                    f"{label} is missing root-level harness "
+                    f"gameplay target {target!r} is missing root-level harness "
                     f"modules {missing}; add to tests/{target}.rs:\n{snippet}"
                 )
 
@@ -578,6 +588,11 @@ class BuildFreeCiTests(unittest.TestCase):
             / "gameplay_harness"
             / "report"
             / "workshop_output.rs",
+            "survival": ROOT
+            / "tests"
+            / "gameplay_harness"
+            / "survival_probe"
+            / "report.rs",
             "progression": ROOT
             / "tests"
             / "gameplay_harness"
@@ -1313,10 +1328,11 @@ class TestTopologyContractTests(unittest.TestCase):
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         profile = manifest["profile"]["test"]
         self.assertEqual(profile.get("debug"), 0)
-        codegen_units = profile.get("codegen-units")
-        self.assertIsInstance(codegen_units, int)
-        self.assertGreater(codegen_units, 1)
+        self.assertEqual(profile.get("codegen-units"), 256)
         self.assertIs(profile.get("incremental"), True)
+        unit_profile = manifest["profile"][run_test.UNIT_TEST_PROFILE]
+        self.assertEqual(unit_profile.get("inherits"), "test")
+        self.assertEqual(unit_profile.get("codegen-units"), 128)
         cargo_config = tomllib.loads(
             (ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8")
         )
@@ -1329,6 +1345,14 @@ class TestTopologyContractTests(unittest.TestCase):
         )
         self.assertIn("--profile test", cargo_config["alias"]["check-fast"])
         self.assertIn("--profile test", cargo_config["alias"]["lint-fast"])
+        self.assertIn(
+            f"--profile {run_test.UNIT_TEST_PROFILE}",
+            cargo_config["alias"]["test-core"],
+        )
+        self.assertIn(
+            f"--profile {run_test.UNIT_TEST_PROFILE}",
+            cargo_config["alias"]["test-soak"],
+        )
         for alias in cargo_config["alias"].values():
             tokens = alias.split()
             self.assertNotIn("-j", tokens)
@@ -1505,6 +1529,7 @@ class TestTopologyContractTests(unittest.TestCase):
             "settlement": "settlement_wire_contract_tests::",
             "woodworking": "woodworking_contract_tests::",
             "fieldwork": "fieldwork_probe::planning_tests::",
+            "foundry": "foundry_contract_tests::",
         }
         for scope, prefix in contract_prefixes.items():
             focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)
@@ -1523,17 +1548,10 @@ class TestTopologyContractTests(unittest.TestCase):
                 f"gameplay contract target {scope} lost owner contracts {prefix}",
             )
 
-    def test_small_gameplay_targets_keep_cheap_owner_contracts_with_the_probe(self) -> None:
-        for scope, prefix in {
-            "ore": "ore_contract_tests::",
-            "foundry": "foundry_contract_tests::",
-        }.items():
-            catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)
-            self.assertIn(ci.GAMEPLAY_TESTS[scope], catalog)
-            self.assertTrue(
-                any(name.startswith(prefix) for name in catalog),
-                f"focused gameplay target {scope} lost cheap owner contracts {prefix}",
-            )
+    def test_small_ore_target_keeps_its_tiny_generator_contract_with_the_probe(self) -> None:
+        catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["ore"], None)
+        self.assertIn(ci.GAMEPLAY_TESTS["ore"], catalog)
+        self.assertTrue(any(name.startswith("ore_contract_tests::") for name in catalog))
 
     def test_progression_episode_regressions_use_the_progression_contract_target(self) -> None:
         contracts = run_test.source_test_catalog(
@@ -1752,13 +1770,17 @@ class GameplayCiRoutingTests(unittest.TestCase):
         gameplay = " ".join(ci.gameplay_command("all"))
         self.assertEqual(
             core_alias,
-            "test --quiet --locked --lib --features test-gameplay",
+            "test --quiet --locked --profile unit-test --lib --features test-gameplay",
         )
         exact = run_test.parse_args(
             ["--target", "lib", "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound"]
         )
         self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", " ".join(run_test.cargo_command(exact)))
+        self.assertIn(
+            f"--profile {run_test.UNIT_TEST_PROFILE}", " ".join(run_test.cargo_command(exact))
+        )
         self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", gameplay)
+        self.assertNotIn("--profile unit-test", gameplay)
 
     def test_scoped_audits_do_not_build_the_other_broad_surface(self) -> None:
         core_builds = cargo_build_commands(ci.audit_plan("core"))
@@ -3806,7 +3828,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "woodworking_keeps_pre_action_non_saw_choice_when_realized_saw_is_cheaper": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
-            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": ci.GAMEPLAY_TARGETS["foundry"],
+            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],
             "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
             "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
@@ -3859,7 +3881,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "survival_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
             "progression_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "ore_contract_tests": ci.GAMEPLAY_TARGETS["ore"],
-            "foundry_contract_tests": ci.GAMEPLAY_TARGETS["foundry"],
+            "foundry_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],
         }.items():
             self.assertEqual(run_test.resolve_automatic_suite_target(selector, None), expected)
 
@@ -3963,6 +3985,8 @@ class ExactTestCommandTests(unittest.TestCase):
                 "test",
                 "--quiet",
                 "--locked",
+                "--profile",
+                run_test.UNIT_TEST_PROFILE,
                 "--lib",
                 "--features",
                 "test-gameplay",

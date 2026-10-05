@@ -53,6 +53,7 @@ enum PreservationRawOpportunityKind {
 }
 
 impl PreservationRawOpportunityKind {
+    #[cfg(not(test))]
     const fn label(self) -> &'static str {
         match self {
             Self::ChoiceRichTimber => "choice-rich-timber",
@@ -69,6 +70,7 @@ pub(super) struct PreservationRawOpportunity {
 }
 
 impl PreservationRawOpportunity {
+    #[cfg(not(test))]
     pub(super) const fn origin(&self) -> StorageDefinitionId {
         self.origin
     }
@@ -77,6 +79,7 @@ impl PreservationRawOpportunity {
         &self.available
     }
 
+    #[cfg(not(test))]
     pub(super) const fn mode_label(&self) -> &'static str {
         self.kind.label()
     }

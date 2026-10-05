@@ -41,9 +41,11 @@ use deep_hearth::survival::{
 };
 
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_case::FocusedProbeCase;
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_witnesses::SURVIVAL_CONTINUATION_COVERAGE_SEED;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
+#[cfg(not(test))]
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
@@ -65,7 +67,12 @@ pub(super) mod preservation_decision;
 use preservation_decision::evaluate_preservation_decision;
 
 #[path = "survival_probe/explanation.rs"]
+#[allow(
+    dead_code,
+    reason = "focused survival omits explanation contracts; contract and report targets consume them"
+)]
 pub(super) mod explanation;
+#[cfg(not(test))]
 use explanation::{diet_comparison_explanation, preservation_comparison_explanation};
 
 #[path = "survival_probe/pressure_response.rs"]
@@ -81,8 +88,10 @@ pub(super) use work_pressure::prospecting_method_for_work_pressure;
 mod integrated_work;
 use integrated_work::evaluate_integrated_survival_work_loop;
 
+#[cfg(not(test))]
 #[path = "survival_probe/report.rs"]
 mod report;
+#[cfg(not(test))]
 pub(super) use report::run_survival_provisioning_probe;
 
 #[path = "survival_probe/provisioning_support.rs"]
@@ -101,9 +110,10 @@ pub(super) use provisioning_world::{ProvisioningWorld, provisioning_world};
 
 #[path = "survival_probe/provisioning_evaluation.rs"]
 mod provisioning_evaluation;
+use provisioning_evaluation::evaluate_provisioning_comparison;
+#[cfg(not(test))]
 use provisioning_evaluation::{
-    evaluate_provisioning_comparison, preservation_commodity_report_label,
-    preservation_storage_report_label,
+    preservation_commodity_report_label, preservation_storage_report_label,
 };
 
 const DIET_RECOVERY_TARGET_VITALITY_PPM: u32 = 950_000;
@@ -263,6 +273,77 @@ impl DietRecoveryReview {
             balanced_drink_actions: 0,
         }
     }
+}
+
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "focused tests execute shared evaluation while report examples consume retained evidence"
+    )
+)]
+struct SurvivalProbeEvaluation {
+    seed: u64,
+    sample: &'static str,
+    behavior_seed: u64,
+    world: ProvisioningWorld,
+    preservation_decision: preservation_decision::PreservationDecisionReview,
+    work_pressure: work_pressure::SurvivalWorkPressureReview,
+    integrated_work: integrated_work::IntegratedSurvivalWorkReview,
+    diet_comparison: DietComparisonReview,
+}
+
+fn evaluate_survival_provisioning_probe(
+    registries: &Registries,
+    case: FocusedProbeCase,
+) -> SurvivalProbeEvaluation {
+    let seed = case.seed();
+    let sample = case.role().label();
+    let behavior_seed = case.required_behavior_seed("survival provisioning policy");
+    let world = provisioning_world(registries, seed);
+    let protected_food = world.foods[world.witness_index];
+    let protected_reserve_mass = world.preserved_reserve_mass;
+    let preservation_decision = evaluate_preservation_decision(
+        registries,
+        seed,
+        behavior_seed,
+        protected_food,
+        protected_reserve_mass,
+    );
+    evaluate_survival_pressure_response_probe(registries, seed);
+    let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
+    let integrated_work = evaluate_integrated_survival_work_loop(registries, seed, behavior_seed);
+    if case.role() == FocusedProbeRole::MaintainedCoverage
+        && seed == SURVIVAL_CONTINUATION_COVERAGE_SEED
+    {
+        assert!(
+            integrated_work.followup_prospecting_triggered
+                && integrated_work.followup_found_continuation,
+            "survival continuation witness must turn acquired local evidence into a productive neighboring survey"
+        );
+        assert!(
+            integrated_work.power_triggered_by_observation
+                && integrated_work.manual_power_ticks > 0
+                && integrated_work.stored_work_nj > 0,
+            "survival continuation witness must turn the newly observed continuation into stored-work preparation"
+        );
+    }
+    let diet_comparison = evaluate_provisioning_comparison(registries, behavior_seed, &world);
+    SurvivalProbeEvaluation {
+        seed,
+        sample,
+        behavior_seed,
+        world,
+        preservation_decision,
+        work_pressure,
+        integrated_work,
+        diet_comparison,
+    }
+}
+
+#[cfg(test)]
+pub(super) fn run_survival_provisioning_probe(registries: &Registries, case: FocusedProbeCase) {
+    let _ = evaluate_survival_provisioning_probe(registries, case);
 }
 
 pub(super) fn selected_food_indices(

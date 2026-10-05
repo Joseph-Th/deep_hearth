@@ -329,6 +329,7 @@ pub(super) fn food_category_count(foods: &[FoodDefinition]) -> usize {
         .len()
 }
 
+#[cfg(not(test))]
 pub(super) fn food_option_summary(registries: &Registries, foods: &[FoodDefinition]) -> String {
     foods
         .iter()

@@ -4,6 +4,7 @@ use super::capability_boundary::{
     seed_capability_only_energy_store, seed_capability_only_equipment,
 };
 use super::environment::ROOM_TEMPERATURE;
+use super::foundry_probe_generation::FoundrySetup;
 use super::industrial_support::install_equipment_on_grounded_support;
 use super::inventory_support::add_solid_stockpile;
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
@@ -11,13 +12,11 @@ use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_ELECTRIC_FURNACE, MATERIAL_COPPER,
 };
-use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreId;
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
-use deep_hearth::maintenance::Condition;
-use deep_hearth::material::{CommodityKey, FormId};
+use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 
 #[derive(Clone, Copy)]
@@ -30,17 +29,6 @@ pub(super) struct FoundryIds {
     pub(super) mold: EquipmentId,
     pub(super) electrical_buffer: EnergyStoreId,
     pub(super) heat_sink: EnergyStoreId,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct FoundrySetup {
-    pub(super) mass: Mass,
-    pub(super) feed_form: FormId,
-    pub(super) preheat_target: Temperature,
-    pub(super) furnace_condition: Condition,
-    pub(super) mold_condition: Condition,
-    pub(super) electrical_energy: Energy,
-    pub(super) thermal_sink_energy: Energy,
 }
 
 pub(super) fn setup_foundry_probe(

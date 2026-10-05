@@ -8,9 +8,8 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 
 | Need | Command |
 | --- | --- |
-| Documentation/contracts | `python tools/check_authority_docs.py` |
-| Build-free edit loop | `python ci.py quick` |
-| CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
+| Documentation/contracts only | `python tools/check_authority_docs.py` |
+| Build-free edit loop: format, complexity, docs, and local CI contracts | `python ci.py quick` |
 | Build/link one selected test target without running it | `python tools/run_test.py --build <qualified-name-or-unique-substring>` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
@@ -20,7 +19,7 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 
 Iteration is `quick`, then **one** proof. Run an executable proof directly whenever one fits; a separate test-target type-check only spends compiler time on an artifact the executable cannot reuse. `gate` is an optional production-only type-check when no executable contract fits and does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes or append an audit.
 
-Use `run_test.py --list <substring>` for build-free discovery and prefer the smallest authoritative target. Exact owner/unit/contract tests stay deterministic; exact focused gameplay probes run maintained witnesses plus one fresh replayable organic case and print its roots. Pass replay roots to repeat it. `ci.py gate --gameplay <scope>` uses the same maintained-plus-one-organic shape. Scoped reports reuse focused artifacts. Library tests use additive `test-gameplay` so exact tests and core/all audits share one artifact; production check/Clippy stay feature-minimal. Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`. Keep Cargo invocations serial and parallelize only build-free `quick` checks.
+Use `run_test.py --list <substring>` for build-free discovery and prefer the smallest authoritative target. Exact owner/unit/contract tests stay deterministic; exact focused gameplay probes run maintained witnesses plus one fresh replayable organic case and print its roots. Pass replay roots to repeat it. `ci.py gate --gameplay <scope>` uses the same maintained-plus-one-organic shape. Scoped reports reuse hot focused artifacts; otherwise they use a report-only example. Exact/core library tests share the persistent `unit-test` profile; smaller integration/gameplay targets use `test`. Both live under `target/local-ci`, so switching lanes does not evict either hot artifact. `audit --all` is the explicit broad combined build. Keep Cargo invocations serial and parallelize only build-free `quick` checks.
 
 ## Escalation lanes
 
@@ -31,7 +30,7 @@ Use `run_test.py --list <substring>` for build-free discovery and prefer the sma
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. Focused gameplay runs maintained witnesses plus one fresh replayable case. Broad gameplay audits rotate that one-case budget through one scope instead of sampling every scope. `report` owns broader exploration. Core tests and `audit --all` share the additive `test-gameplay` library shape; negative `test-gameplay` gating is forbidden. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
+`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. Focused gameplay runs maintained witnesses plus one fresh replayable case. Broad gameplay audits rotate that one-case budget through one scope instead of sampling every scope. `report` owns broader exploration. Library and gameplay tests keep additive `test-gameplay`; negative gating is forbidden. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
 
 ## Evidence ladder
 
@@ -83,7 +82,7 @@ Avoid assertions on error prose, wall-clock timing, incidental order/count, or c
 Each gameplay scope owns a focused probe artifact. Measured-heavy owner contracts use purpose-built contract
 targets so frequent probes do not compile unrelated test bodies. `tools/gameplay_targets.py` owns this routing;
 all targets share `test-gameplay` and one Cargo cache. Scoped reports reuse focused artifacts when their reporting
-code is already hot; workshop, progression, woodworking, and power keep report-only formatting out of frequent
+code is already hot; workshop, survival, progression, woodworking, and power keep report-only formatting out of frequent
 gate builds. Agency reuses the workshop test artifact because its compact summary is already part of that probe.
 `gate --gameplay contracts` remains the small cross-scope contract target.
 
@@ -91,4 +90,4 @@ Focused gates and exact focused probes add one fresh organic case; broad audits 
 
 ## Completion
 
-Run only the lane required by the changed contract. CI/test-tooling changes run `python -m unittest tools.test_ci -q`; every additional build must prove a distinct contract.
+Run only the lane required by the changed contract. `quick` already proves the local CI/test-tooling contracts; every additional build must prove a distinct contract.

@@ -18,6 +18,7 @@ pub(super) enum PreservationSelectionKind {
 }
 
 impl PreservationSelectionKind {
+    #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::AttentionEfficient => "attention-efficient",

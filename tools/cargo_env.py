@@ -20,6 +20,6 @@ def local_cargo_environment(
     ):
         environment.pop(key, None)
     for key in tuple(environment):
-        if key.startswith("CARGO_PROFILE_TEST_"):
+        if key.startswith(("CARGO_PROFILE_TEST_", "CARGO_PROFILE_UNIT_TEST_")):
             environment.pop(key)
     return environment

@@ -53,12 +53,26 @@ impl Display for SignedResourceDelta {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "focused tests execute the no-build branch while report output reads its evidence"
+    )
+)]
 pub(in super::super) struct PreservationNoBuildReview {
     pub(in super::super) elapsed_ticks: u64,
     pub(in super::super) retained_raw_mg: u64,
     pub(in super::super) remaining_fresh_ticks: u64,
 }
 
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "focused tests execute preservation decisions while report output reads retained comparison evidence"
+    )
+)]
 pub(in super::super) struct PreservationDecisionReview {
     pub(super) opportunity: PreservationRawOpportunity,
     pub(super) attention: PreservationInfrastructureReview,
@@ -86,6 +100,7 @@ pub(in super::super) struct PreservationDecisionReview {
 }
 
 impl PreservationDecisionReview {
+    #[cfg(not(test))]
     pub(super) fn comparison(&self) -> super::explanation::PreservationComparison {
         super::explanation::PreservationComparison::from_candidates(
             self.projections.len(),

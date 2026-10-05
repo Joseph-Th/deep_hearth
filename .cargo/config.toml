@@ -1,6 +1,6 @@
 [build]
-# Keep every local Cargo entrypoint on one artifact cache. Environment-level CARGO_TARGET_DIR still
-# overrides this when an intentionally isolated build is needed.
+# Keep every local Cargo entrypoint under one persistent target root. Cargo profiles own separate
+# hot artifact directories for the monolithic lib-test crate and smaller integration/gameplay crates.
 target-dir = "target/local-ci"
 # Repository entrypoints serialize separate Cargo builds. Cargo itself should use all host
 # parallelism inside that one build, so do not pin `jobs` here or in routine aliases.
@@ -15,20 +15,17 @@ linker = "lld-link.exe"
 # Daily feedback stays on the smallest artifact that can catch the current class of mistake.
 # `check-fast` is only for production code when no executable contract fits. Test preflights use
 # `tools/run_test.py --build` so successful compilation warms the exact artifact that will run.
-# Every repository-owned lane keeps one test-profile shape so switching tools does not invalidate
-# local incremental reuse.
 check-fast = "check --quiet --locked --profile test --lib"
 # One lib-only Clippy shape serves both the direct edit loop and `gate --lint`.
 # Gameplay/report wrappers are compiled by their focused or audit lanes instead of
-# cloning the same large harness graph under Clippy. It shares the same profile/cache as tests.
+# cloning the same large harness graph under Clippy. It shares the integration test profile/cache.
 lint-fast = "clippy --quiet --locked --profile test --lib -- -D warnings"
-# All unit-test execution uses the same additive test-support shape. Production code shape is owned
-# by `check-fast`/`lint-fast`; keeping a second feature-minimal test artifact only forces expensive
-# recompilation when switching between exact tests and broad checkpoints.
-test-core = "test --quiet --locked --lib --features test-gameplay"
+# The large lib-test crate has its own persistent profile so unit-test edits keep the lower-CGU
+# shape that benchmarks best without slowing focused gameplay integration targets.
+test-core = "test --quiet --locked --profile unit-test --lib --features test-gameplay"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak lane pays that cost only on demand.
-test-soak = "test --quiet --locked --lib --features test-soak -- --ignored"
+test-soak = "test --quiet --locked --profile unit-test --lib --features test-soak -- --ignored"
 # Gameplay target selection and exploratory reporting are owned by ci.py so the target catalog is not
 # repeated across a family of Cargo aliases. Shader validation reuses the debug-symbol-free test profile
 # rather than creating a third local codegen profile solely for one diagnostic binary.

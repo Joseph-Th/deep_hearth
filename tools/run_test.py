@@ -16,9 +16,10 @@ import time
 import tomllib
 
 if __package__:
-    from . import cargo_env, gameplay_targets, replay_seed, test_catalog
+    from . import cargo_env, command_output, gameplay_targets, replay_seed, test_catalog
 else:
     import cargo_env
+    import command_output
     import gameplay_targets
     import replay_seed
     import test_catalog
@@ -26,13 +27,9 @@ else:
 
 ROOT = Path(__file__).resolve().parents[1]
 ZERO_TESTS = re.compile(r"\brunning 0 tests\b")
-TEST_RESULT = re.compile(
-    r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
-    r"(?P<ignored>\d+) ignored;"
-)
-FAILURE_HEAD_LINES = 16
-FAILURE_TAIL_LINES = 64
 CATALOG_DISPLAY_LIMIT = 40
+bounded_failure_output = command_output.bounded_failure_output
+bounded_failure_streams = command_output.bounded_failure_streams
 GAMEPLAY_VARIATION_ENV = gameplay_targets.GAMEPLAY_VARIATION_ENV
 GAMEPLAY_BEHAVIOR_ENV = gameplay_targets.GAMEPLAY_BEHAVIOR_ENV
 GAMEPLAY_REPORT_MODE_ENV = gameplay_targets.GAMEPLAY_REPORT_MODE_ENV
@@ -41,6 +38,7 @@ GAMEPLAY_FEATURE = gameplay_targets.GAMEPLAY_FEATURE
 GAMEPLAY_PROBE_TESTS = gameplay_targets.GAMEPLAY_PROBE_TESTS
 GAMEPLAY_PROBE_SCOPES = gameplay_targets.GAMEPLAY_PROBE_SCOPES
 GAMEPLAY_BEHAVIOR_PROBE_TESTS = gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS
+UNIT_TEST_PROFILE = "unit-test"
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -293,16 +291,25 @@ def resolve_test_name(selector: str, catalog: list[str]) -> str:
     raise ValueError(f"test selector not found: {selector}")
 
 
+def cargo_test_target_command(target: str, *, no_run: bool = False) -> list[str]:
+    """Return the stable Cargo prefix for one test artifact and its persistent profile."""
+
+    command = ["cargo", "test", "--quiet", "--locked"]
+    if no_run:
+        command.append("--no-run")
+    if target == "lib":
+        command.extend(("--profile", UNIT_TEST_PROFILE, "--lib"))
+    else:
+        command.extend(("--test", target))
+    return command
+
+
 def cargo_command(args: argparse.Namespace) -> list[str]:
     if args.list:
         raise ValueError("source catalog listing does not invoke Cargo")
     if args.target is None:
         raise ValueError("test target must be resolved before Cargo execution")
-    command = ["cargo", "test", "--quiet", "--locked"]
-    if args.target == "lib":
-        command.append("--lib")
-    else:
-        command.extend(("--test", args.target))
+    command = cargo_test_target_command(args.target)
     requested_features = requested_target_features(args.target, args.features)
     if requested_features:
         command.extend(("--features", ",".join(sorted(requested_features))))
@@ -323,11 +330,10 @@ def cargo_command(args: argparse.Namespace) -> list[str]:
 def executed_test_counts(stdout: str) -> tuple[int, int] | None:
     """Return executed and ignored counts from one selected Cargo test target."""
 
-    matches = list(TEST_RESULT.finditer(stdout))
-    if not matches:
+    counts = command_output.rust_test_result_counts(stdout)
+    if not counts:
         return None
-    match = matches[-1]
-    return int(match.group("passed")), int(match.group("ignored"))
+    return counts[-1]
 
 
 def cargo_build_command(args: argparse.Namespace) -> list[str]:
@@ -337,11 +343,7 @@ def cargo_build_command(args: argparse.Namespace) -> list[str]:
         raise ValueError("source catalog listing does not invoke Cargo")
     if args.target is None:
         raise ValueError("--build requires an explicit test target")
-    command = ["cargo", "test", "--quiet", "--locked", "--no-run"]
-    if args.target == "lib":
-        command.append("--lib")
-    else:
-        command.extend(("--test", args.target))
+    command = cargo_test_target_command(args.target, no_run=True)
     requested_features = requested_target_features(args.target, args.features)
     if requested_features:
         command.extend(("--features", ",".join(sorted(requested_features))))
@@ -603,36 +605,6 @@ def report_cargo_failure(
         print(f"replay: {replay}", file=sys.stderr)
     for diagnostic in bounded_failure_streams(result.stdout, result.stderr):
         print(diagnostic, file=sys.stderr)
-
-
-def bounded_failure_output(output: str) -> str:
-    """Retain useful compiler/test context without flooding a local repair loop."""
-
-    lines = output.rstrip().splitlines()
-    limit = FAILURE_HEAD_LINES + FAILURE_TAIL_LINES
-    if len(lines) <= limit:
-        return "\n".join(lines)
-    omitted = len(lines) - limit
-    return "\n".join(
-        [
-            *lines[:FAILURE_HEAD_LINES],
-            f"... {omitted} line(s) omitted ...",
-            *lines[-FAILURE_TAIL_LINES:],
-        ]
-    )
-
-
-def bounded_failure_streams(stdout: str, stderr: str) -> list[str]:
-    """Return non-empty bounded diagnostics once, even when Cargo duplicates captured streams."""
-
-    rendered: list[str] = []
-    for stream in (stdout, stderr):
-        if not stream.strip():
-            continue
-        bounded = bounded_failure_output(stream)
-        if bounded not in rendered:
-            rendered.append(bounded)
-    return rendered
 
 
 def suite_result_detail(stdout: str) -> str:

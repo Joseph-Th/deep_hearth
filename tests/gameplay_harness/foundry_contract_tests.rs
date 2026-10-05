@@ -28,9 +28,7 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_witnesses::FOUNDRY_MAINTAINED_ANCHOR_SEED;
-use super::foundry_probe::{choose_heating_strategy, probe_setup};
-use super::foundry_setup::setup_foundry_probe;
+use super::foundry_probe_generation::probe_setup;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::production_timing::finish_uninterrupted_production_job;
@@ -429,29 +427,5 @@ fn foundry_generation_covers_authored_feed_forms_and_varies_conditions() {
             .len()
             > 1,
         "foundry generation collapsed to one operating state"
-    );
-}
-
-#[test]
-fn same_source_preheat_stays_diagnostic_until_it_has_a_real_physical_advantage() {
-    let registries = build_registries();
-    let seed = FOUNDRY_MAINTAINED_ANCHOR_SEED;
-    let setup = probe_setup(&registries, seed);
-    let mass = setup.mass;
-    let target = setup.preheat_target;
-    let (state, ids) = setup_foundry_probe(&registries, setup);
-    let decision = choose_heating_strategy(&registries, &state, ids, mass, target);
-    let direct = decision
-        .direct
-        .unwrap_or_else(|| panic!("maintained foundry anchor lost its direct melt route"));
-    let preheated = decision.preheated.unwrap_or_else(|| {
-        panic!("maintained foundry anchor lost its comparable sensible-preheat route")
-    });
-
-    assert!(
-        !(preheated.processed_mass > direct.processed_mass
-            || (preheated.processed_mass == direct.processed_mass
-                && preheated.total_duration < direct.total_duration)),
-        "same-source preheat gained a real physical advantage; promote it from diagnostic evidence to a player-visible strategy"
     );
 }

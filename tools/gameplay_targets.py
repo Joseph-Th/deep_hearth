@@ -69,6 +69,7 @@ GAMEPLAY_SCOPE_CONTRACT_TARGETS = {
     "settlement": "gameplay_settlement_contracts",
     "woodworking": "gameplay_woodworking_contracts",
     "fieldwork": "gameplay_fieldwork_contracts",
+    "foundry": "gameplay_foundry_contracts",
 }
 GAMEPLAY_PROSPECTING_CONTRACT_TARGET = "gameplay_prospecting_contracts"
 GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
@@ -77,6 +78,16 @@ GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
             *GAMEPLAY_SCOPE_CONTRACT_TARGETS.values(),
             GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
         )
+    )
+)
+GAMEPLAY_CARGO_TEST_TARGETS = tuple(
+    sorted(
+        {
+            GAMEPLAY_CONTRACTS_TARGET,
+            GAMEPLAY_AUDIT_TARGET,
+            *GAMEPLAY_TARGETS.values(),
+            *GAMEPLAY_OWNER_CONTRACT_TARGETS,
+        }
     )
 )
 GAMEPLAY_PROBE_TARGETS = {spec.test: spec.target for spec in GAMEPLAY_SCOPE_SPECS.values()}

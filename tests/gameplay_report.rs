@@ -41,6 +41,8 @@ mod focused_seeds;
 mod focused_witnesses;
 #[path = "gameplay_harness/foundry_probe.rs"]
 mod foundry_probe;
+#[path = "gameplay_harness/foundry_probe_generation.rs"]
+mod foundry_probe_generation;
 #[path = "gameplay_harness/foundry_setup.rs"]
 mod foundry_setup;
 #[path = "gameplay_harness/fresh_seed.rs"]

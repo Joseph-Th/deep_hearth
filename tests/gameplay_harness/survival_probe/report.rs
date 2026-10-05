@@ -1,45 +1,22 @@
 //! Aggregated survival probe evaluation and replayable reporting.
 
-use super::super::focused_case::FocusedProbeRole;
-use super::super::focused_witnesses::SURVIVAL_CONTINUATION_COVERAGE_SEED;
 use super::*;
 
-fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedProbeCase) {
-    let seed = case.seed();
-    let sample = case.role().label();
-    let behavior_seed = case.required_behavior_seed("survival provisioning policy");
-    let world = provisioning_world(registries, seed);
-    let protected_food = world.foods[world.witness_index];
-    let protected_reserve_mass = world.preserved_reserve_mass;
-    let preservation_decision = evaluate_preservation_decision(
-        registries,
+pub(in super::super) fn run_survival_provisioning_probe(
+    registries: &Registries,
+    case: FocusedProbeCase,
+) {
+    let SurvivalProbeEvaluation {
         seed,
+        sample,
         behavior_seed,
-        protected_food,
-        protected_reserve_mass,
-    );
-    evaluate_survival_pressure_response_probe(registries, seed);
-    let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
-    let integrated_work = evaluate_integrated_survival_work_loop(registries, seed, behavior_seed);
-    if case.role() == FocusedProbeRole::MaintainedCoverage
-        && seed == SURVIVAL_CONTINUATION_COVERAGE_SEED
-    {
-        assert!(
-            integrated_work.followup_prospecting_triggered
-                && integrated_work.followup_found_continuation,
-            "survival continuation witness must turn acquired local evidence into a productive neighboring survey"
-        );
-        assert!(
-            integrated_work.power_triggered_by_observation
-                && integrated_work.manual_power_ticks > 0
-                && integrated_work.stored_work_nj > 0,
-            "survival continuation witness must turn the newly observed continuation into stored-work preparation"
-        );
-    }
-    let diet_comparison = evaluate_provisioning_comparison(registries, behavior_seed, &world);
-    if !crate::output::review_output_enabled() {
-        return;
-    }
+        world,
+        preservation_decision,
+        work_pressure,
+        integrated_work,
+        diet_comparison,
+    } = evaluate_survival_provisioning_probe(registries, case);
+    let protected_reserve_mass = world.preserved_reserve_mass;
 
     let preservation_raw_opportunity = preservation_decision.opportunity.available();
     let preservation_opportunity_label =
@@ -484,11 +461,4 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         compact.retained_preserved_mass_mg,
         reserve_recovered,
     );
-}
-
-pub(in super::super) fn run_survival_provisioning_probe(
-    registries: &Registries,
-    case: FocusedProbeCase,
-) {
-    evaluate_survival_provisioning_probe(registries, case);
 }

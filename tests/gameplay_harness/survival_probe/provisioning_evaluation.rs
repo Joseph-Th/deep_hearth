@@ -353,6 +353,7 @@ pub(super) fn evaluate_provisioning_comparison(
     }
 }
 
+#[cfg(not(test))]
 pub(super) fn preservation_storage_report_label(
     registries: &Registries,
     definition: StorageDefinitionId,
@@ -370,6 +371,7 @@ pub(super) fn preservation_storage_report_label(
     )
 }
 
+#[cfg(not(test))]
 pub(super) fn preservation_commodity_report_label(
     registries: &Registries,
     commodity: CommodityKey,
