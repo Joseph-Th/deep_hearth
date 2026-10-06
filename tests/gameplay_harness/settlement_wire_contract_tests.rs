@@ -21,7 +21,9 @@ use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 
-use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
+use super::capital_investment_policy::{
+    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
+};
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
@@ -29,10 +31,12 @@ use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::settlement_generation::{
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
+};
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
-const SHORT_WINDING_ORDER: u64 = 8;
-const PROJECT_WINDING_ORDER: u64 = 14;
+const WIRE_DEMAND_SALT: u64 = 0x5749_5245_4445_4D44;
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,
@@ -51,7 +55,7 @@ fn seed_material(
     );
 }
 
-pub(super) fn run_wire_drawbench_investment_experience() {
+pub(super) fn run_wire_drawbench_investment_experience(variation_root: Option<u64>) {
     let registries = build_registries();
     let powered_batch = authored_batch(
         &registries,
@@ -101,9 +105,9 @@ pub(super) fn run_wire_drawbench_investment_experience() {
     );
 
     let order_mass = Mass::from_milligrams(
-        PROJECT_WINDING_ORDER
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES
             .checked_mul(powered_batch.input_mass.milligrams())
-            .unwrap_or_else(|| panic!("wire project input mass overflowed")),
+            .unwrap_or_else(|| panic!("wire disclosed input opportunity overflowed")),
     );
     let work_source = seed_stockpile(
         &mut state,
@@ -193,32 +197,6 @@ pub(super) fn run_wire_drawbench_investment_experience() {
         .condition();
     assert!(used_condition < deep_hearth::maintenance::Condition::PRISTINE);
 
-    let short_baseline = resolve_manual_craft(
-        &registries,
-        &state,
-        &select_manual_craft_request(
-            &registries,
-            &state,
-            PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
-            work_source,
-            SHORT_WINDING_ORDER,
-            "wire short-order manual baseline",
-        )
-        .with_equipment(drawbench),
-    )
-    .unwrap_or_else(|error| panic!("wire short baseline projection failed: {error}"));
-    let project_request = select_manual_craft_request(
-        &registries,
-        &state,
-        PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
-        work_source,
-        PROJECT_WINDING_ORDER,
-        "wire project manual baseline",
-    )
-    .with_equipment(drawbench);
-    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
-        .unwrap_or_else(|error| panic!("wire project baseline projection failed: {error}"));
-
     let flywheel_request = select_manual_craft_request(
         &registries,
         &state,
@@ -272,6 +250,82 @@ pub(super) fn run_wire_drawbench_investment_experience() {
         .get_equipment(crank)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("wire hand crank disappeared before investment decision"));
+    let policy = CapitalInvestmentPolicy::baseline();
+    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
+    let crossover = first_attention_return_crossover(
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        minimum_attention_return,
+        |batches| {
+            let request = select_manual_craft_request(
+                &registries,
+                &state,
+                PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
+                work_source,
+                batches,
+                "wire crossover manual baseline",
+            )
+            .with_equipment(drawbench);
+            let baseline = resolve_manual_craft(&registries, &state, &request).ok()?;
+            let charge = project_manual_power_sequence(
+                &registries,
+                ManualPowerSequenceRequest {
+                    method: MANUAL_POWER_HAND_CRANK,
+                    equipment: EQUIPMENT_STONE_HAND_CRANK,
+                    starting_condition: crank_condition,
+                    store: ENERGY_STONE_FLYWHEEL_DRIVE,
+                    energy_per_charge: powered_batch.work,
+                    charges: batches,
+                },
+                "wire crossover charging",
+            );
+            Some((
+                baseline.duration().value(),
+                setup_attention
+                    .checked_add(charge.attention_ticks)
+                    .unwrap_or_else(|| panic!("wire crossover attention overflowed")),
+            ))
+        },
+    )
+    .unwrap_or_else(|| {
+        panic!("wire drawbench has no attention-return crossover in the disclosed opportunity")
+    });
+    let workloads = crossover_workloads(
+        crossover,
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        variation_root.map(|root| root ^ WIRE_DEMAND_SALT),
+    );
+    let short_order = workloads.short_batches;
+    let project_order = workloads.project_batches;
+    let project_mass = Mass::from_milligrams(
+        project_order
+            .checked_mul(powered_batch.input_mass.milligrams())
+            .unwrap_or_else(|| panic!("wire selected project input mass overflowed")),
+    );
+    let short_baseline = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
+            work_source,
+            short_order,
+            "wire short-order manual baseline",
+        )
+        .with_equipment(drawbench),
+    )
+    .unwrap_or_else(|error| panic!("wire short baseline projection failed: {error}"));
+    let project_request = select_manual_craft_request(
+        &registries,
+        &state,
+        PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
+        work_source,
+        project_order,
+        "wire project manual baseline",
+    )
+    .with_equipment(drawbench);
+    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
+        .unwrap_or_else(|error| panic!("wire project baseline projection failed: {error}"));
     let short_charge_projection = project_manual_power_sequence(
         &registries,
         ManualPowerSequenceRequest {
@@ -280,7 +334,7 @@ pub(super) fn run_wire_drawbench_investment_experience() {
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: powered_batch.work,
-            charges: SHORT_WINDING_ORDER,
+            charges: short_order,
         },
         "wire short-order charging",
     );
@@ -292,12 +346,10 @@ pub(super) fn run_wire_drawbench_investment_experience() {
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: powered_batch.work,
-            charges: PROJECT_WINDING_ORDER,
+            charges: project_order,
         },
         "wire project charging",
     );
-    let policy = CapitalInvestmentPolicy::baseline();
-    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
     let short_machine_attention = setup_attention + short_charge_projection.attention_ticks;
     assert!(
         !clears_attention_return(
@@ -367,7 +419,7 @@ pub(super) fn run_wire_drawbench_investment_experience() {
 
     let mut charge_attention = 0_u64;
     let mut delegated_ticks = 0_u64;
-    for _ in 0..PROJECT_WINDING_ORDER {
+    for _ in 0..project_order {
         let charge = validate_start_manual_power(
             &registries,
             &powered,
@@ -436,14 +488,14 @@ pub(super) fn run_wire_drawbench_investment_experience() {
             .inventory()
             .get_stockpile(baseline_output)
             .map(|stockpile| stockpile.get_mass(winding)),
-        Some(order_mass)
+        Some(project_mass)
     );
     assert_eq!(
         powered
             .inventory()
             .get_stockpile(powered_output)
             .map(|stockpile| stockpile.get_mass(winding)),
-        Some(order_mass),
+        Some(project_mass),
         "powered drawing must retain the manual drawbench's lossless copper transform"
     );
     assert_eq!(
@@ -461,13 +513,14 @@ pub(super) fn run_wire_drawbench_investment_experience() {
     validate_loaded_state(&registries, &powered)
         .unwrap_or_else(|error| panic!("wire investment final state invalid: {error}"));
     reviewln!(
-        "SETTLEMENT MACHINE EXPERIENCE family=wire-drawbench transform=electrical-winding prior=manual-drawbench upgrade=flywheel-drawbench policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] used-identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
+        "SETTLEMENT MACHINE EXPERIENCE family=wire-drawbench transform=electrical-winding prior=manual-drawbench upgrade=flywheel-drawbench policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t crossover:{}batches short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] used-identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
         policy.minimum_return_ppm(),
         minimum_attention_return,
-        SHORT_WINDING_ORDER,
+        crossover,
+        short_order,
         short_baseline.duration().value(),
         short_machine_attention,
-        PROJECT_WINDING_ORDER,
+        project_order,
         project_baseline.duration().value(),
         setup_attention,
         project_charge_projection.attention_ticks,
@@ -479,5 +532,5 @@ pub(super) fn run_wire_drawbench_investment_experience() {
 
 #[test]
 fn flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield() {
-    run_wire_drawbench_investment_experience();
+    run_wire_drawbench_investment_experience(None);
 }

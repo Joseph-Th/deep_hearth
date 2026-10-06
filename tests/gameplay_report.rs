@@ -155,7 +155,6 @@ fn main() {
 
     use configuration::ScenarioPlanMode;
     use focused_runner::run_focused_probe_with_registries;
-    use fresh_seed::fresh_root;
     use seed::MAINTAINED_VARIATION_ROOT;
 
     if let Some(argument) = std::env::args().nth(1) {
@@ -170,8 +169,14 @@ fn main() {
         "SIMULATION TIME physical-tick-us={}",
         registries.core().physical_tick_duration().microseconds()
     );
-    let fallback_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
-    let fallback_behavior_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245);
+    let fallback_variation_root = configured_or_fresh_root(
+        "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
+        MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F,
+    );
+    let fallback_behavior_root = configured_or_fresh_root(
+        "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED",
+        MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245,
+    );
     std::println!(
         "DESIGN TARGET scope=ordinary-after-disclosed-bootstrap locality=mixed-exact-local+spatial-proxy loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
     );
@@ -187,11 +192,19 @@ fn main() {
         fallback_variation_root,
         fallback_behavior_root,
     );
-    settlement_drill_contract_tests::run_spindle_drill_investment_experience();
-    settlement_wire_contract_tests::run_wire_drawbench_investment_experience();
-    settlement_helve_contract_tests::run_helve_hammer_investment_experience();
-    settlement_workshop_investment::run_lathe_investment_experience();
-    settlement_workshop_investment::run_toolroom_investment_experience();
+    settlement_drill_contract_tests::run_spindle_drill_investment_experience(Some(
+        fallback_variation_root,
+    ));
+    settlement_wire_contract_tests::run_wire_drawbench_investment_experience(Some(
+        fallback_variation_root,
+    ));
+    settlement_helve_contract_tests::run_helve_hammer_investment_experience(Some(
+        fallback_variation_root,
+    ));
+    settlement_workshop_investment::run_lathe_investment_experience(Some(fallback_variation_root));
+    settlement_workshop_investment::run_toolroom_investment_experience(Some(
+        fallback_variation_root,
+    ));
     run_focused_probe_with_registries(
         &registries,
         "foundry-bootstrap",
@@ -270,4 +283,15 @@ fn main() {
         fallback_variation_root,
         fallback_behavior_root,
     );
+}
+
+fn configured_or_fresh_root(variable: &str, salt: u64) -> u64 {
+    std::env::var(variable).ok().map_or_else(
+        || fresh_seed::fresh_root(salt),
+        |raw| {
+            seed_input::parse_seed(&raw).unwrap_or_else(|| {
+                panic!("gameplay report replay seed {variable} is invalid: {raw:?}")
+            })
+        },
+    )
 }

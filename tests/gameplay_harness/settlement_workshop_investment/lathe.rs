@@ -2,7 +2,9 @@
 
 use super::*;
 
-pub(super) fn run_lathe_investment_experience() {
+const LATHE_DEMAND_SALT: u64 = 0x4C41_5448_4544_4D44;
+
+pub(super) fn run_lathe_investment_experience(variation_root: Option<u64>) {
     let registries = build_registries();
     let batch = authored_batch(
         &registries,
@@ -28,9 +30,9 @@ pub(super) fn run_lathe_investment_experience() {
         "lathe flywheel upgrade",
     );
     let project_mass = Mass::from_milligrams(
-        PROJECT_LATHE_ORDER
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES
             .checked_mul(batch.input_mass.milligrams())
-            .unwrap_or_else(|| panic!("lathe project input mass overflowed")),
+            .unwrap_or_else(|| panic!("lathe disclosed input opportunity overflowed")),
     );
     let source = seed_stockpile(
         &mut state,
@@ -96,31 +98,6 @@ pub(super) fn run_lathe_investment_experience() {
         "lathe prior workshop package must be exact"
     );
 
-    let short_baseline = resolve_manual_craft(
-        &registries,
-        &state,
-        &select_manual_craft_request(
-            &registries,
-            &state,
-            PROCESS_SHAPE_TIMBER_FLYWHEEL,
-            source,
-            SHORT_LATHE_ORDER,
-            "lathe short-order baseline",
-        )
-        .with_equipment(pole_lathe),
-    )
-    .unwrap_or_else(|error| panic!("lathe short-order projection failed: {error}"));
-    let project_request = select_manual_craft_request(
-        &registries,
-        &state,
-        PROCESS_SHAPE_TIMBER_FLYWHEEL,
-        source,
-        PROJECT_LATHE_ORDER,
-        "lathe project baseline",
-    )
-    .with_equipment(pole_lathe);
-    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
-        .unwrap_or_else(|error| panic!("lathe project projection failed: {error}"));
     let setup_attention = project_upgrade_setup(
         &registries,
         &state,
@@ -134,6 +111,77 @@ pub(super) fn run_lathe_investment_experience() {
         .get_equipment(crank)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("lathe hand crank disappeared before decision"));
+    let policy = CapitalInvestmentPolicy::baseline();
+    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
+    let crossover = first_attention_return_crossover(
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        minimum_attention_return,
+        |batches| {
+            let request = select_manual_craft_request(
+                &registries,
+                &state,
+                PROCESS_SHAPE_TIMBER_FLYWHEEL,
+                source,
+                batches,
+                "lathe crossover spring-pole baseline",
+            )
+            .with_equipment(pole_lathe);
+            let baseline = resolve_manual_craft(&registries, &state, &request).ok()?;
+            let charge = project_manual_power_sequence(
+                &registries,
+                ManualPowerSequenceRequest {
+                    method: MANUAL_POWER_HAND_CRANK,
+                    equipment: EQUIPMENT_STONE_HAND_CRANK,
+                    starting_condition: crank_condition,
+                    store: ENERGY_STONE_FLYWHEEL_DRIVE,
+                    energy_per_charge: batch.work,
+                    charges: batches,
+                },
+                "lathe crossover charging",
+            );
+            Some((
+                baseline.duration().value(),
+                setup_attention
+                    .checked_add(charge.attention_ticks)
+                    .unwrap_or_else(|| panic!("lathe crossover attention overflowed")),
+            ))
+        },
+    )
+    .unwrap_or_else(|| {
+        panic!("flywheel lathe has no attention-return crossover in the disclosed opportunity")
+    });
+    let workloads = crossover_workloads(
+        crossover,
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        variation_root.map(|root| root ^ LATHE_DEMAND_SALT),
+    );
+    let short_order = workloads.short_batches;
+    let project_order = workloads.project_batches;
+    let short_baseline = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_SHAPE_TIMBER_FLYWHEEL,
+            source,
+            short_order,
+            "lathe short-order baseline",
+        )
+        .with_equipment(pole_lathe),
+    )
+    .unwrap_or_else(|error| panic!("lathe short-order projection failed: {error}"));
+    let project_request = select_manual_craft_request(
+        &registries,
+        &state,
+        PROCESS_SHAPE_TIMBER_FLYWHEEL,
+        source,
+        project_order,
+        "lathe project baseline",
+    )
+    .with_equipment(pole_lathe);
+    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
+        .unwrap_or_else(|error| panic!("lathe project projection failed: {error}"));
     let short_charge = project_manual_power_sequence(
         &registries,
         ManualPowerSequenceRequest {
@@ -142,7 +190,7 @@ pub(super) fn run_lathe_investment_experience() {
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: batch.work,
-            charges: SHORT_LATHE_ORDER,
+            charges: short_order,
         },
         "lathe short-order charging",
     );
@@ -154,12 +202,10 @@ pub(super) fn run_lathe_investment_experience() {
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: batch.work,
-            charges: PROJECT_LATHE_ORDER,
+            charges: project_order,
         },
         "lathe project charging",
     );
-    let policy = CapitalInvestmentPolicy::baseline();
-    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
     let short_machine_attention = setup_attention + short_charge.attention_ticks;
     let project_machine_attention = setup_attention + project_charge.attention_ticks;
     assert!(
@@ -227,7 +273,7 @@ pub(super) fn run_lathe_investment_experience() {
             crank,
             drive,
             batch,
-            batches: PROJECT_LATHE_ORDER,
+            batches: project_order,
             context: "lathe project",
         },
     );
@@ -274,13 +320,14 @@ pub(super) fn run_lathe_investment_experience() {
     validate_loaded_state(&registries, &powered)
         .unwrap_or_else(|error| panic!("lathe investment final state invalid: {error}"));
     reviewln!(
-        "SETTLEMENT MACHINE EXPERIENCE family=flywheel-lathe transform=timber-flywheel prior=spring-pole-lathe policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] self-fabrication=handles-with-prior-lathe identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
+        "SETTLEMENT MACHINE EXPERIENCE family=flywheel-lathe transform=timber-flywheel prior=spring-pole-lathe policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t crossover:{}batches short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] self-fabrication=handles-with-prior-lathe identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
         policy.minimum_return_ppm(),
         minimum_attention_return,
-        SHORT_LATHE_ORDER,
+        crossover,
+        short_order,
         short_baseline.duration().value(),
         short_machine_attention,
-        PROJECT_LATHE_ORDER,
+        project_order,
         project_baseline.duration().value(),
         setup_attention,
         powered_project.charge_attention,
@@ -292,5 +339,5 @@ pub(super) fn run_lathe_investment_experience() {
 
 #[test]
 fn flywheel_lathe_has_a_real_capital_crossover() {
-    run_lathe_investment_experience();
+    run_lathe_investment_experience(None);
 }

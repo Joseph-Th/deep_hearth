@@ -30,7 +30,9 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 
-use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
+use super::capital_investment_policy::{
+    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
+};
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
@@ -38,12 +40,10 @@ use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output
 use super::manual_power_timing::finish_manual_power_work;
 use super::powered_craft_planning::{AuthoredPoweredCraftBatch, authored_batch};
 use super::production_timing::finish_uninterrupted_production_job;
+use super::settlement_generation::{
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
+};
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
-
-const SHORT_LATHE_ORDER: u64 = 8;
-const PROJECT_LATHE_ORDER: u64 = 14;
-const SHORT_TOOLROOM_ORDER: u64 = 8;
-const PROJECT_TOOLROOM_ORDER: u64 = 16;
 
 fn seed_material(
     registries: &Registries,
@@ -345,11 +345,11 @@ mod lathe;
 mod toolroom;
 
 #[cfg(not(test))]
-pub(super) fn run_lathe_investment_experience() {
-    lathe::run_lathe_investment_experience();
+pub(super) fn run_lathe_investment_experience(variation_root: Option<u64>) {
+    lathe::run_lathe_investment_experience(variation_root);
 }
 
 #[cfg(not(test))]
-pub(super) fn run_toolroom_investment_experience() {
-    toolroom::run_toolroom_investment_experience();
+pub(super) fn run_toolroom_investment_experience(variation_root: Option<u64>) {
+    toolroom::run_toolroom_investment_experience(variation_root);
 }

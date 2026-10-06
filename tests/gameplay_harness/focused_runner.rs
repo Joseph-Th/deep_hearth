@@ -151,8 +151,8 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             &[7, 11, 0x10FA_D311_A1B9_7550],
             0x504F_5752_5052_4F42,
         ),
-        // Settlement investment keeps one short direct-work anchor and one long mechanization
-        // coverage horizon; organic variation fills the crossover between them.
+        // Settlement investment keeps one maintained case on each side of the live mechanization
+        // crossover; organic variation samples around that same production-derived threshold.
         "settlement" => (
             0xD33F_C01D_5E77,
             &[0x0000_0000_0000_0040],

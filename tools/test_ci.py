@@ -2820,7 +2820,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "copper-opportunity=available requested=500mg planned-local-work=500mg mining=500mg "
             "resource-knowledge-effect=same-tool",
             "FIELDWORK FIXTURE DIAGNOSTIC seed=0xC geology=hard-pick-specialist policy-input=false report-only=true",
-            "FIELDWORK BULK CROSSOVER seed=0xC available=false sampled-through=96-base-batches "
+            "FIELDWORK BULK CROSSOVER seed=0xC available=false searched-through=96-base-batches "
             "reason=hardness current-order=500mg scope=diagnostic-visible-state no-hidden-reserve=true",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
@@ -3173,15 +3173,16 @@ class GameplayReportContractTests(unittest.TestCase):
     def test_concise_report_keeps_executed_settlement_specialization_decisions(self) -> None:
         output = "\n".join(
             (
-                "SETTLEMENT MACHINE EXPERIENCE family=spindle-drill transform=screen-plate short=[batches:8 baseline:180t machine:228t choice:keep-prior] project=[batches:14 baseline:315t setup:220t charging:14t machine:234t attention-saved:81t delegated:56t choice:upgrade]",
-                "SETTLEMENT MACHINE EXPERIENCE family=wire-drawbench transform=electrical-winding short=[batches:8 baseline:224t machine:296t choice:keep-prior] project=[batches:14 baseline:391t setup:280t charging:28t machine:308t attention-saved:83t delegated:126t choice:upgrade]",
+                "SETTLEMENT MACHINE EXPERIENCE family=spindle-drill transform=screen-plate crossover:13batches short=[batches:8 baseline:180t machine:228t choice:keep-prior] project=[batches:14 baseline:315t setup:220t charging:14t machine:234t attention-saved:81t delegated:56t choice:upgrade]",
+                "SETTLEMENT MACHINE EXPERIENCE family=wire-drawbench transform=electrical-winding crossover:12batches short=[batches:8 baseline:224t machine:296t choice:keep-prior] project=[batches:14 baseline:391t setup:280t charging:28t machine:308t attention-saved:83t delegated:126t choice:upgrade]",
             )
         )
         concise = gameplay_report_summary.concise_gameplay_report(output, {})
         self.assertEqual(
             concise,
             "GAMEPLAY settlement-specialization families=[spindle-drill,wire-drawbench] "
-            "short-kept-prior:2/2 project-upgraded:2/2 attention-saved:81..83t delegated:56..126t",
+            "crossover:12..13batches short-kept-prior:2/2 project-upgraded:2/2 "
+            "attention-saved:81..83t delegated:56..126t",
         )
 
     def test_gameplay_report_root_includes_established_workshop_planning(self) -> None:

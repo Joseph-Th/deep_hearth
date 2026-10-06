@@ -29,7 +29,9 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 
 #[cfg(test)]
-use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
+use super::capital_investment_policy::{
+    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
+};
 use super::environment::ROOM_TEMPERATURE;
 #[cfg(test)]
 use super::manual_craft_execution::execute_manual_craft;
@@ -38,14 +40,11 @@ use super::manual_power_timing::finish_manual_power_work;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
 #[cfg(test)]
+use super::settlement_generation::{
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
+};
+#[cfg(test)]
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
-
-#[cfg(test)]
-const SHORT_LUMBER_ORDER: u64 = 20;
-#[cfg(test)]
-const MARGINAL_LUMBER_ORDER: u64 = 38;
-#[cfg(test)]
-const PROJECT_LUMBER_ORDER: u64 = 64;
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,
@@ -116,9 +115,9 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         "sawmill investment",
     );
     let project_input_mass = Mass::from_milligrams(
-        PROJECT_LUMBER_ORDER
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES
             .checked_mul(sawmill_batch.input_mass.milligrams())
-            .unwrap_or_else(|| panic!("sawmill project input mass overflowed")),
+            .unwrap_or_else(|| panic!("sawmill disclosed input opportunity overflowed")),
     );
     let work_source = seed_stockpile(
         &mut state,
@@ -185,46 +184,6 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         "disclosed prior infrastructure package must consume exactly its authored components"
     );
 
-    let short_baseline = resolve_manual_craft(
-        &registries,
-        &state,
-        &select_manual_craft_request(
-            &registries,
-            &state,
-            PROCESS_SAW_WOOD_BOARDS,
-            work_source,
-            SHORT_LUMBER_ORDER,
-            "sawmill short-order baseline",
-        )
-        .with_equipment(frame_saw),
-    )
-    .unwrap_or_else(|error| panic!("sawmill short baseline projection failed: {error}"));
-    let marginal_baseline = resolve_manual_craft(
-        &registries,
-        &state,
-        &select_manual_craft_request(
-            &registries,
-            &state,
-            PROCESS_SAW_WOOD_BOARDS,
-            work_source,
-            MARGINAL_LUMBER_ORDER,
-            "sawmill marginal-order baseline",
-        )
-        .with_equipment(frame_saw),
-    )
-    .unwrap_or_else(|error| panic!("sawmill marginal baseline projection failed: {error}"));
-    let project_request = select_manual_craft_request(
-        &registries,
-        &state,
-        PROCESS_SAW_WOOD_BOARDS,
-        work_source,
-        PROJECT_LUMBER_ORDER,
-        "sawmill project baseline",
-    )
-    .with_equipment(frame_saw);
-    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
-        .unwrap_or_else(|error| panic!("sawmill project baseline projection failed: {error}"));
-
     let setup_board_request = select_manual_craft_request(
         &registries,
         &state,
@@ -268,6 +227,93 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         .get_equipment(crank)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("sawmill hand crank disappeared before investment decision"));
+    let minimum_attention_return =
+        CapitalInvestmentPolicy::baseline().minimum_attention_return(0, setup_attention);
+    assert!(minimum_attention_return > 0);
+    let crossover = first_attention_return_crossover(
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        minimum_attention_return,
+        |batches| {
+            let request = select_manual_craft_request(
+                &registries,
+                &state,
+                PROCESS_SAW_WOOD_BOARDS,
+                work_source,
+                batches,
+                "sawmill crossover frame-saw baseline",
+            )
+            .with_equipment(frame_saw);
+            let baseline = resolve_manual_craft(&registries, &state, &request).ok()?;
+            let charge = project_manual_power_sequence(
+                &registries,
+                ManualPowerSequenceRequest {
+                    method: MANUAL_POWER_HAND_CRANK,
+                    equipment: EQUIPMENT_STONE_HAND_CRANK,
+                    starting_condition: crank_condition,
+                    store: ENERGY_STONE_FLYWHEEL_DRIVE,
+                    energy_per_charge: sawmill_batch.work,
+                    charges: batches,
+                },
+                "sawmill crossover charging",
+            );
+            Some((
+                baseline.duration().value(),
+                setup_attention
+                    .checked_add(charge.attention_ticks)
+                    .unwrap_or_else(|| panic!("sawmill crossover attention overflowed")),
+            ))
+        },
+    )
+    .unwrap_or_else(|| {
+        panic!("sash sawmill has no attention-return crossover in the disclosed opportunity")
+    });
+    let workloads = crossover_workloads(
+        crossover,
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        None,
+    );
+    let short_order = workloads.short_batches;
+    let marginal_order = workloads.marginal_batches;
+    let project_order = workloads.project_batches;
+    let short_baseline = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_SAW_WOOD_BOARDS,
+            work_source,
+            short_order,
+            "sawmill short-order baseline",
+        )
+        .with_equipment(frame_saw),
+    )
+    .unwrap_or_else(|error| panic!("sawmill short baseline projection failed: {error}"));
+    let marginal_baseline = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_SAW_WOOD_BOARDS,
+            work_source,
+            marginal_order,
+            "sawmill marginal-order baseline",
+        )
+        .with_equipment(frame_saw),
+    )
+    .unwrap_or_else(|error| panic!("sawmill marginal baseline projection failed: {error}"));
+    let project_request = select_manual_craft_request(
+        &registries,
+        &state,
+        PROCESS_SAW_WOOD_BOARDS,
+        work_source,
+        project_order,
+        "sawmill project baseline",
+    )
+    .with_equipment(frame_saw);
+    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
+        .unwrap_or_else(|error| panic!("sawmill project baseline projection failed: {error}"));
     let short_charge_projection = project_manual_power_sequence(
         &registries,
         ManualPowerSequenceRequest {
@@ -276,7 +322,7 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: sawmill_batch.work,
-            charges: SHORT_LUMBER_ORDER,
+            charges: short_order,
         },
         "sawmill short-order charging",
     );
@@ -288,7 +334,7 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: sawmill_batch.work,
-            charges: MARGINAL_LUMBER_ORDER,
+            charges: marginal_order,
         },
         "sawmill marginal-order charging",
     );
@@ -300,16 +346,13 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: sawmill_batch.work,
-            charges: PROJECT_LUMBER_ORDER,
+            charges: project_order,
         },
         "sawmill project charging",
     );
     let short_machine_attention = setup_attention + short_charge_projection.attention_ticks;
     let marginal_machine_attention = setup_attention + marginal_charge_projection.attention_ticks;
     let project_machine_attention = setup_attention + project_charge_projection.attention_ticks;
-    let minimum_attention_return =
-        CapitalInvestmentPolicy::baseline().minimum_attention_return(0, setup_attention);
-    assert!(minimum_attention_return > 0);
     assert!(
         !clears_attention_return(
             short_baseline.duration().value(),
@@ -398,7 +441,7 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
 
     let mut executed_charge_attention = 0_u64;
     let mut powered_elapsed = 0_u64;
-    for _ in 0..PROJECT_LUMBER_ORDER {
+    for _ in 0..project_order {
         let work = validate_start_manual_power(
             &registries,
             &powered,

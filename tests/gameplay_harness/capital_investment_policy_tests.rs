@@ -1,6 +1,8 @@
 //! Cross-scope contracts for the shared capital-investment attention-return policy.
 
-use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
+use super::capital_investment_policy::{
+    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
+};
 
 #[test]
 fn organic_policy_varies_investment_tolerance_without_changing_the_baseline() {
@@ -73,4 +75,22 @@ fn cheaper_setup_still_requires_a_real_lifecycle_saving() {
     assert_eq!(minimum, 0);
     assert!(!clears_attention_return(1_000, 1_000, minimum));
     assert!(clears_attention_return(1_000, 999, minimum));
+}
+
+#[test]
+fn crossover_search_follows_live_attention_relationships_without_encoding_a_batch_count() {
+    let minimum = 20;
+    let crossover = first_attention_return_crossover(32, minimum, |batches| {
+        Some((batches * 10, 60 + batches * 4))
+    });
+    let expected = (1_u64..=32)
+        .find(|&batches| clears_attention_return(batches * 10, 60 + batches * 4, minimum));
+    assert_eq!(crossover, expected);
+
+    assert_eq!(
+        first_attention_return_crossover(4, minimum, |batches| {
+            Some((batches * 10, 60 + batches * 4))
+        }),
+        None
+    );
 }

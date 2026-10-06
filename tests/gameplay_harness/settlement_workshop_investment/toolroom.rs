@@ -2,7 +2,9 @@
 
 use super::*;
 
-pub(super) fn run_toolroom_investment_experience() {
+const TOOLROOM_DEMAND_SALT: u64 = 0x544F_4F4C_444D_4E44;
+
+pub(super) fn run_toolroom_investment_experience(variation_root: Option<u64>) {
     let registries = build_registries();
     let batch = authored_batch(
         &registries,
@@ -28,9 +30,9 @@ pub(super) fn run_toolroom_investment_experience() {
         "toolroom flywheel upgrade",
     );
     let project_mass = Mass::from_milligrams(
-        PROJECT_TOOLROOM_ORDER
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES
             .checked_mul(batch.input_mass.milligrams())
-            .unwrap_or_else(|| panic!("toolroom project input mass overflowed")),
+            .unwrap_or_else(|| panic!("toolroom disclosed input opportunity overflowed")),
     );
     let source = seed_stockpile(
         &mut state,
@@ -96,31 +98,6 @@ pub(super) fn run_toolroom_investment_experience() {
         "toolroom prior workshop package must be exact"
     );
 
-    let short_baseline = resolve_manual_craft(
-        &registries,
-        &state,
-        &select_manual_craft_request(
-            &registries,
-            &state,
-            PROCESS_GRIND_STONE_SCRAP_TOOL,
-            source,
-            SHORT_TOOLROOM_ORDER,
-            "toolroom short-order baseline",
-        )
-        .with_equipment(treadle),
-    )
-    .unwrap_or_else(|error| panic!("toolroom short-order projection failed: {error}"));
-    let project_request = select_manual_craft_request(
-        &registries,
-        &state,
-        PROCESS_GRIND_STONE_SCRAP_TOOL,
-        source,
-        PROJECT_TOOLROOM_ORDER,
-        "toolroom project baseline",
-    )
-    .with_equipment(treadle);
-    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
-        .unwrap_or_else(|error| panic!("toolroom project projection failed: {error}"));
     let setup_attention = project_upgrade_setup(
         &registries,
         &state,
@@ -134,6 +111,77 @@ pub(super) fn run_toolroom_investment_experience() {
         .get_equipment(crank)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("toolroom hand crank disappeared before decision"));
+    let policy = CapitalInvestmentPolicy::baseline();
+    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
+    let crossover = first_attention_return_crossover(
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        minimum_attention_return,
+        |batches| {
+            let request = select_manual_craft_request(
+                &registries,
+                &state,
+                PROCESS_GRIND_STONE_SCRAP_TOOL,
+                source,
+                batches,
+                "toolroom crossover treadle baseline",
+            )
+            .with_equipment(treadle);
+            let baseline = resolve_manual_craft(&registries, &state, &request).ok()?;
+            let charge = project_manual_power_sequence(
+                &registries,
+                ManualPowerSequenceRequest {
+                    method: MANUAL_POWER_HAND_CRANK,
+                    equipment: EQUIPMENT_STONE_HAND_CRANK,
+                    starting_condition: crank_condition,
+                    store: ENERGY_STONE_FLYWHEEL_DRIVE,
+                    energy_per_charge: batch.work,
+                    charges: batches,
+                },
+                "toolroom crossover charging",
+            );
+            Some((
+                baseline.duration().value(),
+                setup_attention
+                    .checked_add(charge.attention_ticks)
+                    .unwrap_or_else(|| panic!("toolroom crossover attention overflowed")),
+            ))
+        },
+    )
+    .unwrap_or_else(|| {
+        panic!("flywheel grindstone has no attention-return crossover in the disclosed opportunity")
+    });
+    let workloads = crossover_workloads(
+        crossover,
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        variation_root.map(|root| root ^ TOOLROOM_DEMAND_SALT),
+    );
+    let short_order = workloads.short_batches;
+    let project_order = workloads.project_batches;
+    let short_baseline = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_GRIND_STONE_SCRAP_TOOL,
+            source,
+            short_order,
+            "toolroom short-order baseline",
+        )
+        .with_equipment(treadle),
+    )
+    .unwrap_or_else(|error| panic!("toolroom short-order projection failed: {error}"));
+    let project_request = select_manual_craft_request(
+        &registries,
+        &state,
+        PROCESS_GRIND_STONE_SCRAP_TOOL,
+        source,
+        project_order,
+        "toolroom project baseline",
+    )
+    .with_equipment(treadle);
+    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
+        .unwrap_or_else(|error| panic!("toolroom project projection failed: {error}"));
     let short_charge = project_manual_power_sequence(
         &registries,
         ManualPowerSequenceRequest {
@@ -142,7 +190,7 @@ pub(super) fn run_toolroom_investment_experience() {
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: batch.work,
-            charges: SHORT_TOOLROOM_ORDER,
+            charges: short_order,
         },
         "toolroom short-order charging",
     );
@@ -154,12 +202,10 @@ pub(super) fn run_toolroom_investment_experience() {
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: batch.work,
-            charges: PROJECT_TOOLROOM_ORDER,
+            charges: project_order,
         },
         "toolroom project charging",
     );
-    let policy = CapitalInvestmentPolicy::baseline();
-    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
     let short_machine_attention = setup_attention + short_charge.attention_ticks;
     let project_machine_attention = setup_attention + project_charge.attention_ticks;
     assert!(
@@ -230,7 +276,7 @@ pub(super) fn run_toolroom_investment_experience() {
             crank,
             drive,
             batch,
-            batches: PROJECT_TOOLROOM_ORDER,
+            batches: project_order,
             context: "toolroom project",
         },
     );
@@ -277,13 +323,14 @@ pub(super) fn run_toolroom_investment_experience() {
     validate_loaded_state(&registries, &powered)
         .unwrap_or_else(|error| panic!("toolroom investment final state invalid: {error}"));
     reviewln!(
-        "SETTLEMENT MACHINE EXPERIENCE family=flywheel-grindstone transform=service-stock prior=treadle-grindstone policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
+        "SETTLEMENT MACHINE EXPERIENCE family=flywheel-grindstone transform=service-stock prior=treadle-grindstone policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t crossover:{}batches short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
         policy.minimum_return_ppm(),
         minimum_attention_return,
-        SHORT_TOOLROOM_ORDER,
+        crossover,
+        short_order,
         short_baseline.duration().value(),
         short_machine_attention,
-        PROJECT_TOOLROOM_ORDER,
+        project_order,
         project_baseline.duration().value(),
         setup_attention,
         powered_project.charge_attention,
@@ -295,5 +342,5 @@ pub(super) fn run_toolroom_investment_experience() {
 
 #[test]
 fn flywheel_toolroom_has_a_real_capital_crossover() {
-    run_toolroom_investment_experience();
+    run_toolroom_investment_experience(None);
 }

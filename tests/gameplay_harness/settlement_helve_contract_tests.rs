@@ -20,17 +20,21 @@ use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 
-use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
+use super::capital_investment_policy::{
+    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
+};
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::settlement_generation::{
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
+};
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
-const SHORT_COPPER_ORDER: u64 = 8;
-const PROJECT_COPPER_ORDER: u64 = 20;
+const HELVE_DEMAND_SALT: u64 = 0x4845_4C56_4544_4D44;
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,
@@ -49,7 +53,7 @@ fn seed_material(
     )
 }
 
-pub(super) fn run_helve_hammer_investment_experience() {
+pub(super) fn run_helve_hammer_investment_experience(variation_root: Option<u64>) {
     let registries = build_registries();
     let helve_batch = authored_batch(
         &registries,
@@ -73,9 +77,9 @@ pub(super) fn run_helve_hammer_investment_experience() {
         "helve-hammer investment",
     );
     let order_mass = Mass::from_milligrams(
-        PROJECT_COPPER_ORDER
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES
             .checked_mul(helve_batch.input_mass.milligrams())
-            .unwrap_or_else(|| panic!("helve project input mass overflowed")),
+            .unwrap_or_else(|| panic!("helve disclosed input opportunity overflowed")),
     );
     let work_source = seed_stockpile(
         &mut state,
@@ -141,32 +145,6 @@ pub(super) fn run_helve_hammer_investment_experience() {
         Some(Mass::ZERO)
     );
 
-    let short_baseline = resolve_manual_craft(
-        &registries,
-        &state,
-        &select_manual_craft_request(
-            &registries,
-            &state,
-            PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-            work_source,
-            SHORT_COPPER_ORDER,
-            "helve short-order baseline",
-        )
-        .with_equipment(treadle_hammer),
-    )
-    .unwrap_or_else(|error| panic!("helve short baseline projection failed: {error}"));
-    let project_request = select_manual_craft_request(
-        &registries,
-        &state,
-        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-        work_source,
-        PROJECT_COPPER_ORDER,
-        "helve project baseline",
-    )
-    .with_equipment(treadle_hammer);
-    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
-        .unwrap_or_else(|error| panic!("helve project baseline projection failed: {error}"));
-
     let setup_board_request = select_manual_craft_request(
         &registries,
         &state,
@@ -209,6 +187,77 @@ pub(super) fn run_helve_hammer_investment_experience() {
         .get_equipment(crank)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("helve hand crank disappeared before investment decision"));
+    let policy = CapitalInvestmentPolicy::baseline();
+    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
+    let crossover = first_attention_return_crossover(
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        minimum_attention_return,
+        |batches| {
+            let request = select_manual_craft_request(
+                &registries,
+                &state,
+                PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+                work_source,
+                batches,
+                "helve crossover treadle baseline",
+            )
+            .with_equipment(treadle_hammer);
+            let baseline = resolve_manual_craft(&registries, &state, &request).ok()?;
+            let charge = project_manual_power_sequence(
+                &registries,
+                ManualPowerSequenceRequest {
+                    method: MANUAL_POWER_HAND_CRANK,
+                    equipment: EQUIPMENT_STONE_HAND_CRANK,
+                    starting_condition: crank_condition,
+                    store: ENERGY_STONE_FLYWHEEL_DRIVE,
+                    energy_per_charge: helve_batch.work,
+                    charges: batches,
+                },
+                "helve crossover charging",
+            );
+            Some((
+                baseline.duration().value(),
+                setup_attention
+                    .checked_add(charge.attention_ticks)
+                    .unwrap_or_else(|| panic!("helve crossover attention overflowed")),
+            ))
+        },
+    )
+    .unwrap_or_else(|| {
+        panic!("helve hammer has no attention-return crossover in the disclosed opportunity")
+    });
+    let workloads = crossover_workloads(
+        crossover,
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+        variation_root.map(|root| root ^ HELVE_DEMAND_SALT),
+    );
+    let short_order = workloads.short_batches;
+    let project_order = workloads.project_batches;
+    let short_baseline = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+            work_source,
+            short_order,
+            "helve short-order baseline",
+        )
+        .with_equipment(treadle_hammer),
+    )
+    .unwrap_or_else(|error| panic!("helve short baseline projection failed: {error}"));
+    let project_request = select_manual_craft_request(
+        &registries,
+        &state,
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        work_source,
+        project_order,
+        "helve project baseline",
+    )
+    .with_equipment(treadle_hammer);
+    let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
+        .unwrap_or_else(|error| panic!("helve project baseline projection failed: {error}"));
     let short_charge_projection = project_manual_power_sequence(
         &registries,
         ManualPowerSequenceRequest {
@@ -217,7 +266,7 @@ pub(super) fn run_helve_hammer_investment_experience() {
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: helve_batch.work,
-            charges: SHORT_COPPER_ORDER,
+            charges: short_order,
         },
         "helve short-order charging",
     );
@@ -229,12 +278,10 @@ pub(super) fn run_helve_hammer_investment_experience() {
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: helve_batch.work,
-            charges: PROJECT_COPPER_ORDER,
+            charges: project_order,
         },
         "helve project charging",
     );
-    let policy = CapitalInvestmentPolicy::baseline();
-    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
     let short_machine_attention = setup_attention + short_charge_projection.attention_ticks;
     assert!(
         !clears_attention_return(
@@ -312,7 +359,7 @@ pub(super) fn run_helve_hammer_investment_experience() {
 
     let mut charge_attention = 0_u64;
     let mut delegated_ticks = 0_u64;
-    for _ in 0..PROJECT_COPPER_ORDER {
+    for _ in 0..project_order {
         let work = validate_start_manual_power(
             &registries,
             &powered,
@@ -395,13 +442,14 @@ pub(super) fn run_helve_hammer_investment_experience() {
     validate_loaded_state(&registries, &powered)
         .unwrap_or_else(|error| panic!("helve project final state invalid: {error}"));
     reviewln!(
-        "SETTLEMENT MACHINE EXPERIENCE family=helve-hammer transform=copper-reinforcement prior=treadle-hammer upgrade=helve-hammer policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
+        "SETTLEMENT MACHINE EXPERIENCE family=helve-hammer transform=copper-reinforcement prior=treadle-hammer upgrade=helve-hammer policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t crossover:{}batches short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
         policy.minimum_return_ppm(),
         minimum_attention_return,
-        SHORT_COPPER_ORDER,
+        crossover,
+        short_order,
         short_baseline.duration().value(),
         short_machine_attention,
-        PROJECT_COPPER_ORDER,
+        project_order,
         project_baseline.duration().value(),
         setup_attention,
         project_charge_projection.attention_ticks,
@@ -413,5 +461,5 @@ pub(super) fn run_helve_hammer_investment_experience() {
 
 #[test]
 fn helve_hammer_converts_treadle_workshop_when_repeated_copper_work_repays_attention() {
-    run_helve_hammer_investment_experience();
+    run_helve_hammer_investment_experience(None);
 }

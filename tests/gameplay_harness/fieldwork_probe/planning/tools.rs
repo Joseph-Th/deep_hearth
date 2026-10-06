@@ -4,6 +4,7 @@ use super::super::*;
 use super::materials::{
     add_mass, disclosed_raw_inputs, equipment_component_requirements, multiplied_mass,
 };
+use crate::bulk_fieldwork_workload::BULK_FIELDWORK_ORDER_MAX_BATCHES;
 
 pub(in super::super) const FIELDWORK_ORDER_MAX_BATCHES: u64 = 256;
 
@@ -428,9 +429,9 @@ pub(in super::super) struct FieldworkBulkCrossover {
     pub(in super::super) order: Mass,
 }
 
-/// Finds the first representative bulk workload where a heavy quarry tool becomes the actor's
-/// preferred visible-state investment. This is diagnostic-only: it does not inspect hidden reserve
-/// truth and never feeds back into the current order.
+/// Finds the first bounded bulk workload where a heavy quarry tool becomes the actor's preferred
+/// visible-state investment. This never inspects hidden reserve truth. Callers may use it either as
+/// report evidence or to author a controlled witness around the current live investment boundary.
 pub(in super::super) fn fieldwork_bulk_crossover(
     registries: &Registries,
     state: &AppState,
@@ -439,8 +440,7 @@ pub(in super::super) fn fieldwork_bulk_crossover(
     observed_upper: Pressure,
     base_batch: Mass,
 ) -> Option<FieldworkBulkCrossover> {
-    const REPRESENTATIVE_BATCHES: [u64; 12] = [1, 2, 4, 8, 16, 24, 32, 40, 48, 64, 80, 96];
-    for batches in REPRESENTATIVE_BATCHES {
+    for batches in 1..=BULK_FIELDWORK_ORDER_MAX_BATCHES {
         let order = multiplied_mass(base_batch, batches, "bulk crossover diagnostic");
         let selected = select_unique_best_tool(
             FIELDWORK_TOOLS.iter().filter_map(|&tool| {
@@ -478,7 +478,11 @@ pub(in super::super) fn fieldwork_bulk_crossover_blocker(
     observed_upper: Pressure,
     base_batch: Mass,
 ) -> &'static str {
-    let order = multiplied_mass(base_batch, 96, "bulk crossover blocker diagnostic");
+    let order = multiplied_mass(
+        base_batch,
+        BULK_FIELDWORK_ORDER_MAX_BATCHES,
+        "bulk crossover blocker diagnostic",
+    );
     let heavy_results = FIELDWORK_TOOLS
         .iter()
         .filter(|tool| {

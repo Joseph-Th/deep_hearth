@@ -7,8 +7,46 @@ use deep_hearth::maintenance::Condition;
 
 use super::capital_investment_policy::CapitalInvestmentPolicy;
 use super::settlement_generation::{
-    organic_inherited_equipment_condition, organic_investment_policy, organic_lumber_batches,
+    crossover_workloads, organic_inherited_equipment_condition, organic_investment_policy,
+    organic_lumber_batches,
 };
+
+#[test]
+fn crossover_workloads_stay_on_their_live_economic_sides_and_vary_with_entropy() {
+    for crossover in [2_u64, 7, 16, 41, 96] {
+        let maintained = crossover_workloads(crossover, 192, None);
+        assert!(maintained.short_batches < crossover);
+        assert_eq!(maintained.marginal_batches, crossover - 1);
+        assert_eq!(maintained.project_batches, crossover);
+
+        let varied = (0_u64..64)
+            .map(|entropy| crossover_workloads(crossover, 192, Some(entropy)))
+            .collect::<Vec<_>>();
+        assert!(varied.iter().all(|workload| {
+            workload.short_batches < crossover && workload.project_batches >= crossover
+        }));
+        if crossover > 2 {
+            assert!(
+                varied
+                    .iter()
+                    .map(|workload| workload.short_batches)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    > 1
+            );
+        }
+        if crossover < 192 {
+            assert!(
+                varied
+                    .iter()
+                    .map(|workload| workload.project_batches)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    > 1
+            );
+        }
+    }
+}
 
 #[test]
 fn organic_settlement_generation_straddles_supplied_crossovers_and_varies_actor_policy() {

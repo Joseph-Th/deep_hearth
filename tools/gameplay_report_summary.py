@@ -50,6 +50,11 @@ def settlement_specialization_summary(lines: list[str]) -> str | None:
         for line in experiences
         if (value := field(line, "family")) is not None
     )
+    crossovers = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bcrossover:(\d+)batches", line)) is not None
+    ]
     attention_saved = [
         int(match.group(1))
         for line in experiences
@@ -61,6 +66,9 @@ def settlement_specialization_summary(lines: list[str]) -> str | None:
         if (match := re.search(r"\bdelegated:(\d+)t", line)) is not None
     ]
     span = lambda values: f"{min(values)}..{max(values)}t" if values else "n/a"
+    batch_span = (
+        lambda values: f"{min(values)}..{max(values)}batches" if values else "n/a"
+    )
     short_kept = sum(
         re.search(r"\bshort=\[[^\]]*\bchoice:keep-prior\]", line) is not None
         for line in experiences
@@ -72,6 +80,7 @@ def settlement_specialization_summary(lines: list[str]) -> str | None:
     return (
         "GAMEPLAY settlement-specialization "
         f"families=[{','.join(families)}] "
+        f"crossover:{batch_span(crossovers)} "
         f"short-kept-prior:{short_kept}/{len(experiences)} "
         f"project-upgraded:{project_upgraded}/{len(experiences)} "
         f"attention-saved:{span(attention_saved)} delegated:{span(delegated)}"

@@ -26,7 +26,9 @@ use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::assess_survival;
 
-use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
+use super::capital_investment_policy::{
+    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
+};
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
@@ -36,14 +38,12 @@ use super::physical_time::format_physical_duration;
 use super::powered_craft_planning::authored_batch;
 use super::seed::mix64;
 use super::settlement_generation::{
-    organic_inherited_equipment_condition, organic_investment_policy, organic_lumber_batches,
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES as SETTLEMENT_OPPORTUNITY_BATCHES,
+    crossover_workloads, organic_inherited_equipment_condition, organic_investment_policy,
+    organic_lumber_batches,
 };
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 use super::world_admission::STATIONARY_PLAYER_ORIGIN;
-
-const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
-const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 64;
-const SETTLEMENT_OPPORTUNITY_BATCHES: u64 = 192;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LumberInvestmentChoice {
@@ -76,8 +76,22 @@ impl LumberInvestmentChoice {
 
 fn declared_lumber_batches(case: FocusedProbeCase, baseline_crossover_batches: Option<u64>) -> u64 {
     match case.role() {
-        FocusedProbeRole::MaintainedAnchor => SETTLEMENT_DIRECT_HORIZON_BATCHES,
-        FocusedProbeRole::MaintainedCoverage => SETTLEMENT_MECHANIZE_HORIZON_BATCHES,
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
+            let crossover = baseline_crossover_batches.unwrap_or_else(|| {
+                panic!(
+                    "maintained settlement lumber opportunity has no live mechanization crossover"
+                )
+            });
+            let workloads =
+                crossover_workloads(crossover, SETTLEMENT_OPPORTUNITY_BATCHES - 1, None);
+            match case.role() {
+                FocusedProbeRole::MaintainedAnchor => workloads.short_batches,
+                FocusedProbeRole::MaintainedCoverage => workloads.project_batches,
+                FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+                    unreachable!("maintained settlement branch received organic role")
+                }
+            }
+        }
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
             organic_lumber_batches(
                 case.seed() & 0b11,
@@ -415,22 +429,23 @@ fn baseline_lumber_crossover_batches(
     let minimum_attention_return =
         CapitalInvestmentPolicy::baseline().minimum_attention_return(0, setup_attention);
 
-    for batches in 1..=SETTLEMENT_OPPORTUNITY_BATCHES {
-        let batches_nonzero = NonZeroU64::new(batches).unwrap_or_else(|| {
-            unreachable!("positive settlement crossover batch count is nonzero")
-        });
-        let baseline_attention = project_manual_craft_equipment(
-            registries,
-            manual_process,
-            batches_nonzero,
-            EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-            frame_condition,
-        )
-        .unwrap_or_else(|error| panic!("settlement frame-saw crossover projection failed: {error}"))
-        .duration()
-        .value();
-        let machine_attention = setup_attention
-            .checked_add(
+    first_attention_return_crossover(
+        SETTLEMENT_OPPORTUNITY_BATCHES - 1,
+        minimum_attention_return,
+        |batches| {
+            let batches_nonzero = NonZeroU64::new(batches)
+                .unwrap_or_else(|| unreachable!("positive settlement batch count is nonzero"));
+            let baseline_attention = project_manual_craft_equipment(
+                registries,
+                manual_process,
+                batches_nonzero,
+                EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+                frame_condition,
+            )
+            .ok()?
+            .duration()
+            .value();
+            let machine_attention = setup_attention.checked_add(
                 project_manual_power_sequence(
                     registries,
                     ManualPowerSequenceRequest {
@@ -444,17 +459,10 @@ fn baseline_lumber_crossover_batches(
                     "settlement sawmill crossover",
                 )
                 .attention_ticks,
-            )
-            .unwrap_or_else(|| panic!("settlement crossover machine attention overflowed"));
-        if clears_attention_return(
-            baseline_attention,
-            machine_attention,
-            minimum_attention_return,
-        ) {
-            return Some(batches);
-        }
-    }
-    None
+            )?;
+            Some((baseline_attention, machine_attention))
+        },
+    )
 }
 
 pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCase) {

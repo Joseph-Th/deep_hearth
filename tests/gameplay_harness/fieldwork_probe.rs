@@ -19,7 +19,9 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{MiningOrderRequest, resolve_mining_order};
 use deep_hearth::registry::Registries;
 
-use super::bulk_fieldwork_workload::{BULK_FIELDWORK_ORDER_MIN_BATCHES, bulk_fieldwork_order_mass};
+use super::bulk_fieldwork_workload::{
+    BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, bulk_fieldwork_order_mass,
+};
 use super::equipment_support::pristine_equipment_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::{
@@ -423,34 +425,37 @@ fn run_fieldwork_with_supply(
         estimate.order_ticks,
         estimate.total_ticks()
     );
-    match fieldwork_bulk_crossover(
-        registries,
-        &state,
-        raw,
-        parts,
-        observed_hardness.upper(),
-        mining_limits.base_quarry_batch,
-    ) {
-        Some(crossover) => reviewln!(
-            "FIELDWORK BULK CROSSOVER seed=0x{seed:016X} available=true tool={} order={}mg base-batches={} current-order={}mg scope=diagnostic-visible-state no-hidden-reserve=true",
-            crossover.tool_label,
-            crossover.order.milligrams(),
-            crossover.batches,
-            planned_local_mass.milligrams(),
-        ),
-        None => {
-            let blocker = fieldwork_bulk_crossover_blocker(
-                registries,
-                &state,
-                raw,
-                parts,
-                observed_hardness.upper(),
-                mining_limits.base_quarry_batch,
-            );
-            reviewln!(
-                "FIELDWORK BULK CROSSOVER seed=0x{seed:016X} available=false reason={blocker} sampled-through=96-base-batches current-order={}mg scope=diagnostic-visible-state no-hidden-reserve=true",
+    if crate::output::review_output_enabled() {
+        match fieldwork_bulk_crossover(
+            registries,
+            &state,
+            raw,
+            parts,
+            observed_hardness.upper(),
+            mining_limits.base_quarry_batch,
+        ) {
+            Some(crossover) => reviewln!(
+                "FIELDWORK BULK CROSSOVER seed=0x{seed:016X} available=true tool={} order={}mg base-batches={} current-order={}mg scope=diagnostic-visible-state no-hidden-reserve=true",
+                crossover.tool_label,
+                crossover.order.milligrams(),
+                crossover.batches,
                 planned_local_mass.milligrams(),
-            );
+            ),
+            None => {
+                let blocker = fieldwork_bulk_crossover_blocker(
+                    registries,
+                    &state,
+                    raw,
+                    parts,
+                    observed_hardness.upper(),
+                    mining_limits.base_quarry_batch,
+                );
+                reviewln!(
+                    "FIELDWORK BULK CROSSOVER seed=0x{seed:016X} available=false reason={blocker} searched-through={}-base-batches current-order={}mg scope=diagnostic-visible-state no-hidden-reserve=true",
+                    BULK_FIELDWORK_ORDER_MAX_BATCHES,
+                    planned_local_mass.milligrams(),
+                );
+            }
         }
     }
     let raw_before: BTreeMap<_, _> = estimate
