@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
+GAMEPLAY_AGENCY_TARGET = "gameplay_agency"
 GAMEPLAY_FEATURE = "test-gameplay"
 GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
 GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
@@ -114,13 +115,14 @@ GAMEPLAY_CARGO_TEST_TARGETS = tuple(
         {
             GAMEPLAY_CONTRACTS_TARGET,
             GAMEPLAY_AUDIT_TARGET,
+            GAMEPLAY_AGENCY_TARGET,
             *GAMEPLAY_TARGETS.values(),
             *GAMEPLAY_OWNER_CONTRACT_TARGETS,
         }
     )
 )
 GAMEPLAY_PROBE_TARGETS = {spec.test: spec.target for spec in GAMEPLAY_SCOPE_SPECS.values()}
-GAMEPLAY_PROBE_TARGETS["gameplay_agency_counterfactuals"] = GAMEPLAY_TARGETS["workshop"]
+GAMEPLAY_PROBE_TARGETS["gameplay_agency_counterfactuals"] = GAMEPLAY_AGENCY_TARGET
 GAMEPLAY_PROBE_SCOPES = {
     spec.test: scope for scope, spec in GAMEPLAY_SCOPE_SPECS.items()
 }

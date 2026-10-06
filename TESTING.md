@@ -19,7 +19,7 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 
 Iteration is `quick`, then **one** proof. Run an executable proof directly whenever one fits; a separate test-target type-check only spends compiler time on an artifact the executable cannot reuse. `gate` is an optional production-only type-check when no executable contract fits and does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes, run all test targets, or append an audit to routine edits.
 
-Use `run_test.py --list <substring>` for build-free discovery and prefer the smallest authoritative target. Exact owner/unit/contract tests stay deterministic; exact focused gameplay probes run maintained witnesses plus one fresh replayable organic case and print its roots. Pass replay roots to repeat it. `ci.py gate --gameplay <scope>` uses the same maintained-plus-one-organic shape. Scoped reports reuse hot focused artifacts; otherwise they use a report-only example. Exact/core library tests share the persistent `unit-test` profile; smaller integration/gameplay targets use `test`. Both live under `target/local-ci`, so switching lanes does not evict either hot artifact. `audit --all` reuses both cache shapes serially; no third build. Keep Cargo invocations serial and parallelize only build-free `quick` checks.
+Use `run_test.py --list <substring>` for build-free discovery and prefer the smallest authoritative target. Exact owner/unit/contract tests stay deterministic. Focused gameplay adds one fresh replayable case and prints roots; `ci.py gate --gameplay <scope>` uses the same shape. Reports reuse focused artifacts when practical and otherwise use a report-only example. Exact/core library tests share one feature-minimal persistent `unit-test` artifact; gameplay fixtures compile only in smaller `test-gameplay` integration targets. Keep Cargo invocations serial and parallelize only build-free `quick` checks.
 
 ## Escalation lanes
 
@@ -30,7 +30,7 @@ Use `run_test.py --list <substring>` for build-free discovery and prefer the sma
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. Focused gameplay runs maintained witnesses plus one fresh replayable case. Broad gameplay audits rotate that one-case budget through one scope instead of sampling every scope. `report` owns broader exploration. Library and gameplay tests keep additive `test-gameplay`; negative gating is forbidden. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
+`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. Focused gameplay runs maintained witnesses plus one fresh replayable case. Broad gameplay audits rotate that one-case budget through one scope instead of sampling every scope. `report` owns broader exploration. `test-gameplay` is additive but belongs only to gameplay targets; core/unit tests stay feature-minimal. Negative feature gating is forbidden. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
 
 ## Evidence ladder
 
@@ -79,8 +79,8 @@ Avoid assertions on error prose, wall-clock timing, incidental order/count, or c
 
 ## Gameplay evaluation
 
-Each gameplay scope owns a focused probe artifact. A focused target contains only its lived probe, except workshop,
-which also owns the agency counterfactual. Generator, policy, and owner tests live in purpose-built
+Each gameplay scope owns a focused probe artifact. The workshop agency counterfactual has its own target because it
+is an evaluator, not part of the ordinary workshop probe. Generator, policy, and owner tests live in purpose-built
 `<scope>_contracts` targets, so assertion edits do not rebuild the lived probe. `run_test.py` resolves exact and suite
 selectors to owner targets build-free; `tools/gameplay_targets.py` owns routing. All targets share `test-gameplay` and one
 Cargo cache. Report-only formatting stays out of frequent gate builds. `gate --gameplay contracts` remains the small

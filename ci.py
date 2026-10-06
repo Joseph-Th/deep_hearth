@@ -22,6 +22,7 @@ from tools.command_output import (
     rust_test_result_counts,
 )
 from tools.gameplay_targets import (
+    GAMEPLAY_AGENCY_TARGET,
     GAMEPLAY_AUDIT_TARGET,
     GAMEPLAY_BEHAVIOR_ENV,
     GAMEPLAY_CONTRACTS_TARGET,
@@ -333,6 +334,7 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
     gameplay_targets = (
         GAMEPLAY_CONTRACTS_TARGET,
         GAMEPLAY_AUDIT_TARGET,
+        GAMEPLAY_AGENCY_TARGET,
         *GAMEPLAY_TARGETS.values(),
     )
     if any(target in command for target in gameplay_targets):
@@ -493,7 +495,7 @@ def scoped_report_target(scope: str) -> tuple[str, str]:
     """Return the focused test artifact and exact test reused by one scoped report."""
 
     if scope == "agency":
-        return GAMEPLAY_TARGETS["workshop"], "gameplay_agency_counterfactuals"
+        return GAMEPLAY_AGENCY_TARGET, "gameplay_agency_counterfactuals"
     spec = GAMEPLAY_SCOPE_SPECS[scope]
     return spec.target, spec.test
 

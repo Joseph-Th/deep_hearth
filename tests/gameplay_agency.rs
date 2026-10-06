@@ -1,10 +1,19 @@
-//! Focused industrial-workshop gameplay target for the fast edit/test loop.
+//! Focused workshop-agency counterfactual target kept off the ordinary workshop edit path.
 
+#![allow(
+    dead_code,
+    reason = "agency reuses the workshop simulation without compiling the workshop gate and report entrypoints"
+)]
+
+#[cfg(test)]
+macro_rules! include_agency_contract_tests {
+    () => {};
+}
+
+#[path = "gameplay_harness/agency.rs"]
+mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
-#[cfg(not(test))]
-#[path = "gameplay_harness/catalog.rs"]
-mod catalog;
 #[path = "gameplay_harness/configuration.rs"]
 mod configuration;
 #[path = "gameplay_harness/contracts.rs"]
@@ -13,9 +22,6 @@ mod contracts;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
-#[cfg(not(test))]
-#[path = "gameplay_harness/fresh_seed.rs"]
-mod fresh_seed;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]
@@ -26,9 +32,6 @@ mod maintenance_timing;
 mod manual_power_timing;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
-#[cfg(not(test))]
-pub(super) use crate::output;
-#[cfg(test)]
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
@@ -46,17 +49,10 @@ mod structural_fixture;
 mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
 
-#[cfg(test)]
 #[test]
-fn gameplay_harness_gate() {
-    workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Gate);
-}
-
-#[cfg(not(test))]
-pub(super) fn run_report() {
-    workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Explore);
+fn gameplay_agency_counterfactuals() {
+    agency::run_gameplay_agency_counterfactuals();
 }

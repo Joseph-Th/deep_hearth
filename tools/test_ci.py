@@ -277,8 +277,6 @@ class CargoToolingTests(unittest.TestCase):
                 "--profile",
                 run_test.UNIT_TEST_PROFILE,
                 "--lib",
-                "--features",
-                "test-gameplay",
             ],
         )
 
@@ -1493,8 +1491,7 @@ class TestTopologyContractTests(unittest.TestCase):
             forbidden = contracts_only | {
                 module for owner, module in probe_modules.items() if owner != scope
             }
-            if scope != "workshop":
-                forbidden.add("agency")
+            forbidden.add("agency")
             for module in forbidden:
                 self.assertNotIn(
                     f"mod {module};",
@@ -1506,6 +1503,7 @@ class TestTopologyContractTests(unittest.TestCase):
         fresh_seed = (ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs").resolve()
         routine_targets = (
             *ci.GAMEPLAY_TARGETS.values(),
+            gameplay_targets.GAMEPLAY_AGENCY_TARGET,
             ci.GAMEPLAY_CONTRACTS_TARGET,
             ci.GAMEPLAY_AUDIT_TARGET,
         )
@@ -1603,8 +1601,6 @@ class TestTopologyContractTests(unittest.TestCase):
         for scope, prefix in contract_prefixes.items():
             focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)
             expected_probes = {ci.GAMEPLAY_TESTS[scope]}
-            if scope == "workshop":
-                expected_probes.add("gameplay_agency_counterfactuals")
             self.assertEqual(set(focused), expected_probes)
             contracts = run_test.source_test_catalog(
                 gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS[scope],
@@ -1823,7 +1819,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertEqual(cargo_test_targets(builds[1]), [ci.GAMEPLAY_AUDIT_TARGET])
         self.assertNotIn("--lib", builds[1])
 
-    def test_gameplay_feature_is_additive_for_core_and_gameplay_audits(self) -> None:
+    def test_gameplay_feature_remains_additive_where_gameplay_targets_enable_it(self) -> None:
         negative_feature_cfg = re.compile(
             r'#\s*\[\s*cfg[^\]]*not\s*\(\s*feature\s*=\s*"test-gameplay"'
         )
@@ -1835,26 +1831,33 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertEqual(
             offenders,
             [],
-            "broad audits assume test-gameplay only adds fixture/test capability",
+            "test-gameplay must only add fixture/test capability",
         )
 
-    def test_core_and_exact_tests_share_one_additive_library_shape(self) -> None:
+    def test_core_and_exact_tests_share_one_feature_minimal_library_shape(self) -> None:
         config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
         core_alias = config["alias"]["test-core"]
         gameplay = " ".join(ci.gameplay_command("all"))
         self.assertEqual(
             core_alias,
-            "test --quiet --locked --profile unit-test --lib --features test-gameplay",
+            "test --quiet --locked --profile unit-test --lib",
         )
         exact = run_test.parse_args(
             ["--target", "lib", "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound"]
         )
-        self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", " ".join(run_test.cargo_command(exact)))
+        self.assertNotIn("--features", run_test.cargo_command(exact))
         self.assertIn(
             f"--profile {run_test.UNIT_TEST_PROFILE}", " ".join(run_test.cargo_command(exact))
         )
         self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", gameplay)
         self.assertNotIn("--profile unit-test", gameplay)
+
+    def test_gameplay_feature_does_not_own_library_tests(self) -> None:
+        self.assertEqual(
+            run_test.source_test_catalog("lib", None),
+            run_test.source_test_catalog("lib", ci.GAMEPLAY_FEATURE),
+            "test-gameplay may expose fixture capability, but executable gameplay tests belong to dedicated targets",
+        )
 
     def test_scoped_audits_do_not_build_the_other_broad_surface(self) -> None:
         core_builds = cargo_build_commands(ci.audit_plan("core"))
@@ -3493,6 +3496,7 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertEqual(
             targets,
             {
+                gameplay_targets.GAMEPLAY_AGENCY_TARGET,
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
                 *gameplay_targets.GAMEPLAY_OWNER_CONTRACT_TARGETS,
@@ -3898,7 +3902,7 @@ class ExactTestCommandTests(unittest.TestCase):
 
     def test_audit_gameplay_concerns_route_to_natural_focused_owners(self) -> None:
         for selector, expected_target in {
-            "gameplay_agency_counterfactuals": ci.GAMEPLAY_TARGETS["workshop"],
+            "gameplay_agency_counterfactuals": gameplay_targets.GAMEPLAY_AGENCY_TARGET,
             "scenario_tests::world_seed_never_changes_player_policy": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
             "primitive_liberation_contract_tests::primitive_liberation_content_closes_the_pre_smelting_processing_gap": ci.GAMEPLAY_CONTRACTS_TARGET,
         }.items():
@@ -4079,7 +4083,7 @@ class ExactTestCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous.*2 matches"):
             run_test.resolve_test_name("preserves_mass", catalog)
 
-    def test_library_exact_command_reuses_the_additive_unit_test_shape(self) -> None:
+    def test_library_exact_command_reuses_the_feature_minimal_unit_test_shape(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
@@ -4099,8 +4103,6 @@ class ExactTestCommandTests(unittest.TestCase):
                 "--profile",
                 run_test.UNIT_TEST_PROFILE,
                 "--lib",
-                "--features",
-                "test-gameplay",
                 "module::tests::case",
                 "--",
                 "--exact",
@@ -4219,7 +4221,11 @@ class ExactTestCommandTests(unittest.TestCase):
             fieldwork_contracts,
         )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
-        self.assertIn("gameplay_agency_counterfactuals", workshop)
+        self.assertNotIn("gameplay_agency_counterfactuals", workshop)
+        self.assertEqual(
+            run_test.source_test_catalog(gameplay_targets.GAMEPLAY_AGENCY_TARGET, None),
+            ["gameplay_agency_counterfactuals"],
+        )
         workshop_contracts = run_test.source_test_catalog(
             gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"], None
         )
@@ -4281,8 +4287,7 @@ class ExactTestCommandTests(unittest.TestCase):
             verbose=False,
         )
         command = run_test.cargo_command(args)
-        self.assertIn("--features", command)
-        self.assertIn("test-gameplay", command)
+        self.assertNotIn("--features", command)
         self.assertIn(args.name, command)
         self.assertNotIn("--exact", command)
 

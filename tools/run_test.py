@@ -34,7 +34,6 @@ GAMEPLAY_VARIATION_ENV = gameplay_targets.GAMEPLAY_VARIATION_ENV
 GAMEPLAY_BEHAVIOR_ENV = gameplay_targets.GAMEPLAY_BEHAVIOR_ENV
 GAMEPLAY_REPORT_MODE_ENV = gameplay_targets.GAMEPLAY_REPORT_MODE_ENV
 GAMEPLAY_VARIATION_SCOPE_ENV = gameplay_targets.GAMEPLAY_VARIATION_SCOPE_ENV
-GAMEPLAY_FEATURE = gameplay_targets.GAMEPLAY_FEATURE
 GAMEPLAY_PROBE_TESTS = gameplay_targets.GAMEPLAY_PROBE_TESTS
 GAMEPLAY_PROBE_SCOPES = gameplay_targets.GAMEPLAY_PROBE_SCOPES
 GAMEPLAY_BEHAVIOR_PROBE_TESTS = gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS
@@ -82,11 +81,7 @@ def requested_target_features(target: str, raw: str | None) -> set[str]:
     """Return one cache-stable local test feature shape plus any explicit features."""
 
     requested = feature_set(raw)
-    if target == "lib":
-        # Exact/suite unit tests and broad core checkpoints share one additive test-support shape.
-        # A second feature-minimal lib-test artifact would only fragment the expensive unit cache.
-        requested.add(GAMEPLAY_FEATURE)
-    else:
+    if target != "lib":
         requested.update(cargo_test_target_definition(target).get("required-features", []))
     return requested
 

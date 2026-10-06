@@ -21,9 +21,9 @@ check-fast = "check --quiet --locked --profile test --lib"
 # cloning the same large harness graph under Clippy. It shares the integration test profile/cache.
 lint-fast = "clippy --quiet --locked --profile test --lib -- -D warnings"
 # The large lib-test crate keeps its own persistent profile so unit-test rebuilds stay isolated from
-# focused gameplay artifacts. Core and exact tests share one additive feature shape so the expensive
-# library artifact is never duplicated while both profiles use the same incremental codegen tuning.
-test-core = "test --quiet --locked --profile unit-test --lib --features test-gameplay"
+# focused gameplay artifacts. Core and exact tests use the feature-minimal library shape; gameplay
+# fixture capability is compiled only by gameplay targets that consume it.
+test-core = "test --quiet --locked --profile unit-test --lib"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak lane pays that cost only on demand.
 test-soak = "test --quiet --locked --profile unit-test --lib --features test-soak -- --ignored"

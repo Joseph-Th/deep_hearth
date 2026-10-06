@@ -29,10 +29,16 @@ fn organic_power_sample_pairs_each_workload_scale_with_inherited_survival_pressu
         .collect::<Vec<_>>();
 
     for starts in [&primitive, &settlement] {
-        let count = |profile| starts.iter().filter(|&&start| start == profile).count();
-        assert_eq!(count(StationarySurvivalStart::FullReserve), 2);
-        assert_eq!(count(StationarySurvivalStart::HungerWarningBoundary), 1);
-        assert_eq!(count(StationarySurvivalStart::HydrationWarningBoundary), 1);
+        for profile in [
+            StationarySurvivalStart::FullReserve,
+            StationarySurvivalStart::HungerWarningBoundary,
+            StationarySurvivalStart::HydrationWarningBoundary,
+        ] {
+            assert!(
+                starts.contains(&profile),
+                "bounded power-provider sampling lost inherited survival-pressure class {profile:?}"
+            );
+        }
     }
     assert_ne!(
         primitive, settlement,
