@@ -514,8 +514,6 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     controlled = controlled_gameplay_summary(lines)
     _require_summary_coverage(lines, ordinary, controlled)
     scoped_ordinary = len(ordinary) == 1
-    if len(ordinary) == len(_ORDINARY_DIGEST_FIELDS):
-        selected.extend(line for line in lines if line.startswith("DESIGN TARGET "))
     ordinary_digests = [
         _digest_summary(summary, scoped=scoped_ordinary) for summary in ordinary
     ]

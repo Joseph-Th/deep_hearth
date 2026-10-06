@@ -488,18 +488,19 @@ class BuildFreeCiTests(unittest.TestCase):
         ):
             self.assertEqual(ci.main(), 0)
         self.assertEqual(stderr.getvalue(), "")
-        self.assertEqual(stdout.getvalue(), "quick ... PASS (0.5s; 4 checks)\n")
+        self.assertEqual(
+            stdout.getvalue(),
+            f"quick ... PASS (0.5s; {len(timings)} checks)\n",
+        )
 
     def test_failed_quick_run_reports_only_failed_checks(self) -> None:
         stages = ci.quick_plan()
         success = ci.subprocess.CompletedProcess(stages[0][1], 0, "", "")
         failure = ci.subprocess.CompletedProcess(stages[1][1], 1, "bad complexity", "")
         executions = {
-            tuple(stages[0][1]): (success, 0.1, None),
-            tuple(stages[1][1]): (failure, 0.2, None),
-            tuple(stages[2][1]): (success, 0.1, None),
-            tuple(stages[3][1]): (success, 0.1, None),
+            tuple(command): (success, 0.1, None) for _label, command in stages
         }
+        executions[tuple(stages[1][1])] = (failure, 0.2, None)
         with (
             mock.patch.object(
                 ci,
@@ -512,7 +513,8 @@ class BuildFreeCiTests(unittest.TestCase):
             self.assertIsNone(ci.run_quick_stages(stages))
         self.assertEqual(
             stdout.getvalue(),
-            "quick ... FAIL (1/4 checks)\n[2/4] complexity ratchet ... FAIL (0.2s)\n",
+            f"quick ... FAIL (1/{len(stages)} checks)\n"
+            f"[2/{len(stages)}] complexity ratchet ... FAIL (0.2s)\n",
         )
         self.assertNotIn("format changed Rust", stdout.getvalue())
         self.assertNotIn("repository contracts", stdout.getvalue())
@@ -1341,15 +1343,17 @@ class TestTopologyContractTests(unittest.TestCase):
             [("check", ["cargo", "check-fast"])],
         )
 
-    def test_local_test_profile_keeps_fast_incremental_shape_explicit(self) -> None:
+    def test_local_test_profiles_keep_incremental_cache_shape_explicit(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         profile = manifest["profile"]["test"]
         self.assertEqual(profile.get("debug"), 0)
-        self.assertEqual(profile.get("codegen-units"), 256)
         self.assertIs(profile.get("incremental"), True)
+        test_codegen_units = profile.get("codegen-units")
+        self.assertIsInstance(test_codegen_units, int)
+        self.assertGreater(test_codegen_units, 1)
         unit_profile = manifest["profile"][run_test.UNIT_TEST_PROFILE]
         self.assertEqual(unit_profile.get("inherits"), "test")
-        self.assertEqual(unit_profile.get("codegen-units"), 128)
+        self.assertNotIn("codegen-units", unit_profile)
         cargo_config = tomllib.loads(
             (ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8")
         )
@@ -2887,7 +2891,6 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertLess(len(concise.encode()), 6_500)
         for prefix in (
             "SIMULATION TIME ",
-            "DESIGN TARGET ",
             "GAMEPLAY primitive-progression scope=spatial-proxy ",
             "GAMEPLAY primitive-liberation ",
             "GAMEPLAY woodworking ",
@@ -2908,6 +2911,7 @@ class GameplayReportContractTests(unittest.TestCase):
                 f"missing digest line {prefix!r}",
             )
         for redundant in (
+            "DESIGN TARGET ",
             "EVALUATION SCOPE ",
             "PROBE INPUT ",
             "SURVIVAL EXPERIENCE ",
