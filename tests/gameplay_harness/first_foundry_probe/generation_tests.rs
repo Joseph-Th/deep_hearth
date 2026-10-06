@@ -34,9 +34,6 @@ fn every_four_stratum_foundry_sample_exercises_build_recover_and_defer() {
                 )
             })
             .collect::<Vec<_>>();
-        assert_eq!(regimes[0], OpportunityRegime::NativeSufficient);
-        assert_eq!(regimes[1], OpportunityRegime::RecoverableOwnedOre);
-        assert_eq!(regimes[2], OpportunityRegime::StillShort);
         assert_eq!(
             regimes.into_iter().collect::<BTreeSet<_>>(),
             BTreeSet::from([

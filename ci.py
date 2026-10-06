@@ -398,28 +398,18 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
         raise ValueError(f"unknown audit scope: {scope}")
 
     if scope == "all":
-        return [("gameplay+core", all_audit_command())]
+        # Keep the broad checkpoint on the same two artifact shapes used during repair.
+        # Combining --lib with the gameplay target in one Cargo invocation would force the large
+        # lib-test crate back onto the integration-test profile and discard the hot unit-test cache.
+        return [
+            ("core", cargo("test-core")),
+            ("gameplay", gameplay_command("all")),
+        ]
     if scope == "core":
         return [("core", cargo("test-core"))]
     if scope == "gameplay":
         return [("gameplay", gameplay_command("all"))]
     raise AssertionError("validated audit scope must return a plan")
-
-
-def all_audit_command() -> list[str]:
-    """Build core unit tests and the consolidated gameplay audit in one feature-compatible Cargo run."""
-
-    return [
-        "cargo",
-        "test",
-        "--quiet",
-        "--locked",
-        "--features",
-        GAMEPLAY_FEATURE,
-        "--lib",
-        "--test",
-        GAMEPLAY_AUDIT_TARGET,
-    ]
 
 
 def gameplay_target_command(

@@ -83,9 +83,8 @@ def requested_target_features(target: str, raw: str | None) -> set[str]:
 
     requested = feature_set(raw)
     if target == "lib":
-        # Exact/suite unit tests share the additive gameplay-test library artifact used by
-        # `ci.py audit --all`. The library test catalog is identical with this feature enabled,
-        # while switching between owner tests and gameplay checkpoints avoids a full lib rebuild.
+        # Exact/suite unit tests and broad core checkpoints share one additive test-support shape.
+        # A second feature-minimal lib-test artifact would only fragment the expensive unit cache.
         requested.add(GAMEPLAY_FEATURE)
     else:
         requested.update(cargo_test_target_definition(target).get("required-features", []))
@@ -146,6 +145,39 @@ def source_test_catalog(target: str, raw_features: str | None) -> list[str]:
     """Return exact test names from source without invoking Cargo or rustc."""
 
     return list(_source_test_catalog(target, raw_features))
+
+
+@lru_cache(maxsize=None)
+def _library_root_modules(raw_features: str | None) -> tuple[tuple[str, Path], ...]:
+    """Return enabled top-level library modules without walking their descendants."""
+
+    features = cargo_feature_set("lib", raw_features)
+    return tuple(
+        test_catalog.external_modules(ROOT, ROOT / "src" / "lib.rs", features)
+    )
+
+
+@lru_cache(maxsize=None)
+def _library_owner_test_catalog(owner: str, raw_features: str | None) -> tuple[str, ...]:
+    """Catalog tests beneath one known top-level library module only."""
+
+    module_root = dict(_library_root_modules(raw_features))[owner]
+    features = cargo_feature_set("lib", raw_features)
+    names: list[str] = []
+    for path, prefix in test_catalog.reachable_modules(ROOT, module_root, features):
+        names.extend(test_catalog.file_test_names(path, (owner, *prefix), features))
+    return tuple(sorted(set(names)))
+
+
+def library_owner_test_catalog(
+    selector: str, raw_features: str | None
+) -> list[str] | None:
+    """Return a qualified selector's library-owner catalog, or None for a non-library owner."""
+
+    owner, separator, _remainder = selector.partition("::")
+    if not separator or owner not in dict(_library_root_modules(raw_features)):
+        return None
+    return list(_library_owner_test_catalog(owner, raw_features))
 
 
 def test_targets() -> tuple[str, ...]:
@@ -209,11 +241,16 @@ def resolve_automatic_exact_selection(
     if target := gameplay_targets.GAMEPLAY_PROBE_TARGETS.get(selector):
         return target, selector
 
-    library_catalog = source_test_catalog("lib", raw_features)
-    if selector_uses_library_owner(selector, library_catalog):
+    library_catalog = library_owner_test_catalog(selector, raw_features)
+    if library_catalog is not None:
         library_matches = source_test_matches(selector, library_catalog)
         if len(library_matches) == 1:
             return "lib", library_matches[0]
+        if library_matches:
+            raise ValueError(
+                f"test selector is ambiguous: {selector} ({len(library_matches)} matches)"
+            )
+        raise ValueError(f"test selector not found: {selector}")
 
     locations = all_source_test_locations(raw_features)
     exact = [(target, name) for target, name in locations if name == selector]
@@ -231,11 +268,12 @@ def resolve_automatic_exact_selection(
 def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> str:
     """Choose one purpose-built target containing the complete globally matched logical suite."""
 
-    library_catalog = source_test_catalog("lib", raw_features)
-    if selector_uses_library_owner(selector, library_catalog):
+    library_catalog = library_owner_test_catalog(selector, raw_features)
+    if library_catalog is not None:
         library_matches = source_test_matches(selector, library_catalog)
         if library_matches:
             return "lib"
+        raise ValueError(f"test suite selector not found: {selector}")
 
     matches_by_target = {
         target: source_test_matches(selector, source_test_catalog(target, raw_features))
@@ -262,22 +300,21 @@ def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> s
     return preferred_target(complete_targets)
 
 
+def selection_error_catalog(selector: str, raw_features: str | None) -> list[str]:
+    """Keep diagnostics on a known library owner instead of scanning unrelated test targets."""
+
+    library_catalog = library_owner_test_catalog(selector, raw_features)
+    if library_catalog is not None:
+        return library_catalog
+    return all_source_test_names(raw_features)
+
+
 def source_test_matches(selector: str, catalog: list[str]) -> list[str]:
     """Return source-catalog tests selected by an exact name or substring."""
 
     if selector in catalog:
         return [selector]
     return [name for name in catalog if selector in name]
-
-
-def selector_uses_library_owner(selector: str, library_catalog: list[str]) -> bool:
-    """Return whether a qualified selector starts in a library-owned test namespace."""
-
-    owner, separator, _remainder = selector.partition("::")
-    if not separator:
-        return False
-    prefix = f"{owner}::"
-    return any(name.startswith(prefix) for name in library_catalog)
 
 
 def resolve_test_name(selector: str, catalog: list[str]) -> str:
@@ -493,11 +530,18 @@ def resolve_automatic_selection(args: argparse.Namespace) -> tuple[str, list[str
     try:
         if args.suite:
             args.target = resolve_automatic_suite_target(selector, args.features)
+            if args.target == "lib":
+                selected_catalog = library_owner_test_catalog(selector, args.features)
+                if selected_catalog is None:
+                    selected_catalog = source_test_catalog(args.target, args.features)
+            else:
+                selected_catalog = source_test_catalog(args.target, args.features)
         else:
             args.target, args.name = resolve_automatic_exact_selection(selector, args.features)
-        return selector, source_test_catalog(args.target, args.features)
+            selected_catalog = [args.name]
+        return selector, selected_catalog
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-        report_selection_error(selector, all_source_test_names(args.features), error)
+        report_selection_error(selector, selection_error_catalog(selector, args.features), error)
         return None
 
 
@@ -510,15 +554,15 @@ def resolve_automatic_build_target(args: argparse.Namespace) -> bool:
         args.target = target
         return True
     try:
-        library_catalog = source_test_catalog("lib", args.features)
-        if selector_uses_library_owner(selector, library_catalog) and source_test_matches(
-            selector, library_catalog
-        ):
-            args.target = "lib"
-            return True
+        library_catalog = library_owner_test_catalog(selector, args.features)
+        if library_catalog is not None:
+            if source_test_matches(selector, library_catalog):
+                args.target = "lib"
+                return True
+            raise ValueError(f"test selector not found: {selector}")
         args.target = resolve_automatic_suite_target(selector, args.features)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-        report_selection_error(selector, all_source_test_names(args.features), error)
+        report_selection_error(selector, selection_error_catalog(selector, args.features), error)
         return False
     return True
 
@@ -703,7 +747,13 @@ def main() -> int:
     if args.list:
         if args.target is None:
             try:
-                catalog = all_source_test_names(args.features)
+                catalog = (
+                    library_owner_test_catalog(args.name, args.features)
+                    if args.name is not None
+                    else None
+                )
+                if catalog is None:
+                    catalog = all_source_test_names(args.features)
             except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
                 print(f"FAIL source test catalog: {error}", file=sys.stderr)
                 return 2

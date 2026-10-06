@@ -304,7 +304,24 @@ class CargoToolingTests(unittest.TestCase):
         args = run_test.parse_args(
             ["--build", "core::time::tests::not_a_real_test_name"]
         )
-        with contextlib.redirect_stderr(io.StringIO()):
+        with (
+            mock.patch.object(
+                run_test,
+                "resolve_automatic_suite_target",
+                side_effect=AssertionError("known library typo must not scan gameplay targets"),
+            ),
+            mock.patch.object(
+                run_test,
+                "all_source_test_names",
+                side_effect=AssertionError("known library typo diagnostics must stay owner-local"),
+            ),
+            mock.patch.object(
+                run_test,
+                "source_test_catalog",
+                side_effect=AssertionError("known library typo must not scan the whole library"),
+            ),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
             self.assertFalse(run_test.resolve_automatic_build_target(args))
         self.assertIsNone(args.target)
 
@@ -1739,17 +1756,24 @@ class GameplayCiRoutingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly one build-producing lane"):
             ci.plan_for(gate_args(soak=True, gameplay="ore"))
 
-    def test_all_audit_reuses_one_gameplay_feature_build(self) -> None:
+    def test_all_audit_reuses_existing_core_and_gameplay_cache_shapes(self) -> None:
         plan = ci.audit_plan("all")
         builds = cargo_build_commands(plan)
-        self.assertEqual(builds, [ci.all_audit_command()])
+        self.assertEqual(
+            plan,
+            [
+                ("core", ["cargo", "test-core"]),
+                ("gameplay", ci.gameplay_command("all")),
+            ],
+        )
+        self.assertEqual(builds, [["cargo", "test-core"], ci.gameplay_command("all")])
         self.assertFalse(any("check-fast" in command for command in builds))
         self.assertFalse(any(stage in ci.quick_plan() for stage in plan))
-        self.assertIn(ci.GAMEPLAY_FEATURE, builds[0])
-        self.assertIn("--lib", builds[0])
-        self.assertEqual(cargo_test_targets(builds[0]), [ci.GAMEPLAY_AUDIT_TARGET])
+        self.assertEqual(cargo_test_targets(builds[0]), [])
+        self.assertEqual(cargo_test_targets(builds[1]), [ci.GAMEPLAY_AUDIT_TARGET])
+        self.assertNotIn("--lib", builds[1])
 
-    def test_gameplay_feature_is_additive_for_combined_audit(self) -> None:
+    def test_gameplay_feature_is_additive_for_core_and_gameplay_audits(self) -> None:
         negative_feature_cfg = re.compile(
             r'#\s*\[\s*cfg[^\]]*not\s*\(\s*feature\s*=\s*"test-gameplay"'
         )
@@ -1761,10 +1785,10 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertEqual(
             offenders,
             [],
-            "combined audit assumes test-gameplay only adds fixture/test capability",
+            "broad audits assume test-gameplay only adds fixture/test capability",
         )
 
-    def test_core_and_exact_tests_share_the_additive_gameplay_library_shape(self) -> None:
+    def test_core_and_exact_tests_share_one_additive_library_shape(self) -> None:
         config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
         core_alias = config["alias"]["test-core"]
         gameplay = " ".join(ci.gameplay_command("all"))
@@ -1805,14 +1829,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
         output = "failures:\n    mining::execution::tests::missing_capability\n"
         self.assertEqual(
             ci.repair_hint(["cargo", "test-core"], output, ""),
-            "python tools/run_test.py mining::execution::tests::missing_capability",
-        )
-
-    def test_all_audit_core_failure_points_to_one_exact_repair(self) -> None:
-        output = "failures:\n    mining::execution::tests::missing_capability\n"
-        error = "error: test failed, to rerun pass `--lib`"
-        self.assertEqual(
-            ci.repair_hint(ci.all_audit_command(), output, error),
             "python tools/run_test.py mining::execution::tests::missing_capability",
         )
 
@@ -3970,7 +3986,7 @@ class ExactTestCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous.*2 matches"):
             run_test.resolve_test_name("preserves_mass", catalog)
 
-    def test_library_exact_command_reuses_the_additive_gameplay_test_shape(self) -> None:
+    def test_library_exact_command_reuses_the_additive_unit_test_shape(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
@@ -3998,19 +4014,18 @@ class ExactTestCommandTests(unittest.TestCase):
             ],
         )
 
-    def test_additive_gameplay_feature_does_not_change_the_library_test_catalog(self) -> None:
-        root = ROOT / "src" / "lib.rs"
-        without_feature = sorted(run_test.reachable_test_names(root, set()))
-        with_feature = sorted(
-            run_test.reachable_test_names(root, {ci.GAMEPLAY_FEATURE})
-        )
-        self.assertEqual(with_feature, without_feature)
-
     def test_qualified_unit_selection_does_not_scan_gameplay_targets(self) -> None:
-        with mock.patch.object(
-            run_test,
-            "all_source_test_locations",
-            side_effect=AssertionError("qualified unit selection widened to gameplay catalogs"),
+        with (
+            mock.patch.object(
+                run_test,
+                "all_source_test_locations",
+                side_effect=AssertionError("qualified unit selection widened to gameplay catalogs"),
+            ),
+            mock.patch.object(
+                run_test,
+                "source_test_catalog",
+                side_effect=AssertionError("qualified unit selection scanned the whole library"),
+            ),
         ):
             target, name = run_test.resolve_automatic_exact_selection(
                 "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",

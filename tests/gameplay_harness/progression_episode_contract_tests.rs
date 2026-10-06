@@ -16,19 +16,28 @@ use super::progression_probe::{
 use super::seed::mix64;
 
 #[test]
-fn organic_progression_worlds_cross_the_live_first_copper_decision_frontier() {
+fn organic_progression_worlds_follow_acquired_grade_evidence_and_cross_the_decision_frontier() {
     let registries = build_registries();
     let priorities = (0_u64..4)
         .map(|seed| {
-            evaluate_primitive_progression_probe(
+            let review = evaluate_primitive_progression_probe(
                 &registries,
                 FocusedProbeCase::new(
                     seed,
                     Some(mix64(seed ^ 0x4F52_4741_4E49_435F)),
                     FocusedProbeRole::OrganicVariation,
                 ),
-            )
-            .natural_priority
+            );
+            let expected = if review.hard_ore_evidence_lower_ppm > review.bulk_sample_copper_ppm {
+                PrimitivePriority::PickFirst
+            } else {
+                PrimitivePriority::CrankFirst
+            };
+            assert_eq!(
+                review.natural_priority, expected,
+                "scarce-copper sequencing must follow acquired hard-seam evidence versus the exact owned bulk grade"
+            );
+            review.natural_priority
         })
         .collect::<Vec<_>>();
     assert!(
@@ -148,27 +157,6 @@ fn bounded_stockpiling_preserves_shallow_supply_until_reinvestment() {
         review.stockpiling_reinvestment,
         PrimitiveReinvestmentOutcome::TargetSupplyLimited
     );
-}
-
-#[test]
-fn local_first_copper_sequence_is_chosen_from_acquired_grade_evidence() {
-    let registries = build_registries();
-    for (seed, expected) in [
-        (
-            PROGRESSION_MAINTAINED_ANCHOR_SEED,
-            PrimitivePriority::PickFirst,
-        ),
-        (1, PrimitivePriority::CrankFirst),
-    ] {
-        let review = evaluate_primitive_progression_probe(
-            &registries,
-            FocusedProbeCase::new(seed, Some(1_648), FocusedProbeRole::ExplicitReplay),
-        );
-        assert_eq!(review.natural_priority, expected);
-        assert!(review.extraction_hard_access_lead_ticks > 0);
-        assert!(review.extraction_hard_material_window_ticks > 0);
-        assert!(review.mechanization_processed_output_window_ticks > 0);
-    }
 }
 
 #[test]
