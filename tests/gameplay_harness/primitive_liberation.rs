@@ -529,43 +529,23 @@ fn plan_liberation_extension(
     }
 }
 
-fn liberation_extension_crossover_batches(
-    registries: &Registries,
-    case: FocusedProbeCase,
-    batch_mass: Mass,
-) -> u64 {
-    let crossover = (1_u64..=32)
-        .find(|&batches| {
-            plan_liberation_extension(registries, case, batch_mass, batches).choice
-                == LiberationExtensionChoice::BuildKit
-        })
-        .unwrap_or_else(|| panic!("liberation extension never repays within 32 disclosed batches"));
-    assert!(
-        crossover > 1,
-        "liberation extension became an automatic one-batch upgrade; the manual fallback lost its workload niche"
-    );
-    crossover
-}
-
-fn disclosed_campaign_batches(
-    registries: &Registries,
-    case: FocusedProbeCase,
-    batch_mass: Mass,
-) -> u64 {
+fn disclosed_campaign_batches(case: FocusedProbeCase) -> u64 {
     match case.role() {
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
             PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES
         }
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            let crossover = liberation_extension_crossover_batches(registries, case, batch_mass);
-            match case.seed() & 0b11 {
-                0 => 1,
-                1 => crossover - 1,
-                2 => crossover,
-                _ => crossover
-                    .checked_add(1 + mix64(case.seed() ^ 0x4C49_4245_5248_4F52) % 3)
-                    .unwrap_or_else(|| panic!("liberation organic campaign horizon overflowed")),
-            }
+            // Campaign horizon is player-visible demand. Generate it independently of the live
+            // extension payback threshold so the investment outcome is observed rather than baked
+            // into the fixture. Low-bit strata spread small reports across the current campaign
+            // envelope while mixed entropy varies the exact horizon.
+            let stratum = case.seed() & 0b11;
+            let width = PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES.div_ceil(4);
+            let lower = 1 + stratum * width;
+            let upper = lower
+                .saturating_add(width.saturating_sub(1))
+                .min(PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES);
+            lower + mix64(case.seed() ^ 0x4C49_4245_5248_4F52) % (upper - lower + 1)
         }
     }
 }
@@ -669,7 +649,7 @@ fn primitive_liberation_world_parameters(
         !batch_mass.is_zero(),
         "primitive liberation generated no representable batch"
     );
-    let planned_batches = disclosed_campaign_batches(registries, case, batch_mass);
+    let planned_batches = disclosed_campaign_batches(case);
     PrimitiveLiberationWorldParameters {
         planned_batches,
         batch_mass,

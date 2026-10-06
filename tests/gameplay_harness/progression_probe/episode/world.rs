@@ -48,7 +48,6 @@ pub(super) fn setup_progression_world(
     registries: &Registries,
     seed: u64,
     low_trace_grade_regime: bool,
-    stratify_first_copper_choice: bool,
     ore_opportunity_batch_budget: u64,
 ) -> (ProgressionWorldSetup, ProgressionFixtureDiagnostics) {
     assert!(
@@ -92,8 +91,7 @@ pub(super) fn setup_progression_world(
     let ore_storage_capacity = soft_ore_deposit_mass
         .checked_add(hard_ore_deposit_mass)
         .unwrap_or_else(|| panic!("primitive progression ore staging capacity overflowed"));
-    let (ore_copper_ppm, hard_ore_copper_ppm) =
-        progression_ore_grades(registries, seed, stratify_first_copper_choice);
+    let (ore_copper_ppm, hard_ore_copper_ppm) = progression_ore_grades(seed);
     let soft_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x534F_4654_5F47_414E) % 750_001)
         .unwrap_or_else(|_| unreachable!("bounded soft-ore gangue variation fits u32"));
     // Hardness is an access constraint, not a promise of grade. A difficult seam can be excellent,
@@ -325,11 +323,7 @@ pub(super) fn setup_progression_world(
     )
 }
 
-fn progression_ore_grades(
-    registries: &Registries,
-    seed: u64,
-    stratify_first_copper_choice: bool,
-) -> (u32, u32) {
+fn progression_ore_grades(seed: u64) -> (u32, u32) {
     const SOFT_MIN_PPM: u32 = 450_000;
     const SOFT_MAX_PPM: u32 = 750_000;
     const HARD_MIN_PPM: u32 = 500_000;
@@ -337,57 +331,8 @@ fn progression_ore_grades(
 
     let soft_roll = mix64(seed ^ 0x5052_4F47_4752_4144);
     let hard_roll = mix64(seed ^ 0x4841_5244_5F47_5244);
-    if !stratify_first_copper_choice {
-        return (
-            SOFT_MIN_PPM + (soft_roll % u64::from(SOFT_MAX_PPM - SOFT_MIN_PPM + 1)) as u32,
-            HARD_MIN_PPM + (hard_roll % u64::from(HARD_MAX_PPM - HARD_MIN_PPM + 1)) as u32,
-        );
-    }
-
-    let uncertainty_ppm = registries
-        .labor()
-        .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
-        .map(|method| method.abundance_uncertainty_ppm())
-        .unwrap_or_else(|| panic!("primitive progression detailed field survey disappeared"));
-    // Exploratory low-bit strata cross the current evidence-driven scarce-copper frontier. Exact
-    // grades remain seed-derived; only their relative physical pressure is stratified. The actor
-    // still discovers the geology through canonical prospecting and chooses from acquired evidence.
-    // Explicit replay uses the same rule, so a captured organic seed reproduces its original world.
-    let pick_first_pressure = seed & 0b10 != 0;
-    if pick_first_pressure {
-        let soft_max = SOFT_MAX_PPM.min(
-            HARD_MAX_PPM
-                .checked_sub(uncertainty_ppm)
-                .and_then(|value| value.checked_sub(1))
-                .unwrap_or_else(|| {
-                    panic!(
-                        "detailed prospecting uncertainty leaves no grade space for a clearly better hard seam"
-                    )
-                }),
-        );
-        assert!(
-            soft_max >= SOFT_MIN_PPM,
-            "current detailed prospecting precision cannot represent both progression copper choices"
-        );
-        let soft = SOFT_MIN_PPM + (soft_roll % u64::from(soft_max - SOFT_MIN_PPM + 1)) as u32;
-        let hard_min = HARD_MIN_PPM.max(
-            soft.checked_add(uncertainty_ppm)
-                .and_then(|value| value.checked_add(1))
-                .unwrap_or_else(|| panic!("progression hard-grade lower bound overflowed")),
-        );
-        assert!(hard_min <= HARD_MAX_PPM);
-        let hard = hard_min + (hard_roll % u64::from(HARD_MAX_PPM - hard_min + 1)) as u32;
-        (soft, hard)
-    } else {
-        let soft_min = SOFT_MIN_PPM.max(HARD_MIN_PPM.saturating_sub(uncertainty_ppm));
-        assert!(soft_min <= SOFT_MAX_PPM);
-        let soft = soft_min + (soft_roll % u64::from(SOFT_MAX_PPM - soft_min + 1)) as u32;
-        let hard_max = HARD_MAX_PPM.min(soft.checked_add(uncertainty_ppm).unwrap_or(HARD_MAX_PPM));
-        assert!(
-            hard_max >= HARD_MIN_PPM,
-            "current detailed prospecting precision cannot represent a bulk-competitive hard seam"
-        );
-        let hard = HARD_MIN_PPM + (hard_roll % u64::from(hard_max - HARD_MIN_PPM + 1)) as u32;
-        (soft, hard)
-    }
+    (
+        SOFT_MIN_PPM + (soft_roll % u64::from(SOFT_MAX_PPM - SOFT_MIN_PPM + 1)) as u32,
+        HARD_MIN_PPM + (hard_roll % u64::from(HARD_MAX_PPM - HARD_MIN_PPM + 1)) as u32,
+    )
 }

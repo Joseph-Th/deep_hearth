@@ -3069,7 +3069,8 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("GAMEPLAY loop-dynamics ", concise)
         self.assertIn("thermal-bootstrap=1/1", concise)
         self.assertIn(
-            "GAMEPLAY loop continuity=[primitive:1/1 later:separate]",
+            "GAMEPLAY loop-shape continuity=[progression:1/1 settlement-repeat:0/1 "
+            "liberation-carry:1/1 foundry-carry:1/1 literal-cross-era:false]",
             concise,
         )
         self.assertIn(
@@ -3219,8 +3220,8 @@ class GameplayReportContractTests(unittest.TestCase):
         output = "\n".join(
             (
                 "PROBE INPUT name=settlement mode=explore samples=2 organic=1",
-                "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:2 mass:200mg baseline-crossover:4] decision=[choice:frame-saw minimum-return:100000ppm baseline:100t mechanized:120t setup:20t margin:-20t] execution=[active:100t delegated:0t upgraded:false] prior-infrastructure=[frame-saw-condition:1000000ppm crank-condition:1000000ppm]",
-                "SETTLEMENT EXPERIENCE seed=0x2 sample=organic demand=[batches:8 mass:800mg baseline-crossover:4] decision=[choice:sash-sawmill minimum-return:100000ppm baseline:400t mechanized:260t setup:120t margin:+140t] execution=[active:260t delegated:80t upgraded:true] prior-infrastructure=[frame-saw-condition:875000ppm crank-condition:910000ppm]",
+                "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:2 mass:200mg baseline-crossover:4] decision=[choice:frame-saw basis:attention-return minimum-return:100000ppm baseline:100t mechanized:120t setup:20t margin:-20t] execution=[active:100t delegated:0t upgraded:false] prior-infrastructure=[frame-saw-condition:1000000ppm crank-condition:1000000ppm]",
+                "SETTLEMENT EXPERIENCE seed=0x2 sample=organic demand=[batches:8 mass:800mg baseline-crossover:4] decision=[choice:sash-sawmill basis:capacity minimum-return:100000ppm baseline:400t mechanized:260t setup:120t margin:+140t] execution=[active:260t delegated:80t upgraded:true] prior-infrastructure=[frame-saw-condition:875000ppm crank-condition:910000ppm]",
             )
         )
         concise = gameplay_report_summary.concise_gameplay_report(output, {})
@@ -3230,9 +3231,10 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertNotIn("choice=[frame:1 sawmill:1]", concise)
         self.assertIn(
-            "organic-play=[decision=[frame:0 sawmill:1] demand:8..8batches wear=[saw:875000..875000ppm crank:910000..910000ppm]]",
+            "organic-play=[decision=[frame:0 sawmill:1] demand:8..8batches capacity-driven:1/1 wear=[saw:875000..875000ppm crank:910000..910000ppm]]",
             concise,
         )
+        self.assertIn("decision-basis=[attention:1 capacity:1]", concise)
 
     def test_liberation_digest_prefers_organic_lifecycle_over_maintained_payback(self) -> None:
         summary = (

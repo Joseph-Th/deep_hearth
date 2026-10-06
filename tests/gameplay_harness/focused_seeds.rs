@@ -20,6 +20,9 @@ pub(super) fn exploratory_variation_count(name: &str) -> usize {
     match name {
         "fieldwork" => EXPLORATORY_VARIATION_COUNT * 5,
         "foundry-bootstrap" => EXPLORATORY_VARIATION_COUNT * 3,
+        "primitive-progression" | "primitive-liberation" | "settlement" => {
+            EXPLORATORY_VARIATION_COUNT * 2
+        }
         _ => EXPLORATORY_VARIATION_COUNT,
     }
 }

@@ -63,6 +63,11 @@ def settlement_summary(lines: list[str]) -> str | None:
     mechanized_lines = [line for line in settlement if "choice:sash-sawmill" in line]
     saved = _values(mechanized_lines, r"margin:\+(\d+)t")
     mechanized_delegated = _values(mechanized_lines, r"delegated:(\d+)t")
+    capacity_decisions = sum(" basis:capacity " in line for line in settlement)
+    attention_decisions = sum(" basis:attention-return " in line for line in settlement)
+    organic_capacity_decisions = sum(
+        " basis:capacity " in line for line in organic_settlement
+    )
     machine_repeat_drop: list[int] = []
     manual_repeat_growth: list[int] = []
     repeat_delegated: list[int] = []
@@ -72,6 +77,8 @@ def settlement_summary(lines: list[str]) -> str | None:
     followup_complete = 0
     followup_partial = 0
     followup_blocked = 0
+    followup_capacity_decisions = 0
+    followup_attention_decisions = 0
     for line in settlement:
         repeat = re.search(
             r"execution=\[active:(\d+)t .*? upgraded:(true|false).*?\] "
@@ -92,6 +99,10 @@ def settlement_summary(lines: list[str]) -> str | None:
         delegated_ticks = int(repeat.group(7))
         owned_before = repeat.group(8) == "true"
         reinvested = repeat.group(9) == "true"
+        followup_capacity_decisions += "followup-reassessment=[basis:capacity " in line
+        followup_attention_decisions += (
+            "followup-reassessment=[basis:attention-return " in line
+        )
         if terminal == "complete":
             assert completed_batches == demand_batches
             followup_complete += 1
@@ -201,6 +212,7 @@ def settlement_summary(lines: list[str]) -> str | None:
         f"choice=[frame:{direct} sawmill:{mechanized}] "
         f"organic-play=[decision=[frame:{organic_direct} sawmill:{organic_mechanized}] "
         f"demand:{_span(organic_batches, 'batches')} "
+        f"capacity-driven:{organic_capacity_decisions}/{len(organic_settlement)} "
         f"wear=[saw:{_span(organic_frame_start_condition, 'ppm')} "
         f"crank:{_span(organic_crank_start_condition, 'ppm')}]] "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
@@ -214,6 +226,8 @@ def settlement_summary(lines: list[str]) -> str | None:
         f"payoff=[attention-saved:{_span(saved, 't')} "
         f"delegated:{_span(mechanized_delegated, 't')}] "
         f"mechanization=[builds:{builds}/{len(settlement)} "
-        f"delegated:{min(delegated)}..{max(delegated)}t]"
+        f"delegated:{min(delegated)}..{max(delegated)}t "
+        f"decision-basis=[attention:{attention_decisions} capacity:{capacity_decisions}]]"
+        f" followup-basis=[attention:{followup_attention_decisions} capacity:{followup_capacity_decisions}]"
         f"{followup_payoff}{portfolio}{stored_work}{capital_witnesses}{delegation_witnesses}{witness_scope}"
     )

@@ -49,62 +49,26 @@ fn crossover_workloads_stay_on_their_live_economic_sides_and_vary_with_entropy()
 }
 
 #[test]
-fn organic_settlement_generation_straddles_supplied_crossovers_and_varies_actor_policy() {
-    for crossover in [4_u64, 8, 16, 32, 64, 96] {
-        let demands = (0_u64..=127)
-            .map(|entropy| organic_lumber_batches(entropy & 0b11, entropy, Some(crossover), 192))
-            .collect::<BTreeSet<_>>();
-        assert!(
-            demands.len() > 1,
-            "organic settlement generation collapsed to one disclosed order around crossover {crossover}"
-        );
-        assert!(
-            demands.iter().any(|batches| *batches < crossover)
-                && demands.iter().any(|batches| *batches > crossover),
-            "organic settlement demand must sample both sides of supplied crossover {crossover}"
-        );
-        for root in [0_u64, 4, 0x1234_5678_9ABC_DEF0] {
-            let bounded = (0_u64..4)
-                .map(|offset| {
-                    let world = root + offset;
-                    organic_lumber_batches(world & 0b11, world, Some(crossover), 192)
-                })
-                .collect::<Vec<_>>();
-            assert!(
-                bounded.iter().any(|batches| *batches < crossover)
-                    && bounded.iter().any(|batches| *batches > crossover),
-                "one four-stratum settlement sample must cross supplied crossover {crossover}"
-            );
-        }
-        for stratum in 0_u64..4 {
-            let values = (0_u64..32)
-                .map(|entropy| {
-                    organic_lumber_batches(
-                        stratum,
-                        entropy.wrapping_mul(0x9E37_79B9_7F4A_7C15),
-                        Some(crossover),
-                        192,
-                    )
-                })
-                .collect::<BTreeSet<_>>();
-            assert!(
-                values.len() > 1,
-                "settlement pressure stratum {stratum} became a rigid fixed scenario"
-            );
-            if stratum & 1 == 0 {
-                assert!(values.iter().all(|batches| *batches < crossover));
-            } else {
-                assert!(values.iter().all(|batches| *batches > crossover));
-            }
-        }
-    }
-    let no_crossover = (0_u64..=127)
-        .map(|entropy| organic_lumber_batches(entropy & 0b11, entropy, None, 192))
+fn organic_settlement_generation_varies_visible_demand_without_using_investment_outcomes() {
+    let demands = (0_u64..=127)
+        .map(|entropy| organic_lumber_batches(entropy & 0b11, entropy, 192))
         .collect::<BTreeSet<_>>();
     assert!(
-        no_crossover.len() > 1 && no_crossover.iter().all(|batches| *batches < 192),
-        "settlement demand must remain varied and leave a follow-up opportunity when mechanization has no disclosed crossover"
+        demands.len() > 16,
+        "organic settlement generation collapsed to a narrow disclosed-order set"
     );
+    assert!(demands.iter().all(|batches| (8..=72).contains(batches)));
+    for stratum in 0_u64..4 {
+        let values = (0_u64..64)
+            .map(|entropy| {
+                organic_lumber_batches(stratum, entropy.wrapping_mul(0x9E37_79B9_7F4A_7C15), 192)
+            })
+            .collect::<BTreeSet<_>>();
+        assert!(
+            values.len() > 1,
+            "settlement pressure stratum {stratum} became a rigid fixed scenario"
+        );
+    }
     assert!(
         (1_u64..=128)
             .map(organic_investment_policy)

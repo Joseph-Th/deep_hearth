@@ -1,6 +1,6 @@
 //! Matched primitive and settlement human-power comparisons through canonical craft and charging.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
@@ -451,11 +451,11 @@ fn declared_primitive_crushing_project(
 pub(super) fn declared_settlement_lumber_project(
     registries: &Registries,
     seed: u64,
-    market_regime_starts: &[u64],
 ) -> (Mass, Energy) {
-    // Settlement demand samples the union of current spend-copper and preserve-copper market
-    // regimes. This makes copper opportunity cost visible without allowing behavior policy to
-    // choose its own workload. Each unit is one current full flywheel-bank workload.
+    // Settlement demand is generated independently of the provider market. Each unit is one
+    // current full flywheel-bank workload; provider identity must emerge from current lifecycle
+    // economics, copper policy, and actor preference rather than from a workload chosen around the
+    // market's live decision boundaries.
     let store = registries
         .energy()
         .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
@@ -474,7 +474,6 @@ pub(super) fn declared_settlement_lumber_project(
     );
     let bank_workloads = sampled_workload_units(
         seed,
-        market_regime_starts,
         maximum_sampled_workload_units(planning::settlement_crossover_search_limit()),
         0x5345_5454_5F4C_554D,
     );
@@ -490,48 +489,12 @@ pub(super) fn declared_settlement_lumber_project(
     )
 }
 
-fn sampled_workload_units(
-    seed: u64,
-    regime_starts: &[u64],
-    opportunity_units: u64,
-    salt: u64,
-) -> u64 {
+fn sampled_workload_units(seed: u64, opportunity_units: u64, salt: u64) -> u64 {
     assert!(
         opportunity_units > 0,
         "power-provider workload opportunity must be nonzero"
     );
-    if regime_starts.is_empty() {
-        return 1 + mix64(seed ^ salt) % opportunity_units;
-    }
-    assert_eq!(
-        regime_starts.first().copied(),
-        Some(1),
-        "power-provider market regimes must begin at one workload"
-    );
-    assert!(
-        regime_starts.windows(2).all(|window| window[0] < window[1]),
-        "power-provider market regime starts must be strictly increasing"
-    );
-    let mixed = mix64(seed ^ salt);
-    let regime_index = usize::try_from(mixed % regime_starts.len() as u64)
-        .unwrap_or_else(|_| unreachable!("bounded regime index fits usize"));
-    let lower = regime_starts[regime_index];
-    assert!(
-        lower <= opportunity_units,
-        "power-provider market regime begins beyond disclosed opportunity"
-    );
-    let upper = regime_starts
-        .get(regime_index + 1)
-        .map_or_else(
-            || {
-                lower
-                    .saturating_add((lower / 2).max(4))
-                    .min(opportunity_units)
-            },
-            |next| next.saturating_sub(1).min(opportunity_units),
-        )
-        .max(lower);
-    lower + mix64(mixed ^ 0x574F_524B_4C4F_4144) % (upper - lower + 1)
+    1 + mix64(seed ^ salt) % opportunity_units
 }
 
 fn maximum_sampled_workload_units(search_limit: u64) -> u64 {
@@ -816,33 +779,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_survival_start,
         "settlement power-provider",
     );
-    let baseline_settlement_spend_frontier = planning::settlement_power_decision_frontier(
-        registries,
-        &settlement_state,
-        settlement_raw,
-        settlement_shaped,
-        settlement_capacity_nj,
-        SettlementCopperPolicy::SpendAvailable,
-        CapitalInvestmentPolicy::baseline(),
-    );
-    let baseline_settlement_preserve_frontier = planning::settlement_power_decision_frontier(
-        registries,
-        &settlement_state,
-        settlement_raw,
-        settlement_shaped,
-        settlement_capacity_nj,
-        SettlementCopperPolicy::PreserveForOtherUses,
-        CapitalInvestmentPolicy::baseline(),
-    );
-    let settlement_market_regimes = baseline_settlement_spend_frontier
-        .iter()
-        .chain(&baseline_settlement_preserve_frontier)
-        .map(|(charges, _)| *charges)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
     let (settlement_project_mass, settlement_project_work) =
-        declared_settlement_lumber_project(registries, seed, &settlement_market_regimes);
+        declared_settlement_lumber_project(registries, seed);
     assert!(settlement_project_mass <= settlement_available_mass);
     let settlement_consumer = build_settlement_power_consumer(
         registries,

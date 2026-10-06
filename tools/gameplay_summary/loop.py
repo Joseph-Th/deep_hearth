@@ -89,6 +89,32 @@ def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
     )
 
 
+def _continuity_evidence(evidence: _LoopEvidenceLines) -> str:
+    progression_single_state = sum(
+        " continuity=single-state " in line for line in evidence.progression_reviews
+    )
+    settlement_same_state_followup = sum(" followup=[" in line for line in evidence.settlement)
+    selected_liberation = [
+        line for line in evidence.liberation_kit if " branch=selected " in line
+    ]
+    liberation_carryover = sum(
+        " continuity=separate-episode-inherited-progression-line " in line
+        for line in selected_liberation
+    )
+    foundry_carryover = sum(
+        " continuity=separate-episode " in line and " inherited-workshop=[" in line
+        for line in evidence.first_foundry
+    )
+    return (
+        "continuity=["
+        f"progression:{progression_single_state}/{len(evidence.progression_reviews)} "
+        f"settlement-repeat:{settlement_same_state_followup}/{len(evidence.settlement)} "
+        f"liberation-carry:{liberation_carryover}/{len(selected_liberation)} "
+        f"foundry-carry:{foundry_carryover}/{len(evidence.first_foundry)} "
+        "literal-cross-era:false]"
+    )
+
+
 def _observe_infer_evidence(fieldwork: list[str], extracted: int) -> str:
     return (
         "observe-infer=["
@@ -553,6 +579,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
     return (
         "PLAYER LOOP EVIDENCE "
         f"{_evidence_shape(evidence)} "
+        f"{_continuity_evidence(evidence)} "
         f"{_bootstrap_boundary_evidence(evidence.liberation_kit)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
         f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries, evidence.preservation_paths)} "

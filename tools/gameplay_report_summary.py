@@ -92,8 +92,8 @@ _ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
         "first-copper",
         "organic-first-copper",
+        "sequencing-physical",
         "feed-reassessment",
-        "processing-crossover",
         "disclosed-order-attention",
     ),
     "primitive-liberation": (
@@ -172,6 +172,8 @@ _ORDINARY_DIGEST_FIELDS = {
 _SCOPED_ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
         *_ORDINARY_DIGEST_FIELDS["primitive-progression"],
+        "sequencing-consequence",
+        "processing-crossover",
         "stockpile-alt",
         "executed-manual-fallback",
         "integrated-campaign",
@@ -181,7 +183,9 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
     "power-provider": (
         *_ORDINARY_DIGEST_FIELDS["power-provider"],
         "market",
-        "settlement-market",
+        "settlement-candidates",
+        "settlement-frontier",
+        "settlement-off-frontier",
     ),
     "settlement": (
         *_ORDINARY_DIGEST_FIELDS["settlement"],
@@ -427,17 +431,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         return f"GAMEPLAY {probe}{scope} {detail}".rstrip()
 
     if summary.startswith("PLAYER LOOP EVIDENCE "):
-        evidence_shape = field(summary, "evidence-shape")
-        continuity = ""
-        marker = "single-state-progression:"
-        if evidence_shape is not None and marker in evidence_shape:
-            ratio = evidence_shape.split(marker, 1)[1].split(" ", 1)[0].rstrip("]")
-            continuity = f"continuity=[primitive:{ratio} later:separate] "
-        shape = (
-            f"evidence=[single-state-progression:{ratio} later-domain-episodes:separate]"
-            if continuity
-            else compact_fields(summary, ("evidence-shape",))
-        )
+        continuity = compact_fields(summary, ("continuity",))
         core = compact_fields(
             summary,
             (
@@ -460,9 +454,9 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             ),
         )
         return (
-            f"GAMEPLAY loop-shape {shape}".rstrip()
+            f"GAMEPLAY loop-shape {continuity}".rstrip()
             + "\n"
-            + f"GAMEPLAY loop {continuity}{core}".rstrip()
+            + f"GAMEPLAY loop {core}".rstrip()
             + "\n"
             + f"GAMEPLAY loop-dynamics {dynamics} {investment}".rstrip()
         )

@@ -18,7 +18,7 @@ use super::seed::mix64;
 #[test]
 fn organic_progression_worlds_follow_acquired_grade_evidence_and_cross_the_decision_frontier() {
     let registries = build_registries();
-    let priorities = (0_u64..4)
+    let priorities = (0_u64..32)
         .map(|seed| {
             let review = evaluate_primitive_progression_probe(
                 &registries,
@@ -43,7 +43,7 @@ fn organic_progression_worlds_follow_acquired_grade_evidence_and_cross_the_decis
     assert!(
         priorities.contains(&PrimitivePriority::PickFirst)
             && priorities.contains(&PrimitivePriority::CrankFirst),
-        "the four organic world strata must exercise both evidence-driven scarce-copper choices: {priorities:?}"
+        "the broad independent geology sample must retain both evidence-driven scarce-copper choices: {priorities:?}"
     );
 }
 

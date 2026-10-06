@@ -86,6 +86,33 @@ def _feed_reassessment_evidence(lines: list[str], progression: list[str]) -> str
     )
 
 
+def _sequencing_evidence(lines: list[str], progression: list[str]) -> str:
+    hard_access: list[int] = []
+    autonomous_output: list[int] = []
+    convergence: list[int] = []
+    for line in progression:
+        tradeoff = re.search(
+            r"tradeoff=\[hard-access-lead:(\d+)t autonomous-output-window:(\d+)t\]",
+            line,
+        )
+        converged = re.search(r"\beventual-convergence:([+-]\d+)t", line)
+        if tradeoff is not None:
+            hard_access.append(int(tradeoff.group(1)))
+            autonomous_output.append(int(tradeoff.group(2)))
+        if converged is not None:
+            convergence.append(abs(int(converged.group(1))))
+    return (
+        "sequencing-consequence=["
+        f"hard-access-lead:{_span(hard_access)} "
+        f"automation-output-lead:{_span(autonomous_output)} "
+        f"eventual-convergence:{_span(convergence)}] "
+        "sequencing-physical=["
+        f"hard-access-lead:{physical_duration_span(lines, hard_access)} "
+        f"automation-output-lead:{physical_duration_span(lines, autonomous_output)} "
+        f"eventual-convergence:{physical_duration_span(lines, convergence)}]"
+    )
+
+
 def _stockpiling_evidence(progression: list[str]) -> tuple[str, str]:
     def values(pattern: str) -> list[int]:
         return [
@@ -350,6 +377,7 @@ def progression_summary(lines: list[str]) -> str | None:
         f"{feed_reassessment} "
         f"organic-first-copper=[pick:{sum('local-copper-sequence=pick-first' in line for line in organic_progression)} "
         f"crank:{sum('local-copper-sequence=crank-first' in line for line in organic_progression)}] "
+        f"{_sequencing_evidence(lines, progression)} "
         f"scarcity-bridge=[direct-second-blocked:{sum('direct-second-upgrade-blocked:true' in line for line in progression)} "
         f"processed-output-playable:{sum('processed-output-playable:true' in line for line in progression)} "
         f"converged:{sum('converged-both-upgrades:true' in line for line in progression)}] "

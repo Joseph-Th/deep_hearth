@@ -33,9 +33,9 @@ use crate::production_timing::finish_uninterrupted_production_job;
 use crate::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PoweredLumberSequenceProjection {
-    batches: u64,
-    delegated_ticks: u64,
+pub(super) struct PoweredLumberSequenceProjection {
+    pub(super) batches: u64,
+    pub(super) delegated_ticks: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -83,7 +83,7 @@ pub(super) struct LumberFollowupResult {
     pub(super) final_upgraded: bool,
 }
 
-fn project_setup_equipment_condition(
+pub(super) fn project_setup_equipment_condition(
     registries: &Registries,
     plans: &[SetupPlan],
     equipment_id: EquipmentId,
@@ -109,7 +109,7 @@ fn project_setup_equipment_condition(
     condition
 }
 
-fn maximum_feasible_batches(upper: u64, mut feasible: impl FnMut(u64) -> bool) -> u64 {
+pub(super) fn maximum_feasible_batches(upper: u64, mut feasible: impl FnMut(u64) -> bool) -> u64 {
     let mut low = 0_u64;
     let mut high = upper;
     while low < high {
@@ -123,7 +123,7 @@ fn maximum_feasible_batches(upper: u64, mut feasible: impl FnMut(u64) -> bool) -
     low
 }
 
-fn project_future_powered_lumber_sequence(
+pub(super) fn project_future_powered_lumber_sequence(
     registries: &Registries,
     state: &AppState,
     equipment: EquipmentDefinitionId,
@@ -377,19 +377,22 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     .unwrap_or_else(|| panic!("settlement follow-up machine attention overflowed"))
             });
             let minimum_return = investment_policy.minimum_attention_return(0, setup_attention);
-            let should_upgrade = if powered_capacity > manual_capacity {
-                true
+            let (should_upgrade, decision_basis) = if powered_capacity > manual_capacity {
+                (true, "capacity")
             } else if powered_capacity < manual_capacity || powered_capacity == 0 {
-                false
+                (false, "capacity")
             } else {
-                clears_attention_return(
-                    manual_attention.unwrap_or_else(|| {
-                        unreachable!("positive equal capacities have manual attention")
-                    }),
-                    machine_attention.unwrap_or_else(|| {
-                        unreachable!("positive equal capacities have machine attention")
-                    }),
-                    minimum_return,
+                (
+                    clears_attention_return(
+                        manual_attention.unwrap_or_else(|| {
+                            unreachable!("positive equal capacities have manual attention")
+                        }),
+                        machine_attention.unwrap_or_else(|| {
+                            unreachable!("positive equal capacities have machine attention")
+                        }),
+                        minimum_return,
+                    ),
+                    "attention-return",
                 )
             };
 
@@ -451,7 +454,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     true,
                     powered_capacity,
                     format!(
-                        "capacity=[manual:{manual_capacity} powered:{powered_capacity}] attention=[manual:{} powered:{total_attention}t] minimum-return:{minimum_return}t result:upgrade",
+                        "basis:{decision_basis} capacity=[manual:{manual_capacity} powered:{powered_capacity}] attention=[manual:{} powered:{total_attention}t] minimum-return:{minimum_return}t result:upgrade",
                         manual_attention
                             .map(|ticks| format!("{ticks}t"))
                             .unwrap_or_else(|| "unavailable".to_owned())
@@ -488,7 +491,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     false,
                     manual_capacity,
                     format!(
-                        "capacity=[manual:{manual_capacity} powered:{powered_capacity}] attention=[manual:{attention}t powered:{}] minimum-return:{minimum_return}t result:keep-frame-saw",
+                        "basis:{decision_basis} capacity=[manual:{manual_capacity} powered:{powered_capacity}] attention=[manual:{attention}t powered:{}] minimum-return:{minimum_return}t result:keep-frame-saw",
                         machine_attention
                             .map(|ticks| format!("{ticks}t"))
                             .unwrap_or_else(|| "unavailable".to_owned())

@@ -152,7 +152,8 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             0x504F_5752_5052_4F42,
         ),
         // Settlement investment keeps one maintained case on each side of the live mechanization
-        // crossover; organic variation samples around that same production-derived threshold.
+        // crossover; organic variation supplies independent demand, wear, and actor policy so the
+        // investment result emerges from current economics instead of being selected by generation.
         "settlement" => (
             0xD33F_C01D_5E77,
             &[0x0000_0000_0000_0040],

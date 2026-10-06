@@ -95,7 +95,6 @@ fn declared_lumber_batches(case: FocusedProbeCase, baseline_crossover_batches: O
             organic_lumber_batches(
                 case.seed() & 0b11,
                 mix64(case.seed() ^ 0x5345_5454_4C55_4D42),
-                baseline_crossover_batches,
                 SETTLEMENT_OPPORTUNITY_BATCHES,
             )
         }
@@ -575,20 +574,65 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         .and_then(|powered| registries.crafting().get_manual(powered.transform()))
         .map(|manual| manual.process())
         .unwrap_or_else(|| panic!("settlement sawmill lost its manual transform"));
-    let baseline_request = select_manual_craft_request(
+    let frame_condition = state
+        .equipment()
+        .get_equipment(frame_saw)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("settlement frame saw disappeared before investment decision"));
+    let manual_capacity = lumber_followup::maximum_feasible_batches(order_batches, |batches| {
+        let batches = NonZeroU64::new(batches)
+            .unwrap_or_else(|| unreachable!("positive settlement batch count is nonzero"));
+        project_manual_craft_equipment(
+            registries,
+            manual_process,
+            batches,
+            EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+            frame_condition,
+        )
+        .is_ok()
+    });
+    let baseline_attention = NonZeroU64::new(manual_capacity)
+        .map(|batches| {
+            project_manual_craft_equipment(
+                registries,
+                manual_process,
+                batches,
+                EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+                frame_condition,
+            )
+            .unwrap_or_else(|error| {
+                panic!("settlement feasible frame-saw projection failed: {error}")
+            })
+            .duration()
+            .value()
+        })
+        .unwrap_or(0);
+    let (plans, setup_attention) = setup_plans(registries, &state, upgrade_raw, frame_saw);
+    let sawmill_start_condition = lumber_followup::project_setup_equipment_condition(
+        registries,
+        &plans,
+        frame_saw,
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        frame_condition,
+    );
+    let powered_projection = lumber_followup::project_future_powered_lumber_sequence(
         registries,
         &state,
-        manual_process,
-        work_source,
+        EQUIPMENT_TIMBER_SASH_SAWMILL,
+        sawmill_start_condition,
+        drive,
+        batch,
         order_batches,
-        "settlement frame-saw baseline",
-    )
-    .with_equipment(frame_saw);
-    let baseline_attention = resolve_manual_craft(registries, &state, &baseline_request)
-        .unwrap_or_else(|error| panic!("settlement frame-saw projection failed: {error}"))
-        .duration()
-        .value();
-    let (plans, setup_attention) = setup_plans(registries, &state, upgrade_raw, frame_saw);
+    );
+    let powered_capacity = powered_projection.batches;
+    assert!(
+        powered_capacity > 0,
+        "settlement sash-sawmill upgrade cannot execute even one disclosed lumber batch"
+    );
+    assert!(
+        manual_capacity == order_batches || powered_capacity == order_batches,
+        "settlement disclosed order has no complete route: frame-saw capacity {manual_capacity}/{order_batches}, sash-sawmill capacity {powered_capacity}/{order_batches}"
+    );
     let crank_condition = state
         .equipment()
         .get_equipment(crank)
@@ -602,7 +646,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             starting_condition: crank_condition,
             store: ENERGY_STONE_FLYWHEEL_DRIVE,
             energy_per_charge: batch.work,
-            charges: order_batches,
+            charges: powered_capacity,
         },
         "settlement sawmill workload",
     );
@@ -611,14 +655,18 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         .checked_add(charge_projection.attention_ticks)
         .unwrap_or_else(|| panic!("settlement machine attention overflowed"));
     let minimum_attention_return = investment_policy.minimum_attention_return(0, setup_attention);
-    let choice = if clears_attention_return(
+    let (choice, decision_basis) = if powered_capacity > manual_capacity {
+        (LumberInvestmentChoice::SashSawmill, "capacity")
+    } else if manual_capacity > powered_capacity {
+        (LumberInvestmentChoice::FrameSaw, "capacity")
+    } else if clears_attention_return(
         baseline_attention,
         machine_attention,
         minimum_attention_return,
     ) {
-        LumberInvestmentChoice::SashSawmill
+        (LumberInvestmentChoice::SashSawmill, "attention-return")
     } else {
-        LumberInvestmentChoice::FrameSaw
+        (LumberInvestmentChoice::FrameSaw, "attention-return")
     };
 
     let matter_before = calculate_matter_accounting(&state)
@@ -630,15 +678,34 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let mut delegated_ticks = 0_u64;
     let mut upgraded = false;
     let active_attention = match choice {
-        LumberInvestmentChoice::FrameSaw => execute_manual_craft(
-            registries,
-            &mut state,
-            baseline_request,
-            output,
-            "settlement frame-saw order",
-        )
-        .value(),
+        LumberInvestmentChoice::FrameSaw => {
+            assert_eq!(
+                manual_capacity, order_batches,
+                "settlement selected frame saw must be able to finish the disclosed order"
+            );
+            let request = select_manual_craft_request(
+                registries,
+                &state,
+                manual_process,
+                work_source,
+                order_batches,
+                "settlement frame-saw order",
+            )
+            .with_equipment(frame_saw);
+            execute_manual_craft(
+                registries,
+                &mut state,
+                request,
+                output,
+                "settlement frame-saw order",
+            )
+            .value()
+        }
         LumberInvestmentChoice::SashSawmill => {
+            assert_eq!(
+                powered_capacity, order_batches,
+                "settlement selected sash sawmill must be able to finish the disclosed order"
+            );
             let executed_setup =
                 execute_setup(registries, &mut state, upgrade_raw, upgrade_parts, &plans);
             assert_eq!(
@@ -773,13 +840,18 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let baseline_crossover =
         baseline_crossover_batches.map_or_else(|| "none".to_owned(), |batches| batches.to_string());
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t machine-owned-before:{} reinvested:{} boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=[frame-saw-condition:{}ppm crank-condition:{}ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] decision=[choice:{} basis:{} capacity=[frame-saw:{}/{} sash-sawmill:{}/{}] policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t machine-owned-before:{} reinvested:{} boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=[frame-saw-condition:{}ppm crank-condition:{}ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         order_batches,
         order_mass.milligrams(),
         baseline_crossover,
         choice.label(),
+        decision_basis,
+        manual_capacity,
+        order_batches,
+        powered_capacity,
+        order_batches,
         investment_policy.minimum_return_ppm(),
         minimum_attention_return,
         baseline_attention,

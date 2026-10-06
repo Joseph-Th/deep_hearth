@@ -48,7 +48,7 @@ fn played_power_provider_sets_match_current_buildable_mechanical_content() {
 }
 
 #[test]
-fn organic_power_workload_sampling_visits_each_declared_market_regime() {
+fn organic_power_workload_sampling_varies_projects_without_consulting_provider_outcomes() {
     let registries = deep_hearth::content::build_registries();
     let crusher = registries
         .ore_processing()
@@ -86,9 +86,8 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
             (mass, cycle, workload)
         })
         .collect::<Vec<_>>();
-    let market_regimes = [1, 8, 24];
     let settlement = (1_u64..=256)
-        .map(|seed| declared_settlement_lumber_project(&registries, seed, &market_regimes).0)
+        .map(|seed| declared_settlement_lumber_project(&registries, seed).0)
         .collect::<Vec<_>>();
 
     let quarry_batch = primitive_quarry_batch_mass(&registries);
@@ -153,20 +152,26 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
             .any(|(_, _, workload)| *workload == PrimitiveCrushingWorkload::BulkFieldwork),
         "primitive workload sampling lost the bulk fieldwork continuation"
     );
-    for (lower, upper) in [(1, 7), (8, 23), (24, u64::MAX)] {
-        assert!(
-            settlement_units
+    let opportunity_units =
+        maximum_sampled_workload_units(planning::settlement_crossover_search_limit());
+    assert!(
+        settlement_units.len() > 32,
+        "settlement workload variation collapsed"
+    );
+    assert!(
+        settlement_units
+            .iter()
+            .all(|units| (1..=opportunity_units).contains(units))
+    );
+    assert!(
+        settlement_units
+            .iter()
+            .any(|units| *units <= opportunity_units / 8)
+            && settlement_units
                 .iter()
-                .any(|units| (lower..=upper).contains(units)),
-            "settlement workload sampling missed declared market regime beginning at {lower}"
-        );
-    }
-
-    let no_settlement_frontier = (1_u64..=64)
-        .map(|seed| declared_settlement_lumber_project(&registries, seed, &[]).0)
-        .map(|mass| mass.milligrams() / saw_mass_per_bank.milligrams())
-        .collect::<BTreeSet<_>>();
-    assert!(no_settlement_frontier.len() > 1);
+                .any(|units| *units >= opportunity_units * 3 / 4),
+        "organic settlement workloads must span genuinely small and large projects without reading provider market boundaries"
+    );
 
     for root in [0_u64, 4, 0x1234_5678_9ABC_DEF0] {
         let bounded = (0_u64..4)
