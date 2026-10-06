@@ -1,7 +1,11 @@
 //! Read-only drink planning contracts.
 
 use super::*;
-use crate::survival::{DrinkHydrationProjectionError, project_minimum_drink_to_hydration_target};
+use crate::survival::{
+    DirectConsumptionDefinition, DrinkHydrationProjectionError, HydrationDefinition,
+    MetabolismDefinition, NutritionDefinition, PhysiologyDefinition,
+    project_minimum_drink_to_hydration_target,
+};
 
 #[test]
 fn minimum_drink_projection_prices_its_own_consumption_time() {
@@ -134,6 +138,49 @@ fn minimum_drink_projection_matches_canonical_execution() {
             .unwrap_or_else(|| panic!("drink projection player disappeared after execution"))
             .hydration(),
         projection.hydration_after()
+    );
+}
+
+#[test]
+fn minimum_drink_projection_reports_canonical_resource_budget_overflow() {
+    let registries = build_registries();
+    let drink = registries
+        .survival()
+        .get_drink(FLUID_WATER)
+        .copied()
+        .unwrap_or_else(|| panic!("water drink definition disappeared"));
+    let physiology = PhysiologyDefinition::new(
+        MetabolismDefinition::new(
+            Energy::from_nanojoules(2),
+            Energy::ZERO,
+            Energy::from_nanojoules(1),
+        ),
+        HydrationDefinition::new(
+            Volume::from_microliters(u64::MAX),
+            Volume::ZERO,
+            Volume::from_microliters(u64::MAX / 2 + 1),
+        ),
+        NutritionDefinition::new(1, 1),
+        DirectConsumptionDefinition::new(
+            Mass::from_milligrams(1),
+            Mass::from_milligrams(1),
+            TickSpan::new(1),
+            Volume::from_microliters(1),
+            Volume::from_microliters(1),
+            TickSpan::new(2),
+        ),
+        1,
+        1,
+    );
+
+    assert_eq!(
+        project_minimum_drink_to_hydration_target(
+            physiology,
+            drink,
+            Volume::ZERO,
+            Volume::from_microliters(1),
+        ),
+        Err(DrinkHydrationProjectionError::ResourceBudgetOverflow)
     );
 }
 

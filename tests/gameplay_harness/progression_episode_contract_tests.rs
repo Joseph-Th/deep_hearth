@@ -158,7 +158,7 @@ fn local_first_copper_sequence_is_chosen_from_acquired_grade_evidence() {
             PROGRESSION_MAINTAINED_ANCHOR_SEED,
             PrimitivePriority::PickFirst,
         ),
-        (3, PrimitivePriority::CrankFirst),
+        (1, PrimitivePriority::CrankFirst),
     ] {
         let review = evaluate_primitive_progression_probe(
             &registries,

@@ -5,7 +5,10 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Volume;
 use crate::core::time::TickSpan;
-use crate::survival::{DrinkDefinition, PhysiologyDefinition};
+use crate::survival::{
+    DrinkDefinition, PhysiologyDefinition, SurvivalExertion, SurvivalResourceProjectionError,
+    project_survival_resource_budget,
+};
 
 /// Smallest legal represented drink that leaves the player at or above one hydration target.
 ///
@@ -49,6 +52,7 @@ pub enum DrinkHydrationProjectionError {
     CurrentHydrationExceedsMaximum { current: Volume, maximum: Volume },
     TargetHydrationExceedsMaximum { target: Volume, maximum: Volume },
     TargetUnreachableWithinIntakeLimit { maximum_drink_volume: Volume },
+    ResourceBudgetOverflow,
 }
 
 impl Display for DrinkHydrationProjectionError {
@@ -72,6 +76,10 @@ impl Display for DrinkHydrationProjectionError {
                 formatter,
                 "hydration target cannot be reached within the direct-consumption limit of {} uL",
                 maximum_drink_volume.microliters()
+            ),
+            Self::ResourceBudgetOverflow => write!(
+                formatter,
+                "drink-time survival resource projection overflowed"
             ),
         }
     }
@@ -139,24 +147,20 @@ pub fn project_minimum_drink_to_hydration_target(
         let duration = direct
             .drink_duration(volume)
             .unwrap_or_else(|| unreachable!("bounded nonzero drink has an authored duration"));
-        let drinking_loss = u128::from(physiology.hydration_loss_per_tick().microliters())
-            .checked_mul(u128::from(duration.value()))
-            .unwrap_or_else(|| unreachable!("u64 hydration loss and duration product fits u128"));
-        let required_offer = u128::from(reserve_gap.microliters())
-            .checked_add(drinking_loss)
-            .ok_or(
-                DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
-                    maximum_drink_volume,
-                },
-            )?;
-        let required_offer = u64::try_from(required_offer)
-            .ok()
-            .map(Volume::from_microliters)
-            .ok_or(
-                DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
-                    maximum_drink_volume,
-                },
-            )?;
+        let drinking_loss =
+            project_survival_resource_budget(physiology, SurvivalExertion::REST, duration)
+                .map_err(|error| match error {
+                    SurvivalResourceProjectionError::EnergyOverflow
+                    | SurvivalResourceProjectionError::HydrationOverflow => {
+                        DrinkHydrationProjectionError::ResourceBudgetOverflow
+                    }
+                })?
+                .hydration();
+        let required_offer = reserve_gap.checked_add(drinking_loss).ok_or(
+            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+                maximum_drink_volume,
+            },
+        )?;
         let next = std::cmp::max(
             drink.minimum_volume_for_hydration(required_offer).ok_or(
                 DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
@@ -181,7 +185,7 @@ pub fn project_minimum_drink_to_hydration_target(
         let hydration_offered = drink.hydration_offer(volume);
         let hydration_after = u128::from(current.microliters())
             .checked_add(u128::from(hydration_offered.microliters()))
-            .and_then(|hydration| hydration.checked_sub(drinking_loss))
+            .and_then(|hydration| hydration.checked_sub(u128::from(drinking_loss.microliters())))
             .map(|hydration| hydration.min(u128::from(maximum_hydration.microliters())))
             .and_then(|hydration| u64::try_from(hydration).ok())
             .map(Volume::from_microliters)
