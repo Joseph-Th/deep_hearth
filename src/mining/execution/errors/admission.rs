@@ -4,14 +4,13 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
-use crate::core::quantity::{Mass, Pressure};
+use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::throughput::MassFlowDurationError;
 use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
 use crate::labor::PlayerWorkStartError;
 use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::ActiveConditionDurationError;
-use crate::material::MaterialLotSpecError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
@@ -24,10 +23,9 @@ pub enum MiningStartError {
         method: MiningMethodId,
     },
     TargetNoLongerResolved,
-    PlayerOutsideDeposit {
+    PlayerOutsideTarget {
         player_position: VoxelCoord,
-        deposit: crate::geology::GeologicalDepositId,
-        bounds: VoxelBounds,
+        region: VoxelBounds,
     },
     ZeroMass,
     Equipment(EquipmentProviderError),
@@ -70,13 +68,16 @@ pub enum MiningStartError {
     Duration(MassFlowDurationError),
     ConditionDuration(ActiveConditionDurationError),
     CompletionTickOverflow,
-    InvalidOutput(MaterialLotSpecError),
     UnknownDestination {
         stockpile: StockpileId,
     },
     DestinationAccess(PlayerStockpileAccessError),
     DestinationBusyStorageDismantling {
         stockpile: StockpileId,
+    },
+    DestinationTemperatureNotAcquired {
+        stockpile: StockpileId,
+        maximum: Temperature,
     },
     DestinationStorage(StockpileStorageError),
     DestinationMassOverflow {
@@ -108,20 +109,18 @@ impl Display for MiningStartError {
             Self::TargetNoLongerResolved => formatter.write_str(
                 "resolved mining target is no longer uniquely supported by current local evidence and geology",
             ),
-            Self::PlayerOutsideDeposit {
+            Self::PlayerOutsideTarget {
                 player_position,
-                deposit,
-                bounds,
+                region,
             } => {
-                let min = bounds.min();
-                let max = bounds.max_exclusive();
+                let min = region.min();
+                let max = region.max_exclusive();
                 write!(
                     formatter,
-                    "player at voxel ({},{},{}) is outside mining deposit {} bounds [({},{},{}),({},{},{}))",
+                    "player at voxel ({},{},{}) is outside acquired mining target region [({},{},{}),({},{},{}))",
                     player_position.x(),
                     player_position.y(),
                     player_position.z(),
-                    deposit.value(),
                     min.x(), min.y(), min.z(),
                     max.x(), max.y(), max.z()
                 )
@@ -198,7 +197,6 @@ impl Display for MiningStartError {
             Self::CompletionTickOverflow => {
                 formatter.write_str("mining completion exceeds the world clock range")
             }
-            Self::InvalidOutput(error) => write!(formatter, "mining output is invalid: {error}"),
             Self::UnknownDestination { stockpile } => write!(
                 formatter,
                 "unknown mining destination stockpile {}",
@@ -211,6 +209,12 @@ impl Display for MiningStartError {
                 formatter,
                 "stockpile {} is being dismantled and cannot reserve mining output",
                 stockpile.value()
+            ),
+            Self::DestinationTemperatureNotAcquired { stockpile, maximum } => write!(
+                formatter,
+                "stockpile {} has finite temperature limit {} mK, but mining output temperature is not acquired knowledge",
+                stockpile.value(),
+                maximum.millikelvin()
             ),
             Self::DestinationStorage(error) => {
                 write!(formatter, "mining destination rejects output: {error}")
@@ -269,13 +273,12 @@ impl Error for MiningStartError {
             Self::DestinationAccess(error) => Some(error),
             Self::Duration(error) => Some(error),
             Self::ConditionDuration(error) => Some(error),
-            Self::InvalidOutput(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::DestinationSupport(error) => Some(error),
             Self::Work(error) => Some(error),
             Self::UnknownMethod { .. }
             | Self::TargetNoLongerResolved
-            | Self::PlayerOutsideDeposit { .. }
+            | Self::PlayerOutsideTarget { .. }
             | Self::ZeroMass
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
@@ -290,6 +293,7 @@ impl Error for MiningStartError {
             | Self::CompletionTickOverflow
             | Self::UnknownDestination { .. }
             | Self::DestinationBusyStorageDismantling { .. }
+            | Self::DestinationTemperatureNotAcquired { .. }
             | Self::DestinationMassOverflow { .. }
             | Self::DestinationCapacityExceeded { .. }
             | Self::MaterialLotIdExhausted

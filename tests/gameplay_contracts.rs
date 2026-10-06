@@ -1,5 +1,7 @@
 //! Lightweight gameplay-harness contracts kept out of the heavy scenario/probe binaries.
 
+#[path = "gameplay_harness/capital_investment_crossover.rs"]
+mod capital_investment_crossover;
 #[path = "gameplay_harness/capital_investment_policy.rs"]
 mod capital_investment_policy;
 #[path = "gameplay_harness/catalog.rs"]

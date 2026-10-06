@@ -135,6 +135,12 @@ impl StockpileStorageProfile {
         self.maximum_temperature
     }
 
+    /// Whether every representable material temperature fits this containment envelope.
+    #[must_use]
+    pub(crate) const fn accepts_any_temperature(self) -> bool {
+        self.maximum_temperature.millikelvin() == u32::MAX
+    }
+
     /// Returns the multiplier applied to food or other perishable shelf-life definitions.
     #[must_use]
     pub const fn preservation_multiplier_ppm(self) -> u32 {

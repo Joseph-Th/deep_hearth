@@ -1,4 +1,4 @@
-//! Replayable ordinary-play woodworking investment episode for the cold-agent report.
+//! Replayable exact-local woodworking episode after disclosed bootstrap for the cold-agent report.
 
 use std::num::NonZeroU64;
 

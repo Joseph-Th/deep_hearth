@@ -1,4 +1,4 @@
-"""Primitive-progression summary for ordinary gameplay evidence."""
+"""Primitive-progression summary for ordinary-system spatial-proxy evidence."""
 
 from __future__ import annotations
 
@@ -317,13 +317,13 @@ def _next_stage_continuation(lines: list[str], progression: list[str]) -> str:
 def _integration_evidence(lines: list[str], progression: list[str]) -> str:
     reviews = [line for line in lines if line.startswith("PROGRESSION REVIEW ")]
     single_state = sum(" continuity=single-state " in line for line in reviews)
-    fantasy_captured = sum(
+    loop_captured = sum(
         " captured:true " in line or line.endswith(" captured:true") for line in reviews
     )
     return (
         "integrated-campaign=["
         f"single-state:{single_state}/{len(progression)} "
-        f"fantasy-captured:{fantasy_captured}/{len(progression)}]"
+        f"loop-captured:{loop_captured}/{len(progression)}]"
     )
 
 

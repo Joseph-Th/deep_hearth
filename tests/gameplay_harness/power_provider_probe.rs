@@ -37,7 +37,9 @@ use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
-use super::world_admission::StationarySurvivalStart;
+use super::stationary_survival::{
+    StationarySurvivalStart, admit_stationary_player_with_survival_start,
+};
 
 #[path = "power_provider_build.rs"]
 mod build;
@@ -539,8 +541,7 @@ fn maximum_sampled_workload_units(search_limit: u64) -> u64 {
 }
 
 #[cfg(test)]
-#[path = "power_provider_probe/generation_tests.rs"]
-mod generation_tests;
+include_power_provider_generation_contract_tests!();
 
 fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyStoreDefinitionId {
     let process = registries
@@ -619,9 +620,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     // crusher energy, batch capacity, or authored storage definitions are retuned.
     let store_definition = primitive_accumulator_for_current_crusher(registries);
     let mut state = AppState::new();
-    // Raw gathered nature only: derive the finite opportunity from every candidate build plus a
-    // conservative service reserve. Shaped components are still earned through canonical manual
-    // production after admission; this raw package is plumbing, not a scarcity pressure.
+    // Disclosed starting raw matter only: derive the finite opportunity from every candidate build
+    // plus a conservative service reserve. Shaped components are still earned through canonical
+    // manual production after admission; this raw package is plumbing, not a world-source claim.
     let primitive_roots = [
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
@@ -671,7 +672,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         ROOM_TEMPERATURE,
         copper_ore_composition(350_000, 200_000),
     );
-    super::world_admission::admit_stationary_player_with_survival_start(
+    admit_stationary_player_with_survival_start(
         registries,
         &mut state,
         &[
@@ -798,7 +799,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_service_spent =
         add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
     let settlement_provisions = seed_power_project_provisions(registries, &mut settlement_state);
-    super::world_admission::admit_stationary_player_with_survival_start(
+    admit_stationary_player_with_survival_start(
         registries,
         &mut settlement_state,
         &[

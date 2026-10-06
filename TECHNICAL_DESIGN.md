@@ -332,7 +332,7 @@ inventory. Mount/unmount changes support without teleporting an existing locatio
 local world custody for newly created equipment/energy stores; disassembly removes that custody.
 
 Prospecting requires the player inside the survey region and any instrument at the player voxel. Mining requires
-the player inside the resolved deposit bounds plus local tool/output access. Manual power requires local provider
+the player inside the acquired resolved target region plus local tool/output access. Manual power requires local provider
 and destination store. Production uses an actor-independent same-site rule: every explicitly located continuing
 endpoint in one admitted job must agree on a voxel. Validation tokens bind logistics revision where location can
 invalidate admission.
@@ -373,7 +373,9 @@ remainder batches, and per-batch tick rounding, but does not promise hidden supp
 capacity, or authorization.
 
 Mining start binds target, requested effort, equipment, destination reservation, labor, access, wear/capability,
-and relevant owner revisions in `MiningJobRecord`. Geology retains matter custody during labor. Completion
+and relevant owner revisions in `MiningJobRecord`. Because deposit temperature is not acquired target knowledge,
+admission permits only a destination whose containment accepts every representable temperature; a finite storage
+temperature limit cannot be used as a read-only probe of hidden geology. Geology retains matter custody during labor. Completion
 moves the extracted slice into mining-owned ready-to-claim custody; destination capacity and required future
 headroom remain reserved. `validate_claim_mining_output` performs the single transfer into inventory and returns
 the exact contribution with merge-aware landing identity.

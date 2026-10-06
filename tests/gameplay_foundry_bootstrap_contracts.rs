@@ -1,12 +1,21 @@
-//! Focused first-foundry bootstrap target for the fast edit/test loop.
+//! First-foundry generator and planning contracts kept off the frequent lived probe.
+
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    reason = "contract-only crate reuses the first-foundry evaluator without compiling the lived-probe runner"
+)]
 
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-#[cfg(test)]
 macro_rules! include_first_foundry_generation_contract_tests {
-    () => {};
+    () => {
+        #[path = "first_foundry_probe/generation_tests.rs"]
+        mod generation_tests;
+    };
 }
 
 #[path = "gameplay_harness/environment.rs"]
@@ -19,12 +28,10 @@ mod exact_local_runtime;
 mod first_foundry_probe;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
-#[path = "gameplay_harness/focused_seeds.rs"]
-mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
+#[path = "gameplay_harness/foundry_bootstrap_contract_tests.rs"]
+mod foundry_bootstrap_contract_tests;
 #[path = "gameplay_harness/inherited_condition.rs"]
 mod inherited_condition;
 #[path = "gameplay_harness/inventory_support.rs"]
@@ -43,19 +50,9 @@ mod physical_time;
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
-#[path = "gameplay_harness/seed_input.rs"]
-mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 #[path = "gameplay_harness/workshop_craft_planning.rs"]
 mod workshop_craft_planning;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
-
-#[test]
-fn gameplay_foundry_bootstrap_probe() {
-    focused_runner::run_focused_probe(
-        "foundry-bootstrap",
-        first_foundry_probe::run_first_foundry_probe,
-    );
-}

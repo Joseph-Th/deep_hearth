@@ -1542,16 +1542,64 @@ class TestTopologyContractTests(unittest.TestCase):
             ci.GAMEPLAY_TARGETS["survival"],
         )
 
-    def test_heavy_gameplay_contracts_stay_off_hot_probe_targets(self) -> None:
+    def test_gameplay_evidence_modes_match_runtime_authority(self) -> None:
+        by_mode: dict[str, set[str]] = {}
+        for scope, spec in ci.GAMEPLAY_SCOPE_SPECS.items():
+            by_mode.setdefault(spec.evidence_mode, set()).add(scope)
+        self.assertEqual(
+            by_mode[gameplay_targets.EVIDENCE_ORDINARY_SPATIAL_PROXY],
+            {"progression", "fieldwork"},
+        )
+        self.assertEqual(
+            by_mode[gameplay_targets.EVIDENCE_CONTROLLED_CAPABILITY],
+            {"workshop", "ore", "foundry"},
+        )
+        self.assertEqual(
+            by_mode[gameplay_targets.EVIDENCE_ORDINARY_EXACT_LOCAL],
+            {
+                "survival",
+                "liberation",
+                "settlement",
+                "foundry-bootstrap",
+                "woodworking",
+                "power-provider",
+            },
+        )
+        self.assertEqual(
+            gameplay_targets.gameplay_evidence_mode("agency"),
+            gameplay_targets.EVIDENCE_COUNTERFACTUAL,
+        )
+
+        exact_local = (ROOT / "tests/gameplay_harness/exact_local_runtime.rs").resolve()
+        spatial_proxy = (ROOT / "tests/gameplay_harness/spatial_proxy_runtime.rs").resolve()
+        for scope, spec in ci.GAMEPLAY_SCOPE_SPECS.items():
+            sources = run_test.target_source_paths(spec.target, None)
+            with self.subTest(scope=scope):
+                if spec.evidence_mode == gameplay_targets.EVIDENCE_ORDINARY_EXACT_LOCAL:
+                    self.assertIn(exact_local, sources)
+                    self.assertNotIn(spatial_proxy, sources)
+                elif spec.evidence_mode == gameplay_targets.EVIDENCE_ORDINARY_SPATIAL_PROXY:
+                    self.assertIn(spatial_proxy, sources)
+                    self.assertNotIn(exact_local, sources)
+                else:
+                    self.assertNotIn(exact_local, sources)
+                    self.assertNotIn(spatial_proxy, sources)
+
+    def test_owner_gameplay_contracts_stay_off_hot_probe_targets(self) -> None:
         contract_prefixes = {
             "workshop": "workshop_contract_tests::",
             "survival": "survival_contract_tests::",
             "progression": "progression_contract_tests::",
+            "liberation": "primitive_liberation::generation_tests::",
             "settlement": "settlement_wire_contract_tests::",
+            "foundry-bootstrap": "first_foundry_probe::generation_tests::",
             "woodworking": "woodworking_contract_tests::",
             "fieldwork": "fieldwork_probe::planning_tests::",
+            "power-provider": "power_provider_probe::generation_tests::",
+            "ore": "ore_contract_tests::",
             "foundry": "foundry_contract_tests::",
         }
+        self.assertEqual(set(contract_prefixes), set(ci.GAMEPLAY_SCOPE_SPECS))
         for scope, prefix in contract_prefixes.items():
             focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)
             expected_probes = {ci.GAMEPLAY_TESTS[scope]}
@@ -1568,11 +1616,6 @@ class TestTopologyContractTests(unittest.TestCase):
                 any(name.startswith(prefix) for name in contracts),
                 f"gameplay contract target {scope} lost owner contracts {prefix}",
             )
-
-    def test_small_ore_target_keeps_its_tiny_generator_contract_with_the_probe(self) -> None:
-        catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["ore"], None)
-        self.assertIn(ci.GAMEPLAY_TESTS["ore"], catalog)
-        self.assertTrue(any(name.startswith("ore_contract_tests::") for name in catalog))
 
     def test_progression_episode_regressions_use_the_progression_contract_target(self) -> None:
         contracts = run_test.source_test_catalog(
@@ -1709,7 +1752,10 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 ),
                 0.25,
             )
-        self.assertEqual(stdout.getvalue(), "PASS (0.2s; 1 test; roots=0x111/0x222)\n")
+        self.assertEqual(
+            stdout.getvalue(),
+            "PASS (0.2s; 1 test; evidence=ordinary-exact-local-after-disclosed-bootstrap; roots=0x111/0x222)\n",
+        )
         self.assertEqual(stderr.getvalue(), "")
 
     def test_successful_routine_gameplay_gate_omits_unneeded_random_replay_roots(self) -> None:
@@ -2608,18 +2654,29 @@ class GameplayReportContractTests(unittest.TestCase):
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
         }
-        for label in ("gameplay report progression", "gameplay progression", "gameplay"):
+        for label in ("gameplay report progression", "gameplay progression"):
             with self.subTest(label=label):
                 self.assertEqual(
                     ci.gameplay_environment_summary(label, environment),
-                    "roots=0xAAAA/0xBBBB",
+                    "evidence=ordinary-system-spatial-proxy; roots=0xAAAA/0xBBBB",
                 )
+        self.assertEqual(
+            ci.gameplay_environment_summary("gameplay", environment),
+            "roots=0xAAAA/0xBBBB",
+        )
         self.assertEqual(
             ci.gameplay_environment_summary(
                 "gameplay progression",
                 {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA"},
             ),
-            "variation=0xAAAA",
+            "evidence=ordinary-system-spatial-proxy; variation=0xAAAA",
+        )
+        self.assertEqual(
+            ci.gameplay_environment_summary(
+                "gameplay report survival",
+                {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA"},
+            ),
+            "evidence=ordinary-exact-local-after-disclosed-bootstrap; variation=0xAAAA",
         )
         self.assertEqual(
             ci.gameplay_environment_summary(
@@ -2629,7 +2686,7 @@ class GameplayReportContractTests(unittest.TestCase):
                     "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "fieldwork",
                 },
             ),
-            "sample=fieldwork; variation=0xAAAA",
+            "sample=fieldwork; evidence=ordinary-system-spatial-proxy; variation=0xAAAA",
         )
         self.assertIsNone(ci.gameplay_environment_summary("core", environment))
         self.assertIsNone(ci.gameplay_environment_summary("gameplay contracts", environment))
@@ -2902,7 +2959,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "GAMEPLAY loop ",
             "GAMEPLAY loop-dynamics ",
             "CAPABILITY probe=workshop ",
-            "CAPABILITY probe=agency ",
+            "COUNTERFACTUAL probe=agency evidence=counterfactual ",
             "CAPABILITY probe=ore ",
             "CAPABILITY probe=foundry ",
         ):
@@ -3884,7 +3941,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
             "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
-            "ore_probe_generation_varies_feed_and_operating_state": ci.GAMEPLAY_TARGETS["ore"],
+            "ore_probe_generation_varies_feed_and_operating_state": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
             "primitive_recovery_and_reinforcement_routes_remain_connected": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "progression_generators_cover_distinct_search_and_economic_pressures": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
@@ -3932,7 +3989,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "settlement_wire_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
             "survival_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
             "progression_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
-            "ore_contract_tests": ci.GAMEPLAY_TARGETS["ore"],
+            "ore_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
             "foundry_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],
         }.items():
             self.assertEqual(run_test.resolve_automatic_suite_target(selector, None), expected)

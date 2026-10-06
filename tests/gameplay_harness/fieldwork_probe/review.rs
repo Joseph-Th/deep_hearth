@@ -686,7 +686,7 @@ pub(super) fn finalize_fieldwork_episode(
     report_known_site_exploitation(&review, exploitation.as_ref());
     report_survey_campaign(&review);
     reviewln!(
-        "FIELDWORK PACING seed=0x{:016X} search={}t/{} sampling-tool={}t/{} extraction-tool={}t/{} extraction={}t/{} batches={} first-ore={}t/{} episode-end={}t/{} output={}mg outcome={} requested={}mg scope=raw-tools-and-preowned-copper-to-first-ore matched-repeat-order-reported-separately=true output-grade={}ppm",
+        "FIELDWORK PACING seed=0x{:016X} search={}t/{} sampling-tool={}t/{} extraction-tool={}t/{} extraction={}t/{} batches={} first-ore={}t/{} episode-end={}t/{} output={}mg outcome={} requested={}mg evidence-scope=ordinary-system-spatial-proxy movement=abstracted locality-claim=false starting-state=disclosed-raw-tools-and-preowned-copper matched-repeat-order-reported-separately=true output-grade={}ppm",
         review.case.seed(),
         review.search_ticks,
         format_physical_duration(review.registries, review.search_ticks),
@@ -707,7 +707,7 @@ pub(super) fn finalize_fieldwork_episode(
         extraction.output_grade_ppm,
     );
     reviewln!(
-        "FIELDWORK EXPERIENCE seed=0x{:016X} sample={} outcome={} order-horizon={} demand=explicit-extraction-order search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} tool={} adaptation={} sampling-setup={}t/{} tool-prep={}t/{} copper-opportunity={} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{} condition={}ppm->{}ppm output-grade={}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
+        "FIELDWORK EXPERIENCE seed=0x{:016X} sample={} evidence-scope=ordinary-system-spatial-proxy movement=abstracted locality-claim=false starting-state=disclosed-raw-tools-and-preowned-copper outcome={} order-horizon={} demand=explicit-extraction-order search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} tool={} adaptation={} sampling-setup={}t/{} tool-prep={}t/{} copper-opportunity={} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{} condition={}ppm->{}ppm output-grade={}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
         review.case.seed(),
         sample_label(review.case.role()),
         extraction.stop.outcome(),

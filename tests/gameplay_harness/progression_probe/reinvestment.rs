@@ -104,7 +104,7 @@ fn verify_sizing_plate_continuation(
         assert_eq!(
             after.checked_sub(before),
             Some(expected),
-            "ordinary progression copper must feed the exact authored sizing-plate output"
+            "progression copper must feed the exact authored sizing-plate output"
         );
     }
     assert_eq!(

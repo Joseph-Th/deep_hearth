@@ -35,6 +35,7 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
+use super::exact_local_runtime::STATIONARY_PLAYER_ORIGIN;
 use super::focused_case::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft;
@@ -43,12 +44,10 @@ use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
-use super::world_admission::STATIONARY_PLAYER_ORIGIN;
 #[path = "first_foundry_probe/casting.rs"]
 mod casting;
 #[cfg(test)]
-#[path = "first_foundry_probe/generation_tests.rs"]
-mod generation_tests;
+include_first_foundry_generation_contract_tests!();
 #[path = "first_foundry_probe/planning.rs"]
 mod planning;
 #[path = "first_foundry_probe/recovery.rs"]

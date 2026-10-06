@@ -1,13 +1,21 @@
-//! Focused power-provider gameplay target for the fast edit/test loop.
+//! Power-provider generator contracts kept off the frequent lived probe.
 
-#[cfg(test)]
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    reason = "contract-only crate reuses the power-provider evaluator without compiling the lived-probe runner"
+)]
+
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-#[cfg(test)]
 macro_rules! include_power_provider_generation_contract_tests {
-    () => {};
+    () => {
+        #[path = "power_provider_probe/generation_tests.rs"]
+        mod generation_tests;
+    };
 }
 
 #[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
@@ -18,25 +26,14 @@ mod capital_investment_policy;
 mod direct_consumption_timing;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
-#[allow(
-    dead_code,
-    reason = "focused target intentionally omits other consumers of shared equipment helpers"
-)]
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
 mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
-#[path = "gameplay_harness/focused_seeds.rs"]
-mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
-#[cfg(not(test))]
-#[path = "gameplay_harness/fresh_seed.rs"]
-mod fresh_seed;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
@@ -59,7 +56,6 @@ mod manual_power_timing;
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
-#[cfg(not(test))]
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/power_provider_probe.rs"]
@@ -70,26 +66,7 @@ mod primitive_workload;
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
-#[path = "gameplay_harness/seed_input.rs"]
-mod seed_input;
 #[path = "gameplay_harness/stationary_survival.rs"]
 mod stationary_survival;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-
-#[cfg(test)]
-#[test]
-fn gameplay_power_provider_probe() {
-    focused_runner::run_focused_probe(
-        "power-provider",
-        power_provider_probe::run_power_provider_probe,
-    );
-}
-
-#[cfg(not(test))]
-pub(super) fn run_report() {
-    focused_runner::run_focused_report(
-        "power-provider",
-        power_provider_probe::run_power_provider_probe,
-    );
-}

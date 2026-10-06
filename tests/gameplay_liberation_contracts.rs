@@ -1,12 +1,21 @@
-//! Focused primitive-liberation gameplay target for the fast edit/test loop.
+//! Primitive-liberation generator contracts kept off the frequent lived probe.
+
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    reason = "contract-only crate reuses the liberation evaluator without compiling the lived-probe runner"
+)]
 
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-#[cfg(test)]
 macro_rules! include_primitive_liberation_generation_contract_tests {
-    () => {};
+    () => {
+        #[path = "primitive_liberation/generation_tests.rs"]
+        mod generation_tests;
+    };
 }
 
 #[path = "gameplay_harness/capital_investment_policy.rs"]
@@ -17,10 +26,6 @@ mod environment;
 mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
-#[path = "gameplay_harness/focused_seeds.rs"]
-mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
 #[path = "gameplay_harness/inherited_condition.rs"]
@@ -55,17 +60,7 @@ mod primitive_liberation;
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
-#[path = "gameplay_harness/seed_input.rs"]
-mod seed_input;
 #[path = "gameplay_harness/settlement_power_planning.rs"]
 mod settlement_power_planning;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-
-#[test]
-fn gameplay_primitive_liberation_probe() {
-    focused_runner::run_focused_probe(
-        "primitive-liberation",
-        primitive_liberation::run_primitive_liberation_probe,
-    );
-}

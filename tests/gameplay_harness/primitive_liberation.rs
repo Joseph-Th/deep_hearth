@@ -75,8 +75,7 @@ mod cleanup;
 #[path = "primitive_liberation/comparison.rs"]
 mod comparison;
 #[cfg(test)]
-#[path = "primitive_liberation/generation_tests.rs"]
-mod generation_tests;
+include_primitive_liberation_generation_contract_tests!();
 #[path = "primitive_liberation/primary.rs"]
 mod primary;
 #[path = "primitive_liberation/scavenging.rs"]

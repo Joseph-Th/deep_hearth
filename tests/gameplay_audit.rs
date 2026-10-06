@@ -22,6 +22,27 @@ macro_rules! include_woodworking_policy_contract_tests {
     };
 }
 
+macro_rules! include_first_foundry_generation_contract_tests {
+    () => {
+        #[path = "first_foundry_probe/generation_tests.rs"]
+        mod generation_tests;
+    };
+}
+
+macro_rules! include_primitive_liberation_generation_contract_tests {
+    () => {
+        #[path = "primitive_liberation/generation_tests.rs"]
+        mod generation_tests;
+    };
+}
+
+macro_rules! include_power_provider_generation_contract_tests {
+    () => {
+        #[path = "power_provider_probe/generation_tests.rs"]
+        mod generation_tests;
+    };
+}
+
 macro_rules! include_woodworking_evaluation_contract_tests {
     () => {
         #[path = "evaluation_tests.rs"]
@@ -74,6 +95,8 @@ macro_rules! include_survival_probe_contract_tests {
 mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
+#[path = "gameplay_harness/capital_investment_crossover.rs"]
+mod capital_investment_crossover;
 #[path = "gameplay_harness/capital_investment_policy.rs"]
 mod capital_investment_policy;
 #[path = "gameplay_harness/catalog.rs"]
@@ -172,6 +195,8 @@ mod settlement_power_planning;
 mod settlement_probe;
 #[path = "gameplay_harness/settlement_workshop_investment.rs"]
 mod settlement_workshop_investment;
+#[path = "gameplay_harness/stationary_survival.rs"]
+mod stationary_survival;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/temporal.rs"]
@@ -189,6 +214,8 @@ mod configuration_tests;
 mod exact_local_runtime;
 #[path = "gameplay_harness/fixture_boundary_tests.rs"]
 mod fixture_boundary_tests;
+#[path = "gameplay_harness/foundry_bootstrap_contract_tests.rs"]
+mod foundry_bootstrap_contract_tests;
 #[path = "gameplay_harness/foundry_contract_tests.rs"]
 mod foundry_contract_tests;
 #[path = "gameplay_harness/foundry_probe.rs"]

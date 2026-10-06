@@ -9,14 +9,14 @@ use crate::equipment::{
 };
 use crate::geology::GeologicalDepositId;
 use crate::inventory::{
-    InboundReservationError, StockpileId, ValidatedInboundReservation,
+    InboundReservationError, StockpileId, StockpileStorageError, ValidatedInboundReservation,
     validate_inbound_reservation, validate_stockpile_storage,
     validate_stockpile_support_for_new_inbound,
 };
 use crate::labor::{PlayerWork, validate_player_work_start};
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::maintenance::Condition;
-use crate::material::MaterialLotSpec;
+use crate::material::{MaterialLotSpec, MaterialPhase};
 use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
 
@@ -35,7 +35,7 @@ pub use commit::ValidatedMiningStart;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningTargetPlan {
     deposit: GeologicalDepositId,
-    bounds: VoxelBounds,
+    region: VoxelBounds,
     excavation_hardness: Pressure,
     hardness_is_acquired: bool,
     deposit_mass_before: Mass,
@@ -77,7 +77,7 @@ fn validate_mining_target(
         });
     Ok(MiningTargetPlan {
         deposit,
-        bounds: record.bounds(),
+        region: current.region(),
         excavation_hardness,
         hardness_is_acquired,
         deposit_mass_before: record.remaining_mass(),
@@ -152,7 +152,7 @@ fn resolve_mining_output(
     state: &AppState,
     target: MiningTargetPlan,
     mass: Mass,
-) -> Result<MaterialLotSpec, MiningStartError> {
+) -> MaterialLotSpec {
     let record = state
         .geology()
         .get_deposit(target.deposit)
@@ -163,7 +163,9 @@ fn resolve_mining_output(
         record.temperature(),
         record.composition().clone(),
     )
-    .map_err(MiningStartError::InvalidOutput)
+    .unwrap_or_else(|error| {
+        unreachable!("validated geological deposit produced invalid mining output: {error}")
+    })
 }
 
 fn map_inbound_reservation_error(error: InboundReservationError) -> MiningStartError {
@@ -211,6 +213,21 @@ fn validate_mining_destination(
     {
         return Err(MiningStartError::DestinationBusyStorageDismantling {
             stockpile: destination,
+        });
+    }
+    let storage_profile = destination_record.storage_profile();
+    if !storage_profile.can_store_phase(MaterialPhase::Solid) {
+        return Err(MiningStartError::DestinationStorage(
+            StockpileStorageError::PhaseNotAccepted {
+                stockpile: destination,
+                phase: MaterialPhase::Solid,
+            },
+        ));
+    }
+    if !storage_profile.accepts_any_temperature() {
+        return Err(MiningStartError::DestinationTemperatureNotAcquired {
+            stockpile: destination,
+            maximum: storage_profile.maximum_temperature(),
         });
     }
     validate_stockpile_storage(
@@ -322,12 +339,11 @@ pub fn validate_start_mining(
         .ok_or(MiningStartError::UnknownMethod { method })?;
     let target_plan = validate_mining_target(state, target)?;
     if let Some(player) = state.logistics().player().copied()
-        && !target_plan.bounds.has_voxel(player.position())
+        && !target_plan.region.has_voxel(player.position())
     {
-        return Err(MiningStartError::PlayerOutsideDeposit {
+        return Err(MiningStartError::PlayerOutsideTarget {
             player_position: player.position(),
-            deposit: target_plan.deposit,
-            bounds: target_plan.bounds,
+            region: target_plan.region,
         });
     }
     let equipment_plan = resolve_mining_equipment_plan(
@@ -347,7 +363,7 @@ pub fn validate_start_mining(
         mass.milligrams()
             .min(target_plan.deposit_mass_before.milligrams()),
     );
-    let output = resolve_mining_output(state, target_plan, output_mass)?;
+    let output = resolve_mining_output(state, target_plan, output_mass);
     let destination_plan =
         validate_mining_destination(registries, state, destination, &output, mass, output_mass)?;
     let revisions = validate_mining_revision_capacity(state, equipment_plan, &destination_plan)?;

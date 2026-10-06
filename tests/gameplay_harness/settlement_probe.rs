@@ -26,10 +26,10 @@ use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::assess_survival;
 
-use super::capital_investment_policy::{
-    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
-};
+use super::capital_investment_crossover::first_attention_return_crossover;
+use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
+use super::exact_local_runtime::STATIONARY_PLAYER_ORIGIN;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::{plan_manual_craft_request, select_manual_craft_request};
@@ -43,7 +43,6 @@ use super::settlement_generation::{
     organic_lumber_batches,
 };
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
-use super::world_admission::STATIONARY_PLAYER_ORIGIN;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LumberInvestmentChoice {

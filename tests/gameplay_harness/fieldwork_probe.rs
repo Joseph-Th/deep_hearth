@@ -1,4 +1,4 @@
-//! Replayable ordinary prospecting-to-mining episode for the cold-agent report.
+//! Replayable ordinary-system spatial-proxy prospecting-to-mining episode for the cold-agent report.
 
 use std::collections::BTreeMap;
 
@@ -74,6 +74,9 @@ use preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
 mod retooling;
 #[path = "fieldwork_shortfall_policy.rs"]
 mod shortfall_policy;
+
+#[path = "spatial_proxy_runtime.rs"]
+mod spatial_proxy_runtime;
 
 #[cfg(test)]
 include_fieldwork_contract_tests!();

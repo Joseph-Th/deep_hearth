@@ -1,4 +1,4 @@
-//! Canonical primitive-to-mechanized progression probe for the gameplay experience harness.
+//! Canonical primitive-to-mechanized spatial-proxy probe for the gameplay experience harness.
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
@@ -262,7 +262,7 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
             AutonomousWorkStop::ToolCondition
         }
         unexpected @ MiningStartError::UnknownMethod { .. }
-        | unexpected @ MiningStartError::PlayerOutsideDeposit { .. }
+        | unexpected @ MiningStartError::PlayerOutsideTarget { .. }
         | unexpected @ MiningStartError::ZeroMass
         | unexpected @ MiningStartError::Equipment(_)
         | unexpected @ MiningStartError::EquipmentAccess(_)
@@ -275,10 +275,10 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
         | unexpected @ MiningStartError::BatchTooLarge { .. }
         | unexpected @ MiningStartError::Duration(_)
         | unexpected @ MiningStartError::CompletionTickOverflow
-        | unexpected @ MiningStartError::InvalidOutput(_)
         | unexpected @ MiningStartError::UnknownDestination { .. }
         | unexpected @ MiningStartError::DestinationAccess(_)
         | unexpected @ MiningStartError::DestinationBusyStorageDismantling { .. }
+        | unexpected @ MiningStartError::DestinationTemperatureNotAcquired { .. }
         | unexpected @ MiningStartError::DestinationStorage(_)
         | unexpected @ MiningStartError::DestinationMassOverflow { .. }
         | unexpected @ MiningStartError::MaterialLotIdExhausted
@@ -659,6 +659,9 @@ pub(super) struct PrimitiveReinvestmentExperience {
 #[path = "progression_probe/reinvestment.rs"]
 mod reinvestment;
 use reinvestment::{evaluate_mature_reinvestment, run_mature_reinvestment};
+
+#[path = "spatial_proxy_runtime.rs"]
+mod spatial_proxy_runtime;
 
 #[path = "progression_probe/episode.rs"]
 mod episode;

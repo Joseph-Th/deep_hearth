@@ -45,6 +45,89 @@ fn destination_capacity_rejection_does_not_reveal_short_hidden_reserve() {
 }
 
 #[test]
+fn mining_destination_validation_does_not_probe_hidden_output_temperature() {
+    for hidden_temperature in [300_000_u32, 500_000_u32] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("temperature-oracle survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("temperature-oracle destination failed: {error}"));
+        let construction =
+            add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_400_000))
+                .unwrap_or_else(|error| {
+                    panic!("temperature-oracle construction stockpile failed: {error}")
+                });
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            construction,
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+            Mass::from_milligrams(2_400_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("temperature-oracle chest body failed: {error}"));
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            destination,
+            construction,
+        )
+        .unwrap_or_else(|error| panic!("temperature-oracle enclosure build failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("temperature-oracle enclosure commit failed: {error}"));
+        let maximum = state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap_or_else(|| panic!("temperature-oracle destination disappeared"))
+            .storage_profile()
+            .maximum_temperature();
+        let base = deposit_spec_with_mass(Mass::from_milligrams(100_000));
+        let deposit = insert_known_deposit(
+            &registries,
+            &mut state,
+            GeneratedDepositSpec::new(
+                base.bounds(),
+                base.commodity(),
+                base.mass(),
+                Temperature::from_millikelvin(hidden_temperature),
+                base.excavation_hardness(),
+                base.composition().clone(),
+            )
+            .unwrap_or_else(|error| panic!("temperature-oracle deposit spec failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("temperature-oracle deposit failed: {error}"));
+        let before = state.clone();
+
+        let error = validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err()
+        .unwrap_or_else(|| panic!("temperature-limited mining destination unexpectedly admitted"));
+        assert_eq!(
+            error,
+            MiningStartError::DestinationTemperatureNotAcquired {
+                stockpile: destination,
+                maximum,
+            }
+        );
+        assert!(
+            !error.to_string().contains(&hidden_temperature.to_string()),
+            "mining destination rejection must not disclose hidden output temperature"
+        );
+        assert_eq!(state, before);
+    }
+}
+
+#[test]
 fn mining_cannot_reserve_output_into_an_active_dismantling_target() {
     let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
     let construction = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_400_000))

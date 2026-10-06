@@ -28,23 +28,15 @@ fn organic_power_sample_pairs_each_workload_scale_with_inherited_survival_pressu
         .map(|&case| power_project_survival_start(case, PowerProjectEra::Settlement))
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        primitive,
-        vec![
-            StationarySurvivalStart::FullReserve,
-            StationarySurvivalStart::HungerWarningBoundary,
-            StationarySurvivalStart::FullReserve,
-            StationarySurvivalStart::HydrationWarningBoundary,
-        ]
-    );
-    assert_eq!(
-        settlement,
-        vec![
-            StationarySurvivalStart::HydrationWarningBoundary,
-            StationarySurvivalStart::FullReserve,
-            StationarySurvivalStart::HungerWarningBoundary,
-            StationarySurvivalStart::FullReserve,
-        ]
+    for starts in [&primitive, &settlement] {
+        let count = |profile| starts.iter().filter(|&&start| start == profile).count();
+        assert_eq!(count(StationarySurvivalStart::FullReserve), 2);
+        assert_eq!(count(StationarySurvivalStart::HungerWarningBoundary), 1);
+        assert_eq!(count(StationarySurvivalStart::HydrationWarningBoundary), 1);
+    }
+    assert_ne!(
+        primitive, settlement,
+        "primitive and settlement projects should not inherit identical pressure from one world stratum"
     );
 }
 

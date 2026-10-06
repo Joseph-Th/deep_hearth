@@ -719,6 +719,9 @@ def report_cargo_success(
         )
         return
     details = [f"{elapsed:.1f}s"]
+    if args.name in GAMEPLAY_PROBE_TESTS:
+        scope = GAMEPLAY_PROBE_SCOPES[args.name]
+        details.append(f"evidence={gameplay_targets.gameplay_evidence_mode(scope)}")
     if replay and GAMEPLAY_VARIATION_ENV in replay:
         roots = replay[GAMEPLAY_VARIATION_ENV]
         if behavior := replay.get(GAMEPLAY_BEHAVIOR_ENV):

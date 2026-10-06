@@ -16,7 +16,7 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::initialize_player_survival;
 
-use super::world_admission;
+use super::{exact_local_runtime, world_admission};
 
 #[test]
 fn exact_local_admission_accepts_a_fully_located_runtime_world() {
@@ -55,13 +55,13 @@ fn exact_local_admission_rejects_a_forgotten_unlocated_stockpile() {
         Mass::from_milligrams(1),
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    world_admission::locate_stationary_endpoints(&mut state, &[located], &[]);
+    exact_local_runtime::locate_stationary_endpoints(&mut state, &[located], &[]);
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("exact-local guard survival setup failed: {error}"));
-    world_admission::initialize_stationary_player_logistics(&mut state);
+    exact_local_runtime::initialize_stationary_player_logistics(&mut state);
 
     let result = catch_unwind(AssertUnwindSafe(|| {
-        world_admission::assert_exact_local_runtime_ready(
+        exact_local_runtime::assert_exact_local_runtime_ready(
             &registries,
             &state,
             "forgotten-endpoint contract",

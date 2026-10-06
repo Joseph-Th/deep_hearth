@@ -26,6 +26,7 @@ from tools.gameplay_targets import (
     GAMEPLAY_BEHAVIOR_ENV,
     GAMEPLAY_CONTRACTS_TARGET,
     GAMEPLAY_FEATURE,
+    gameplay_evidence_mode,
     GAMEPLAY_REPORT_MODE_ENV,
     GAMEPLAY_SCOPE_SPECS,
     GAMEPLAY_TARGETS,
@@ -275,7 +276,7 @@ def report_repair_hint(label: str, output: str) -> str | None:
 
 
 def gameplay_environment_summary(label: str, environ) -> str | None:
-    """Return explicitly supplied replay roots when gameplay output stayed captured."""
+    """Return replay roots plus the selected gameplay evidence authority when known."""
 
     if not label.startswith("gameplay") or label == "gameplay contracts":
         return None
@@ -284,9 +285,21 @@ def gameplay_environment_summary(label: str, environ) -> str | None:
         return None
     replay = replay_root_detail(variation, environ.get(GAMEPLAY_BEHAVIOR_ENV, "n/a"))
     scope = environ.get(GAMEPLAY_VARIATION_SCOPE_ENV)
+    sampled_scope = scope is not None
+    if scope is None:
+        for prefix in ("gameplay report ", "gameplay "):
+            if label.startswith(prefix):
+                candidate = label.removeprefix(prefix)
+                if candidate in GAMEPLAY_SCOPE_SPECS or candidate == "agency":
+                    scope = candidate
+                break
     if scope is None:
         return replay
-    return f"sample={scope}; {replay}" if replay is not None else f"sample={scope}"
+    evidence = gameplay_evidence_mode(scope)
+    detail = f"evidence={evidence}"
+    if sampled_scope:
+        detail = f"sample={scope}; {detail}"
+    return f"{detail}; {replay}" if replay is not None else detail
 
 
 def quick_plan() -> list[tuple[str, list[str]]]:

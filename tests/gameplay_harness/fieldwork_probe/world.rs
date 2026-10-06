@@ -1,4 +1,4 @@
-//! Deterministic fixture construction for an ordinary fieldwork episode.
+//! Deterministic fixture construction for an ordinary-system spatial-proxy fieldwork episode.
 
 use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
@@ -39,7 +39,8 @@ pub(super) struct FieldworkWorld {
 /// Fixture truth retained only for post-action audit/reporting.
 ///
 /// This type is deliberately separate from [`FieldworkWorld`]. Actor planning must operate on the
-/// playable world plus acquired runtime evidence and must never receive exact geological truth.
+/// actor-visible spatial-proxy world plus acquired runtime evidence and must never receive exact
+/// geological truth.
 #[derive(Clone, Copy)]
 pub(super) struct FieldworkFixtureDiagnostics {
     pub(super) geology_label: &'static str,
@@ -372,6 +373,11 @@ fn build_fieldwork_world_inner(
     }
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("fieldwork survival setup failed: {error}"));
+    super::spatial_proxy_runtime::assert_spatial_proxy_runtime_ready(
+        registries,
+        &state,
+        "fieldwork",
+    );
 
     (
         FieldworkWorld {
@@ -394,8 +400,8 @@ fn build_fieldwork_world_inner(
     )
 }
 
-/// Builds only the actor-playable world. Tests of player choices should prefer this surface so
-/// hidden fixture truth cannot accidentally enter policy code.
+/// Builds only the actor-visible spatial-proxy world. Tests of player choices should prefer this
+/// surface so hidden fixture truth cannot accidentally enter policy code.
 #[cfg(test)]
 #[allow(
     dead_code,
@@ -410,7 +416,7 @@ pub(super) fn build_fieldwork_world(
     build_fieldwork_world_inner(registries, seed, requested_mine_mass, deposit_mass, false).0
 }
 
-/// Builds the playable world plus hidden truth for post-action evidence audits.
+/// Builds the actor-visible spatial-proxy world plus hidden truth for post-action evidence audits.
 pub(super) fn build_fieldwork_world_with_diagnostics(
     registries: &Registries,
     seed: u64,

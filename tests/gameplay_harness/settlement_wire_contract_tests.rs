@@ -21,9 +21,8 @@ use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 
-use super::capital_investment_policy::{
-    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
-};
+use super::capital_investment_crossover::first_attention_return_crossover;
+use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;

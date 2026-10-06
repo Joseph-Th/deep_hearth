@@ -122,8 +122,8 @@ unless production owns and proves the equivalent authoritative transition.
 
 | Mode | Surface | Supported conclusion |
 | --- | --- | --- |
-| Ordinary/runtime, exact-local | focused `survival`, `primitive-liberation`, `woodworking`, `power-provider`, `settlement`, `foundry-bootstrap` | Automated-player outcomes through ordinary acquisition and the same logistics-locality admission used by the runtime. |
-| Ordinary-system spatial proxy | focused `progression`; report `fieldwork` | Ordinary geology, production, equipment, survival, evidence, and investment semantics with actor movement intentionally abstracted because the runtime has no movement/path authority yet. These episodes support knowledge/tool/resource-loop conclusions, not travel/locality conclusions. |
+| Ordinary/runtime, exact-local | focused `survival`, `primitive-liberation`, `woodworking`, `power-provider`, `settlement`, `foundry-bootstrap` | Automated-player outcomes after disclosed starting-state setup, using ordinary production/acquisition operations and the same logistics-locality admission used by the runtime. This does not establish a missing world-source generation/acquisition edge. |
+| Ordinary-system spatial proxy | focused `progression`; report `fieldwork` | Ordinary geology, production, equipment, survival, evidence, and investment semantics with actor movement intentionally abstracted because the runtime has no movement/path authority yet. These episodes deliberately have no logistics player and assert that boundary. They support knowledge/tool/resource-loop conclusions, not travel/locality conclusions. |
 | Controlled capability | `workshop`, `ore`, `foundry` | Canonical mechanics under disclosed prearranged infrastructure, not ordinary reachability. |
 | Counterfactual | matched branches | Action-attributable differences from one actor-visible starting state over one fixed comparison horizon. |
 | Exploratory | `python ci.py report`, explicit replays/sweeps | Bounded discovery and diagnostics; exploration does not create a routine pass/fail requirement. |

@@ -352,7 +352,7 @@ fn print_capability_scope(stats: HarnessObservationStats) {
 
 fn print_experience_review(stats: HarnessObservationStats, scenario_count: usize) {
     std::println!(
-        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover pressure-shape=[clean:{} single:{} multi-system:{}] interlocks=[stored-work+throughput:{} body+power:{} wear+maintenance:{} structure+production:{}] terminal=[maintenance:{} energy:{} structural:{} before-first-operation:{}] recovery=[suspensions:{} resumed:{} stranded:{}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-in-this-workshop-scenario;concentration-is-exercised-by-the-separate-ore-probe]",
+        "WORKSHOP EXPERIENCE REVIEW goal=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover pressure-shape=[clean:{} single:{} multi-system:{}] interlocks=[stored-work+throughput:{} body+power:{} wear+maintenance:{} structure+production:{}] terminal=[maintenance:{} energy:{} structural:{} before-first-operation:{}] recovery=[suspensions:{} resumed:{} stranded:{}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-in-this-workshop-scenario;concentration-is-exercised-by-the-separate-ore-probe]",
         stats.controlled_deliveries,
         scenario_count,
         stats.clean_baselines,

@@ -1,8 +1,7 @@
 //! Cross-scope contracts for the shared capital-investment attention-return policy.
 
-use super::capital_investment_policy::{
-    CapitalInvestmentPolicy, clears_attention_return, first_attention_return_crossover,
-};
+use super::capital_investment_crossover::first_attention_return_crossover;
+use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 
 #[test]
 fn organic_policy_varies_investment_tolerance_without_changing_the_baseline() {

@@ -1,4 +1,11 @@
-//! Focused ore-preparation gameplay target for the fast edit/test loop.
+//! Ore-preparation generator contracts kept off the frequent lived probe.
+
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    reason = "contract-only crate reuses the ore evaluator without compiling the lived-probe runner"
+)]
 
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
@@ -12,10 +19,6 @@ mod environment;
 mod equipment_support;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
-#[path = "gameplay_harness/focused_seeds.rs"]
-mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
 #[path = "gameplay_harness/industrial_support.rs"]
@@ -24,6 +27,8 @@ mod industrial_support;
 mod inventory_support;
 #[path = "gameplay_harness/material_selection.rs"]
 mod material_selection;
+#[path = "gameplay_harness/ore_contract_tests.rs"]
+mod ore_contract_tests;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
 #[path = "gameplay_harness/ore_probe.rs"]
@@ -36,18 +41,7 @@ mod production_support;
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
-#[path = "gameplay_harness/seed_input.rs"]
-mod seed_input;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-
-#[cfg(test)]
-#[test]
-fn gameplay_ore_preparation_probe() {
-    focused_runner::run_focused_probe(
-        "ore-preparation",
-        ore_probe::run_ore_preparation_capability_probe,
-    );
-}

@@ -26,8 +26,9 @@ pub(super) struct ProgressionWorldSetup {
 
 /// Hidden world truth used only after actor discovery for harness validation and diagnostics.
 ///
-/// Keeping these values out of the playable setup prevents exact reserve, grade, hardness, and
-/// authored-role identity from becoming accidental inputs to the player's search policy.
+/// Keeping these values out of the actor-visible spatial-proxy setup prevents exact reserve, grade,
+/// hardness, and authored-role identity from becoming accidental inputs to the player's search
+/// policy.
 #[derive(Clone, Copy)]
 pub(super) struct ProgressionFixtureDiagnostics {
     pub(super) soft_ore_deposit_mass: Mass,
@@ -274,10 +275,17 @@ pub(super) fn setup_progression_world(
         ),
     );
     let trace_target = MiningTargetRequest::new(trace_bounds, MATERIAL_COPPER);
-    // Finish every fixture-only world mutation before admitting the player. From this point onward,
-    // the episode may only use production-visible observations and canonical player/runtime actions.
+    // Finish every fixture-only world mutation before admitting the spatial-proxy actor. From this
+    // point onward the episode may only use production-visible observations and canonical runtime
+    // actions. Logistics stays deliberately absent because production has no movement/path owner;
+    // this episode therefore proves system behavior, not locality or travel behavior.
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("primitive progression survival setup failed: {error}"));
+    super::super::spatial_proxy_runtime::assert_spatial_proxy_runtime_ready(
+        registries,
+        &state,
+        "primitive progression",
+    );
 
     (
         ProgressionWorldSetup {

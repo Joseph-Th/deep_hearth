@@ -978,13 +978,23 @@ fn unstarted_mining_fixture() -> (
 }
 
 #[test]
-fn mining_rejects_player_outside_resolved_deposit() {
+fn mining_rejects_player_outside_acquired_target_without_revealing_hidden_deposit() {
     let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
     let bounds = state
         .geology()
         .get_deposit(deposit)
         .map(|record| record.bounds())
         .unwrap_or_else(|| panic!("remote-player mining deposit disappeared"));
+    let target_region = VoxelBounds::new(
+        bounds.min(),
+        VoxelCoord::new(
+            bounds.min().x() + 1,
+            bounds.min().y() + 1,
+            bounds.min().z() + 1,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("remote-player acquired target region failed: {error}"));
+    assert_ne!(target_region, bounds);
     let player_position = VoxelCoord::new(10, 0, 0);
     validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("remote-player mining logistics setup failed: {error}"))
@@ -1003,10 +1013,9 @@ fn mining_rejects_player_outside_resolved_deposit() {
             Mass::from_milligrams(100_000),
         )
         .err(),
-        Some(MiningStartError::PlayerOutsideDeposit {
+        Some(MiningStartError::PlayerOutsideTarget {
             player_position,
-            deposit,
-            bounds,
+            region: target_region,
         })
     );
     assert_eq!(state, before);

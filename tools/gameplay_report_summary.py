@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 
+from tools import gameplay_targets
 from tools.gameplay_summary.common import compact_fields, field
 from tools.gameplay_summary.controlled import controlled_gameplay_summary
 from tools.gameplay_summary.fieldwork import fieldwork_summary
@@ -217,9 +218,6 @@ _EXPECTED_CONTROLLED_BY_PROBE = {
     "ore-preparation": {"ore"},
     "foundry": {"foundry"},
 }
-_SPATIAL_PROXY_PROBES = {"primitive-progression", "fieldwork"}
-
-
 def _controlled_summary_probe(summary: str) -> str | None:
     if summary.startswith("CONTROLLED SUMMARY "):
         return field(summary, "probe")
@@ -308,9 +306,15 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         probe = field(summary, "probe")
         if probe is None:
             return summary
+        evidence_scope = gameplay_targets.GAMEPLAY_REPORT_SCOPE_BY_PROBE.get(probe)
+        if evidence_scope is None:
+            return summary
+        evidence_mode = gameplay_targets.gameplay_evidence_mode(evidence_scope)
+        # Exact-local is the ordinary-report default. Only annotate the exceptional proxy mode so
+        # evidence boundaries stay visible without repeating the same metadata on every digest row.
         scope = (
             " scope=spatial-proxy"
-            if probe in _SPATIAL_PROXY_PROBES
+            if evidence_mode == gameplay_targets.EVIDENCE_ORDINARY_SPATIAL_PROXY
             else ""
         )
         if probe == "fieldwork":
@@ -472,7 +476,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         ).rstrip()
     if summary.startswith("CONTROLLED SUMMARY probe=agency "):
         return (
-            "CAPABILITY probe=agency "
+            "COUNTERFACTUAL probe=agency evidence=counterfactual "
             + compact_fields(
                 summary,
                 (

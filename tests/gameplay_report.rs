@@ -11,6 +11,8 @@ mod agency;
 mod bulk_fieldwork_workload;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
+#[path = "gameplay_harness/capital_investment_crossover.rs"]
+mod capital_investment_crossover;
 #[path = "gameplay_harness/capital_investment_policy.rs"]
 mod capital_investment_policy;
 #[path = "gameplay_harness/catalog.rs"]
@@ -131,6 +133,8 @@ mod settlement_probe;
 mod settlement_wire_contract_tests;
 #[path = "gameplay_harness/settlement_workshop_investment.rs"]
 mod settlement_workshop_investment;
+#[path = "gameplay_harness/stationary_survival.rs"]
+mod stationary_survival;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/survival_probe.rs"]

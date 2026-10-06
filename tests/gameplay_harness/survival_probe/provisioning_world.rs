@@ -481,7 +481,7 @@ pub(super) fn prepare_provisioning_world(
         drink_supply,
         ROOM_TEMPERATURE,
     );
-    super::super::world_admission::locate_stationary_endpoints(
+    super::super::exact_local_runtime::locate_stationary_endpoints(
         &mut state,
         &[ambient_meal, preserved_reserve, enclosure_material],
         &[drink_store],
@@ -499,7 +499,7 @@ pub(super) fn prepare_provisioning_world(
             seed_player_survival_at_hydration_warning_boundary(registries, &mut state)
         }
     }
-    super::super::world_admission::initialize_stationary_player_logistics(&mut state);
+    super::super::exact_local_runtime::initialize_stationary_player_logistics(&mut state);
     super::super::exact_local_runtime::assert_exact_local_runtime_ready(
         registries,
         &state,
