@@ -1,6 +1,7 @@
-//! Proves each manual-power method can fully charge a compatible finite store.
+//! Proves each manual-power method can execute a nonzero charge into compatible finite storage.
 
 use crate::capability::CapabilityValue;
+use crate::core::quantity::Energy;
 use crate::core::time::TickSpan;
 use crate::energy::EnergyRegistry;
 use crate::equipment::{EquipmentRegistry, resolve_equipment_capability};
@@ -10,20 +11,18 @@ use crate::survival::PhysiologyDefinition;
 
 use super::super::super::{CoreDefinitions, RegistryDomains};
 
-pub(super) fn best_operable_manual_power_full_charge_duration(
+// Manual generation has no authored batch size. The smallest positive stored-energy unit proves
+// that the method itself can perform useful finite work without inventing a downstream consumer or
+// requiring a lossy destination buffer to be filled in one session.
+const MINIMUM_OPERABLE_OUTPUT: Energy = Energy::from_nanojoules(1);
+
+pub(super) fn best_operable_manual_power_duration(
     core: &CoreDefinitions,
     equipment_registry: &EquipmentRegistry,
     energy_registry: &EnergyRegistry,
     physiology: PhysiologyDefinition,
     definition: &ManualPowerDefinition,
 ) -> Option<TickSpan> {
-    let compatible_stores = energy_registry
-        .definitions()
-        .filter(|store| {
-            store.carrier() == definition.carrier() && !store.max_input_power().is_zero()
-        })
-        .collect::<Vec<_>>();
-
     equipment_registry
         .definitions()
         .filter(|equipment| !equipment.requires_structural_support())
@@ -38,9 +37,11 @@ pub(super) fn best_operable_manual_power_full_charge_duration(
             )
         })
         .filter_map(|equipment| {
-            compatible_stores
-                .iter()
-                .copied()
+            energy_registry
+                .definitions()
+                .filter(|store| {
+                    store.carrier() == definition.carrier() && !store.max_input_power().is_zero()
+                })
                 .filter_map(|store| {
                     let projection = project_manual_power_configuration(
                         core,
@@ -49,7 +50,7 @@ pub(super) fn best_operable_manual_power_full_charge_duration(
                         equipment,
                         Condition::PRISTINE,
                         store,
-                        store.capacity(),
+                        MINIMUM_OPERABLE_OUTPUT,
                     )
                     .ok()?;
                     let budget = projection.resource_budget();
@@ -69,7 +70,7 @@ pub(super) fn validate_manual_power_operability(
 ) {
     for definition in domains.labor.manual_power_definitions() {
         assert!(
-            best_operable_manual_power_full_charge_duration(
+            best_operable_manual_power_duration(
                 core,
                 &domains.equipment,
                 &domains.energy,
@@ -77,7 +78,7 @@ pub(super) fn validate_manual_power_operability(
                 definition,
             )
             .is_some(),
-            "manual power method {} has no pristine portable provider and compatible finite store that can be charged from empty to full within condition and survival limits",
+            "manual power method {} has no pristine portable provider and compatible finite store that can accept a nonzero authoritative charge within condition and survival limits",
             definition.id().value()
         );
     }

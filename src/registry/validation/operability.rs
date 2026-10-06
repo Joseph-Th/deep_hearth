@@ -53,7 +53,7 @@ pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: 
 #[cfg(test)]
 use manual_ore::assert_manual_ore_batch_fits_reserves;
 #[cfg(test)]
-use manual_power::best_operable_manual_power_full_charge_duration;
+use manual_power::best_operable_manual_power_duration;
 #[cfg(test)]
 use mining::best_operable_mining_duration;
 

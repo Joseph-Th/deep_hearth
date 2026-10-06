@@ -37,7 +37,7 @@ fn manual_power_operability_rejects_zero_effective_metabolic_output() {
     );
 
     assert_eq!(
-        best_operable_manual_power_full_charge_duration(
+        best_operable_manual_power_duration(
             registries.core(),
             registries.equipment(),
             registries.energy(),
@@ -49,7 +49,7 @@ fn manual_power_operability_rejects_zero_effective_metabolic_output() {
 }
 
 #[test]
-fn manual_power_operability_rejects_token_only_route_that_cannot_fill_a_store() {
+fn manual_power_operability_accepts_bounded_charge_when_full_store_is_not_executable() {
     let registries = build_registries();
     let baseline = registries
         .labor()
@@ -98,18 +98,41 @@ fn manual_power_operability_rejects_token_only_route_that_cannot_fill_a_store() 
             Energy::from_nanojoules(1),
         )
         .is_ok(),
-        "token energy must remain physically projectable before full-store reserve feasibility is evaluated"
+        "a nonzero bounded charge must remain physically projectable"
+    );
+    let full_store = project_manual_power_configuration(
+        registries.core(),
+        registries.survival().physiology(),
+        token_only,
+        equipment,
+        Condition::PRISTINE,
+        store,
+        store.capacity(),
+    );
+    let full_store_executable = full_store.is_ok_and(|projection| {
+        let budget = projection.resource_budget();
+        budget.metabolic_energy()
+            <= registries
+                .survival()
+                .physiology()
+                .maximum_metabolic_energy()
+            && budget.hydration() <= registries.survival().physiology().maximum_hydration()
+    });
+    assert!(
+        !full_store_executable,
+        "fixture must distinguish bounded charging from an unnecessary one-session full-store charge"
     );
 
-    assert_eq!(
-        best_operable_manual_power_full_charge_duration(
+    assert!(
+        best_operable_manual_power_duration(
             registries.core(),
             registries.equipment(),
             registries.energy(),
             registries.survival().physiology(),
             &token_only,
-        ),
-        None
+        )
+        .is_some(),
+        "manual power is operable when it can add nonzero work in bounded sessions"
     );
 }
 
