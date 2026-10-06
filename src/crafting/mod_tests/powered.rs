@@ -22,11 +22,16 @@ use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{
     MaterialLotSelection, StockpileId, add_solid_stockpile_for_test, deposit_lot_for_test,
 };
+use crate::logistics::{
+    PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
+use crate::spatial::VoxelCoord;
 
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
@@ -307,6 +312,87 @@ fn finish_job(
             "unattended settlement machinery must not capture player attention"
         );
     }
+}
+
+#[test]
+fn powered_craft_rejects_remote_input_after_player_logistics_initialization() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let assembly = stockpile(&mut state, 4_000_000);
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL), 900_000),
+        (CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT), 100_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 1_600_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 800_000),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            20_000,
+        ),
+    ] {
+        deposit(&registries, &mut state, assembly, commodity, mass);
+    }
+    let drill = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("remote powered-craft drill assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote powered-craft drill commit failed: {error}"));
+    let source = stockpile(&mut state, 20_000);
+    let reinforcement = deposit(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        20_000,
+    );
+    let destination = stockpile(&mut state, 20_000);
+    let drive = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("remote powered-craft drive fixture failed: {error}"));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote powered-craft logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote powered-craft logistics commit failed: {error}"));
+    let source_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, source, source_position)
+        .unwrap_or_else(|error| panic!("remote powered-craft source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote powered-craft source placement commit failed: {error}")
+        });
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_powered_craft(
+            &registries,
+            &state,
+            PoweredCraftRequest::single(
+                PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+                source,
+                MaterialLotSelection::new(reinforcement, Mass::from_milligrams(20_000)),
+                drill,
+                drive,
+            ),
+            destination,
+        )
+        .err(),
+        Some(StartPoweredCraftError::StockpileAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: source,
+                stockpile_position: source_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

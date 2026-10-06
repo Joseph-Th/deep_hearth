@@ -8,6 +8,9 @@ use crate::core::quantity::Mass;
 use crate::core::throughput::MassFlowDurationError;
 use crate::energy::{EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError};
 use crate::equipment::{EquipmentDefinitionId, EquipmentProviderError};
+use crate::logistics::{
+    PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, PlayerStockpileAccessError,
+};
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::MaterialLotSpecError;
 use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError, StartProcessError};
@@ -187,6 +190,9 @@ pub(super) fn batch_error(error: ManualCraftBatchError) -> PoweredCraftError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartPoweredCraftError {
+    StockpileAccess(PlayerStockpileAccessError),
+    EquipmentAccess(PlayerEquipmentAccessError),
+    EnergyStoreAccess(PlayerEnergyStoreAccessError),
     Resolution(PoweredCraftError),
     Process(StartProcessError),
 }
@@ -194,6 +200,18 @@ pub enum StartPoweredCraftError {
 impl Display for StartPoweredCraftError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StockpileAccess(error) => {
+                write!(formatter, "powered craft stockpile access failed: {error}")
+            }
+            Self::EquipmentAccess(error) => {
+                write!(formatter, "powered craft equipment access failed: {error}")
+            }
+            Self::EnergyStoreAccess(error) => {
+                write!(
+                    formatter,
+                    "powered craft energy-store access failed: {error}"
+                )
+            }
             Self::Resolution(error) => {
                 write!(formatter, "powered craft resolution failed: {error}")
             }
@@ -205,6 +223,9 @@ impl Display for StartPoweredCraftError {
 impl Error for StartPoweredCraftError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::StockpileAccess(error) => Some(error),
+            Self::EquipmentAccess(error) => Some(error),
+            Self::EnergyStoreAccess(error) => Some(error),
             Self::Resolution(error) => Some(error),
             Self::Process(error) => Some(error),
         }

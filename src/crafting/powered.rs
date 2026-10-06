@@ -16,6 +16,10 @@ use crate::equipment::{
     resolve_equipment_provider,
 };
 use crate::inventory::{MaterialLotSelection, StockpileId};
+use crate::logistics::{
+    validate_player_energy_store_access, validate_player_equipment_access,
+    validate_player_stockpile_access,
+};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
@@ -437,6 +441,14 @@ pub fn validate_start_powered_craft(
     destination: StockpileId,
 ) -> Result<ValidatedStartProcess, StartPoweredCraftError> {
     let source = request.source;
+    validate_player_stockpile_access(state, source)
+        .map_err(StartPoweredCraftError::StockpileAccess)?;
+    validate_player_stockpile_access(state, destination)
+        .map_err(StartPoweredCraftError::StockpileAccess)?;
+    validate_player_equipment_access(state, request.equipment)
+        .map_err(StartPoweredCraftError::EquipmentAccess)?;
+    validate_player_energy_store_access(state, request.energy_store)
+        .map_err(StartPoweredCraftError::EnergyStoreAccess)?;
     let resolution = resolve_powered_craft(registries, state, &request)
         .map_err(StartPoweredCraftError::Resolution)?;
     validate_start_process(registries, state, &resolution, source, destination)
