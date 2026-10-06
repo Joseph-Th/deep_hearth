@@ -16,7 +16,6 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreDefinitionId;
 use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
-use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
@@ -38,6 +37,7 @@ use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
+use super::world_admission::StationarySurvivalStart;
 
 #[path = "power_provider_build.rs"]
 mod build;
@@ -56,13 +56,14 @@ use execution::{
     execute_primitive_comparison, execute_selected_primitive_project,
     execute_selected_settlement_project, execute_settlement_comparison,
 };
+#[cfg(not(test))]
 use planning::{
-    PrimitivePowerChoice, PrimitivePowerProject, SettlementCopperPolicy,
-    assert_primitive_power_provider_market_current,
+    PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
+};
+use planning::{
+    PrimitivePowerProject, SettlementCopperPolicy, assert_primitive_power_provider_market_current,
     assert_settlement_power_provider_market_current, primitive_power_plan, settlement_power_plan,
 };
-#[cfg(not(test))]
-use planning::{PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan};
 use provisioning::seed_power_project_provisions;
 
 fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
@@ -75,6 +76,47 @@ fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
                 case.required_behavior_seed("power-provider investment policy"),
             )
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PowerProjectEra {
+    Primitive,
+    Settlement,
+}
+
+fn power_project_survival_start(
+    case: FocusedProbeCase,
+    era: PowerProjectEra,
+) -> StationarySurvivalStart {
+    if matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    ) {
+        return StationarySurvivalStart::FullReserve;
+    }
+
+    // The four-case exploratory sample already stratifies these low world bits. Pair each ordinary
+    // workload scale with one rested and one pressured start so survival is a recurring part of
+    // power planning instead of a maintained-only edge case. Settlement rotates the same disclosed
+    // physical stratum so its pressure is not mechanically identical to the primitive subepisode.
+    let stratum = usize::try_from(case.seed() & 0b11)
+        .unwrap_or_else(|_| unreachable!("two-bit power stratum fits usize"));
+    let primitive = [
+        StationarySurvivalStart::FullReserve,
+        StationarySurvivalStart::HungerWarningBoundary,
+        StationarySurvivalStart::FullReserve,
+        StationarySurvivalStart::HydrationWarningBoundary,
+    ];
+    let settlement = [
+        StationarySurvivalStart::HydrationWarningBoundary,
+        StationarySurvivalStart::FullReserve,
+        StationarySurvivalStart::HungerWarningBoundary,
+        StationarySurvivalStart::FullReserve,
+    ];
+    match era {
+        PowerProjectEra::Primitive => primitive[stratum],
+        PowerProjectEra::Settlement => settlement[stratum],
     }
 }
 
@@ -320,45 +362,10 @@ impl PrimitiveCrushingWorkload {
     }
 }
 
-fn primitive_power_choice_for_project(
-    registries: &Registries,
-    state: &AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
-    store_definition: EnergyStoreDefinitionId,
-    mass: Mass,
-    work: Energy,
-    investment_policy: CapitalInvestmentPolicy,
-) -> PrimitivePowerChoice {
-    let capacity_nj = registries
-        .energy()
-        .get_store(store_definition)
-        .map(|definition| definition.capacity().nanojoules())
-        .unwrap_or_else(|| panic!("primitive power project accumulator disappeared"));
-    planning::primitive_power_plan_for_consumer(
-        registries,
-        state,
-        raw,
-        shaped,
-        store_definition,
-        capacity_nj,
-        EQUIPMENT_STONE_CRUSHER,
-        deep_hearth::maintenance::Condition::PRISTINE,
-        mass,
-        work.nanojoules(),
-        investment_policy,
-    )
-    .choice
-}
-
 fn declared_primitive_crushing_project(
     registries: &Registries,
-    state: &AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
     seed: u64,
     store_definition: EnergyStoreDefinitionId,
-    stratify_market_choice: bool,
 ) -> (Mass, Energy, PrimitiveCrushingWorkload) {
     // Early powered processing sees two ordinary disclosed workload scales. Routine stockpiling
     // follows the progression loop; bulk work carries forward the same large extraction order used
@@ -413,77 +420,17 @@ fn declared_primitive_crushing_project(
             let ordinary = bulk_fieldwork_order_mass(registries, seed);
             let ordinary_batches = ordinary.milligrams() / quarry_batch.milligrams();
             let ordinal = ordinary_batches - BULK_FIELDWORK_ORDER_MIN_BATCHES;
-            let batches = if stratify_market_choice {
-                let desired_choice = if stratum == 2 {
-                    PrimitivePowerChoice::Crank
-                } else {
-                    PrimitivePowerChoice::Treadle
-                };
-                let [eager_policy, cautious_policy] = CapitalInvestmentPolicy::organic_bounds();
-                let span = BULK_FIELDWORK_ORDER_MAX_BATCHES - BULK_FIELDWORK_ORDER_MIN_BATCHES + 1;
-                let start = ordinal % span;
-                (0..span)
-                    .map(|offset| {
-                        BULK_FIELDWORK_ORDER_MIN_BATCHES + (start + offset) % span
-                    })
-                    .find(|&batches| {
-                        let mass = Mass::from_milligrams(
-                            quarry_batch
-                                .milligrams()
-                                .checked_mul(batches)
-                                .unwrap_or_else(|| {
-                                    panic!("primitive power bulk candidate mass overflowed")
-                                }),
-                        );
-                        let work = deep_hearth::energy::calculate_mass_specific_energy(
-                            mass,
-                            definition.specific_energy(),
-                        );
-                        let eager_choice = primitive_power_choice_for_project(
-                            registries,
-                            state,
-                            raw,
-                            shaped,
-                            store_definition,
-                            mass,
-                            work,
-                            eager_policy,
-                        );
-                        match desired_choice {
-                            PrimitivePowerChoice::Crank => eager_choice == PrimitivePowerChoice::Crank,
-                            PrimitivePowerChoice::Treadle => {
-                                eager_choice == PrimitivePowerChoice::Treadle
-                                    && primitive_power_choice_for_project(
-                                        registries,
-                                        state,
-                                        raw,
-                                        shaped,
-                                        store_definition,
-                                        mass,
-                                        work,
-                                        cautious_policy,
-                                    ) == PrimitivePowerChoice::Treadle
-                            }
-                            PrimitivePowerChoice::WalkingWheel => unreachable!(
-                                "ordinary primitive organic strata do not target industrial-scale walking-wheel work"
-                            ),
-                        }
-                    })
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "ordinary bulk fieldwork horizon no longer reaches the current primitive {desired_choice:?} market regime"
-                        )
-                    })
+            // Keep the two bulk strata on opposite halves of the ordinary fieldwork envelope, but
+            // never search for a workload that forces a provider identity. The chosen provider is
+            // an observed result of live economics and actor policy.
+            let midpoint =
+                (BULK_FIELDWORK_ORDER_MIN_BATCHES + BULK_FIELDWORK_ORDER_MAX_BATCHES) / 2;
+            let (minimum, maximum) = if stratum == 2 {
+                (BULK_FIELDWORK_ORDER_MIN_BATCHES, midpoint)
             } else {
-                let midpoint =
-                    (BULK_FIELDWORK_ORDER_MIN_BATCHES + BULK_FIELDWORK_ORDER_MAX_BATCHES) / 2;
-                let (minimum, maximum) = if stratum == 2 {
-                    (BULK_FIELDWORK_ORDER_MIN_BATCHES, midpoint)
-                } else {
-                    (midpoint + 1, BULK_FIELDWORK_ORDER_MAX_BATCHES)
-                };
-                minimum + ordinal % (maximum - minimum + 1)
+                (midpoint + 1, BULK_FIELDWORK_ORDER_MAX_BATCHES)
             };
+            let batches = minimum + ordinal % (maximum - minimum + 1);
             Mass::from_milligrams(
                 quarry_batch
                     .milligrams()
@@ -665,6 +612,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     assert_settlement_power_provider_market_current(registries);
     let seed = case.seed();
     let investment_policy = investment_policy(case);
+    let primitive_survival_start = power_project_survival_start(case, PowerProjectEra::Primitive);
+    let settlement_survival_start = power_project_survival_start(case, PowerProjectEra::Settlement);
     // Derive the smallest ordinary copper-free accumulator that funds one complete pristine
     // crusher batch from the current content graph. This keeps the player policy stable when
     // crusher energy, batch capacity, or authored storage definitions are retuned.
@@ -703,20 +652,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .get_store(store_definition)
         .map(|definition| definition.capacity().nanojoules())
         .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
-    let stratify_market_choice = matches!(
-        case.role(),
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
-    );
     let (primitive_project_mass, primitive_project_work, _primitive_workload) =
-        declared_primitive_crushing_project(
-            registries,
-            &state,
-            raw,
-            shaped,
-            seed,
-            store_definition,
-            stratify_market_choice,
-        );
+        declared_primitive_crushing_project(registries, seed, store_definition);
     let primitive_available_mass = primitive_project_mass;
     let primitive_feed = add_solid_stockpile(&mut state, primitive_available_mass);
     let primitive_output = add_solid_stockpile(&mut state, primitive_available_mass);
@@ -734,7 +671,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         ROOM_TEMPERATURE,
         copper_ore_composition(350_000, 200_000),
     );
-    super::world_admission::admit_stationary_player(
+    super::world_admission::admit_stationary_player_with_survival_start(
         registries,
         &mut state,
         &[
@@ -748,6 +685,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             shaped,
         ],
         &[primitive_provisions.water],
+        primitive_survival_start,
         "primitive power-provider",
     );
     let primitive_consumer = build_primitive_power_consumer(
@@ -860,7 +798,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_service_spent =
         add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
     let settlement_provisions = seed_power_project_provisions(registries, &mut settlement_state);
-    super::world_admission::admit_stationary_player(
+    super::world_admission::admit_stationary_player_with_survival_start(
         registries,
         &mut settlement_state,
         &[
@@ -874,6 +812,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             settlement_provisions.enclosure_material,
         ],
         &[settlement_provisions.water],
+        settlement_survival_start,
         "settlement power-provider",
     );
     let baseline_settlement_spend_frontier = planning::settlement_power_decision_frontier(
@@ -1261,8 +1200,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .unwrap_or_else(|| unreachable!("allowed settlement minimum cannot exceed selected arm"));
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive selected={} declared=[work:{}nJ pristine-charge-events:{} consumer-projected-batches:{} consumer-projected-services:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive survival-start={} selected={} declared=[work:{}nJ pristine-charge-events:{} consumer-projected-batches:{} consumer-projected-services:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
         case.role().label(),
+        primitive_survival_start.label(),
         plan.choice.label(),
         plan.declared_work_nj,
         plan.charge_events,
@@ -1301,8 +1241,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement selected={} copper-policy={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[stone-crank-active-attention:{}t copper-crank-active-attention:{}t treadle-active-attention:{}t treadle-dynamo-active-attention:{}t double-wound-treadle-dynamo-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} allowed-attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement survival-start={} selected={} copper-policy={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[stone-crank-active-attention:{}t copper-crank-active-attention:{}t treadle-active-attention:{}t treadle-dynamo-active-attention:{}t double-wound-treadle-dynamo-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} allowed-attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
         case.role().label(),
+        settlement_survival_start.label(),
         settlement_plan.choice.label(),
         copper_policy.label(),
         settlement_plan.declared_work_nj,

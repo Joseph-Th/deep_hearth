@@ -14,37 +14,38 @@ use super::planning::{
 };
 use super::*;
 
-fn baseline_primitive_planning_state(
-    registries: &Registries,
-    store_definition: deep_hearth::energy::EnergyStoreDefinitionId,
-) -> (AppState, StockpileId, StockpileId) {
-    let mut state = AppState::new();
-    let primitive_roots = [
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-    ];
-    let requirements = power_raw_opportunity(
-        registries,
-        &primitive_roots,
-        &[
-            EQUIPMENT_STONE_CRUSHER,
-            EQUIPMENT_STONE_HAND_CRANK,
-            EQUIPMENT_TIMBER_TREADLE_DRIVE,
-            EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        ],
-        &[store_definition],
-        EQUIPMENT_STONE_CRUSHER,
-        planning::primitive_project_batch_limit(),
-        "primitive power generation contract",
+#[test]
+fn organic_power_sample_pairs_each_workload_scale_with_inherited_survival_pressure() {
+    let cases = (0_u64..4)
+        .map(|seed| FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation))
+        .collect::<Vec<_>>();
+    let primitive = cases
+        .iter()
+        .map(|&case| power_project_survival_start(case, PowerProjectEra::Primitive))
+        .collect::<Vec<_>>();
+    let settlement = cases
+        .iter()
+        .map(|&case| power_project_survival_start(case, PowerProjectEra::Settlement))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        primitive,
+        vec![
+            StationarySurvivalStart::FullReserve,
+            StationarySurvivalStart::HungerWarningBoundary,
+            StationarySurvivalStart::FullReserve,
+            StationarySurvivalStart::HydrationWarningBoundary,
+        ]
     );
-    let (raw, raw_capacity) = seed_raw_opportunity(
-        registries,
-        &mut state,
-        requirements,
-        "primitive power generation contract",
+    assert_eq!(
+        settlement,
+        vec![
+            StationarySurvivalStart::HydrationWarningBoundary,
+            StationarySurvivalStart::FullReserve,
+            StationarySurvivalStart::HungerWarningBoundary,
+            StationarySurvivalStart::FullReserve,
+        ]
     );
-    let shaped = add_solid_stockpile(&mut state, raw_capacity);
-    (state, raw, shaped)
 }
 
 #[test]
@@ -85,20 +86,11 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
             crusher.specific_energy(),
         ) > Mass::ZERO
     );
-    let (planning_state, planning_raw, planning_shaped) =
-        baseline_primitive_planning_state(&registries, store_definition);
     let primitive = (1_u64..=256)
         .map(|seed| {
             let cycle = primitive_mining_cycle_mass(&registries, seed);
-            let (mass, _work, workload) = declared_primitive_crushing_project(
-                &registries,
-                &planning_state,
-                planning_raw,
-                planning_shaped,
-                seed,
-                store_definition,
-                false,
-            );
+            let (mass, _work, workload) =
+                declared_primitive_crushing_project(&registries, seed, store_definition);
             (mass, cycle, workload)
         })
         .collect::<Vec<_>>();
@@ -188,15 +180,8 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
         let bounded = (0_u64..4)
             .map(|offset| {
                 let seed = root + offset;
-                let (mass, work, workload) = declared_primitive_crushing_project(
-                    &registries,
-                    &planning_state,
-                    planning_raw,
-                    planning_shaped,
-                    seed,
-                    store_definition,
-                    true,
-                );
+                let (mass, work, workload) =
+                    declared_primitive_crushing_project(&registries, seed, store_definition);
                 (mass, work, workload)
             })
             .collect::<Vec<_>>();
@@ -221,36 +206,15 @@ fn organic_power_workload_sampling_visits_each_declared_market_regime() {
             bulk.len() > 1,
             "bounded primitive sampling must retain multiple bulk workloads around the provider frontier"
         );
-        let [eager_policy, cautious_policy] = CapitalInvestmentPolicy::organic_bounds();
-        let bulk_choices = bulk
+        let midpoint = (BULK_FIELDWORK_ORDER_MIN_BATCHES + BULK_FIELDWORK_ORDER_MAX_BATCHES) / 2;
+        let bulk_batches = bulk
             .iter()
-            .map(|(mass, work, _)| {
-                [eager_policy, cautious_policy].map(|policy| {
-                    primitive_power_choice_for_project(
-                        &registries,
-                        &planning_state,
-                        planning_raw,
-                        planning_shaped,
-                        store_definition,
-                        *mass,
-                        *work,
-                        policy,
-                    )
-                })
-            })
+            .map(|(mass, _, _)| mass.milligrams() / quarry_batch.milligrams())
             .collect::<Vec<_>>();
         assert!(
-            bulk_choices.iter().all(|choices| choices[0] == choices[1]),
-            "physical workload coverage must cross the provider market without relying on actor-policy variation"
-        );
-        assert!(
-            bulk_choices
-                .iter()
-                .map(|choices| choices[0].equipment())
-                .collect::<BTreeSet<_>>()
-                .len()
-                > 1,
-            "bounded organic workloads must cross a live primitive provider frontier without pinning specific seed strata to provider identities"
+            bulk_batches.iter().any(|&batches| batches <= midpoint)
+                && bulk_batches.iter().any(|&batches| batches > midpoint),
+            "bounded primitive sampling must span both halves of ordinary bulk fieldwork demand without selecting for provider outcome"
         );
     }
 }

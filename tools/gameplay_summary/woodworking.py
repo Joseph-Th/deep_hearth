@@ -34,8 +34,8 @@ def woodworking_summary(lines: list[str]) -> str | None:
     feedback = [line for line in lines if line.startswith("WOODWORKING FEEDBACK ")]
     setup_budget_met = 0
     realized_payback = 0
-    conservative_budget_misses = 0
-    optimistic_budget_misses = 0
+    below_threshold_paybacks = 0
+    threshold_without_payback = 0
     timber_model_agrees = 0
     frozen_before_action = 0
     for line in feedback:
@@ -49,8 +49,8 @@ def woodworking_summary(lines: list[str]) -> str | None:
             payback = attention.group(2) == "true"
             setup_budget_met += budget_met
             realized_payback += payback
-            conservative_budget_misses += not budget_met and payback
-            optimistic_budget_misses += budget_met and not payback
+            below_threshold_paybacks += not budget_met and payback
+            threshold_without_payback += budget_met and not payback
         if timber is not None and timber.group(1) == timber.group(2):
             timber_model_agrees += 1
         frozen_before_action += "choice-frozen-before-action=true" in line
@@ -73,8 +73,8 @@ def woodworking_summary(lines: list[str]) -> str | None:
         f"saw-feedback=[samples:{len(feedback)}/{len(woodworking)} "
         f"setup-threshold-met:{setup_budget_met}/{len(feedback)} "
         f"realized-payback:{realized_payback}/{len(feedback)} "
-        f"hindsight=[missed-payback:{conservative_budget_misses} "
-        f"unrealized-threshold:{optimistic_budget_misses}] "
+        f"hindsight=[below-threshold-payback:{below_threshold_paybacks} "
+        f"threshold-without-payback:{threshold_without_payback}] "
         f"timber-model-agrees:{timber_model_agrees}/{len(feedback)} "
         f"frozen:{frozen_before_action}/{len(feedback)}]"
     )

@@ -7,6 +7,10 @@ mod output;
 
 #[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
 mod bulk_fieldwork_workload;
+#[allow(
+    dead_code,
+    reason = "focused power target uses the shared investment policy but not settlement specialization crossover search"
+)]
 #[path = "gameplay_harness/capital_investment_policy.rs"]
 mod capital_investment_policy;
 #[path = "gameplay_harness/direct_consumption_timing.rs"]
@@ -69,6 +73,10 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[allow(
+    dead_code,
+    reason = "focused power target uses explicit survival-start admission; other gameplay targets use the default admission wrapper and report label"
+)]
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
 

@@ -263,6 +263,39 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
     return values
 
 
+def _organic_survival_evidence(projects: list[str], era: str) -> str:
+    selected = [
+        line
+        for line in projects
+        if line.startswith("POWER PROJECT EXPERIENCE ")
+        and f" era={era} " in line
+        and " sample=organic " in line
+    ]
+    starts = {
+        "full": 0,
+        "hunger": 0,
+        "hydration": 0,
+    }
+    labels = {
+        "full-reserve": "full",
+        "hunger-warning-boundary": "hunger",
+        "hydration-warning-boundary": "hydration",
+    }
+    for line in selected:
+        match = re.search(r"\bsurvival-start=([^\s]+)", line)
+        if match is not None and match.group(1) in labels:
+            starts[labels[match.group(1)]] += 1
+    lived = _project_experience(selected, era)
+    provisioned = sum(stops > 0 for stops in lived["provisioning_stops"])
+    return (
+        f"[start=[full:{starts['full']} hunger:{starts['hunger']} hydration:{starts['hydration']}] "
+        f"provisioned:{provisioned}/{len(selected)} "
+        f"stops:{_span(lived['provisioning_stops'])} "
+        f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])} "
+        f"limited-batches:{_span(lived['limited_batches'])}]"
+    )
+
+
 def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     choice_counts = _project_choice_counts(projects, "primitive")
     organic_power = organic_only(power)
@@ -322,6 +355,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"market=[{_provider_market_text(choice_counts)}] "
         f"organic-choice=[{_choice_counts_text(organic_choice_counts)}] "
         f"organic-workload=[routine:{organic_routine} bulk:{organic_bulk}] "
+        f"organic-survival={_organic_survival_evidence(projects, 'primitive')} "
         f"project=[crusher-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "
         f"declared-charge-events:{_span(declared_charge_events)} "
@@ -424,6 +458,7 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"settlement-choice=[{_choice_counts_text(choice_counts)}] "
         f"settlement-market=[{_provider_market_text(choice_counts)}] "
         f"organic-settlement-choice=[{_choice_counts_text(organic_choice_counts)}] "
+        f"organic-settlement-survival={_organic_survival_evidence(projects, 'settlement')} "
         f"settlement-project=[lumber-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "
         f"charge-events:{_span(charge_events)}] "

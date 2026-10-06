@@ -3054,6 +3054,31 @@ class GameplayReportContractTests(unittest.TestCase):
             "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:20 mass:1mg]",
         )
 
+    def test_power_digest_exposes_organic_inherited_survival_pressure(self) -> None:
+        lines = [
+            "POWER PROVIDER EXPERIENCE seed=0x1 sample=organic workload-source=routine-stockpile project=[consumer:stone-crusher feed:100mg work:100nJ declared-charge-events:1 consumer-projected-batches:1 projected-services:0] decision=[selected:crank]",
+            "POWER SETTLEMENT seed=0x1 sample=organic workload-source=declared-consumer-project project=[consumer:powered-saw feed:100mg work:100nJ charge-events:1] decision=[selected:stone-crank copper-policy:preserve-for-other-uses]",
+            "POWER PROJECT EXPERIENCE seed=0x1 sample=organic era=primitive survival-start=hunger-warning-boundary selected=crank declared=[work:100nJ pristine-charge-events:1 project-cache=[food:100mg preservation:1000000ppm water:100uL]] executed=[charge-events:1 survival-limited-batches:0 active-attention:10t provider-attention:5t consumer-runtime:5t maintenance=[services:0 preparation:0t service:0t replacement:0mg] provisioning=[stops:1 attention:2t drinks:0 volume:0uL meals:2 mass:20mg] elapsed:10t]",
+            "POWER PROJECT EXPERIENCE seed=0x1 sample=organic era=settlement survival-start=hydration-warning-boundary selected=stone-crank declared=[work:100nJ pristine-charge-events:1 project-cache=[food:100mg preservation:1000000ppm water:100uL]] executed=[charge-events:1 survival-limited-batches:0 active-attention:10t provider-attention:5t consumer-runtime:5t maintenance=[services:0 preparation:0t service:0t replacement:0mg] provisioning=[stops:2 attention:3t drinks:5 volume:50uL meals:0 mass:0mg] elapsed:10t]",
+        ]
+        summary = gameplay_report_summary.power_provider_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn(
+            "organic-survival=[start=[full:0 hunger:1 hydration:0] provisioned:1/1 stops:1..1 drinks:0..0 meals:2..2 limited-batches:0..0]",
+            summary,
+        )
+        self.assertIn(
+            "organic-settlement-survival=[start=[full:0 hunger:0 hydration:1] provisioned:1/1 stops:2..2 drinks:5..5 meals:0..0 limited-batches:0..0]",
+            summary,
+        )
+        digest = gameplay_report_summary._digest_summary(summary)
+        self.assertIn("organic-survival=[start=[full:0 hunger:1 hydration:0]", digest)
+        self.assertIn(
+            "organic-settlement-survival=[start=[full:0 hunger:0 hydration:1]",
+            digest,
+        )
+
     def test_scoped_gameplay_report_omits_cross_system_loop_digest(self) -> None:
         with (
             mock.patch.object(
@@ -3362,7 +3387,7 @@ class GameplayReportContractTests(unittest.TestCase):
             {},
         )
         self.assertIn(
-            "saw-feedback=[samples:1/1 setup-threshold-met:0/1 realized-payback:1/1 hindsight=[missed-payback:1 unrealized-threshold:0] timber-model-agrees:1/1 frozen:1/1]",
+            "saw-feedback=[samples:1/1 setup-threshold-met:0/1 realized-payback:1/1 hindsight=[below-threshold-payback:1 threshold-without-payback:0] timber-model-agrees:1/1 frozen:1/1]",
             summary,
         )
 
