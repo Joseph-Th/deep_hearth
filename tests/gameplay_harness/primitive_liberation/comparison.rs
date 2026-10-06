@@ -45,6 +45,7 @@ pub(super) struct LiberationComparison<'a> {
     pub(super) kit_acquisition: &'a RawKitAcquisitionReview,
     pub(super) campaign_lifecycle: &'a PrimitiveLiberationCampaignLifecycle,
     pub(super) planned_batches: u64,
+    pub(super) extension_selected: bool,
 }
 
 pub(super) fn review(
@@ -67,6 +68,7 @@ pub(super) fn review(
         kit_acquisition,
         campaign_lifecycle,
         planned_batches,
+        extension_selected,
     } = comparison;
     validate_loaded_state(registries, &full.state)
         .unwrap_or_else(|error| panic!("full-buffer branch must remain loadable: {error}"));
@@ -249,7 +251,7 @@ pub(super) fn review(
         justified = justified,
     );
     reviewln!(
-        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation extension=[{kit}] continuity=live-kit-used inherited-processing-line=reused interpretation=manual-is-low-infrastructure-fallback;powered-route-extends-earned-infrastructure-for-recovery-and-throughput",
+        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation extension=[{kit}] continuity={} inherited-processing-line=reused interpretation=manual-is-low-infrastructure-fallback;powered-route-extends-earned-infrastructure-for-recovery-and-throughput",
         manual_recovery.feed_mass.milligrams(),
         manual_recovery.attention_ticks,
         manual_recovery.recovered_native.milligrams(),
@@ -259,6 +261,11 @@ pub(super) fn review(
         elapsed,
         demand_ticks,
         cleaned.native_copper_mass.milligrams(),
+        if extension_selected {
+            "live-kit-used"
+        } else {
+            "counterfactual-kit"
+        },
     );
     reviewln!(
         "LIBERATION PACING seed=0x{seed:016X} primary={} scavenger={} cleanup={} charge-body=[demand:{}nJ/{}uL full:{}nJ/{}uL] machine-time={}t parallel-work=covered-by-progression-probe interpretation=recovered-native-copper-pays-extra-dressing-cost",

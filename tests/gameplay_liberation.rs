@@ -4,6 +4,8 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
+#[path = "gameplay_harness/capital_investment_policy.rs"]
+mod capital_investment_policy;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
@@ -50,6 +52,8 @@ mod production_timing;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_power_planning.rs"]
+mod settlement_power_planning;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 

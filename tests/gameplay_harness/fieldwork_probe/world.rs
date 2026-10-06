@@ -149,8 +149,19 @@ fn hidden_location(
 fn geology_profile(
     seed: u64,
     limits: FieldworkMiningLimits,
+    stratify_hardness: bool,
 ) -> (u64, &'static str, FieldworkGeologyProfile) {
-    let hardness_tier = mix64(seed ^ 0x4649_454C_4448_4152) % 3;
+    let hardness_tier = if stratify_hardness {
+        // Demand and reserve already own the low four replay bits. Fold those coarse physical
+        // strata into hardness so one bounded exploratory sample cannot accidentally miss the
+        // live quarry-investment regime. Exact hardness, grade, location, and follow-up geology
+        // remain high-entropy and hidden until the actor acquires geological evidence.
+        let demand_stratum = seed & 0b11;
+        let reserve_stratum = (seed >> 2) & 0b11;
+        (demand_stratum + reserve_stratum.saturating_mul(2)) % 3
+    } else {
+        mix64(seed ^ 0x4649_454C_4448_4152) % 3
+    };
     let base_pa = limits.base_quarry_hardness.pascals();
     let reinforced_quarry_pa = limits.reinforced_quarry_hardness.pascals();
     let reinforced_pick_pa = limits.reinforced_pick_hardness.pascals();
@@ -169,9 +180,20 @@ fn geology_profile(
                 .unwrap_or_else(|| {
                     unreachable!("reinforced quarry hardness exceeds base hardness")
                 });
+            let sampled_gap = if stratify_hardness {
+                // Keep the bounded exploratory witness away from the capability edge. The ordinary
+                // detailed survey reports 50 MPa hardness buckets; sampling the lower half of the
+                // live 500-600 MPa reinforced-quarry band leaves the actor's conservative upper
+                // estimate inside the tool envelope instead of creating a hidden-truth-only niche.
+                (gap / 2).max(1)
+            } else {
+                gap
+            };
             (
                 "quarry-reinforcement",
-                Pressure::from_pascals(base_pa + 1 + mix64(seed ^ 0x4649_454C_444D_4544) % gap),
+                Pressure::from_pascals(
+                    base_pa + 1 + mix64(seed ^ 0x4649_454C_444D_4544) % sampled_gap,
+                ),
             )
         }
         2 => {
@@ -229,6 +251,7 @@ fn build_fieldwork_world_inner(
     seed: u64,
     requested_mine_mass: Mass,
     deposit_mass: Mass,
+    stratify_hardness: bool,
 ) -> (FieldworkWorld, FieldworkFixtureDiagnostics) {
     assert!(!requested_mine_mass.is_zero());
     assert!(!deposit_mass.is_zero());
@@ -243,7 +266,8 @@ fn build_fieldwork_world_inner(
     assert!(channel_voxels > 0);
 
     let mining_limits = fieldwork_mining_limits(registries);
-    let (hardness_tier, geology_label, profile) = geology_profile(seed, mining_limits);
+    let (hardness_tier, geology_label, profile) =
+        geology_profile(seed, mining_limits, stratify_hardness);
     let mut state = AppState::new();
     let (mut raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
     let native_copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
@@ -330,8 +354,12 @@ fn build_fieldwork_world_inner(
             0x4649_454C_4453_4348,
             0x4649_454C_4453_534C,
         );
-        let followup_profile =
-            geology_profile(mix64(site_seed ^ 0x5349_5445_5052_4F46), mining_limits).2;
+        let followup_profile = geology_profile(
+            mix64(site_seed ^ 0x5349_5445_5052_4F46),
+            mining_limits,
+            false,
+        )
+        .2;
         seed_channel_deposit(
             registries,
             &mut state,
@@ -379,7 +407,7 @@ pub(super) fn build_fieldwork_world(
     requested_mine_mass: Mass,
     deposit_mass: Mass,
 ) -> FieldworkWorld {
-    build_fieldwork_world_inner(registries, seed, requested_mine_mass, deposit_mass).0
+    build_fieldwork_world_inner(registries, seed, requested_mine_mass, deposit_mass, false).0
 }
 
 /// Builds the playable world plus hidden truth for post-action evidence audits.
@@ -388,6 +416,13 @@ pub(super) fn build_fieldwork_world_with_diagnostics(
     seed: u64,
     requested_mine_mass: Mass,
     deposit_mass: Mass,
+    stratify_hardness: bool,
 ) -> (FieldworkWorld, FieldworkFixtureDiagnostics) {
-    build_fieldwork_world_inner(registries, seed, requested_mine_mass, deposit_mass)
+    build_fieldwork_world_inner(
+        registries,
+        seed,
+        requested_mine_mass,
+        deposit_mass,
+        stratify_hardness,
+    )
 }

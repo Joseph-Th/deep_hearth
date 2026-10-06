@@ -119,17 +119,21 @@ fn add_attention(total: &mut u64, ticks: u64, context: &'static str) {
         .unwrap_or_else(|| panic!("liberation kit {context} attention overflowed"));
 }
 
-/// Projects the complete raw-source-to-kit fabrication attention from authored mechanics.
+/// Projects the complete raw-source-to-kit acquisition attention from authored mechanics.
 ///
-/// This is a pre-action planning surface: it reads immutable recipes/equipment physics only and
-/// carries the future adze condition through each assisted craft. Runtime acquisition asserts the
-/// projection against executed attention so the decision model cannot silently drift.
+/// This is a pre-action planning surface: it reads immutable gathering, recipe, and equipment
+/// physics only and carries the future adze condition through each assisted craft. Runtime
+/// acquisition asserts both gathering and fabrication against this projection.
 #[derive(Clone, Copy)]
-struct RawKitAttentionProjection {
-    total_ticks: u64,
+pub(super) struct RawKitAttentionProjection {
+    pub(super) gathering_ticks: u64,
+    pub(super) fabrication_ticks: u64,
+    pub(super) total_ticks: u64,
 }
 
-fn project_incremental_kit_attention(registries: &Registries) -> RawKitAttentionProjection {
+pub(super) fn project_incremental_kit_acquisition_attention(
+    registries: &Registries,
+) -> RawKitAttentionProjection {
     let adze_profile = equipment_profile(registries, EQUIPMENT_STONE_WOODWORKING_ADZE);
     let equipment = [
         EQUIPMENT_STONE_ROTARY_QUERN,
@@ -164,7 +168,37 @@ fn project_incremental_kit_attention(registries: &Registries) -> RawKitAttention
             .unwrap_or_else(|| panic!("liberation kit riddle-panel board demand overflowed")),
     );
 
-    let mut attention = 0_u64;
+    let raw_requirements = raw_kit_requirements(
+        registries,
+        adze_profile,
+        &final_requirements,
+        panel_board_mass,
+    );
+    let gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_SCAVENGE)
+        .copied()
+        .unwrap_or_else(|| panic!("liberation hand-scavenge method disappeared"));
+    let mut gathering_ticks = 0_u64;
+    for mass in raw_requirements.values().copied() {
+        let mut remaining = mass;
+        while !remaining.is_zero() {
+            let batch = remaining.min(gathering.maximum_batch_mass());
+            let duration = gathering
+                .duration_for_mass(batch)
+                .unwrap_or_else(|| unreachable!("bounded gathering batch has a duration"));
+            add_attention(
+                &mut gathering_ticks,
+                duration.value(),
+                "surface gathering projection",
+            );
+            remaining = remaining.checked_sub(batch).unwrap_or_else(|| {
+                unreachable!("projected gathering batch is bounded by remaining demand")
+            });
+        }
+    }
+
+    let mut fabrication_ticks = 0_u64;
     for input in adze_profile.inputs() {
         let (definition, batches) = raw_component_plan(
             registries,
@@ -179,7 +213,7 @@ fn project_incremental_kit_attention(registries: &Registries) -> RawKitAttention
         )
         .unwrap_or_else(|error| panic!("liberation kit adze projection failed: {error}"));
         add_attention(
-            &mut attention,
+            &mut fabrication_ticks,
             projection.duration().value(),
             "adze component projection",
         );
@@ -208,7 +242,7 @@ fn project_incremental_kit_attention(registries: &Registries) -> RawKitAttention
                 panic!("liberation kit assisted component projection failed: {error}")
             });
             add_attention(
-                &mut attention,
+                &mut fabrication_ticks,
                 projection.duration().value(),
                 "adze-assisted component projection",
             );
@@ -227,7 +261,7 @@ fn project_incremental_kit_attention(registries: &Registries) -> RawKitAttention
             )
             .unwrap_or_else(|error| panic!("liberation kit component projection failed: {error}"));
             add_attention(
-                &mut attention,
+                &mut fabrication_ticks,
                 projection.duration().value(),
                 "component projection",
             );
@@ -252,7 +286,7 @@ fn project_incremental_kit_attention(registries: &Registries) -> RawKitAttention
     )
     .unwrap_or_else(|error| panic!("liberation kit riddle-board projection failed: {error}"));
     add_attention(
-        &mut attention,
+        &mut fabrication_ticks,
         board_projection.duration().value(),
         "riddle-board projection",
     );
@@ -277,16 +311,21 @@ fn project_incremental_kit_attention(registries: &Registries) -> RawKitAttention
     )
     .unwrap_or_else(|error| panic!("liberation kit riddle-panel projection failed: {error}"));
     add_attention(
-        &mut attention,
+        &mut fabrication_ticks,
         panel_projection.duration().value(),
         "riddle-panel projection",
     );
     RawKitAttentionProjection {
-        total_ticks: attention,
+        gathering_ticks,
+        fabrication_ticks,
+        total_ticks: gathering_ticks
+            .checked_add(fabrication_ticks)
+            .unwrap_or_else(|| panic!("liberation acquisition projection overflowed")),
     }
 }
 
 pub(super) struct AcquiredPrimitiveKit {
+    pub(super) decision_state: AppState,
     pub(super) state: AppState,
     pub(super) crusher: EquipmentId,
     pub(super) quern: EquipmentId,
@@ -632,6 +671,7 @@ pub(super) fn acquire_raw_kit<T>(
     registries: &Registries,
     case: FocusedProbeCase,
     planned_batches: u64,
+    selected_build: bool,
     bootstrap_before_admission: impl FnOnce(&mut AppState) -> T,
 ) -> (AcquiredPrimitiveKit, T) {
     let seed = case.seed();
@@ -734,6 +774,7 @@ pub(super) fn acquire_raw_kit<T>(
         &state,
         "primitive liberation",
     );
+    let decision_state = state.clone();
     let find_local_surface = |commodity: CommodityKey| {
         let matches = state
             .available_surface_resources()
@@ -787,7 +828,7 @@ pub(super) fn acquire_raw_kit<T>(
         "liberation fallen-timber opportunity must be depleted by canonical gathering",
     );
     let gathering_completed_at = state.tick().value();
-    let projected_attention = project_incremental_kit_attention(registries);
+    let projected_attention = project_incremental_kit_acquisition_attention(registries);
 
     for input in adze_profile.inputs() {
         craft_component(
@@ -887,8 +928,12 @@ pub(super) fn acquire_raw_kit<T>(
         "liberation fabrication phases must account for the full post-gathering fabrication wall"
     );
     assert_eq!(
-        fabrication_attention, projected_attention.total_ticks,
+        fabrication_attention, projected_attention.fabrication_ticks,
         "liberation kit executed fabrication attention diverged from the pre-action projection"
+    );
+    assert_eq!(
+        gathering_attention, projected_attention.gathering_ticks,
+        "liberation kit executed gathering attention diverged from the pre-action projection"
     );
     assert_eq!(
         gathering_attention
@@ -896,6 +941,10 @@ pub(super) fn acquire_raw_kit<T>(
             .unwrap_or_else(|| panic!("liberation acquisition attention overflowed")),
         attention,
         "liberation gathering plus fabrication must account for the complete acquisition wall"
+    );
+    assert_eq!(
+        attention, projected_attention.total_ticks,
+        "liberation complete acquisition attention diverged from the pre-action projection"
     );
     let metabolic = survival_before
         .metabolic_energy()
@@ -906,7 +955,12 @@ pub(super) fn acquire_raw_kit<T>(
         .checked_sub(survival_after.hydration())
         .unwrap_or_else(|| panic!("liberation kit hydration reserve increased"));
     reviewln!(
-        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} scope=progression-carryover->incremental-liberation-kit continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=controlled-finite-surface acquisition=canonical-same-voxel-gather carried-custody=finite@voxel runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=false disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t gathering:{}t fabrication=[total:{}t adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} scope=progression-carryover->incremental-liberation-kit branch={} continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=controlled-finite-surface acquisition=canonical-same-voxel-gather carried-custody=finite@voxel runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=false disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t gathering:{}t fabrication=[total:{}t adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+        if selected_build {
+            "selected"
+        } else {
+            "counterfactual"
+        },
         inherited.minimum_condition_ppm,
         inherited.maximum_condition_ppm,
         inherited.embodied_mass.milligrams(),
@@ -926,6 +980,7 @@ pub(super) fn acquire_raw_kit<T>(
         hydration.microliters(),
     );
     let kit = AcquiredPrimitiveKit {
+        decision_state,
         state,
         crusher: inherited.crusher,
         quern,

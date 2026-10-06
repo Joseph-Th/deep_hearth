@@ -2841,8 +2841,9 @@ class GameplayReportContractTests(unittest.TestCase):
             "PROGRESSION REVIEW seed=0x1 sample=anchor role=runtime-experience-after-disclosed-bootstrap continuity=single-state captured:true coverage-autonomy=[repeat-horizon:12/24cycles stop:stockpile-order-complete] selected-reinvestment=[completed copper-invested:60000mg next-stage=[sizing-plate-continuation:90t]] stored-work=[passive-loss:125000000000nJ reserve-recharge:1t]",
             "PROGRESSION GOAL seed=0x1 immediate=265t delayed=741t chosen=immediate",
             "LIBERATION COST seed=0x1 scavenger-marginal=[attention:17t native:6mg]",
-            "LIBERATION KIT ACQUISITION seed=0x1 scope=progression-carryover->incremental-liberation-kit continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:820000..1000000ppm embodied:5500000mg] raw-origin=controlled-finite-surface acquisition=canonical-same-voxel-gather carried-custody=finite@voxel runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=false disclosed-campaign=8batches workload-known-before-build=true raw=[stone:3000000mg wood:5000000mg total:8000000mg] raw-use=[consumed:8000000mg remaining:0mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:438t gathering:96t fabrication=[total:342t adze:80t extension-components:160t riddle-panel:102t] body=600000000000000nJ/125000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
-            "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
+            "LIBERATION KIT ACQUISITION seed=0x1 scope=progression-carryover->incremental-liberation-kit branch=selected continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:820000..1000000ppm embodied:5500000mg] raw-origin=controlled-finite-surface acquisition=canonical-same-voxel-gather carried-custody=finite@voxel runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=false disclosed-campaign=8batches workload-known-before-build=true raw=[stone:3000000mg wood:5000000mg total:8000000mg] raw-use=[consumed:8000000mg remaining:0mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:438t gathering:96t fabrication=[total:342t adze:80t extension-components:160t riddle-panel:102t] body=600000000000000nJ/125000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+            "LIBERATION EXPERIENCE seed=0x1 sample=anchor disclosed=[batches:8 batch:100mg] selected=build-kit extension-built=true execution=[attention:444t elapsed:598t native-copper:360mg body:500000000000008nJ/100008uL] counterfactual=[manual-attention:480t manual-native:240mg powered-attention:444t powered-native:360mg] choice-frozen-before-action=true matter=conserved",
+            "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation extension=[executed attention:438t body:500000000000000nJ/100000uL] continuity=live-kit-used",
             "LIBERATION FRONTIER CAPABILITY seed=0x1 sample=anchor cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] inherited-condition=1000000..1000000ppm resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true manual-electrical-reachability=authored-acquisition-edge support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
@@ -2927,9 +2928,9 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("probe=workshop sample-shape=[", concise)
         self.assertNotIn("probe=workshop scenarios=", concise)
         self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
-        self.assertIn("cleanup-executed=1/1", concise)
+        self.assertIn("selected-route=[manual:0 build:1]", concise)
         self.assertIn(
-            "bootstrap-boundary=[fixture-surface:1/1 gather:1/1 world-gen:0/1]",
+            "bootstrap-boundary=[selected-builds:1/1 fixture-surface:1/1 gather:1/1 world-gen:0/1]",
             concise,
         )
         self.assertIn(
@@ -2948,11 +2949,11 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertNotIn("investment=[capital:160..160g", concise)
         self.assertNotIn("industrial-foundry-frontier=", concise)
         self.assertIn(
-            "kit-lifecycle=[executed-builds:1/1 disclosed-horizon:8..8batches repaid-within-horizon:1/1 observed-attention-payback:8..8jobs evidence=post-build-lifecycle-not-preaction-choice]",
+            "kit-lifecycle=[executed-builds:1/1 disclosed-horizon:8..8batches repaid-within-horizon:1/1 observed-attention-payback:8..8jobs evidence=selected-build-lifecycle-feedback]",
             concise,
         )
         self.assertIn(
-            "kit-acquisition=[source=[fixture-surface:1 gather:1 world-gen:0]",
+            "kit-acquisition=[selected-builds:1/1 source=[fixture-surface:1 gather:1 world-gen:0]",
             concise,
         )
         self.assertIn(
@@ -3150,18 +3151,20 @@ class GameplayReportContractTests(unittest.TestCase):
     def test_liberation_digest_prefers_organic_lifecycle_over_maintained_payback(self) -> None:
         summary = (
             "ORDINARY SUMMARY probe=primitive-liberation "
-            "sample-shape=[anchor:1 coverage:0 organic:1 replay:0] cleanup-executed=2/2 "
-            "kit-lifecycle=[executed-builds:2/2 disclosed-horizon:8..9batches "
-            "repaid-within-horizon:1/2 observed-attention-payback:8..8jobs "
-            "evidence=post-build-lifecycle-not-preaction-choice] "
-            "organic-lifecycle=[executed-builds:1/1 disclosed-horizon:9..9batches "
-            "repaid-within-horizon:0/1 observed-attention-payback:n/a "
-            "evidence=post-build-lifecycle-not-preaction-choice] "
+            "sample-shape=[anchor:1 coverage:0 organic:1 replay:0] "
+            "selected-route=[manual:1 build:1] organic-route=[manual:1 build:0] "
+            "disclosed-horizon=1..8batches attention=100..444t native=30..360mg "
+            "kit-lifecycle=[executed-builds:1/2 disclosed-horizon:1..8batches "
+            "repaid-within-horizon:1/1 observed-attention-payback:8..8jobs "
+            "evidence=selected-build-lifecycle-feedback] "
+            "organic-lifecycle=[executed-builds:0/1 disclosed-horizon:1..1batches "
+            "repaid-within-horizon:0/0 observed-attention-payback:n/a "
+            "evidence=selected-build-lifecycle-feedback] "
             "remaining-frontier=industrial-foundry-scale"
         )
         digest = gameplay_report_summary._digest_summary(summary)
-        self.assertIn("organic-lifecycle=[executed-builds:1/1", digest)
-        self.assertNotIn("kit-lifecycle=[executed-builds:2/2", digest)
+        self.assertIn("organic-lifecycle=[executed-builds:0/1", digest)
+        self.assertNotIn("kit-lifecycle=[executed-builds:1/2", digest)
 
     def test_concise_report_keeps_executed_settlement_specialization_decisions(self) -> None:
         output = "\n".join(
@@ -3280,11 +3283,12 @@ class GameplayReportContractTests(unittest.TestCase):
 
     def test_liberation_summary_rejects_preassembled_route_shortcuts(self) -> None:
         lines = [
+            "LIBERATION EXPERIENCE seed=0x2 sample=anchor disclosed=[batches:8 batch:100mg] selected=build-kit extension-built=true execution=[attention:444t elapsed:598t native-copper:360mg body:1nJ/1uL] counterfactual=[manual-attention:480t manual-native:240mg powered-attention:444t powered-native:360mg] choice-frozen-before-action=true matter=conserved",
             "LIBERATION ROUTE TRADEOFF seed=0x2 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches kit-payback:not-applicable economics:not-applicable justified:not-applicable] base-kit=[not-executed-this-sample] continuity=controlled-preassembled-kit",
             "LIBERATION FRONTIER CAPABILITY seed=0x2 cleanup-executed=true reason=required-native-copper-conversion concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "LIBERATION FRONTIER seed=0x2 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true manual-electrical-reachability=authored-acquisition-edge support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]]",
         ]
-        with self.assertRaisesRegex(ValueError, "lost runtime kit-acquisition continuity"):
+        with self.assertRaisesRegex(ValueError, "lost selected/counterfactual kit continuity"):
             gameplay_report_summary.ordinary_gameplay_summary(lines)
 
     def test_progression_summary_preserves_stockpiling_delay_and_supply_blocking(self) -> None:

@@ -110,6 +110,63 @@ fn exploratory_fieldwork_sample_spans_demand_and_reserve_pressure_independently(
 }
 
 #[test]
+fn exploratory_fieldwork_sample_spans_hardness_and_a_live_bulk_quarry_opportunity() {
+    use super::super::focused_seeds::{
+        FIELDWORK_PROBE_SALT, FocusedProbeSeedPlan, focused_probe_cases_from,
+    };
+
+    let registries = deep_hearth::content::build_registries();
+    let cases = focused_probe_cases_from(FocusedProbeSeedPlan {
+        variation_count: super::super::focused_seeds::exploratory_variation_count("fieldwork"),
+        scenario_raw: None,
+        variation_raw: Some("0x1234"),
+        behavior_raw: Some("0x5678"),
+        maintained_seed: 1,
+        maintained_coverage_seeds: &[0, 2, 3, 5, 6, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED, 11],
+        probe_salt: FIELDWORK_PROBE_SALT,
+        default_variation_root: 0,
+        default_behavior_root: Some(0),
+    })
+    .unwrap_or_else(|error| panic!("fieldwork exploratory geology plan failed: {error:?}"));
+    let limits = fieldwork_mining_limits(&registries);
+    let rich_threshold =
+        scaled_fieldwork_supply(limits.base_quarry_batch, FIELDWORK_BULK_SUPPLY_MIN_PPM);
+    let mut geology = BTreeSet::new();
+    let mut bulk_rich_medium = false;
+    for case in cases
+        .into_iter()
+        .filter(|case| case.role() == FocusedProbeRole::OrganicVariation)
+    {
+        let requested = fieldwork_order_for_case(&registries, case);
+        let supply = fieldwork_supply_for_case(&registries, case);
+        let (_, diagnostics) = super::world::build_fieldwork_world_with_diagnostics(
+            &registries,
+            case.seed(),
+            requested,
+            supply,
+            true,
+        );
+        geology.insert(diagnostics.geology_label);
+        bulk_rich_medium |= fieldwork_order_horizon(&registries, requested) == "bulk"
+            && supply >= rich_threshold
+            && diagnostics.geology_label == "quarry-reinforcement";
+    }
+    assert_eq!(
+        geology,
+        BTreeSet::from([
+            "quarry-soft",
+            "quarry-reinforcement",
+            "hard-pick-specialist"
+        ]),
+        "bounded organic fieldwork must expose every current hardness regime"
+    );
+    assert!(
+        bulk_rich_medium,
+        "bounded organic fieldwork must include a rich bulk opportunity where the live quarry investment can actually compete"
+    );
+}
+
+#[test]
 fn exploratory_supply_spans_shallow_common_and_bulk_opportunities() {
     let registries = deep_hearth::content::build_registries();
     let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;

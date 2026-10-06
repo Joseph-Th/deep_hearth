@@ -22,7 +22,9 @@ use deep_hearth::registry::Registries;
 use super::bulk_fieldwork_workload::{BULK_FIELDWORK_ORDER_MIN_BATCHES, bulk_fieldwork_order_mass};
 use super::equipment_support::pristine_equipment_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
-use super::focused_witnesses::FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED;
+use super::focused_witnesses::{
+    FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED,
+};
 use super::manual_construction_planning::manual_construction_route_from_roots;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
@@ -228,6 +230,20 @@ fn fieldwork_supply_for_case(registries: &Registries, case: FocusedProbeCase) ->
     fieldwork_supply(registries, case.seed())
 }
 
+fn fieldwork_maintained_world_seed(seed: u64) -> bool {
+    [
+        1,
+        FIELDWORK_REINFORCED_BULK_COVERAGE_SEED,
+        FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED,
+        3,
+        5,
+        FIELDWORK_RESERVE_SCALE_COVERAGE_SEED,
+        FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED,
+        FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED,
+    ]
+    .contains(&seed)
+}
+
 fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
     let minimum = (batch.milligrams() / 2).max(1);
     Mass::from_milligrams(
@@ -295,8 +311,16 @@ fn run_fieldwork_with_supply(
     deposit_mass: Mass,
 ) -> FieldworkEpisode {
     let seed = case.seed();
-    let (world, fixture_diagnostics) =
-        build_fieldwork_world_with_diagnostics(registries, seed, requested_mine_mass, deposit_mass);
+    let stratify_hardness = case.role() == FocusedProbeRole::OrganicVariation
+        || (case.role() == FocusedProbeRole::ExplicitReplay
+            && !fieldwork_maintained_world_seed(case.seed()));
+    let (world, fixture_diagnostics) = build_fieldwork_world_with_diagnostics(
+        registries,
+        seed,
+        requested_mine_mass,
+        deposit_mass,
+        stratify_hardness,
+    );
     let FieldworkWorld {
         mut state,
         raw,

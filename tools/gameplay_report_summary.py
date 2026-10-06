@@ -87,8 +87,11 @@ _ORDINARY_DIGEST_FIELDS = {
         "disclosed-order-attention",
     ),
     "primitive-liberation": (
-        "cleanup-executed",
-        "native-copper",
+        "selected-route",
+        "organic-route",
+        "disclosed-horizon",
+        "attention",
+        "native",
         "kit-acquisition",
         "kit-lifecycle",
         "organic-lifecycle",

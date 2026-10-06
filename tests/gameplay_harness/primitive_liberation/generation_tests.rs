@@ -61,6 +61,43 @@ fn organic_liberation_generation_varies_live_feed_and_campaign() {
             > 1,
         "organic liberation generation collapsed to one disclosed campaign horizon"
     );
+    let decisions = worlds
+        .iter()
+        .map(|(case, world)| {
+            plan_liberation_extension(&registries, *case, world.batch_mass, world.planned_batches)
+                .choice
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        decisions,
+        BTreeSet::from([
+            LiberationExtensionChoice::ManualFallback,
+            LiberationExtensionChoice::BuildKit,
+        ]),
+        "organic liberation workloads must keep both the low-infrastructure fallback and the extension investment live"
+    );
+}
+
+#[test]
+fn maintained_liberation_campaign_still_justifies_the_extension_before_execution() {
+    let registries = deep_hearth::content::build_registries();
+    for (seed, role) in [
+        (
+            super::super::focused_witnesses::PROGRESSION_MAINTAINED_ANCHOR_SEED,
+            FocusedProbeRole::MaintainedAnchor,
+        ),
+        (3, FocusedProbeRole::MaintainedCoverage),
+        (4, FocusedProbeRole::MaintainedCoverage),
+    ] {
+        let case = FocusedProbeCase::new(seed, None, role);
+        let world = primitive_liberation_world_parameters(&registries, case);
+        assert_eq!(
+            plan_liberation_extension(&registries, case, world.batch_mass, world.planned_batches,)
+                .choice,
+            LiberationExtensionChoice::BuildKit,
+            "maintained liberation witness lost its pre-action extension justification"
+        );
+    }
 }
 
 #[test]

@@ -35,7 +35,7 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
     return _LoopEvidenceLines(
         progression=_lines_with_prefix(lines, "PROGRESSION EXPERIENCE "),
         progression_reviews=_lines_with_prefix(lines, "PROGRESSION REVIEW "),
-        liberation=_lines_with_prefix(lines, "LIBERATION FRONTIER CAPABILITY "),
+        liberation=_lines_with_prefix(lines, "LIBERATION EXPERIENCE "),
         liberation_kit=_lines_with_prefix(lines, "LIBERATION KIT ACQUISITION "),
         first_foundry=_lines_with_prefix(lines, "FIRST FOUNDRY EXPERIENCE "),
         woodworking=_lines_with_prefix(lines, "WOODWORKING EXPERIENCE "),
@@ -54,21 +54,23 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
 
 
 def _bootstrap_boundary_evidence(liberation_kit: list[str]) -> str:
+    selected = [line for line in liberation_kit if " branch=selected " in line]
     surface_source = sum(
-        " raw-origin=controlled-finite-surface " in line for line in liberation_kit
+        " raw-origin=controlled-finite-surface " in line for line in selected
     )
     runtime_gathering = sum(
-        " runtime-surface-gathering-proved=true " in line for line in liberation_kit
+        " runtime-surface-gathering-proved=true " in line for line in selected
     )
     ordinary_generation = sum(
         " ordinary-world-source-generation-proved=true " in line
-        for line in liberation_kit
+        for line in selected
     )
     return (
         "bootstrap-boundary=["
-        f"fixture-surface:{surface_source}/{len(liberation_kit)} "
-        f"gather:{runtime_gathering}/{len(liberation_kit)} "
-        f"world-gen:{ordinary_generation}/{len(liberation_kit)}]"
+        f"selected-builds:{len(selected)}/{len(liberation_kit)} "
+        f"fixture-surface:{surface_source}/{len(selected)} "
+        f"gather:{runtime_gathering}/{len(selected)} "
+        f"world-gen:{ordinary_generation}/{len(selected)}]"
     )
 
 
@@ -97,7 +99,11 @@ def _observe_infer_evidence(fieldwork: list[str], extracted: int) -> str:
 
 
 def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: int) -> str:
-    completed_liberation = sum("cleanup-executed=true" in line for line in liberation)
+    completed_liberation = sum(
+        (match := re.search(r"\bnative-copper:(\d+)mg", line)) is not None
+        and int(match.group(1)) > 0
+        for line in liberation
+    )
     return (
         f"extract=[fieldwork:{extracted}/{len(fieldwork)} "
         f"liberation-native-copper:{completed_liberation}/{len(liberation)}]"
@@ -224,9 +230,12 @@ def _prepare_invest_evidence(
         " strategy=indexed-channel " in line for line in shortfall_recoveries
     )
     settlement_builds = sum(" upgraded:true " in line for line in settlement)
+    selected_liberation_builds = [
+        line for line in liberation_kit if " branch=selected " in line
+    ]
     progression_assets_reused = sum(
         " continuity=separate-episode-inherited-progression-line " in line
-        for line in liberation_kit
+        for line in selected_liberation_builds
     )
     preservation_investment = ""
     if preservation_paths:
@@ -236,8 +245,8 @@ def _prepare_invest_evidence(
         )
     return (
         "prepare-invest=["
-        f"liberation-ext:{len(liberation_kit)} "
-        f"progression-reuse:{progression_assets_reused}/{len(liberation_kit)} "
+        f"liberation-ext:{len(selected_liberation_builds)}/{len(liberation_kit)} "
+        f"progression-reuse:{progression_assets_reused}/{len(selected_liberation_builds)} "
         f"woodworking-tool:{invested_woodworking}/{len(woodworking)} "
         f"power-market:{len(power)}/{len(power)} "
         f"settlement-machine:{settlement_builds}/{len(settlement)} "

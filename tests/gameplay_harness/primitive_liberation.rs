@@ -4,12 +4,13 @@ use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK,
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, MANUAL_POWER_HAND_CRANK,
-    MATERIAL_COPPER, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+    EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_ROTARY_QUERN,
+    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
+    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
     PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER,
-    PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::{Mass, Power};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -28,13 +29,17 @@ use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::assess_survival;
 
+use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::inherited_condition::healthy_used_equipment_condition;
-use super::manual_ore_recovery::ManualOreRecoveryPlan;
-use super::manual_ore_recovery_evaluation::evaluate_manual_ore_recovery;
+use super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
+use super::manual_ore_recovery_evaluation::{
+    evaluate_manual_ore_recovery, project_manual_ore_recovery_attention,
+};
 use super::ore_fixture::copper_ore_composition;
 use super::seed::mix64;
+use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 fn ordinary_manual_electrical_power_providers(
     registries: &Registries,
@@ -81,6 +86,16 @@ mod support;
 
 const PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES: u64 = 8;
 const PRIMITIVE_LIBERATION_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
+const LIBERATION_POWERED_ROUTE_STAGES: [deep_hearth::production::ProcessId; 8] = [
+    PROCESS_CRUSH_ORE,
+    PROCESS_GRIND_CRUSHED_ORE,
+    PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_CONCENTRATE_COPPER,
+    PROCESS_REGRIND_COPPER_TAILINGS,
+    PROCESS_SCAVENGE_COPPER_TAILINGS,
+    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
+];
 
 fn inherited_progression_condition(
     registries: &Registries,
@@ -206,11 +221,21 @@ struct PrimitiveLiberationCampaignLifecycle {
     elapsed_ticks: u64,
     metabolic_cost_nj: u128,
     hydration_cost_ul: u64,
+    recovered_native: Mass,
     crusher_condition_ppm: u32,
     quern_condition_ppm: u32,
     screen_condition_ppm: u32,
     separator_condition_ppm: u32,
     power_provider_condition_ppm: u32,
+}
+
+#[derive(Debug)]
+struct ManualLiberationCampaignLifecycle {
+    attention_ticks: u64,
+    elapsed_ticks: u64,
+    metabolic_cost_nj: u128,
+    hydration_cost_ul: u64,
+    recovered_native: Mass,
 }
 
 #[derive(Clone, Copy)]
@@ -237,6 +262,7 @@ fn run_powered_campaign_lifecycle(
         .unwrap_or_else(|| panic!("liberation campaign player disappeared before execution"));
     let started_at = state.tick().value();
     let mut batch_charge_ticks = Vec::with_capacity(batches.len());
+    let mut recovered_native = Mass::ZERO;
 
     for bootstrap in batches {
         let batch_mass = state_mass(bootstrap, &state);
@@ -272,7 +298,10 @@ fn run_powered_campaign_lifecycle(
         };
         let primary = primary::run(registries, &mut scenario);
         let scavenged = scavenging::run(registries, &mut scenario, &primary);
-        let _cleaned = cleanup::run(registries, &mut scenario);
+        let cleaned = cleanup::run(registries, &mut scenario);
+        recovered_native = recovered_native
+            .checked_add(cleaned.native_copper_mass)
+            .unwrap_or_else(|| panic!("liberation powered campaign native copper overflowed"));
         batch_charge_ticks.push(
             scenario
                 .charges
@@ -317,11 +346,86 @@ fn run_powered_campaign_lifecycle(
             .checked_sub(survival_after.hydration())
             .unwrap_or_else(|| panic!("liberation campaign hydration reserve increased"))
             .microliters(),
+        recovered_native,
         crusher_condition_ppm: condition(infrastructure.crusher),
         quern_condition_ppm: condition(infrastructure.quern),
         screen_condition_ppm: condition(infrastructure.screen),
         separator_condition_ppm: condition(infrastructure.separator),
         power_provider_condition_ppm: condition(infrastructure.power_provider),
+    }
+}
+
+fn run_manual_campaign_lifecycle(
+    registries: &Registries,
+    mut state: AppState,
+    batches: &[PrimitiveLiberationBootstrap],
+) -> ManualLiberationCampaignLifecycle {
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("manual liberation campaign matter setup failed: {error}"))
+        .total();
+    let survival_before = assess_survival(registries, &state).unwrap_or_else(|| {
+        panic!("manual liberation campaign player disappeared before execution")
+    });
+    let started_at = state.tick().value();
+    let mut attention_ticks = 0_u64;
+    let mut recovered_native = Mass::ZERO;
+
+    for bootstrap in batches {
+        let feed_mass = state_mass(bootstrap, &state);
+        let execution = execute_manual_ore_recovery(
+            registries,
+            &mut state,
+            ManualOreRecoveryPlan {
+                ore_source: bootstrap.ore,
+                crushed_destination: bootstrap.manual_crushed,
+                native_destination: bootstrap.manual_native,
+                residue_destination: bootstrap.manual_residue,
+                feed_mass,
+            },
+        );
+        attention_ticks = attention_ticks
+            .checked_add(execution.attention_ticks)
+            .unwrap_or_else(|| panic!("manual liberation campaign attention overflowed"));
+        recovered_native = recovered_native
+            .checked_add(execution.recovered_native)
+            .unwrap_or_else(|| panic!("manual liberation campaign native copper overflowed"));
+    }
+
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!(
+                "manual liberation campaign matter audit failed: {error}"
+            ))
+            .total(),
+        matter_before,
+    );
+    validate_loaded_state(registries, &state)
+        .unwrap_or_else(|error| panic!("manual liberation campaign final state invalid: {error}"));
+    let survival_after = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("manual liberation campaign player disappeared after execution"));
+    let elapsed_ticks = state
+        .tick()
+        .value()
+        .checked_sub(started_at)
+        .unwrap_or_else(|| unreachable!("manual liberation campaign cannot run backward"));
+    assert_eq!(
+        elapsed_ticks, attention_ticks,
+        "manual liberation fallback is fully player-attended work"
+    );
+    ManualLiberationCampaignLifecycle {
+        attention_ticks,
+        elapsed_ticks,
+        metabolic_cost_nj: survival_before
+            .metabolic_energy()
+            .checked_sub(survival_after.metabolic_energy())
+            .unwrap_or_else(|| panic!("manual liberation campaign metabolic reserve increased"))
+            .nanojoules(),
+        hydration_cost_ul: survival_before
+            .hydration()
+            .checked_sub(survival_after.hydration())
+            .unwrap_or_else(|| panic!("manual liberation campaign hydration reserve increased"))
+            .microliters(),
+        recovered_native,
     }
 }
 
@@ -333,13 +437,136 @@ fn state_mass(bootstrap: &PrimitiveLiberationBootstrap, state: &AppState) -> Mas
         .unwrap_or_else(|| panic!("liberation campaign ore lot disappeared"))
 }
 
-fn disclosed_campaign_batches(case: FocusedProbeCase) -> u64 {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum LiberationExtensionChoice {
+    ManualFallback,
+    BuildKit,
+}
+
+impl LiberationExtensionChoice {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::ManualFallback => "manual-fallback",
+            Self::BuildKit => "build-kit",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LiberationExtensionPlan {
+    choice: LiberationExtensionChoice,
+    manual_campaign_attention: u64,
+    acquisition_attention: u64,
+    conservative_charge_attention: u64,
+    powered_attention_upper: u64,
+    minimum_return_ppm: u64,
+    minimum_attention_return: u64,
+}
+
+fn plan_liberation_extension(
+    registries: &Registries,
+    case: FocusedProbeCase,
+    batch_mass: Mass,
+    planned_batches: u64,
+) -> LiberationExtensionPlan {
+    assert!(planned_batches > 0);
+    let manual_per_batch = project_manual_ore_recovery_attention(registries, batch_mass);
+    let manual_campaign_attention = manual_per_batch
+        .checked_mul(planned_batches)
+        .unwrap_or_else(|| panic!("liberation manual campaign projection overflowed"));
+    let acquisition = acquisition::project_incremental_kit_acquisition_attention(registries);
+    let provider_condition = inherited_progression_condition(
+        registries,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        case,
+        0x4352_414E_4B00_0001,
+    );
+    let store = registries
+        .energy()
+        .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("liberation inherited flywheel definition disappeared"));
+    let stage_count = u64::try_from(LIBERATION_POWERED_ROUTE_STAGES.len())
+        .unwrap_or_else(|_| unreachable!("bounded liberation stage count fits u64"));
+    let charge_count = stage_count
+        .checked_mul(planned_batches)
+        .unwrap_or_else(|| panic!("liberation conservative charge count overflowed"));
+    let charge_projection = project_manual_power_sequence(
+        registries,
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            starting_condition: provider_condition,
+            store: ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: store.capacity(),
+            charges: charge_count,
+        },
+        "liberation conservative powered-route charging",
+    );
+    let powered_attention_upper = acquisition
+        .total_ticks
+        .checked_add(charge_projection.attention_ticks)
+        .unwrap_or_else(|| panic!("liberation powered attention upper bound overflowed"));
+    let investment_policy = CapitalInvestmentPolicy::baseline();
+    let minimum_return_ppm = investment_policy.minimum_return_ppm();
+    let minimum_attention_return =
+        investment_policy.minimum_attention_return(0, acquisition.total_ticks);
+    let choice = if clears_attention_return(
+        manual_campaign_attention,
+        powered_attention_upper,
+        minimum_attention_return,
+    ) {
+        LiberationExtensionChoice::BuildKit
+    } else {
+        LiberationExtensionChoice::ManualFallback
+    };
+    LiberationExtensionPlan {
+        choice,
+        manual_campaign_attention,
+        acquisition_attention: acquisition.total_ticks,
+        conservative_charge_attention: charge_projection.attention_ticks,
+        powered_attention_upper,
+        minimum_return_ppm,
+        minimum_attention_return,
+    }
+}
+
+fn liberation_extension_crossover_batches(
+    registries: &Registries,
+    case: FocusedProbeCase,
+    batch_mass: Mass,
+) -> u64 {
+    let crossover = (1_u64..=32)
+        .find(|&batches| {
+            plan_liberation_extension(registries, case, batch_mass, batches).choice
+                == LiberationExtensionChoice::BuildKit
+        })
+        .unwrap_or_else(|| panic!("liberation extension never repays within 32 disclosed batches"));
+    assert!(
+        crossover > 1,
+        "liberation extension became an automatic one-batch upgrade; the manual fallback lost its workload niche"
+    );
+    crossover
+}
+
+fn disclosed_campaign_batches(
+    registries: &Registries,
+    case: FocusedProbeCase,
+    batch_mass: Mass,
+) -> u64 {
     match case.role() {
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
             PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES
         }
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES + mix64(case.seed() ^ 0x4C49_4245_5248_4F52) % 2
+            let crossover = liberation_extension_crossover_batches(registries, case, batch_mass);
+            match case.seed() & 0b11 {
+                0 => 1,
+                1 => crossover - 1,
+                2 => crossover,
+                _ => crossover
+                    .checked_add(1 + mix64(case.seed() ^ 0x4C49_4245_5248_4F52) % 3)
+                    .unwrap_or_else(|| panic!("liberation organic campaign horizon overflowed")),
+            }
         }
     }
 }
@@ -412,12 +639,10 @@ fn primitive_liberation_world_parameters(
     case: FocusedProbeCase,
 ) -> PrimitiveLiberationWorldParameters {
     let seed = case.seed();
-    let planned_batches = disclosed_campaign_batches(case);
     let route_ceiling = primitive_liberation_batch_ceiling(registries, case).milligrams();
     // Exercise meaningful utilization of the complete inherited route without pinning a copied
-    // authored mass. Lower loads can make the fixed incremental kit dominate every bounded
-    // campaign; this range keeps maintained lifecycle payback observable while organic cases
-    // still move materially across the current production bottleneck scale.
+    // authored mass. Workload horizon, rather than tiny feed parcels, owns the build/manual capital
+    // crossover; exact batch mass still moves materially across the current production bottleneck.
     let minimum_batch = (route_ceiling / 2).max(1);
     let maximum_batch = route_ceiling
         .checked_mul(4)
@@ -445,6 +670,7 @@ fn primitive_liberation_world_parameters(
         !batch_mass.is_zero(),
         "primitive liberation generated no representable batch"
     );
+    let planned_batches = disclosed_campaign_batches(registries, case, batch_mass);
     PrimitiveLiberationWorldParameters {
         planned_batches,
         batch_mass,
@@ -461,8 +687,23 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         copper_ppm,
         clay_share_ppm,
     } = primitive_liberation_world_parameters(registries, case);
+    let extension_plan = plan_liberation_extension(registries, case, batch_mass, planned_batches);
+    let selected_build = extension_plan.choice == LiberationExtensionChoice::BuildKit;
+    reviewln!(
+        "LIBERATION INVESTMENT seed=0x{seed:016X} sample={} disclosed=[batches:{} batch:{}mg] projected=[manual:{}t extension-acquisition:{}t conservative-charging:{}t powered-upper:{}t minimum-return:{}ppm/{}t] selected={} choice-frozen-before-action=true basis=canonical-manual-recovery+conservative-full-stage-charging",
+        case.role().label(),
+        planned_batches,
+        batch_mass.milligrams(),
+        extension_plan.manual_campaign_attention,
+        extension_plan.acquisition_attention,
+        extension_plan.conservative_charge_attention,
+        extension_plan.powered_attention_upper,
+        extension_plan.minimum_return_ppm,
+        extension_plan.minimum_attention_return,
+        extension_plan.choice.label(),
+    );
     let (acquired, campaign_bootstraps) =
-        acquisition::acquire_raw_kit(registries, case, planned_batches, |state| {
+        acquisition::acquire_raw_kit(registries, case, planned_batches, selected_build, |state| {
             (0..planned_batches)
                 .map(|_| {
                     bootstrap_liberation_inventory(
@@ -475,6 +716,15 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
                 })
                 .collect::<Vec<_>>()
         });
+    let manual_campaign = run_manual_campaign_lifecycle(
+        registries,
+        acquired.decision_state.clone(),
+        &campaign_bootstraps,
+    );
+    assert_eq!(
+        manual_campaign.attention_ticks, extension_plan.manual_campaign_attention,
+        "liberation manual campaign execution diverged from the pre-action projection"
+    );
     let bootstrap = *campaign_bootstraps
         .first()
         .unwrap_or_else(|| panic!("liberation campaign lost its first batch"));
@@ -491,6 +741,75 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             power_provider: acquired.power_provider,
             drive: acquired.drive,
         },
+    );
+    let powered_campaign_attention = acquired
+        .review
+        .attention_ticks
+        .checked_add(
+            campaign_lifecycle
+                .batch_charge_ticks
+                .iter()
+                .try_fold(0_u64, |total, ticks| total.checked_add(*ticks))
+                .unwrap_or_else(|| panic!("liberation campaign charge attention overflowed")),
+        )
+        .unwrap_or_else(|| panic!("liberation powered campaign attention overflowed"));
+    assert!(
+        powered_campaign_attention <= extension_plan.powered_attention_upper,
+        "liberation conservative powered projection must remain an upper bound on executed active attention"
+    );
+    let powered_campaign_body_nj = acquired
+        .review
+        .metabolic_cost_nj
+        .checked_add(campaign_lifecycle.metabolic_cost_nj)
+        .unwrap_or_else(|| panic!("liberation powered campaign metabolic cost overflowed"));
+    let powered_campaign_hydration_ul = acquired
+        .review
+        .hydration_cost_ul
+        .checked_add(campaign_lifecycle.hydration_cost_ul)
+        .unwrap_or_else(|| panic!("liberation powered campaign hydration cost overflowed"));
+    let powered_campaign_elapsed = acquired
+        .review
+        .attention_ticks
+        .checked_add(campaign_lifecycle.elapsed_ticks)
+        .unwrap_or_else(|| panic!("liberation powered campaign elapsed time overflowed"));
+    let (
+        selected_attention,
+        selected_elapsed,
+        selected_native,
+        selected_metabolic_nj,
+        selected_hydration_ul,
+    ) = match extension_plan.choice {
+        LiberationExtensionChoice::ManualFallback => (
+            manual_campaign.attention_ticks,
+            manual_campaign.elapsed_ticks,
+            manual_campaign.recovered_native,
+            manual_campaign.metabolic_cost_nj,
+            manual_campaign.hydration_cost_ul,
+        ),
+        LiberationExtensionChoice::BuildKit => (
+            powered_campaign_attention,
+            powered_campaign_elapsed,
+            campaign_lifecycle.recovered_native,
+            powered_campaign_body_nj,
+            powered_campaign_hydration_ul,
+        ),
+    };
+    reviewln!(
+        "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} disclosed=[batches:{} batch:{}mg] selected={} extension-built={} execution=[attention:{}t elapsed:{}t native-copper:{}mg body:{}nJ/{}uL] counterfactual=[manual-attention:{}t manual-native:{}mg powered-attention:{}t powered-native:{}mg] choice-frozen-before-action=true matter=conserved",
+        case.role().label(),
+        planned_batches,
+        batch_mass.milligrams(),
+        extension_plan.choice.label(),
+        selected_build,
+        selected_attention,
+        selected_elapsed,
+        selected_native.milligrams(),
+        selected_metabolic_nj,
+        selected_hydration_ul,
+        manual_campaign.attention_ticks,
+        manual_campaign.recovered_native.milligrams(),
+        powered_campaign_attention,
+        campaign_lifecycle.recovered_native.milligrams(),
     );
     let state = acquired.state;
     let crusher = acquired.crusher;
@@ -612,6 +931,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             kit_acquisition: &kit_acquisition,
             campaign_lifecycle: &campaign_lifecycle,
             planned_batches,
+            extension_selected: selected_build,
         },
     );
     let state = &scenario.state;

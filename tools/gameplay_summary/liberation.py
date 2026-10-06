@@ -99,15 +99,25 @@ def _frontier_evidence(lines: list[str]) -> tuple[str, str]:
 
 
 def _kit_acquisition(lines: list[str]) -> str:
-    witnesses = [
+    all_witnesses = [
         line for line in lines if line.startswith("LIBERATION KIT ACQUISITION ")
     ]
     routes = [line for line in lines if line.startswith("LIBERATION ROUTE TRADEOFF ")]
     live_kit_routes = sum(" continuity=live-kit-used" in line for line in routes)
-    if routes and (len(witnesses) != len(routes) or live_kit_routes != len(routes)):
+    counterfactual_routes = sum(" continuity=counterfactual-kit" in line for line in routes)
+    selected_witnesses = [line for line in all_witnesses if " branch=selected " in line]
+    counterfactual_witnesses = [
+        line for line in all_witnesses if " branch=counterfactual " in line
+    ]
+    if routes and (
+        len(all_witnesses) != len(routes)
+        or live_kit_routes != len(selected_witnesses)
+        or counterfactual_routes != len(counterfactual_witnesses)
+    ):
         raise ValueError(
-            "primitive liberation route lost runtime kit-acquisition continuity"
+            "primitive liberation route lost selected/counterfactual kit continuity"
         )
+    witnesses = selected_witnesses
     surface_sources = sum(
         " raw-origin=controlled-finite-surface " in line for line in witnesses
     )
@@ -189,6 +199,7 @@ def _kit_acquisition(lines: list[str]) -> str:
             riddle_attention.append(int(fabrication.group(4)))
         return (
             "kit-acquisition=["
+            f"selected-builds:{len(witnesses)}/{len(all_witnesses)} "
             f"source=[fixture-surface:{surface_sources} gather:{runtime_gathering} world-gen:{ordinary_generation}] "
             f"carryover=[processing-line:{len(incremental)}/{len(witnesses)} "
             f"condition:{min(inherited_min_condition)}..{max(inherited_max_condition)}ppm "
@@ -325,7 +336,12 @@ def _kit_lifecycle_from_routes(routes: list[str], field_name: str) -> str:
         campaign = re.search(r"campaign=\[planned:(\d+)batches", line)
         payback = re.search(r"\bkit-payback:(\d+)batches\b", line)
         executed = re.search(r"\bexecuted:(\d+)\b", line)
-        if campaign is None or payback is None or executed is None:
+        if (
+            " continuity=live-kit-used" not in line
+            or campaign is None
+            or payback is None
+            or executed is None
+        ):
             continue
         planned = int(campaign.group(1))
         actual_payback = int(payback.group(1))
@@ -341,9 +357,9 @@ def _kit_lifecycle_from_routes(routes: list[str], field_name: str) -> str:
         f"{field_name}=["
         f"executed-builds:{live_builds}/{len(routes)} "
         f"disclosed-horizon:{_span(disclosed_horizons, 'batches')} "
-        f"repaid-within-horizon:{payback_proofs}/{len(routes)} "
+        f"repaid-within-horizon:{payback_proofs}/{live_builds} "
         f"observed-attention-payback:{_span(payback_jobs, 'jobs')} "
-        "evidence=post-build-lifecycle-not-preaction-choice]"
+        "evidence=selected-build-lifecycle-feedback]"
     )
 
 
@@ -373,45 +389,80 @@ def _organic_lifecycle(lines: list[str], liberation: list[str]) -> str | None:
     return _kit_lifecycle_from_routes(routes, "organic-lifecycle")
 
 
+def _selected_experience(experiences: list[str]) -> str:
+    choices = {"manual-fallback": 0, "build-kit": 0}
+    organic_choices = {"manual-fallback": 0, "build-kit": 0}
+    horizons: list[int] = []
+    attention: list[int] = []
+    elapsed: list[int] = []
+    native: list[int] = []
+    for line in experiences:
+        choice = re.search(r"\bselected=([^\s]+)", line)
+        disclosed = re.search(r"\bdisclosed=\[batches:(\d+) ", line)
+        execution = re.search(
+            r"\bexecution=\[attention:(\d+)t elapsed:(\d+)t native-copper:(\d+)mg",
+            line,
+        )
+        if choice is None or disclosed is None or execution is None:
+            raise ValueError("primitive liberation experience lost selected-route evidence")
+        selected = choice.group(1)
+        if selected not in choices:
+            raise ValueError(f"primitive liberation reported unknown selected route: {selected}")
+        choices[selected] += 1
+        if " sample=organic " in line:
+            organic_choices[selected] += 1
+        horizons.append(int(disclosed.group(1)))
+        attention.append(int(execution.group(1)))
+        elapsed.append(int(execution.group(2)))
+        native.append(int(execution.group(3)))
+    return (
+        "selected-route=["
+        f"manual:{choices['manual-fallback']} build:{choices['build-kit']}] "
+        "organic-route=["
+        f"manual:{organic_choices['manual-fallback']} build:{organic_choices['build-kit']}] "
+        f"disclosed-horizon={_span(horizons, 'batches')} "
+        f"attention={_span(attention, 't')} "
+        f"elapsed={_span(elapsed, 't')} "
+        f"native={_span(native, 'mg')}"
+    )
+
+
 def liberation_summary(lines: list[str]) -> str | None:
-    liberation = [
+    experiences = [line for line in lines if line.startswith("LIBERATION EXPERIENCE ")]
+    capabilities = [
         line for line in lines if line.startswith("LIBERATION FRONTIER CAPABILITY ")
     ]
-    if not liberation:
+    if not experiences:
         return None
 
     grade_span = _span(
-        _numeric_values(liberation, r"\bfinal:\d+mg/(\d+)ppm"),
+        _numeric_values(capabilities, r"\bfinal:\d+mg/(\d+)ppm"),
         "ppm",
     )
     scavenged_span = _span(
-        _numeric_values(liberation, r"\bscavenger-recovered:(\d+)mg"),
-        "mg",
-    )
-    native_span = _span(
-        _numeric_values(liberation, r"\bnative-copper=(\d+)mg"),
+        _numeric_values(capabilities, r"\bscavenger-recovered:(\d+)mg"),
         "mg",
     )
     marginal_attention, marginal_native = _scavenger_marginal(lines)
     frontier, foundry_readiness = _frontier_evidence(lines)
-    cleanup_executed = sum("cleanup-executed=true" in line for line in liberation)
+    cleanup_executed = sum("cleanup-executed=true" in line for line in capabilities)
     usable_sink = sum(
-        "reason=required-native-copper-conversion" in line for line in liberation
+        "reason=required-native-copper-conversion" in line for line in capabilities
     )
-    organic_lifecycle = _organic_lifecycle(lines, liberation)
+    organic_lifecycle = _organic_lifecycle(lines, experiences)
     return (
         "ORDINARY SUMMARY probe=primitive-liberation "
-        f"samples={len(liberation)} sample-shape=[{sample_shape(liberation)}] "
-        f"cleanup-executed={cleanup_executed}/{len(liberation)} "
-        f"final-concentrate-grade={grade_span} native-copper={native_span} "
+        f"samples={len(experiences)} sample-shape=[{sample_shape(experiences)}] "
+        f"{_selected_experience(experiences)} "
         f"scavenger-copper={scavenged_span} "
         f"scavenger-marginal=[attention:{marginal_attention} native:{marginal_native}] "
         f"{_kit_acquisition(lines)} "
         f"{_kit_lifecycle(lines)} "
         f"{organic_lifecycle + ' ' if organic_lifecycle is not None else ''}"
         f"{_route_tradeoff(lines)} "
-        f"conserved={sum('matter=conserved' in line for line in liberation)} "
-        f"ordinary-loop=[concentrate-reachable:{len(liberation)}/{len(liberation)} "
-        f"usable-native-sink:{usable_sink}/{len(liberation)}] "
+        f"powered-capability=[cleanup:{cleanup_executed}/{len(capabilities)} final-grade:{grade_span}] "
+        f"conserved={sum('matter=conserved' in line for line in experiences)}/{len(experiences)} "
+        f"ordinary-loop=[native-copper-reached:{len(experiences)}/{len(experiences)} "
+        f"powered-native-sink:{usable_sink}/{len(capabilities)}] "
         f"remaining-frontier={frontier} {foundry_readiness}"
     )
