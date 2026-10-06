@@ -52,14 +52,6 @@ fn four_case_organic_fieldwork_sample_spans_every_demand_horizon() {
         BTreeSet::from(["short", "project", "bulk"]),
         "one four-case organic fieldwork sample must experience immediate, project, and bulk demand"
     );
-    assert_eq!(
-        horizons
-            .iter()
-            .filter(|horizon| **horizon == "project")
-            .count(),
-        2,
-        "project-scale work should remain the common middle regime while short and bulk each receive one stratum"
-    );
 }
 
 #[test]

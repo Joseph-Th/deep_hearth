@@ -101,7 +101,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "attention-payback",
         "timber-saving",
         "saw-feedback",
-        "saw-calibration",
     ),
     "fieldwork": (
         "outcomes",

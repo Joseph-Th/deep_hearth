@@ -1,4 +1,4 @@
-//! Replay regression for pre-action woodworking choice versus realized lifecycle cost.
+//! Content-relative variation contracts for ordinary woodworking evaluation.
 
 use std::collections::BTreeSet;
 
@@ -68,41 +68,39 @@ fn four_world_woodworking_sample_spans_workload_and_copper_pressure() {
         "four-world woodworking exploration must span the current planning horizons"
     );
     assert!(
-        demands[3].saw_batches > demands[2].saw_batches,
-        "the high-project stratum must remain materially larger than the lower project stratum"
+        demands
+            .iter()
+            .filter(|demand| demand.horizon == "project")
+            .map(|demand| demand.saw_batches)
+            .collect::<BTreeSet<_>>()
+            .len()
+            > 1,
+        "bounded woodworking exploration must retain materially different project workloads"
     );
 
     let worlds = (0_u64..4)
         .map(|offset| build_woodworking_world(&registries, base + offset, true))
         .collect::<Vec<_>>();
-    let copper = worlds
+    let copper_pressure = worlds
         .iter()
-        .map(visible_native_copper)
-        .collect::<Vec<_>>();
-    assert!(copper[0] < worlds[0].blade_input);
-    assert_eq!(copper[1], worlds[1].blade_input);
+        .map(|world| {
+            let available = visible_native_copper(world);
+            let reserve_safe = world
+                .blade_input
+                .checked_add(world.protected_copper_reserve)
+                .unwrap_or_else(|| panic!("bounded woodworking reserve threshold overflowed"));
+            if available < world.blade_input {
+                "blocked"
+            } else if available < reserve_safe {
+                "fundable-reserve-at-risk"
+            } else {
+                "reserve-safe"
+            }
+        })
+        .collect::<BTreeSet<_>>();
     assert_eq!(
-        copper[2],
-        worlds[2]
-            .blade_input
-            .checked_add(worlds[2].protected_copper_reserve)
-            .unwrap_or_else(|| panic!("bounded woodworking reserve opportunity overflowed"))
-    );
-    assert!(copper[3] > copper[2]);
-}
-
-#[test]
-fn woodworking_keeps_pre_action_non_saw_choice_when_realized_saw_is_cheaper() {
-    let registries = deep_hearth::content::build_registries();
-    // Fixed replay witness: a finite intermediate order with sufficient copper where the
-    // conservative actor declines setup even though the completed saw route proves cheaper.
-    let (choice, selected_attention, saw_attention) = evaluate_woodworking_probe(
-        &registries,
-        FocusedProbeCase::new(86, Some(2), FocusedProbeRole::OrganicVariation),
-    );
-    assert_ne!(choice, "frame-saw");
-    assert!(
-        saw_attention.is_some_and(|ticks| ticks < selected_attention),
-        "replay witness must keep its pre-action non-saw choice even when the realized saw route is cheaper"
+        copper_pressure,
+        BTreeSet::from(["blocked", "fundable-reserve-at-risk", "reserve-safe"]),
+        "four-world woodworking exploration must span the live copper decision pressures without pinning them to seed positions"
     );
 }

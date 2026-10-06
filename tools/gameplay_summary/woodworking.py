@@ -37,12 +37,10 @@ def woodworking_summary(lines: list[str]) -> str | None:
     conservative_budget_misses = 0
     optimistic_budget_misses = 0
     timber_model_agrees = 0
-    attention_exact = 0
-    attention_safe = 0
     frozen_before_action = 0
     for line in feedback:
         attention = re.search(
-            r"saw-attention=\[setup-budget-met:(true|false) actual-payback:(true|false)\]",
+            r"saw-attention=\[setup-threshold-met:(true|false) actual-payback:(true|false)\]",
             line,
         )
         timber = re.search(r"saw-timber=\[nominal:([^ ]+) actual:([^\]]+)\]", line)
@@ -53,8 +51,6 @@ def woodworking_summary(lines: list[str]) -> str | None:
             realized_payback += payback
             conservative_budget_misses += not budget_met and payback
             optimistic_budget_misses += budget_met and not payback
-            attention_exact += budget_met == payback
-            attention_safe += not (budget_met and not payback)
         if timber is not None and timber.group(1) == timber.group(2):
             timber_model_agrees += 1
         frozen_before_action += "choice-frozen-before-action=true" in line
@@ -75,15 +71,10 @@ def woodworking_summary(lines: list[str]) -> str | None:
         f"timber-saving={count('timber-saving:true')} "
         f"timber-neutral={count('timber-neutral:true')} "
         f"saw-feedback=[samples:{len(feedback)}/{len(woodworking)} "
-        f"setup-budget-met:{setup_budget_met}/{len(feedback)} "
+        f"setup-threshold-met:{setup_budget_met}/{len(feedback)} "
         f"realized-payback:{realized_payback}/{len(feedback)} "
-        f"budget-vs-payback=[conservative:{conservative_budget_misses} "
-        f"optimistic:{optimistic_budget_misses}] "
+        f"hindsight=[missed-payback:{conservative_budget_misses} "
+        f"unrealized-threshold:{optimistic_budget_misses}] "
         f"timber-model-agrees:{timber_model_agrees}/{len(feedback)} "
-        f"frozen:{frozen_before_action}/{len(feedback)}] "
-        f"saw-calibration=[samples:{len(feedback)}/{len(woodworking)} "
-        f"attention-exact:{attention_exact}/{len(feedback)} "
-        f"attention-safe:{attention_safe}/{len(feedback)} "
-        f"conservative:{conservative_budget_misses} optimistic:{optimistic_budget_misses} "
-        f"timber-exact:{timber_model_agrees}/{len(feedback)}]"
+        f"frozen:{frozen_before_action}/{len(feedback)}]"
     )

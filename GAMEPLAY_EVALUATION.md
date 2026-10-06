@@ -207,6 +207,11 @@ collapse to one side of a live decision frontier. Stratification controls the sa
 knowledge: hidden values still reach policy only through their ordinary evidence path. The remaining seed entropy
 stays fresh, and actor-policy roots remain independent from those world strata. Supplying roots to an exact focused probe adds and
 reproduces that sampled case instead of drawing a new one.
+Generator contracts assert the observable pressure/regime set a bounded sample must span, not which seed or
+stratum index must produce a particular route. Reordering or reshaping a generator is valid when the same live
+coverage obligation still holds. Likewise, later executed feedback is not projection calibration unless the
+pre-action model actually predicted that quantity; reports label policy thresholds and hindsight outcomes
+separately rather than calling their agreement "exact."
 An organic seed must materially affect actor-visible world pressure, actor policy, or both; changing only a replay
 label is not variation. For bounded generators whose purpose depends on spanning distinct pressures or decision
 regimes, keep a cheap direct generator contract that samples enough seeds to detect collapse without replacing the
