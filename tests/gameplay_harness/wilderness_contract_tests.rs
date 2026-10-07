@@ -8,20 +8,17 @@ use std::num::NonZeroU64;
 
 use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_surface_resource};
 use deep_hearth::content::{
-    EQUIPMENT_STONE_WOODWORKING_ADZE, FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP,
-    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
-    STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_STONE,
-    SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
+    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_SHAPE_WOOD_BOARDS,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+    SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use deep_hearth::core::quantity::{Mass, Temperature, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::SimulationTick;
 use deep_hearth::crafting::{
-    ManualCraftStartRequest, plan_manual_craft_from_stockpile, resolve_manual_craft,
-    validate_start_manual_craft,
+    ManualCraftStartRequest, plan_manual_craft_from_stockpile, validate_start_manual_craft,
 };
-use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId, validate_build_storage_enclosure};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
@@ -71,24 +68,6 @@ fn local_surface_resource(state: &AppState, commodity: CommodityKey) -> SurfaceR
         1,
         "controlled wilderness opening requires exactly one visible local source for commodity {}",
         commodity.value()
-    );
-    matches[0]
-}
-
-fn local_equipment_by_definition(
-    state: &AppState,
-    definition: EquipmentDefinitionId,
-    context: &str,
-) -> EquipmentId {
-    let matches = state
-        .available_local_equipment()
-        .filter(|record| record.definition() == definition)
-        .map(|record| record.id())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        matches.len(),
-        1,
-        "controlled wilderness opening requires exactly one locally observable {context}"
     );
     matches[0]
 }
@@ -149,17 +128,12 @@ fn craft_batches(
     source: StockpileId,
     destination: StockpileId,
     batches: u64,
-    equipment: Option<EquipmentId>,
     context: &str,
 ) {
     let batches = NonZeroU64::new(batches)
         .unwrap_or_else(|| panic!("wilderness {context} batch count must be nonzero"));
     let request = plan_manual_craft_from_stockpile(registries, state, process, source, batches)
         .unwrap_or_else(|error| panic!("wilderness {context} input planning failed: {error}"));
-    let request = match equipment {
-        Some(equipment) => request.with_equipment(equipment),
-        None => request,
-    };
     let start = if source == destination {
         ManualCraftStartRequest::in_place(request)
     } else {
@@ -188,34 +162,8 @@ fn craft_batches(
     assert_eq!(state.player_work().active(), None);
 }
 
-fn assemble_tool(
-    registries: &Registries,
-    state: &mut AppState,
-    definition: EquipmentDefinitionId,
-    source: StockpileId,
-    context: &str,
-) -> EquipmentId {
-    let equipment = validate_assemble_equipment(registries, state, definition, source)
-        .unwrap_or_else(|error| panic!("wilderness {context} assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("wilderness {context} assembly commit failed: {error}"));
-    assert_eq!(
-        state
-            .equipment()
-            .get_equipment(equipment)
-            .map(|record| record.definition()),
-        Some(definition)
-    );
-    assert_eq!(
-        state.logistics().equipment_position(equipment),
-        Some(STATIONARY_PLAYER_ORIGIN),
-        "newly assembled wilderness tool must remain in the actor's local custody"
-    );
-    equipment
-}
-
 #[test]
-fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_before_copper() {
+fn controlled_wilderness_opening_establishes_food_storage_and_water_before_copper() {
     let registries = build_registries();
     let mut state = AppState::new();
     for (commodity, mass, material) in [
@@ -293,85 +241,9 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
     let started_at = state.tick();
     let minute = 60_u128 * 1_000_000;
 
-    let stone = local_surface_resource(&state, CommodityKey::new(MATERIAL_STONE, FORM_LUMP));
-    gather(
-        &registries,
-        &mut state,
-        SURFACE_GATHERING_HAND_COLLECT_STONE,
-        stone,
-        carried,
-        Mass::from_milligrams(1_000_000),
-        "loose stone for first tool",
-    );
-    let timber = local_surface_resource(&state, CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
-    gather(
-        &registries,
-        &mut state,
-        SURFACE_GATHERING_HAND_COLLECT_TIMBER,
-        timber,
-        carried,
-        Mass::from_milligrams(1_000_000),
-        "fallen timber for first tool",
-    );
-    craft_batches(
-        &registries,
-        &mut state,
-        PROCESS_KNAP_STONE_TOOL,
-        carried,
-        carried,
-        1,
-        None,
-        "first stone tool head",
-    );
-    craft_batches(
-        &registries,
-        &mut state,
-        PROCESS_SHAPE_WOOD_HANDLE,
-        carried,
-        carried,
-        1,
-        None,
-        "first wood handle",
-    );
-    let _ = assemble_tool(
-        &registries,
-        &mut state,
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        carried,
-        "stone adze",
-    );
-    let local_tool_definitions = state
-        .available_local_equipment()
-        .map(|record| record.definition())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        local_tool_definitions,
-        vec![EQUIPMENT_STONE_WOODWORKING_ADZE],
-        "the opening actor should build the useful woodworking tool it has an immediate job for rather than a checklist of unused specializations"
-    );
-    let adze = local_equipment_by_definition(
-        &state,
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        "stone woodworking adze",
-    );
-    let adze_ready_ticks = state
-        .tick()
-        .checked_duration_since(started_at)
-        .unwrap_or_else(|| panic!("wilderness first-tool time reversed"))
-        .value();
-    let adze_ready_microseconds = u128::from(adze_ready_ticks)
-        .checked_mul(u128::from(
-            registries.core().physical_tick_duration().microseconds(),
-        ))
-        .unwrap_or_else(|| panic!("wilderness first-tool physical duration overflowed"));
-    assert!(
-        (5 * minute..=15 * minute).contains(&adze_ready_microseconds),
-        "the first useful camp tool should require real acquisition/fabrication work without consuming the whole first quarter-hour"
-    );
-
     // Food is an immediate camp problem, not a reward for finishing storage first. Forage and eat
-    // one serving while the opening is still inside the first-quarter-hour target; keep the second
-    // serving in carried custody until there is actually a field box worth using.
+    // one serving first; keep the second serving in carried custody until there is actually a field
+    // box worth using.
     let berries = local_surface_resource(&state, CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD));
     gather(
         &registries,
@@ -404,7 +276,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
     assert!(
         before_meal.metabolic_energy() < physiology.maximum_metabolic_energy()
             && before_meal.hydration() < physiology.maximum_hydration(),
-        "opening acquisition and tool work should spend enough reserve for ordinary forage to have a real physiological consequence"
+        "opening foraging should spend enough reserve for ordinary food to have a real physiological consequence"
     );
     let meal = validate_eat(
         &registries,
@@ -429,7 +301,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         .unwrap_or_else(|| panic!("wilderness player disappeared after early meal"));
     assert!(
         after_meal.metabolic_energy() > before_meal.metabolic_energy(),
-        "foraged opening food must replenish some of the energy spent acquiring the first tool"
+        "foraged opening food must replenish some of the energy spent acquiring it"
     );
     assert!(
         after_meal.hydration() > before_meal.hydration(),
@@ -446,21 +318,22 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         ))
         .unwrap_or_else(|| panic!("wilderness first-meal physical duration overflowed"));
     assert!(
-        (8 * minute..=15 * minute).contains(&first_meal_microseconds),
-        "a normal first serving should be acquired and eaten inside the first-quarter-hour opening rather than waiting for storage construction"
+        (3 * minute..=8 * minute).contains(&first_meal_microseconds),
+        "a normal first serving should be acquired and eaten early instead of waiting behind fabrication or storage construction"
     );
 
-    // Once the adze exists, gather only the timber needed for a project that actually repays it.
-    // The remaining local stone and timber stay visible for later pick/shovel work when those jobs
-    // become relevant instead of being consumed just to complete an opening checklist.
+    // The first real woodworking demand is one field box. At that scale, dedicated adze acquisition
+    // would cost more active attention than it returns, so the actor keeps the job bare-handed and
+    // leaves the visible stone/tool opportunity for a later workload that can actually repay it.
+    let timber = local_surface_resource(&state, CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
     gather(
         &registries,
         &mut state,
         SURFACE_GATHERING_HAND_COLLECT_TIMBER,
         timber,
         carried,
-        Mass::from_milligrams(4_000_000),
-        "fallen timber project load",
+        Mass::from_milligrams(2_000_000),
+        "field-box timber",
     );
     assert_eq!(
         state
@@ -470,49 +343,28 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         vec![
             (
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                Mass::from_milligrams(2_000_000),
+                Mass::from_milligrams(3_000_000),
             ),
             (
                 CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-                Mass::from_milligrams(3_000_000),
+                Mass::from_milligrams(6_000_000),
             ),
         ],
-        "the opening should leave finite local stone/timber for later specialized tools instead of exhausting every source before provisioning"
+        "the short opening should leave finite stone/timber for later tool investment instead of consuming it to manufacture a checklist"
+    );
+    assert!(
+        state.available_local_equipment().next().is_none(),
+        "the short field-box workload should not manufacture a tool whose full wilderness acquisition cost has not paid back"
     );
 
-    // Four board batches are enough work for the authored stone adze to be a real investment rather
-    // than a checklist item. The field box consumes only part of the output; useful prepared timber
-    // remains for the next camp project instead of manufacturing exactly one recipe's ingredients.
-    let board_batches = NonZeroU64::new(4).unwrap_or_else(|| unreachable!("four is nonzero"));
-    let bare_board_request = plan_manual_craft_from_stockpile(
-        &registries,
-        &state,
-        PROCESS_SHAPE_WOOD_BOARDS,
-        carried,
-        board_batches,
-    )
-    .unwrap_or_else(|error| panic!("wilderness board comparison planning failed: {error}"));
-    let bare_board_work = resolve_manual_craft(&registries, &state, &bare_board_request)
-        .unwrap_or_else(|error| panic!("wilderness bare board comparison failed: {error}"));
-    let adze_board_work = resolve_manual_craft(
-        &registries,
-        &state,
-        &bare_board_request.clone().with_equipment(adze),
-    )
-    .unwrap_or_else(|error| panic!("wilderness adze board comparison failed: {error}"));
-    assert!(
-        adze_board_work.duration() < bare_board_work.duration(),
-        "the opening adze must immediately improve a real camp woodworking project"
-    );
     craft_batches(
         &registries,
         &mut state,
         PROCESS_SHAPE_WOOD_BOARDS,
         carried,
         carried,
-        4,
-        Some(adze),
-        "camp project boards",
+        2,
+        "bare-hand field-box boards",
     );
     let board_commodity = CommodityKey::new(MATERIAL_WOOD, deep_hearth::content::FORM_BOARD);
     let boards_before_box = state
@@ -524,7 +376,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         .crafting()
         .get_manual(PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX)
         .unwrap_or_else(|| panic!("wilderness field-box joinery disappeared"));
-    assert!(boards_before_box > field_box_joinery.input_mass());
+    assert_eq!(boards_before_box, field_box_joinery.input_mass());
     craft_batches(
         &registries,
         &mut state,
@@ -532,7 +384,6 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         carried,
         carried,
         1,
-        None,
         "field-box body",
     );
     let boards_after_box = state
@@ -546,10 +397,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
             .checked_sub(field_box_joinery.input_mass())
             .unwrap_or_else(|| unreachable!("field-box input was checked above"))
     );
-    assert!(
-        !boards_after_box.is_zero(),
-        "wilderness camp project should leave useful prepared timber after building storage"
-    );
+    assert_eq!(boards_after_box, Mass::ZERO);
     let provisions =
         validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(10_000_000))
             .unwrap_or_else(|error| {
@@ -678,15 +526,15 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         ))
         .unwrap_or_else(|| panic!("wilderness physical duration overflowed"));
     assert!(
-        (15 * minute..=35 * minute).contains(&elapsed_microseconds),
-        "controlled acquisition/adze/storage/food/water opening should occupy a substantial first-session slice without forcing unused tool construction before missing fire, shelter, travel, or ordinary world-source discovery are counted"
+        (12 * minute..=18 * minute).contains(&elapsed_microseconds),
+        "controlled food/storage/water opening should land around the first-quarter-hour target without forcing an uneconomic tool before missing fire, shelter, travel, or ordinary world-source discovery are counted"
     );
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("wilderness final matter audit failed: {error}"))
             .total(),
         matter_before,
-        "wilderness opening must conserve represented matter across gathering, crafting, equipment, storage, and eating"
+        "wilderness opening must conserve represented matter across gathering, crafting, storage, and eating"
     );
     assert_exact_local_runtime_ready(
         &registries,
