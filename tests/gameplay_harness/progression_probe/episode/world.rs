@@ -1,6 +1,7 @@
 //! Deterministic primitive-progression world construction before player admission.
 
 use super::*;
+use crate::copper_progression_world::progression_ore_grades;
 
 pub(super) struct ProgressionWorldSetup {
     pub(super) state: AppState,
@@ -320,19 +321,5 @@ pub(super) fn setup_progression_world(
             native_target,
             trace_target,
         },
-    )
-}
-
-fn progression_ore_grades(seed: u64) -> (u32, u32) {
-    const SOFT_MIN_PPM: u32 = 450_000;
-    const SOFT_MAX_PPM: u32 = 750_000;
-    const HARD_MIN_PPM: u32 = 500_000;
-    const HARD_MAX_PPM: u32 = 900_000;
-
-    let soft_roll = mix64(seed ^ 0x5052_4F47_4752_4144);
-    let hard_roll = mix64(seed ^ 0x4841_5244_5F47_5244);
-    (
-        SOFT_MIN_PPM + (soft_roll % u64::from(SOFT_MAX_PPM - SOFT_MIN_PPM + 1)) as u32,
-        HARD_MIN_PPM + (hard_roll % u64::from(HARD_MAX_PPM - HARD_MIN_PPM + 1)) as u32,
     )
 }

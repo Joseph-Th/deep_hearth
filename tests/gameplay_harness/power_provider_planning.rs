@@ -35,14 +35,11 @@ use lifecycle::{ManualPowerRoute, charge_events_for_declared_work as lifecycle_c
 #[cfg(not(test))]
 const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
 const MAX_PRIMITIVE_PROJECT_BATCHES: u64 = 1_024;
+#[cfg(not(test))]
 const MAX_SETTLEMENT_CROSSOVER_CHARGES: u64 = 160;
 
 pub(super) const fn primitive_project_batch_limit() -> u64 {
     MAX_PRIMITIVE_PROJECT_BATCHES
-}
-
-pub(super) const fn settlement_crossover_search_limit() -> u64 {
-    MAX_SETTLEMENT_CROSSOVER_CHARGES
 }
 
 pub(super) fn charge_events_for_declared_work(
@@ -849,6 +846,7 @@ fn settlement_projection_for(
         .unwrap_or_else(|| unreachable!("every settlement choice has one candidate projection"))
 }
 
+#[cfg(not(test))]
 pub(super) fn settlement_power_decision_frontier(
     registries: &Registries,
     state: &AppState,

@@ -3940,7 +3940,7 @@ class ExactTestCommandTests(unittest.TestCase):
         cases = {
             "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
             "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
-            "four_world_woodworking_sample_spans_workload_and_copper_pressure": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
+            "four_world_woodworking_sample_spans_workload_without_encoding_copper_decisions": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
             "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],

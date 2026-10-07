@@ -42,6 +42,8 @@ mod production_timing;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_demand.rs"]
+mod settlement_demand;
 #[path = "gameplay_harness/settlement_fixture.rs"]
 mod settlement_fixture;
 #[path = "gameplay_harness/settlement_generation.rs"]

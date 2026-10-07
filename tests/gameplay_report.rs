@@ -21,6 +21,8 @@ mod catalog;
 mod configuration;
 #[path = "gameplay_harness/contracts.rs"]
 mod contracts;
+#[path = "gameplay_harness/copper_progression_world.rs"]
+mod copper_progression_world;
 #[path = "gameplay_harness/direct_consumption_timing.rs"]
 mod direct_consumption_timing;
 #[path = "gameplay_harness/environment.rs"]
@@ -117,6 +119,8 @@ mod scenario;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_demand.rs"]
+mod settlement_demand;
 #[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
 mod settlement_drill_contract_tests;
 #[path = "gameplay_harness/settlement_fixture.rs"]

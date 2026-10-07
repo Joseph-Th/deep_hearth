@@ -25,6 +25,8 @@ macro_rules! include_woodworking_evaluation_contract_tests {
 
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
+#[path = "gameplay_harness/equipment_support.rs"]
+mod equipment_support;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
 mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
@@ -43,6 +45,8 @@ mod manual_craft_planning;
 mod manual_craft_selection;
 #[path = "gameplay_harness/persistence_timing.rs"]
 mod persistence_timing;
+#[path = "gameplay_harness/primitive_workload.rs"]
+mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/saw_bench_contract_tests.rs"]

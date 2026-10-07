@@ -1,5 +1,6 @@
 //! Builds woodworking actor decisions, matched lifecycle evidence, and replayable report outcomes.
 
+use super::super::primitive_workload::primitive_mining_cycle_mass;
 use super::execution::{
     AdzePipelinePlan, SawPipelinePlan, SawSetup, WoodworkingRouteOutcome, assemble_adze,
     assemble_saw, authored_output_mass, checked_mass_times, execute_adze_pipeline,
@@ -14,6 +15,20 @@ mod report;
 
 pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeCase) {
     evaluate_woodworking_probe(registries, case);
+}
+
+fn organic_woodworking_native_copper(registries: &Registries, seed: u64) -> Mass {
+    // Woodworking inherits already-won copper from primitive progression. Size that physical
+    // opportunity from the played primitive mining-cycle scale, not from the saw-blade requirement
+    // or the actor's protected future reserve. Route affordability must emerge after admission.
+    let prior_cycle = primitive_mining_cycle_mass(registries, seed);
+    let scale_ppm = 50_000_u64 + mix64(seed ^ 0x574F_4F44_434F_5050) % 2_450_001;
+    let milligrams = prior_cycle
+        .milligrams()
+        .checked_mul(scale_ppm)
+        .map(|scaled| scaled / 1_000_000)
+        .unwrap_or_else(|| panic!("woodworking inherited copper opportunity overflowed"));
+    Mass::from_milligrams(milligrams)
 }
 
 #[derive(Clone, Copy)]
@@ -191,11 +206,7 @@ fn protected_future_copper_reserve(registries: &Registries) -> Mass {
     )
 }
 
-fn build_woodworking_world(
-    registries: &Registries,
-    seed: u64,
-    stratified: bool,
-) -> WoodworkingWorld {
+fn build_woodworking_world(registries: &Registries, seed: u64, organic: bool) -> WoodworkingWorld {
     let blade_input = registries
         .crafting()
         .get_manual(PROCESS_COLD_WORK_COPPER_SAW_BLADE)
@@ -209,17 +220,11 @@ fn build_woodworking_world(
     let below_blade = blade_input
         .checked_sub(Mass::from_milligrams(1))
         .unwrap_or(Mass::ZERO);
-    let copper_available = if stratified {
-        // Couple the same four-case sample only to coarse, actor-visible copper pressure. This keeps
-        // small exploratory reports from accidentally presenting four identical funded workshops;
-        // policy remains independently seeded and the selected route still comes from live economics.
-        match seed & 0b11 {
-            0 => below_blade,
-            1 => blade_input,
-            2 => just_reserve_safe,
-            _ => checked_mass_times(just_reserve_safe, 2, "abundant copper opportunity"),
-        }
+    let copper_available = if organic {
+        organic_woodworking_native_copper(registries, seed)
     } else {
+        // Maintained witnesses intentionally pin named affordability/reserve regimes. They prove
+        // qualitative contracts and are not evidence for organic prevalence.
         match mix64(seed ^ 0x574F_4F44_434F_5050) % 4 {
             0 => below_blade,
             1 => blade_input,
@@ -1289,12 +1294,12 @@ fn evaluate_woodworking_probe(
 ) -> (&'static str, u64, Option<u64>) {
     let seed = case.seed();
     let behavior_seed = case.required_behavior_seed("woodworking investment policy");
-    let stratified = matches!(
+    let organic = matches!(
         case.role(),
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
     );
-    let demand = plan_woodworking_demand(registries, seed, stratified);
-    let world = build_woodworking_world(registries, seed, stratified);
+    let demand = plan_woodworking_demand(registries, seed, organic);
+    let world = build_woodworking_world(registries, seed, organic);
     let decision = plan_woodworking_investment(registries, behavior_seed, demand, &world);
     let lifecycle = execute_woodworking_lifecycle(registries, &world, demand, decision);
     let metrics = evaluate_woodworking_lifecycle(case, &world, decision, &lifecycle);

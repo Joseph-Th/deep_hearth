@@ -26,11 +26,13 @@ use super::super::focused_witnesses::FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED;
 use super::super::inherited_condition::healthy_used_equipment_condition;
 use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::material_selection::select_stockpile_commodity_mass;
+use super::super::primitive_workload::primitive_mining_cycle_mass;
 use super::super::seed::mix64;
 use super::super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 use super::recovery::{
     minimum_powered_ore_feed_for_target_recovery, projected_inherited_processing_batch_limit,
 };
+use crate::copper_progression_world::progression_ore_grades;
 
 const FOUNDRY_RAW_INPUTS: [CommodityKey; 3] = [
     CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
@@ -367,14 +369,13 @@ fn insufficient_feed(required_feed: Mass, seed: u64) -> Mass {
     )
 }
 
-/// Builds disclosed copper opportunities around the current authored foundry workload threshold.
+/// Builds disclosed copper opportunities independently from the foundry investment outcome.
 ///
 /// The actor never receives the generated regime. It sees only the resulting inventory and applies
-/// ordinary native working plus its inherited powered ore-dressing capability. Keeping the
-/// generator relative to current authored demand prevents content retuning from collapsing organic
-/// samples into one stale outcome.
-/// Recoverable worlds size owned ore against the already-earned powered dressing line rather than
-/// pretending the player forgot that infrastructure at the foundry frontier.
+/// ordinary native working plus its inherited powered ore-dressing capability. Maintained witnesses
+/// deliberately pin build/recover/defer contracts, but organic worlds vary native reserve, ore
+/// reserve, assay, and inherited equipment condition without consulting the resulting shortfall or
+/// recovery requirement. The current economics therefore decide what the player can actually do.
 pub(super) fn foundry_resource_opportunity(
     registries: &Registries,
     case: FocusedProbeCase,
@@ -407,21 +408,6 @@ pub(super) fn foundry_resource_opportunity(
     )
     .unwrap_or_else(|| panic!("first foundry inherited processing line cannot accept a batch"));
 
-    let grade = || {
-        300_000
-            + u32::try_from(mix64(case.seed() ^ 0x4F52_455F_4752_4144) % 400_001)
-                .unwrap_or_else(|_| unreachable!("bounded foundry ore grade fits u32"))
-    };
-    let make_shortfall = |salt: u64| {
-        let fraction_ppm = 200_000
-            + u32::try_from(mix64(case.seed() ^ salt) % 350_001)
-                .unwrap_or_else(|_| unreachable!("bounded foundry shortfall fraction fits u32"));
-        let milligrams = scaled_mass(required_after_current, fraction_ppm, "organic shortfall")
-            .milligrams()
-            .max(1)
-            .min(required_after_current.milligrams());
-        Mass::from_milligrams(milligrams)
-    };
     let opportunity = match case.role() {
         FocusedProbeRole::MaintainedAnchor => {
             let surplus = scaled_mass(required_after_current, 125_000, "anchor surplus");
@@ -498,114 +484,42 @@ pub(super) fn foundry_resource_opportunity(
             }
         }
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            let copper_ppm = grade();
-            // The focused runner deliberately cycles the two low world-seed bits through a tiny
-            // bounded pressure sample. Use three of those strata for the three player-visible
-            // copper regimes so one exploratory report cannot randomly collapse to "always build"
-            // or "always defer". The fourth stratum remains fully seed-derived, preserving extra
-            // organic variation without making actor policy an input to the physical world.
-            let regime = match case.seed() & 0b11 {
-                0 => 0,
-                1 => 1,
-                2 => 2,
-                _ => mix64(case.seed() ^ 0x464F_554E_4452_5247) % 3,
+            let (soft_grade, hard_grade) = progression_ore_grades(case.seed());
+            let copper_ppm = if mix64(case.seed() ^ 0x464F_554E_444F_5253).is_multiple_of(2) {
+                soft_grade
+            } else {
+                hard_grade
             };
-            match regime {
-                0 => {
-                    let surplus_ppm = 25_000
-                        + u32::try_from(mix64(case.seed() ^ 0x464F_554E_4452_5355) % 175_001)
-                            .unwrap_or_else(|_| unreachable!("bounded foundry surplus fits u32"));
-                    FoundryResourceOpportunity {
-                        native: immediate_native_input
-                            .checked_add(required_after_current)
-                            .and_then(|mass| {
-                                mass.checked_add(scaled_mass(
-                                    required_after_current,
-                                    surplus_ppm,
-                                    "organic surplus",
-                                ))
-                            })
-                            .unwrap_or_else(|| {
-                                panic!("first foundry organic native opportunity overflowed")
-                            }),
-                        owned_ore: FoundryOwnedOreOpportunity {
-                            mass: scaled_mass(
-                                required_after_current,
-                                500_000,
-                                "organic unused ore",
-                            ),
-                            copper_ppm,
-                        },
-                        immediate_native_input,
-                        required_after_current,
-                        recovery_batch_limit,
-                    }
-                }
-                1 => {
-                    let shortfall = make_shortfall(0x464F_554E_4452_5243);
-                    let required_feed = minimum_powered_ore_feed_for_target_recovery(
-                        registries,
-                        shortfall,
-                        copper_ppm,
-                        recovery_batch_limit,
-                    )
-                    .unwrap_or_else(|| {
-                        panic!("first foundry organic recovery projection overflowed")
-                    });
-                    let extra_ppm =
-                        u32::try_from(mix64(case.seed() ^ 0x464F_554E_4452_4558) % 250_001)
-                            .unwrap_or_else(|_| {
-                                unreachable!("bounded foundry ore surplus fits u32")
-                            });
-                    FoundryResourceOpportunity {
-                        native: native_with_shortfall(
-                            immediate_native_input,
-                            required_after_current,
-                            shortfall,
-                        ),
-                        owned_ore: FoundryOwnedOreOpportunity {
-                            mass: required_feed
-                                .checked_add(scaled_mass(
-                                    required_feed,
-                                    extra_ppm,
-                                    "recoverable ore surplus",
-                                ))
-                                .unwrap_or_else(|| {
-                                    panic!("first foundry recoverable ore opportunity overflowed")
-                                }),
-                            copper_ppm,
-                        },
-                        immediate_native_input,
-                        required_after_current,
-                        recovery_batch_limit,
-                    }
-                }
-                _ => {
-                    let shortfall = make_shortfall(0x464F_554E_4452_5348);
-                    let required_feed = minimum_powered_ore_feed_for_target_recovery(
-                        registries,
-                        shortfall,
-                        copper_ppm,
-                        recovery_batch_limit,
-                    )
-                    .unwrap_or_else(|| {
-                        panic!("first foundry organic shortage projection overflowed")
-                    });
-                    FoundryResourceOpportunity {
-                        native: native_with_shortfall(
-                            immediate_native_input,
-                            required_after_current,
-                            shortfall,
-                        ),
-                        owned_ore: FoundryOwnedOreOpportunity {
-                            mass: insufficient_feed(required_feed, case.seed()),
-                            copper_ppm,
-                        },
-                        immediate_native_input,
-                        required_after_current,
-                        recovery_batch_limit,
-                    }
-                }
+            // Resource scale is inherited from prior copper progression, not from the desired
+            // foundry result. Use the same played stone-pick cycle as the prior episode and the same
+            // soft/hard ore-grade vocabulary. Neither quantity reads foundry capital, follow-up
+            // demand, or the feed required to close a resulting shortfall.
+            let prior_cycle = primitive_mining_cycle_mass(registries, case.seed());
+            let native_scale_ppm = 250_000
+                + u32::try_from(mix64(case.seed() ^ 0x464F_554E_444E_4154) % 1_500_001)
+                    .unwrap_or_else(|_| unreachable!("bounded native reserve scale fits u32"));
+            let ore_batches = 1 + mix64(case.seed() ^ 0x464F_554E_444F_5245) % 3;
+            let owned_ore_mass = Mass::from_milligrams(
+                prior_cycle
+                    .milligrams()
+                    .checked_mul(ore_batches)
+                    .unwrap_or_else(|| panic!("first foundry inherited ore parcel overflowed")),
+            );
+            FoundryResourceOpportunity {
+                native: immediate_native_input
+                    .checked_add(scaled_mass(
+                        prior_cycle,
+                        native_scale_ppm,
+                        "organic native reserve",
+                    ))
+                    .unwrap_or_else(|| panic!("first foundry organic native reserve overflowed")),
+                owned_ore: FoundryOwnedOreOpportunity {
+                    mass: owned_ore_mass,
+                    copper_ppm,
+                },
+                immediate_native_input,
+                required_after_current,
+                recovery_batch_limit,
             }
         }
     };

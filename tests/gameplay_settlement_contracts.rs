@@ -33,6 +33,8 @@ mod material_selection;
 mod powered_craft_planning;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/settlement_demand.rs"]
+mod settlement_demand;
 #[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
 mod settlement_drill_contract_tests;
 #[path = "gameplay_harness/settlement_fixture.rs"]

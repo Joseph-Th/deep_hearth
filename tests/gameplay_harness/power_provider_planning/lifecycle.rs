@@ -185,6 +185,7 @@ impl ManualPowerRoute {
     /// whole lifecycle from pristine condition for every horizon would turn an O(n) gameplay
     /// question into O(n²) harness work. Carry the canonical projected condition forward once and
     /// retain each cumulative result instead.
+    #[cfg(not(test))]
     pub(super) fn project_full_charge_series(
         self,
         registries: &Registries,

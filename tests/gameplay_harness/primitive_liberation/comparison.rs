@@ -196,13 +196,15 @@ pub(super) fn review(
     }
     let powered_campaign_attention = cumulative_powered_attention;
     let justified = payback.is_some() && powered_campaign_attention <= manual_campaign_attention;
-    if matches!(
-        case.role(),
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
-    ) {
+    if extension_selected
+        && matches!(
+            case.role(),
+            FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+        )
+    {
         assert!(
             justified,
-            "maintained liberation extension must repay within its disclosed campaign"
+            "maintained selected liberation extension must repay within its disclosed campaign"
         );
     }
     let payback_label = payback.map_or_else(

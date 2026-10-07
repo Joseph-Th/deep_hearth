@@ -9,6 +9,9 @@ use deep_hearth::content::{
 use super::super::bulk_fieldwork_workload::{
     BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, primitive_quarry_batch_mass,
 };
+use super::super::settlement_demand::{
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batches,
+};
 use super::planning::{
     assert_primitive_power_provider_market_current, assert_settlement_power_provider_market_current,
 };
@@ -64,14 +67,11 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
         .crafting()
         .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
         .unwrap_or_else(|| panic!("settlement saw process disappeared"));
-    let bank = registries
-        .energy()
-        .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
-        .unwrap_or_else(|| panic!("settlement flywheel bank disappeared"));
-    let saw_mass_per_bank = deep_hearth::energy::calculate_mass_specific_energy_capacity(
-        bank.capacity(),
-        saw.specific_energy(),
-    );
+    let saw_batch_mass = registries
+        .crafting()
+        .get_manual(saw.transform())
+        .map(|transform| transform.input_mass())
+        .unwrap_or_else(|| panic!("settlement manual saw transform disappeared"));
 
     let store_definition = primitive_accumulator_for_current_crusher(&registries);
     let primitive_store = registries
@@ -117,8 +117,8 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
     assert!(
         settlement.iter().all(|mass| mass
             .milligrams()
-            .is_multiple_of(saw_mass_per_bank.milligrams())),
-        "settlement organic projects must remain whole current flywheel-backed saw workloads"
+            .is_multiple_of(saw_batch_mass.milligrams())),
+        "settlement organic projects must remain whole current lumber-production batches"
     );
     assert!(
         primitive
@@ -145,7 +145,7 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
         .collect::<BTreeSet<_>>();
     let settlement_units = settlement
         .iter()
-        .map(|mass| mass.milligrams() / saw_mass_per_bank.milligrams())
+        .map(|mass| mass.milligrams() / saw_batch_mass.milligrams())
         .collect::<BTreeSet<_>>();
     assert!(routine_units.iter().all(|units| (8..=24).contains(units)));
     assert!(
@@ -158,26 +158,28 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
             .any(|(_, _, workload)| *workload == PrimitiveCrushingWorkload::BulkFieldwork),
         "primitive workload sampling lost the bulk fieldwork continuation"
     );
-    let opportunity_units =
-        maximum_sampled_workload_units(planning::settlement_crossover_search_limit());
     assert!(
-        settlement_units.len() > 32,
+        settlement_units.len() > 16,
         "settlement workload variation collapsed"
     );
     assert!(
         settlement_units
             .iter()
-            .all(|units| (1..=opportunity_units).contains(units))
+            .all(|units| (8..=72).contains(units))
     );
-    assert!(
-        settlement_units
-            .iter()
-            .any(|units| *units <= opportunity_units / 8)
-            && settlement_units
-                .iter()
-                .any(|units| *units >= opportunity_units * 3 / 4),
-        "organic settlement workloads must span genuinely small and large projects without reading provider market boundaries"
-    );
+    for seed in 1_u64..=256 {
+        let (mass, _) = declared_settlement_lumber_project(&registries, seed);
+        let batches = mass.milligrams() / saw_batch_mass.milligrams();
+        assert_eq!(
+            batches,
+            organic_lumber_batches(
+                seed & 0b11,
+                mix64(seed ^ 0x5345_5454_4C55_4D42),
+                SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+            ),
+            "power-provider settlement demand diverged from lived settlement lumber generation"
+        );
+    }
 
     for root in [0_u64, 4, 0x1234_5678_9ABC_DEF0] {
         let bounded = (0_u64..4)

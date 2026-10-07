@@ -37,6 +37,9 @@ use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
+use super::settlement_demand::{
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batches,
+};
 use super::stationary_survival::{
     StationarySurvivalStart, admit_stationary_player_with_survival_start,
 };
@@ -452,55 +455,33 @@ pub(super) fn declared_settlement_lumber_project(
     registries: &Registries,
     seed: u64,
 ) -> (Mass, Energy) {
-    // Settlement demand is generated independently of the provider market. Each unit is one
-    // current full flywheel-bank workload; provider identity must emerge from current lifecycle
-    // economics, copper policy, and actor preference rather than from a workload chosen around the
-    // market's live decision boundaries.
-    let store = registries
-        .energy()
-        .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
-        .unwrap_or_else(|| panic!("settlement power flywheel bank disappeared"));
+    // Reuse the same disclosed lumber-demand generator as lived settlement play. Power-provider
+    // evaluation observes how the current provider market serves that upstream demand; it must not
+    // define the physical workload from its own crossover-search horizon.
     let definition = registries
         .crafting()
         .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
         .unwrap_or_else(|| panic!("settlement power project saw process disappeared"));
-    let mass_per_bank = deep_hearth::energy::calculate_mass_specific_energy_capacity(
-        store.capacity(),
-        definition.specific_energy(),
-    );
-    assert!(
-        !mass_per_bank.is_zero(),
-        "settlement flywheel bank must fund positive saw work"
-    );
-    let bank_workloads = sampled_workload_units(
-        seed,
-        maximum_sampled_workload_units(planning::settlement_crossover_search_limit()),
-        0x5345_5454_5F4C_554D,
+    let batch_mass = registries
+        .crafting()
+        .get_manual(definition.transform())
+        .map(|transform| transform.input_mass())
+        .unwrap_or_else(|| panic!("settlement power project manual saw transform disappeared"));
+    let batches = organic_lumber_batches(
+        seed & 0b11,
+        mix64(seed ^ 0x5345_5454_4C55_4D42),
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
     );
     let mass = Mass::from_milligrams(
-        mass_per_bank
+        batch_mass
             .milligrams()
-            .checked_mul(bank_workloads)
+            .checked_mul(batches)
             .unwrap_or_else(|| panic!("settlement power project mass overflowed")),
     );
     (
         mass,
         deep_hearth::energy::calculate_mass_specific_energy(mass, definition.specific_energy()),
     )
-}
-
-fn sampled_workload_units(seed: u64, opportunity_units: u64, salt: u64) -> u64 {
-    assert!(
-        opportunity_units > 0,
-        "power-provider workload opportunity must be nonzero"
-    );
-    1 + mix64(seed ^ salt) % opportunity_units
-}
-
-fn maximum_sampled_workload_units(search_limit: u64) -> u64 {
-    search_limit
-        .checked_add((search_limit / 2).max(1))
-        .unwrap_or_else(|| panic!("power-provider maximum workload range overflowed"))
 }
 
 #[cfg(test)]
@@ -716,7 +697,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         ],
         &[ENERGY_TIMBER_FRAME_FLYWHEEL_BANK],
         EQUIPMENT_TIMBER_SASH_SAWMILL,
-        maximum_sampled_workload_units(planning::settlement_crossover_search_limit()),
+        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
         "settlement power opportunity",
     );
     let (settlement_raw, settlement_raw_capacity) = seed_raw_opportunity(
@@ -735,16 +716,15 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .crafting()
         .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
         .unwrap_or_else(|| panic!("settlement power project saw process disappeared"));
-    let settlement_mass_per_charge = deep_hearth::energy::calculate_mass_specific_energy_capacity(
-        Energy::from_nanojoules(settlement_capacity_nj),
-        settlement_process.specific_energy(),
-    );
+    let settlement_batch_mass = registries
+        .crafting()
+        .get_manual(settlement_process.transform())
+        .map(|transform| transform.input_mass())
+        .unwrap_or_else(|| panic!("settlement power project manual saw transform disappeared"));
     let settlement_available_mass = Mass::from_milligrams(
-        settlement_mass_per_charge
+        settlement_batch_mass
             .milligrams()
-            .checked_mul(maximum_sampled_workload_units(
-                planning::settlement_crossover_search_limit(),
-            ))
+            .checked_mul(SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES)
             .unwrap_or_else(|| panic!("settlement power available workload overflowed")),
     );
     let settlement_feed = add_solid_stockpile(&mut settlement_state, settlement_available_mass);

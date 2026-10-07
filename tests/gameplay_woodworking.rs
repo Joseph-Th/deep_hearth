@@ -17,6 +17,12 @@ macro_rules! include_woodworking_evaluation_contract_tests {
 
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
+#[allow(
+    dead_code,
+    reason = "woodworking reuses primitive mining-cycle sizing through one equipment capability helper"
+)]
+#[path = "gameplay_harness/equipment_support.rs"]
+mod equipment_support;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
 mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]
@@ -45,6 +51,8 @@ mod manual_craft_selection;
 #[cfg(not(test))]
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
+#[path = "gameplay_harness/primitive_workload.rs"]
+mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]

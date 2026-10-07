@@ -40,6 +40,7 @@ use super::focused_case::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_power_timing::finish_manual_power_work;
+use super::material_selection::observable_material_cohorts;
 use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
@@ -451,6 +452,26 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let shortfall_before_recovery = required_after_current
         .checked_sub(remaining_native_before_recovery)
         .unwrap_or(Mass::ZERO);
+    let ore_commodity = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    let mut live_ore_cohorts = observable_material_cohorts(&state, owned_ore)
+        .into_iter()
+        .filter(|cohort| cohort.profile().commodity() == ore_commodity);
+    let live_ore = live_ore_cohorts
+        .next()
+        .unwrap_or_else(|| panic!("first foundry admitted owned ore disappeared"));
+    assert!(
+        live_ore_cohorts.next().is_none(),
+        "first foundry owned ore has multiple observable material profiles; actor policy must choose a cohort explicitly"
+    );
+    let live_owned_ore_mass = live_ore.mass();
+    let live_owned_ore_copper_ppm = live_ore
+        .profile()
+        .composition()
+        .parts_per_million(MATERIAL_COPPER);
+    assert!(
+        !live_owned_ore_mass.is_zero() && live_owned_ore_copper_ppm > 0,
+        "first foundry admitted owned ore must remain a visible positive copper opportunity"
+    );
     let sorting = registries
         .ore_processing()
         .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
@@ -462,12 +483,12 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
                 &state,
                 processing_line,
                 shortfall_before_recovery,
-                inherited_ore.copper_ppm,
+                live_owned_ore_copper_ppm,
             )
         })
         .flatten();
     let recovery_available =
-        recovery_planned_feed.is_some_and(|required| required <= inherited_ore.mass);
+        recovery_planned_feed.is_some_and(|required| required <= live_owned_ore_mass);
     let mut recovery_feed = Mass::ZERO;
     let mut recovery_attention = 0_u64;
     let mut recovery_autonomous = 0_u64;
@@ -499,7 +520,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
                 native_destination: raw,
                 residue_destination: recovery_residue,
                 target: shortfall_before_recovery,
-                copper_ppm: inherited_ore.copper_ppm,
+                copper_ppm: live_owned_ore_copper_ppm,
                 line: processing_line,
             },
         );
@@ -544,8 +565,8 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             disclosed_stone_opportunity.milligrams(),
             component_wood.milligrams(),
             native_opportunity.milligrams(),
-            inherited_ore.mass.milligrams(),
-            inherited_ore.copper_ppm,
+            live_owned_ore_mass.milligrams(),
+            live_owned_ore_copper_ppm,
             first_cast_mass.milligrams(),
             direct_native_ticks,
             direct_native_reinforcement.milligrams(),
@@ -565,7 +586,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             remaining_native.milligrams(),
             shortfall_after_recovery.milligrams(),
             recovery_planned_feed.unwrap_or(Mass::ZERO).milligrams(),
-            inherited_ore.mass.milligrams(),
+            live_owned_ore_mass.milligrams(),
             recovery_available,
             recovery_feed > Mass::ZERO,
             recovery_feed.milligrams(),
@@ -1081,8 +1102,8 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         disclosed_stone_opportunity.milligrams(),
         component_wood.milligrams(),
         native_opportunity.milligrams(),
-        inherited_ore.mass.milligrams(),
-        inherited_ore.copper_ppm,
+        live_owned_ore_mass.milligrams(),
+        live_owned_ore_copper_ppm,
         first_cast_mass.milligrams(),
         direct_native_ticks,
         direct_native_reinforcement.milligrams(),
@@ -1101,7 +1122,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         shortfall_before_recovery.milligrams(),
         remaining_native.milligrams(),
         recovery_planned_feed.unwrap_or(Mass::ZERO).milligrams(),
-        inherited_ore.mass.milligrams(),
+        live_owned_ore_mass.milligrams(),
         recovery_available,
         recovery_feed > Mass::ZERO,
         recovery_feed.milligrams(),

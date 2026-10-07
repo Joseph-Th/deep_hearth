@@ -14,35 +14,42 @@ enum OpportunityRegime {
 }
 
 #[test]
-fn every_four_stratum_foundry_sample_exercises_build_recover_and_defer() {
+fn organic_foundry_generation_does_not_read_the_build_threshold() {
     let registries = deep_hearth::content::build_registries();
-    for root in [0_u64, 4, 0x1234_5678_9ABC_DEF0] {
-        let regimes = (0_u64..4)
-            .map(|offset| {
-                let seed = (root & !0b11) | offset;
-                let case = FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation);
-                let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries, case);
-                classify(
-                    &registries,
-                    foundry_resource_opportunity(
-                        &registries,
-                        case,
-                        &route_plan,
-                        ingots,
-                        settlement_cast,
-                    ),
-                )
+    for seed in [0_u64, 1, 2, 3, 0x1234_5678_9ABC_DEF0] {
+        let case = FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation);
+        let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries, case);
+        let baseline =
+            foundry_resource_opportunity(&registries, case, &route_plan, ingots, settlement_cast);
+        let mut more_expensive = route_plan.clone();
+        let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
+        let extra_capital = settlement_cast
+            .milligrams()
+            .checked_mul(3)
+            .and_then(|extra| {
+                more_expensive
+                    .capital_native_copper()
+                    .milligrams()
+                    .checked_add(extra)
             })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            regimes.into_iter().collect::<BTreeSet<_>>(),
-            BTreeSet::from([
-                OpportunityRegime::NativeSufficient,
-                OpportunityRegime::RecoverableOwnedOre,
-                OpportunityRegime::StillShort,
-            ]),
-            "one bounded organic foundry sample must expose build-now, recover-then-build, and defer"
+            .map(Mass::from_milligrams)
+            .unwrap_or_else(|| panic!("foundry threshold-independence fixture overflowed"));
+        more_expensive.capital_raw.insert(native, extra_capital);
+        let shifted = foundry_resource_opportunity(
+            &registries,
+            case,
+            &more_expensive,
+            ingots,
+            settlement_cast,
         );
+
+        assert_ne!(
+            baseline.required_after_current,
+            shifted.required_after_current
+        );
+        assert_eq!(baseline.native, shifted.native);
+        assert_eq!(baseline.owned_ore, shifted.owned_ore);
+        assert_eq!(baseline.recovery_batch_limit, shifted.recovery_batch_limit);
     }
 }
 
@@ -110,7 +117,7 @@ fn classify(
 }
 
 #[test]
-fn organic_foundry_worlds_span_current_workload_decision_regimes() {
+fn organic_foundry_worlds_vary_independent_resource_pressures() {
     let registries = deep_hearth::content::build_registries();
     let opportunities = (1_u64..=96)
         .map(|seed| {
@@ -120,26 +127,14 @@ fn organic_foundry_worlds_span_current_workload_decision_regimes() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        opportunities
-            .iter()
-            .copied()
-            .map(|opportunity| classify(&registries, opportunity))
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from([
-            OpportunityRegime::NativeSufficient,
-            OpportunityRegime::RecoverableOwnedOre,
-            OpportunityRegime::StillShort,
-        ]),
-        "fresh foundry roots must still cover build-now, recover-then-build, and defer outcomes against current authored demand"
-    );
     assert!(
         opportunities
             .iter()
             .map(|opportunity| opportunity.native.milligrams())
             .collect::<BTreeSet<_>>()
             .len()
-            > 1
+            > 16,
+        "organic foundry native reserve collapsed to a narrow scripted opportunity set"
     );
     assert!(
         opportunities
@@ -147,7 +142,8 @@ fn organic_foundry_worlds_span_current_workload_decision_regimes() {
             .map(|opportunity| opportunity.owned_ore.mass.milligrams())
             .collect::<BTreeSet<_>>()
             .len()
-            > 1
+            > 16,
+        "organic foundry owned-ore reserve collapsed to a narrow scripted opportunity set"
     );
     assert!(
         opportunities
@@ -155,7 +151,8 @@ fn organic_foundry_worlds_span_current_workload_decision_regimes() {
             .map(|opportunity| opportunity.owned_ore.copper_ppm)
             .collect::<BTreeSet<_>>()
             .len()
-            > 1
+            > 16,
+        "organic foundry assay collapsed to a narrow scripted opportunity set"
     );
 }
 

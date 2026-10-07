@@ -62,9 +62,9 @@ pub(super) const FIELDWORK_SHALLOW_SUPPLY_MIN_PPM: u64 = 1_200_000;
 pub(super) const FIELDWORK_SHALLOW_SUPPLY_MAX_PPM: u64 = 1_800_000;
 pub(super) const FIELDWORK_COMMON_SUPPLY_MIN_PPM: u64 = 8_000_000;
 pub(super) const FIELDWORK_COMMON_SUPPLY_MAX_PPM: u64 = 16_000_000;
-// Rich sites must extend beyond the current ordinary bulk-order envelope. Otherwise acquired
-// reserve evidence can trim every organic project back below the heavy-tool crossover and the
-// evaluator only experiences that investment in maintained scripts.
+// Rich sites represent multi-order local opportunities rather than a desired tool result. Keep the
+// reserve physically large enough to sustain ordinary bulk work, then let current demand, hardness,
+// acquired evidence, and tool economics decide whether specialization is useful.
 pub(super) const FIELDWORK_BULK_SUPPLY_MIN_PPM: u64 = 64_000_000;
 pub(super) const FIELDWORK_BULK_SUPPLY_MAX_PPM: u64 = 112_000_000;
 
@@ -152,17 +152,16 @@ fn geology_profile(
     limits: FieldworkMiningLimits,
     stratify_hardness: bool,
 ) -> (u64, &'static str, FieldworkGeologyProfile) {
-    let hardness_tier = if stratify_hardness {
-        // Demand and reserve already own the low four replay bits. Fold those coarse physical
-        // strata into hardness so one bounded exploratory sample cannot accidentally miss the
-        // live quarry-investment regime. Exact hardness, grade, location, and follow-up geology
-        // remain high-entropy and hidden until the actor acquires geological evidence.
-        let demand_stratum = seed & 0b11;
-        let reserve_stratum = (seed >> 2) & 0b11;
-        (demand_stratum + reserve_stratum.saturating_mul(2)) % 3
+    // Hardness is its own physical pressure channel. Do not derive it from demand or reserve
+    // strata merely to force a particular tool-investment opportunity into a bounded report.
+    // `stratify_hardness` retains a separate replay salt so ordinary organic samples and unstratified
+    // fixture probes remain independently replayable without coupling their other dimensions.
+    let hardness_salt = if stratify_hardness {
+        0x4649_454C_4448_4F52
     } else {
-        mix64(seed ^ 0x4649_454C_4448_4152) % 3
+        0x4649_454C_4448_4152
     };
+    let hardness_tier = mix64(seed ^ hardness_salt) % 3;
     let base_pa = limits.base_quarry_hardness.pascals();
     let reinforced_quarry_pa = limits.reinforced_quarry_hardness.pascals();
     let reinforced_pick_pa = limits.reinforced_pick_hardness.pascals();

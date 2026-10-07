@@ -9,6 +9,10 @@ use super::equipment_support::pristine_equipment_capability;
 use super::seed::mix64;
 
 /// Finite stockpiling horizon used when pricing repeated primitive processing work.
+#[allow(
+    dead_code,
+    reason = "later probes may reuse primitive mining-cycle sizing without importing the progression stockpiling horizon"
+)]
 pub(super) const STOCKPILE_WORK_ORDER_CYCLES: u64 = 12;
 pub(super) fn pristine_mining_batch_mass(
     registries: &Registries,

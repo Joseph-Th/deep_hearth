@@ -66,6 +66,8 @@ mod primitive_workload;
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
+#[path = "gameplay_harness/settlement_demand.rs"]
+mod settlement_demand;
 #[path = "gameplay_harness/stationary_survival.rs"]
 mod stationary_survival;
 #[path = "gameplay_harness/tick_observation.rs"]

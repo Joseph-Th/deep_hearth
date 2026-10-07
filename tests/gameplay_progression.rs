@@ -10,6 +10,8 @@ macro_rules! include_progression_probe_contract_tests {
     () => {};
 }
 
+#[path = "gameplay_harness/copper_progression_world.rs"]
+mod copper_progression_world;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]

@@ -38,22 +38,13 @@ fn organic_woodworking_generation_varies_demand_and_disclosed_copper_pressure() 
             .map(|world| visible_native_copper(world).milligrams())
             .collect::<BTreeSet<_>>()
             .len()
-            > 1,
-        "organic woodworking generation collapsed to one copper opportunity"
-    );
-    assert!(
-        worlds
-            .iter()
-            .any(|world| visible_native_copper(world) >= world.blade_input)
-            && worlds
-                .iter()
-                .any(|world| visible_native_copper(world) < world.blade_input),
-        "organic woodworking generation must exercise both fundable and blocked saw opportunities"
+            > 16,
+        "organic woodworking generation collapsed to a narrow inherited-copper opportunity set"
     );
 }
 
 #[test]
-fn four_world_woodworking_sample_spans_workload_and_copper_pressure() {
+fn four_world_woodworking_sample_spans_workload_without_encoding_copper_decisions() {
     let registries = deep_hearth::content::build_registries();
     let base = 0x51A2_7F00_u64;
     let demands = (0_u64..4)
@@ -78,29 +69,28 @@ fn four_world_woodworking_sample_spans_workload_and_copper_pressure() {
         "bounded woodworking exploration must retain materially different project workloads"
     );
 
-    let worlds = (0_u64..4)
-        .map(|offset| build_woodworking_world(&registries, base + offset, true))
-        .collect::<Vec<_>>();
-    let copper_pressure = worlds
-        .iter()
-        .map(|world| {
-            let available = visible_native_copper(world);
-            let reserve_safe = world
-                .blade_input
-                .checked_add(world.protected_copper_reserve)
-                .unwrap_or_else(|| panic!("bounded woodworking reserve threshold overflowed"));
-            if available < world.blade_input {
-                "blocked"
-            } else if available < reserve_safe {
-                "fundable-reserve-at-risk"
-            } else {
-                "reserve-safe"
-            }
-        })
+    let copper = (0_u64..4)
+        .map(|offset| organic_woodworking_native_copper(&registries, base + offset).milligrams())
         .collect::<BTreeSet<_>>();
-    assert_eq!(
-        copper_pressure,
-        BTreeSet::from(["blocked", "fundable-reserve-at-risk", "reserve-safe"]),
-        "four-world woodworking exploration must span the live copper decision pressures without pinning them to seed positions"
+    assert!(
+        copper.len() > 1,
+        "bounded woodworking exploration must retain physical copper variation without pinning route thresholds"
     );
+}
+
+#[test]
+fn organic_woodworking_copper_varies_within_each_demand_stratum() {
+    let registries = deep_hearth::content::build_registries();
+    for stratum in 0_u64..4 {
+        let values = (0_u64..16)
+            .map(|entropy| {
+                let seed = stratum | (entropy << 2);
+                organic_woodworking_native_copper(&registries, seed).milligrams()
+            })
+            .collect::<BTreeSet<_>>();
+        assert!(
+            values.len() > 8,
+            "woodworking copper opportunity became coupled to demand stratum {stratum}"
+        );
+    }
 }

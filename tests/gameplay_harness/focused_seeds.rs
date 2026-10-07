@@ -10,12 +10,13 @@ pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
 /// Returns the bounded organic sample size used by an exploratory report.
 ///
-/// Fieldwork combines independent demand, reserve scale, geology, and material-access regimes, so
+/// Fieldwork combines independent demand, reserve scale, geology, and material-access pressures, so
 /// it uses a denser organic sample. Four power cases already cover every declared workload stratum;
-/// the cheap generator contract covers the wider provider market. First foundry samples three
-/// independent resource regimes whose build/defer outcome should be visible
-/// without relying on maintained witnesses. Reports pay this broader runtime cost; routine runners
-/// supply only one organic case to a focused gate or one selected scope in a broad audit.
+/// the cheap generator contract covers the wider provider market. First foundry also samples more
+/// organic worlds because native reserve, owned ore, assay, and inherited wear vary independently;
+/// maintained witnesses, not organic generation, own build/recover/defer route guarantees. Reports
+/// pay this broader runtime cost; routine runners supply only one organic case to a focused gate or
+/// one selected scope in a broad audit.
 pub(super) fn exploratory_variation_count(name: &str) -> usize {
     match name {
         "fieldwork" => EXPLORATORY_VARIATION_COUNT * 5,

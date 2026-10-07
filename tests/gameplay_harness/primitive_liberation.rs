@@ -32,6 +32,7 @@ use deep_hearth::survival::assess_survival;
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_witnesses::LIBERATION_MANUAL_FALLBACK_COVERAGE_SEED;
 use super::inherited_condition::healthy_used_equipment_condition;
 use super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
 use super::manual_ore_recovery_evaluation::{
@@ -531,9 +532,13 @@ fn plan_liberation_extension(
 
 fn disclosed_campaign_batches(case: FocusedProbeCase) -> u64 {
     match case.role() {
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
-            PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES
+        FocusedProbeRole::MaintainedAnchor => PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
+        FocusedProbeRole::MaintainedCoverage
+            if case.seed() == LIBERATION_MANUAL_FALLBACK_COVERAGE_SEED =>
+        {
+            1
         }
+        FocusedProbeRole::MaintainedCoverage => PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
             // Campaign horizon is player-visible demand. Generate it independently of the live
             // extension payback threshold so the investment outcome is observed rather than baked
