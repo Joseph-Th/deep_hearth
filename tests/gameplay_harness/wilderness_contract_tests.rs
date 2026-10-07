@@ -39,8 +39,7 @@ use deep_hearth::surface::{
     SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
 };
 use deep_hearth::survival::{
-    assess_survival, available_local_drink_sources, initialize_player_survival,
-    validate_drink_store_to_full, validate_eat,
+    assess_survival, available_local_drink_sources, initialize_player_survival, validate_eat,
 };
 
 use super::exact_local_runtime::{STATIONARY_PLAYER_ORIGIN, assert_exact_local_runtime_ready};
@@ -538,6 +537,17 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
     );
     let before_meal = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("wilderness player disappeared before meal"));
+    let physiology = registries.survival().physiology();
+    assert!(
+        before_meal.metabolic_energy() > physiology.hungry_below()
+            && before_meal.hydration() > physiology.thirsty_below(),
+        "a rested wilderness opening should create provisioning pressure without forcing the player across hunger or thirst warnings"
+    );
+    assert!(
+        before_meal.metabolic_energy() < physiology.maximum_metabolic_energy()
+            && before_meal.hydration() < physiology.maximum_hydration(),
+        "wilderness camp work should spend enough reserve for a normal foraged meal to have a real physiological consequence"
+    );
     let meal = validate_eat(
         &registries,
         &state,
@@ -563,6 +573,10 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         after_meal.metabolic_energy() > before_meal.metabolic_energy(),
         "foraged opening food must replenish some of the energy spent establishing camp"
     );
+    assert!(
+        after_meal.hydration() > before_meal.hydration(),
+        "water-rich forage should contribute its authored hydration instead of making a separate drink automatically mandatory"
+    );
 
     let water = local_drinkable_store(&registries, &state);
     let water_before = state
@@ -570,48 +584,35 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         .get_store(water)
         .map(|store| store.stored_volume())
         .unwrap_or_else(|| panic!("locally observed wilderness water disappeared"));
-    let before_drink = assess_survival(&registries, &state)
-        .unwrap_or_else(|| panic!("wilderness player disappeared before drinking"));
+    let water_decision = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("wilderness player disappeared before water decision"));
+    let minimum_cup = physiology.direct_consumption().minimum_drink_volume();
+    let proactive_drink_below = physiology
+        .maximum_hydration()
+        .checked_sub(minimum_cup)
+        .unwrap_or_else(|| unreachable!("minimum drink fits inside maximum hydration"));
     assert!(
-        before_drink.hydration() < registries.survival().physiology().maximum_hydration(),
-        "establishing camp must create some ordinary hydration deficit before the water action"
+        water_decision.hydration() >= proactive_drink_below,
+        "the current water-rich forage meal should leave the rested opening too hydrated to justify forcing another minimum cup solely to top off reserves"
     );
-    let drink = validate_drink_store_to_full(&registries, &state, water)
-        .unwrap_or_else(|error| panic!("wilderness local water validation failed: {error}"))
-        .unwrap_or_else(|| panic!("wilderness camp work should require a drink"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("wilderness local water commit failed: {error}"));
-    advance_to(
-        &registries,
-        &mut state,
-        drink.completes_at(),
-        TickEventAllowance::default(),
-        "water drink",
-    );
-    let after_drink = assess_survival(&registries, &state)
-        .unwrap_or_else(|| panic!("wilderness player disappeared after drinking"));
     assert!(
-        after_drink.hydration() > before_drink.hydration(),
-        "locally discovered wilderness water must replenish hydration spent establishing camp"
+        water_decision.hydration() > physiology.thirsty_below(),
+        "the controlled wilderness opening must remain comfortably above the authored thirst warning after its foraged meal"
     );
     assert_eq!(
         state
             .fluid()
             .get_store(water)
             .map(|store| store.stored_volume()),
-        Some(
-            water_before
-                .checked_sub(drink.volume())
-                .unwrap_or_else(|| unreachable!("validated drink cannot exceed source volume"))
-        ),
-        "direct drinking must deplete the exact finite local water source"
+        Some(water_before),
+        "actor-safe water discovery must not consume the finite source when current reserves do not justify a drink"
     );
     assert_eq!(
         calculate_fluid_volume_accounting(&state)
             .unwrap_or_else(|error| panic!("wilderness final fluid audit failed: {error}"))
             .total(),
         fluid_before,
-        "drinking must transfer finite water into terminal survival custody without losing volume"
+        "declining an unnecessary drink must leave represented fluid exactly conserved"
     );
 
     let elapsed_ticks = state
@@ -634,7 +635,7 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
             .unwrap_or_else(|error| panic!("wilderness final matter audit failed: {error}"))
             .total(),
         matter_before,
-        "wilderness opening must conserve represented matter across gathering, crafting, equipment, storage, eating, and drinking"
+        "wilderness opening must conserve represented matter across gathering, crafting, equipment, storage, and eating"
     );
     assert_exact_local_runtime_ready(
         &registries,

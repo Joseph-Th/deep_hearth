@@ -230,6 +230,10 @@ matter and better information should open further physical capability.
 
 - The wilderness phase is a real progression era. Ordinary copper progression begins after, not instead of, the
   basic food/water, fire/shelter, storage, and stone-tool loop.
+- A rested start should accumulate visible food/water pressure through ordinary work without being driven into a
+  warning state merely to make survival relevant. Provisioning should account for the actual food and drink being
+  used, including hydration carried by food, and should not force redundant serving actions just to top off a
+  nearly full reserve.
 - Critical resources have legible clues and reliable first uses. Richer or deeper resources require better information, access, or infrastructure rather than search randomness.
 - Geological search moves coarse-to-fine. Broad evidence guides attention; local evidence resolves actionable targets without revealing hidden owners. A visibly localized target can still be tried directly; sampling buys advance knowledge of hardness/resource scale rather than permission to swing a tool.
 - Repeated manual input becomes delegable before it dominates play.
