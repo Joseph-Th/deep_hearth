@@ -160,14 +160,15 @@ fn craft_batches(
         Some(equipment) => request.with_equipment(equipment),
         None => request,
     };
-    let job = validate_start_manual_craft(
-        registries,
-        state,
-        ManualCraftStartRequest::new(request, destination),
-    )
-    .unwrap_or_else(|error| panic!("wilderness {context} craft admission failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("wilderness {context} craft commit failed: {error}"));
+    let start = if source == destination {
+        ManualCraftStartRequest::in_place(request)
+    } else {
+        ManualCraftStartRequest::new(request, destination)
+    };
+    let job = validate_start_manual_craft(registries, state, start)
+        .unwrap_or_else(|error| panic!("wilderness {context} craft admission failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("wilderness {context} craft commit failed: {error}"));
     let completes_at = state
         .production()
         .get_job(job)
@@ -273,16 +274,11 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("wilderness carrying commit failed: {error}"))
     .carried_stockpile();
-    let components =
-        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(12_000_000))
-            .unwrap_or_else(|error| {
-                panic!("wilderness component stockpile allocation failed: {error}")
-            })
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("wilderness component stockpile commit failed: {error}")
-            });
     assert_exact_local_runtime_ready(&registries, &state, "controlled wilderness opening");
+    assert!(
+        state.available_local_ground_stockpiles().next().is_none(),
+        "the opening should not begin with an empty ground staging pile masquerading as player storage"
+    );
     assert_eq!(
         available_local_drink_sources(&registries, &state).count(),
         1,
@@ -322,7 +318,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         &mut state,
         PROCESS_KNAP_STONE_TOOL,
         carried,
-        components,
+        carried,
         1,
         None,
         "first stone tool head",
@@ -332,7 +328,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         &mut state,
         PROCESS_SHAPE_WOOD_HANDLE,
         carried,
-        components,
+        carried,
         1,
         None,
         "first wood handle",
@@ -341,7 +337,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         &registries,
         &mut state,
         EQUIPMENT_STONE_WOODWORKING_ADZE,
-        components,
+        carried,
         "stone adze",
     );
     let local_tool_definitions = state
@@ -513,7 +509,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         &mut state,
         PROCESS_SHAPE_WOOD_BOARDS,
         carried,
-        components,
+        carried,
         4,
         Some(adze),
         "camp project boards",
@@ -521,9 +517,9 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
     let board_commodity = CommodityKey::new(MATERIAL_WOOD, deep_hearth::content::FORM_BOARD);
     let boards_before_box = state
         .inventory()
-        .get_stockpile(components)
+        .get_stockpile(carried)
         .map(|stockpile| stockpile.get_mass(board_commodity))
-        .unwrap_or_else(|| panic!("wilderness component stockpile disappeared before field box"));
+        .unwrap_or_else(|| panic!("wilderness carried inventory disappeared before field box"));
     let field_box_joinery = registries
         .crafting()
         .get_manual(PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX)
@@ -533,17 +529,17 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         &registries,
         &mut state,
         PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
-        components,
-        components,
+        carried,
+        carried,
         1,
         None,
         "field-box body",
     );
     let boards_after_box = state
         .inventory()
-        .get_stockpile(components)
+        .get_stockpile(carried)
         .map(|stockpile| stockpile.get_mass(board_commodity))
-        .unwrap_or_else(|| panic!("wilderness component stockpile disappeared after field box"));
+        .unwrap_or_else(|| panic!("wilderness carried inventory disappeared after field box"));
     assert_eq!(
         boards_after_box,
         boards_before_box
@@ -568,7 +564,7 @@ fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_befor
         &state,
         STORAGE_ROUGH_TIMBER_FIELD_BOX,
         provisions,
-        components,
+        carried,
     )
     .unwrap_or_else(|error| panic!("wilderness field-box construction failed: {error}"))
     .commit(&mut state)
