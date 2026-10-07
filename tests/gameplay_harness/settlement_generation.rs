@@ -5,7 +5,8 @@ use deep_hearth::registry::Registries;
 use super::capital_investment_policy::CapitalInvestmentPolicy;
 use super::inherited_condition::healthy_used_equipment_condition;
 pub(super) use super::settlement_demand::{
-    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batches,
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batch_limits,
+    organic_lumber_batches,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

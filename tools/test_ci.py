@@ -275,8 +275,6 @@ class CargoToolingTests(unittest.TestCase):
                 "--quiet",
                 "--locked",
                 "--no-run",
-                "--profile",
-                run_test.UNIT_TEST_PROFILE,
                 "--lib",
             ],
         )
@@ -1368,7 +1366,7 @@ class TestTopologyContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires exactly one build-producing lane"):
             ci.plan_for(gate_args())
 
-    def test_local_test_profiles_keep_incremental_cache_shape_explicit(self) -> None:
+    def test_local_test_profile_keeps_one_incremental_cache_shape(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         profile = manifest["profile"]["test"]
         self.assertEqual(profile.get("debug"), 0)
@@ -1376,9 +1374,7 @@ class TestTopologyContractTests(unittest.TestCase):
         test_codegen_units = profile.get("codegen-units")
         self.assertIsInstance(test_codegen_units, int)
         self.assertGreater(test_codegen_units, 1)
-        unit_profile = manifest["profile"][run_test.UNIT_TEST_PROFILE]
-        self.assertEqual(unit_profile.get("inherits"), "test")
-        self.assertNotIn("codegen-units", unit_profile)
+        self.assertEqual(set(manifest["profile"]), {"test", "release"})
         cargo_config = tomllib.loads(
             (ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8")
         )
@@ -1391,14 +1387,8 @@ class TestTopologyContractTests(unittest.TestCase):
         )
         self.assertIn("--profile test", cargo_config["alias"]["check-fast"])
         self.assertIn("--profile test", cargo_config["alias"]["lint-fast"])
-        self.assertIn(
-            f"--profile {run_test.UNIT_TEST_PROFILE}",
-            cargo_config["alias"]["test-core"],
-        )
-        self.assertIn(
-            f"--profile {run_test.UNIT_TEST_PROFILE}",
-            cargo_config["alias"]["test-soak"],
-        )
+        self.assertIn("--profile test", cargo_config["alias"]["test-core"])
+        self.assertIn("--profile test", cargo_config["alias"]["test-soak"])
         for alias in cargo_config["alias"].values():
             tokens = alias.split()
             self.assertNotIn("-j", tokens)
@@ -1900,17 +1890,15 @@ class GameplayCiRoutingTests(unittest.TestCase):
         gameplay = " ".join(ci.gameplay_command("all"))
         self.assertEqual(
             core_alias,
-            "test --quiet --locked --profile unit-test --lib",
+            "test --quiet --locked --profile test --lib",
         )
         exact = run_test.parse_args(
             ["--target", "lib", "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound"]
         )
         self.assertNotIn("--features", run_test.cargo_command(exact))
-        self.assertIn(
-            f"--profile {run_test.UNIT_TEST_PROFILE}", " ".join(run_test.cargo_command(exact))
-        )
+        self.assertNotIn("--profile", run_test.cargo_command(exact))
         self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", gameplay)
-        self.assertNotIn("--profile unit-test", gameplay)
+        self.assertNotIn("unit-test", gameplay)
 
     def test_gameplay_feature_does_not_own_library_tests(self) -> None:
         self.assertEqual(
@@ -3032,11 +3020,11 @@ class GameplayReportContractTests(unittest.TestCase):
         concise_lines = concise.splitlines()
         self.assertLessEqual(
             len(concise_lines),
-            18,
+            16,
             "default gameplay digest must stay reviewable without pinning its exact section count",
         )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
-        self.assertLess(len(concise.encode()), 6_500)
+        self.assertLess(len(concise.encode()), 5_500)
         for prefix in (
             "SIMULATION TIME ",
             "GAMEPLAY primitive-progression scope=spatial-proxy ",
@@ -3087,8 +3075,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn(
             "GAMEPLAY foundry-bootstrap sample-shape=[anchor:1 coverage:0 organic:0 replay:0] "
-            "choice=[build:1 defer:0] inherited-condition=[1000000..1000000ppm] "
-            "copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
+            "choice=[build:1 defer:0] copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
             concise,
         )
         self.assertNotIn("GAMEPLAY foundry-bootstrap organic-play=", concise)
@@ -3104,23 +3091,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "kit-lifecycle=[executed-builds:1/1 disclosed-horizon:8..8batches repaid-within-horizon:1/1 observed-attention-payback:8..8jobs evidence=selected-build-lifecycle-feedback]",
             concise,
         )
-        self.assertIn(
-            "kit-acquisition=[selected-builds:1/1 source=[fixture-surface:1 gather:1 world-gen:0]",
-            concise,
-        )
-        self.assertIn(
-            "carryover=[processing-line:1/1 condition:820000..1000000ppm embodied:5.5..5.5kg]",
-            concise,
-        )
-        self.assertIn(
-            "raw=[stone:3..3kg wood:5..5kg total:8..8kg consumed:8..8kg remaining:0..0kg]",
-            concise,
-        )
-        self.assertIn("incremental-attn:438..438t", concise)
-        self.assertIn(
-            "phases=[gather:96..96t fabricate:342..342t adze:80..80t parts:160..160t riddle:102..102t]",
-            concise,
-        )
+        self.assertNotIn("kit-acquisition=[", concise)
         self.assertIn("choice=[bare-hands:1]", concise)
         self.assertIn(
             "heavy-tool-market=[selected:0 deferred:1 unavail:0",
@@ -3132,18 +3103,9 @@ class GameplayReportContractTests(unittest.TestCase):
             "lifecycle-obligations=[services:1..1 prep:4..4t share:35..35% provisioning:1..1",
             concise,
         )
-        self.assertIn(
-            "settlement-context=[later-workshop timber-bank]",
-            concise,
-        )
-        self.assertIn(
-            "primitive-scale=[charges:1..1 treadle:3..3 wheel:n/a]",
-            concise,
-        )
-        self.assertIn(
-            "settlement-scale=[charges:80..80 treadle:n/a wheel:n/a]",
-            concise,
-        )
+        self.assertNotIn("settlement-context=[", concise)
+        self.assertNotIn("primitive-scale=[", concise)
+        self.assertNotIn("settlement-scale=[", concise)
         self.assertNotIn(" calibration=[", concise)
         power_summary = gameplay_report_summary.power_provider_summary(lines)
         self.assertIsNotNone(power_summary)
@@ -3158,7 +3120,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", power_summary)
         self.assertNotIn("settlement-copper-policy=", concise)
         self.assertNotIn("prior-wear=[", concise)
-        self.assertIn("power-cycle=[", concise)
+        self.assertNotIn("power-cycle=[", concise)
         self.assertNotIn("pacing-physical=[", concise)
         self.assertNotIn("reuse-physical=[", concise)
         self.assertNotIn("integrated-campaign=[", concise)
@@ -3166,7 +3128,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("GAMEPLAY loop-dynamics ", concise)
         self.assertIn("thermal-bootstrap=1/1", concise)
         self.assertIn(
-            "GAMEPLAY loop-shape continuity=[progression:1/1 settlement-repeat:0/1 "
+            "GAMEPLAY loop continuity=[progression:1/1 settlement-repeat:0/1 "
             "liberation-carry:1/1 foundry-carry:1/1 cross-era:modeled-handoffs]",
             concise,
         )
@@ -4240,7 +4202,7 @@ class ExactTestCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous.*2 matches"):
             run_test.resolve_test_name("preserves_mass", catalog)
 
-    def test_library_exact_command_reuses_the_feature_minimal_unit_test_shape(self) -> None:
+    def test_library_exact_command_reuses_the_shared_feature_minimal_test_shape(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
@@ -4257,8 +4219,6 @@ class ExactTestCommandTests(unittest.TestCase):
                 "test",
                 "--quiet",
                 "--locked",
-                "--profile",
-                run_test.UNIT_TEST_PROFILE,
                 "--lib",
                 "module::tests::case",
                 "--",

@@ -3,8 +3,8 @@
 use std::collections::BTreeSet;
 
 use deep_hearth::content::{
-    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
+    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
 use deep_hearth::material::CommodityKey;
 
@@ -12,7 +12,8 @@ use super::super::bulk_fieldwork_workload::{
     BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, primitive_quarry_batch_mass,
 };
 use super::super::settlement_demand::{
-    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batches,
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batch_limits,
+    organic_lumber_batches,
 };
 use super::planning::{
     PrimitivePowerChoice, SettlementPowerChoice, reachable_mechanical_power_providers,
@@ -189,7 +190,9 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
         .iter()
         .map(|mass| mass.milligrams() / saw_batch_mass.milligrams())
         .collect::<BTreeSet<_>>();
-    assert!(routine_units.iter().all(|units| (8..=24).contains(units)));
+    assert!(routine_units.iter().all(|units| {
+        (ROUTINE_STOCKPILE_MIN_CYCLES..=ROUTINE_STOCKPILE_MAX_CYCLES).contains(units)
+    }));
     assert!(
         routine_units.len() > 8,
         "routine primitive workload variation collapsed"
@@ -204,11 +207,11 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
         settlement_units.len() > 16,
         "settlement workload variation collapsed"
     );
-    assert!(
-        settlement_units
-            .iter()
-            .all(|units| (8..=72).contains(units))
-    );
+    let (minimum_settlement_batches, maximum_settlement_batches) =
+        organic_lumber_batch_limits(SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES);
+    assert!(settlement_units.iter().all(|units| {
+        (minimum_settlement_batches..=maximum_settlement_batches).contains(units)
+    }));
     for seed in 1_u64..=256 {
         let (mass, _) = declared_settlement_lumber_project(&registries, seed);
         let batches = mass.milligrams() / saw_batch_mass.milligrams();

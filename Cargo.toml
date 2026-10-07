@@ -220,16 +220,12 @@ wildcard_enum_match_arm = "deny"
 
 [profile.test]
 # Local iteration is dominated by incremental rebuilds after small source edits. On the current
-# toolchain, 512 codegen units materially outperforms 256 for focused gameplay rebuilds without
-# creating another profile/cache shape.
+# toolchain, 512 codegen units materially outperforms 256 for focused gameplay rebuilds. Core,
+# gameplay, checks, and diagnostics intentionally share this one local codegen profile so switching
+# proof types reuses already-compiled production dependencies.
 debug = 0
 codegen-units = 512
 incremental = true
-
-[profile.unit-test]
-# Keep the monolithic lib-test crate in a separate persistent artifact directory while inheriting
-# the shared incremental test tuning. Switching between unit and gameplay work keeps both caches hot.
-inherits = "test"
 
 [profile.release]
 overflow-checks = true

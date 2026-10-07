@@ -151,16 +151,13 @@ _ORDINARY_DIGEST_FIELDS = {
         "first-copper",
         "organic-first-copper",
         "sequencing-physical",
-        "feed-reassessment",
         "disclosed-order-attention",
     ),
     "primitive-liberation": (
         "selected-route",
         "organic-route",
-        "disclosed-horizon",
         "attention",
         "native",
-        "kit-acquisition",
         "kit-lifecycle",
         "organic-lifecycle",
         "remaining-frontier",
@@ -168,7 +165,6 @@ _ORDINARY_DIGEST_FIELDS = {
     "woodworking": (
         "choice",
         "organic-choice",
-        "decision-coverage",
         "attention-payback",
         "timber-saving",
         "saw-feedback",
@@ -188,28 +184,20 @@ _ORDINARY_DIGEST_FIELDS = {
         "organic-choice",
         "organic-workload",
         "organic-survival",
-        "primitive-scale",
-        "policy-gap",
         "lifecycle-obligations",
-        "settlement-context",
         "settlement-choice",
         "organic-settlement-choice",
         "organic-settlement-survival",
-        "settlement-scale",
     ),
     "settlement": (
         "organic-play",
         "baseline-crossover",
-        "demand",
         "payoff",
-        "followup-payoff",
-        "power-cycle",
         "storage-scale",
     ),
     "foundry-bootstrap": (
         "choice",
         "organic-play",
-        "inherited-condition",
         "copper",
         "recovery",
         "electrical-transition",
@@ -221,8 +209,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "diet",
         "provisioning",
         "balanced-diet-counterfactual",
-        "inherited-preservation",
-        "preservation-opportunity",
         "selected-preservation",
         "organic-preservation",
     ),
@@ -473,19 +459,15 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             adaptation = compact_fields(
                 summary,
                 (
-                    "geology",
-                    "tools",
                     "survey-campaign",
                     "heavy-tool-market",
                 ),
             )
             recovery = compact_fields(summary, ("shortfall-recovery",))
-            sections = [
-                f"GAMEPLAY fieldwork{scope} {experience}".rstrip(),
-                f"GAMEPLAY fieldwork-adaptation {adaptation}".rstrip(),
-            ]
-            if "gain:0/0" not in recovery:
-                sections.append(f"GAMEPLAY fieldwork-recovery {recovery}".rstrip())
+            sections = [f"GAMEPLAY fieldwork{scope} {experience}".rstrip()]
+            decision_parts = [part for part in (adaptation, recovery) if part and "gain:0/0" not in part]
+            if decision_parts:
+                sections.append(f"GAMEPLAY fieldwork-decisions {' '.join(decision_parts)}")
             return "\n".join(sections)
         fields = (
             _SCOPED_ORDINARY_DIGEST_FIELDS.get(probe)
@@ -504,11 +486,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             summary,
             (
                 "bootstrap-boundary",
-                "observe-infer",
                 "prepare-invest",
-                "shared-power",
-                "extract",
-                "world-feedback",
                 "delegate",
                 "reassess-reinvest",
             ),
@@ -523,9 +501,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             ),
         )
         return (
-            f"GAMEPLAY loop-shape {continuity}".rstrip()
-            + "\n"
-            + f"GAMEPLAY loop {core}".rstrip()
+            f"GAMEPLAY loop {continuity} {core}".rstrip()
             + "\n"
             + f"GAMEPLAY loop-dynamics {dynamics} {investment}".rstrip()
         )

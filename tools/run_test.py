@@ -37,7 +37,6 @@ GAMEPLAY_VARIATION_SCOPE_ENV = gameplay_targets.GAMEPLAY_VARIATION_SCOPE_ENV
 GAMEPLAY_PROBE_TESTS = gameplay_targets.GAMEPLAY_PROBE_TESTS
 GAMEPLAY_PROBE_SCOPES = gameplay_targets.GAMEPLAY_PROBE_SCOPES
 GAMEPLAY_BEHAVIOR_PROBE_TESTS = gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS
-UNIT_TEST_PROFILE = "unit-test"
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -324,13 +323,13 @@ def resolve_test_name(selector: str, catalog: list[str]) -> str:
 
 
 def cargo_test_target_command(target: str, *, no_run: bool = False) -> list[str]:
-    """Return the stable Cargo prefix for one test artifact and its persistent profile."""
+    """Return the stable Cargo prefix for one test artifact on the shared test profile."""
 
     command = ["cargo", "test", "--quiet", "--locked"]
     if no_run:
         command.append("--no-run")
     if target == "lib":
-        command.extend(("--profile", UNIT_TEST_PROFILE, "--lib"))
+        command.append("--lib")
     else:
         command.extend(("--test", target))
     return command

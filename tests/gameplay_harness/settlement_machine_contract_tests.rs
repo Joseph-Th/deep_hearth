@@ -231,11 +231,6 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         .get_equipment(crank)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("sawmill hand crank disappeared before investment decision"));
-    let frame_saw_condition = state
-        .equipment()
-        .get_equipment(frame_saw)
-        .map(|record| record.condition())
-        .unwrap_or_else(|| panic!("sawmill frame saw disappeared before investment decision"));
     let minimum_attention_return =
         CapitalInvestmentPolicy::baseline().minimum_attention_return(0, setup_attention);
     assert!(minimum_attention_return > 0);

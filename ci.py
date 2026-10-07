@@ -414,9 +414,9 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
         raise ValueError(f"unknown audit scope: {scope}")
 
     if scope == "all":
-        # Keep the broad checkpoint on the same two artifact shapes used during repair.
-        # Combining --lib with the gameplay target in one Cargo invocation would force the large
-        # lib-test crate back onto the integration-test profile and discard the hot unit-test cache.
+        # Keep the broad checkpoint as two explicit surfaces: feature-minimal owner tests and the
+        # gameplay audit. Both use the same test profile, so compiled production dependencies remain
+        # reusable without forcing gameplay fixture capability into the library-test artifact.
         return [
             ("core", cargo("test-core")),
             ("gameplay", gameplay_command("all")),

@@ -348,8 +348,16 @@ fn long_order_band_crosses_the_reinforced_quarry_investment_boundary() {
     let registries = deep_hearth::content::build_registries();
     let limits = fieldwork_mining_limits(&registries);
     let (state, raw, parts) = fieldwork_planning_fixture(&registries, true);
-    let lower_bulk = multiplied_mass(limits.base_quarry_batch, 32, "lower long-order boundary");
-    let upper_bulk = multiplied_mass(limits.base_quarry_batch, 96, "upper long-order boundary");
+    let lower_bulk = multiplied_mass(
+        limits.base_quarry_batch,
+        BULK_FIELDWORK_ORDER_MIN_BATCHES,
+        "lower long-order boundary",
+    );
+    let upper_bulk = multiplied_mass(
+        limits.base_quarry_batch,
+        BULK_FIELDWORK_ORDER_MAX_BATCHES,
+        "upper long-order boundary",
+    );
     let lower = choose_fieldwork_tool(
         &registries,
         &state,

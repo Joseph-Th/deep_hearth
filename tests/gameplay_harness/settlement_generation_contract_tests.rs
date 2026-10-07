@@ -7,20 +7,31 @@ use deep_hearth::maintenance::Condition;
 
 use super::capital_investment_policy::CapitalInvestmentPolicy;
 use super::settlement_generation::{
-    crossover_workloads, organic_inherited_equipment_condition, organic_investment_policy,
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
+    organic_inherited_equipment_condition, organic_investment_policy, organic_lumber_batch_limits,
     organic_lumber_batches,
 };
 
 #[test]
 fn crossover_workloads_stay_on_their_live_economic_sides_and_vary_with_entropy() {
     for crossover in [2_u64, 7, 16, 41, 96] {
-        let maintained = crossover_workloads(crossover, 192, None);
+        let maintained = crossover_workloads(
+            crossover,
+            SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+            None,
+        );
         assert!(maintained.short_batches < crossover);
         assert_eq!(maintained.marginal_batches, crossover - 1);
         assert_eq!(maintained.project_batches, crossover);
 
         let varied = (0_u64..64)
-            .map(|entropy| crossover_workloads(crossover, 192, Some(entropy)))
+            .map(|entropy| {
+                crossover_workloads(
+                    crossover,
+                    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
+                    Some(entropy),
+                )
+            })
             .collect::<Vec<_>>();
         assert!(varied.iter().all(|workload| {
             workload.short_batches < crossover && workload.project_batches >= crossover
@@ -35,7 +46,7 @@ fn crossover_workloads_stay_on_their_live_economic_sides_and_vary_with_entropy()
                     > 1
             );
         }
-        if crossover < 192 {
+        if crossover < SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES {
             assert!(
                 varied
                     .iter()
@@ -50,18 +61,28 @@ fn crossover_workloads_stay_on_their_live_economic_sides_and_vary_with_entropy()
 
 #[test]
 fn organic_settlement_generation_varies_visible_demand_without_using_investment_outcomes() {
+    let opportunity_batches = SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES;
+    let (minimum_batches, maximum_batches) = organic_lumber_batch_limits(opportunity_batches);
     let demands = (0_u64..=127)
-        .map(|entropy| organic_lumber_batches(entropy & 0b11, entropy, 192))
+        .map(|entropy| organic_lumber_batches(entropy & 0b11, entropy, opportunity_batches))
         .collect::<BTreeSet<_>>();
     assert!(
         demands.len() > 16,
         "organic settlement generation collapsed to a narrow disclosed-order set"
     );
-    assert!(demands.iter().all(|batches| (8..=72).contains(batches)));
+    assert!(
+        demands
+            .iter()
+            .all(|batches| (minimum_batches..=maximum_batches).contains(batches))
+    );
     for stratum in 0_u64..4 {
         let values = (0_u64..64)
             .map(|entropy| {
-                organic_lumber_batches(stratum, entropy.wrapping_mul(0x9E37_79B9_7F4A_7C15), 192)
+                organic_lumber_batches(
+                    stratum,
+                    entropy.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+                    opportunity_batches,
+                )
             })
             .collect::<BTreeSet<_>>();
         assert!(

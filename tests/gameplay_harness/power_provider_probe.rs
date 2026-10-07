@@ -364,6 +364,9 @@ pub(super) enum PrimitiveCrushingWorkload {
     BulkFieldwork,
 }
 
+const ROUTINE_STOCKPILE_MIN_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2 / 3;
+const ROUTINE_STOCKPILE_MAX_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2;
+
 impl PrimitiveCrushingWorkload {
     #[cfg(not(test))]
     const fn label(self) -> &'static str {
@@ -411,13 +414,11 @@ fn declared_primitive_crushing_project(
     };
     let mass = match workload {
         PrimitiveCrushingWorkload::RoutineStockpile => {
-            const MIN_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2 / 3;
-            const MAX_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2;
-            let midpoint = (MIN_CYCLES + MAX_CYCLES) / 2;
+            let midpoint = (ROUTINE_STOCKPILE_MIN_CYCLES + ROUTINE_STOCKPILE_MAX_CYCLES) / 2;
             let (minimum, maximum) = if stratum == 0 {
-                (MIN_CYCLES, midpoint)
+                (ROUTINE_STOCKPILE_MIN_CYCLES, midpoint)
             } else {
-                (midpoint + 1, MAX_CYCLES)
+                (midpoint + 1, ROUTINE_STOCKPILE_MAX_CYCLES)
             };
             let cycles = minimum + mix64(seed ^ 0x5052_494D_5F4F_5245) % (maximum - minimum + 1);
             Mass::from_milligrams(

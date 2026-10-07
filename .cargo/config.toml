@@ -1,6 +1,5 @@
 [build]
-# Keep every local Cargo entrypoint under one persistent target root. Cargo profiles own separate
-# hot artifact directories for the monolithic lib-test crate and smaller integration/gameplay crates.
+# Keep every local Cargo entrypoint under one persistent target root and one test codegen profile.
 target-dir = "target/local-ci"
 # Repository entrypoints serialize separate Cargo builds. Cargo itself should use all host
 # parallelism inside that one build, so do not pin `jobs` here or in routine aliases.
@@ -20,13 +19,12 @@ check-fast = "check --quiet --locked --profile test --lib"
 # Gameplay/report wrappers are compiled by their focused or audit lanes instead of
 # cloning the same large harness graph under Clippy. It shares the integration test profile/cache.
 lint-fast = "clippy --quiet --locked --profile test --lib -- -D warnings"
-# The large lib-test crate keeps its own persistent profile so unit-test rebuilds stay isolated from
-# focused gameplay artifacts. Core and exact tests use the feature-minimal library shape; gameplay
-# fixture capability is compiled only by gameplay targets that consume it.
-test-core = "test --quiet --locked --profile unit-test --lib"
-# Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
+# Core and exact tests stay feature-minimal while sharing the same compiled production dependencies
+# as focused gameplay and check/lint lanes.
+test-core = "test --quiet --locked --profile test --lib"
+# Soak-only code is feature-gated out of the ordinary test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak lane pays that cost only on demand.
-test-soak = "test --quiet --locked --profile unit-test --lib --features test-soak -- --ignored"
+test-soak = "test --quiet --locked --profile test --lib --features test-soak -- --ignored"
 # Gameplay target selection and exploratory reporting are owned by ci.py so the target catalog is not
 # repeated across a family of Cargo aliases. Shader validation reuses the debug-symbol-free test profile
 # rather than creating a third local codegen profile solely for one diagnostic binary.
