@@ -196,12 +196,13 @@ pub(in super::super) fn provisioning_world(
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     let provisioning_wait_ticks = match start_profile {
         SurvivalStartProfile::FullReserve => {
-            // Full-reserve starts live a full day so canonical thirst reaches the authored
-            // warning boundary mid-wait. The actor must then reprovision during lived time
-            // (see the lived-wait checkpoint below) instead of idling through a short wait
-            // that never produces real pressure.
-            let base = ticks_per_day;
-            let jitter = (ticks_per_day / 12).max(1);
+            // A rested actor should experience ordinary reserve drawdown, not be forced to idle
+            // all the way into an emergency. Warning-boundary worlds below cover urgent response;
+            // this branch instead exercises proactive provisioning after a meaningful fraction of
+            // a day. Keeping the window bounded also avoids spending most survival-report runtime
+            // simulating uneventful passive ticks.
+            let base = (ticks_per_day / 4).max(1);
+            let jitter = (ticks_per_day / 4).max(1);
             base.checked_add(mix64(seed ^ 0x4441_5946_5241_4354) % jitter)
                 .unwrap_or_else(|| panic!("survival probe provisioning wait overflowed"))
         }
@@ -369,8 +370,6 @@ pub(super) struct PreparedProvisioningWorld {
     pub(super) ambient_age: u64,
     pub(super) preserved_age: u64,
     pub(super) preservation_age_saved_ticks: u64,
-    pub(super) midwait_drink_count: u64,
-    pub(super) midwait_drink_volume_ul: u64,
     pub(super) matter_total: AggregateMass,
     pub(super) fluid_total: AggregateVolume,
 }
@@ -519,12 +518,11 @@ pub(super) fn prepare_provisioning_world(
         "authored preservation must slow future food spoilage relative to ambient storage"
     );
     let preservation_age_saved_ticks = ambient_age - preserved_age;
-    let lived_wait = advance_lived_wait(
+    advance_idle_ticks(
         registries,
         &mut state,
-        world,
-        drink_store,
         world.provisioning_wait_ticks - world.age_ticks,
+        "provisioning passive exposure",
     );
     validate_loaded_state(registries, &state).unwrap_or_else(|error| {
         panic!("survival probe decision-point state audit failed: {error}")
@@ -544,8 +542,6 @@ pub(super) fn prepare_provisioning_world(
         ambient_age,
         preserved_age,
         preservation_age_saved_ticks,
-        midwait_drink_count: lived_wait.drinks,
-        midwait_drink_volume_ul: lived_wait.drink_volume_ul,
         matter_total,
         fluid_total,
     }

@@ -289,11 +289,13 @@ pub(super) fn validate_loaded_mining_job(
     job: &MiningJobRecord,
 ) -> Result<(), MiningJobValidationError> {
     let references = resolve_mining_job_references(registries, state, job)?;
+    // A working job is player-owned active work. Prove locality before any validation branch
+    // consults the live equipment condition/support/occupancy or destination contents/profile.
+    validate_working_spatial_access(state, job, &references)?;
     validate_working_completion_revision_capacity(state, job)?;
     validate_working_mining_equipment(state, job, &references)?;
     validate_mining_source_ownership(job, &references)?;
     validate_mining_output(registries, job, &references)?;
-    validate_working_spatial_access(state, job, &references)?;
     validate_mining_equipment_exclusivity(state, job)?;
     validate_mining_job_physics(registries, job, &references)
 }

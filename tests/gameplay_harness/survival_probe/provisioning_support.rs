@@ -203,59 +203,6 @@ pub(super) fn execute_provisioning_actions(
     }
 }
 
-pub(super) struct LivedWaitOutcome {
-    pub(super) drinks: u64,
-    pub(super) drink_volume_ul: u64,
-}
-
-/// Advances the provisioning wait as lived time instead of idle depletion.
-///
-/// Full-reserve starts live long enough for canonical thirst to reach the authored warning
-/// boundary mid-wait. The actor observes reserves on bounded legs and drinks through the same
-/// canonical direct-consumption path as decision-point provisioning when that boundary is
-/// reached, so the wait demonstrates reprovisioning under real pressure. Warning-boundary
-/// starts are admitted at their decision point by construction and keep the single
-/// uninterrupted wait.
-pub(super) fn advance_lived_wait(
-    registries: &Registries,
-    state: &mut AppState,
-    world: &ProvisioningWorld,
-    drink_store: FluidStoreId,
-    wait_ticks: u64,
-) -> LivedWaitOutcome {
-    const OBSERVATION_LEG_TICKS: u64 = 2_000;
-    let mut drinks = 0_u64;
-    let mut drink_volume_ul = 0_u64;
-    let mut remaining = wait_ticks;
-    while remaining > 0 {
-        let leg = remaining.min(OBSERVATION_LEG_TICKS);
-        advance_idle_ticks(registries, state, leg, "provisioning lived wait");
-        remaining -= leg;
-        if world.start_profile != SurvivalStartProfile::FullReserve {
-            continue;
-        }
-        let physiology = registries.survival().physiology();
-        let assessment = assess_survival(registries, state)
-            .unwrap_or_else(|| panic!("survival lived wait lost the player"));
-        if assessment.hydration() > physiology.thirsty_below() {
-            continue;
-        }
-        let Some((drank, _)) = execute_recovery_drink(registries, state, drink_store) else {
-            continue;
-        };
-        drinks = drinks
-            .checked_add(1)
-            .unwrap_or_else(|| panic!("survival lived-wait drink count overflowed"));
-        drink_volume_ul = drink_volume_ul
-            .checked_add(drank.volume().microliters())
-            .unwrap_or_else(|| panic!("survival lived-wait drink volume overflowed"));
-    }
-    LivedWaitOutcome {
-        drinks,
-        drink_volume_ul,
-    }
-}
-
 pub(super) fn finish_direct_consumption(
     registries: &Registries,
     state: &mut AppState,
@@ -321,14 +268,6 @@ pub(super) fn bound_meal_masses_to_direct_limit(masses: &[Mass], maximum: Mass) 
     bounded
 }
 
-pub(super) fn food_category_count(foods: &[FoodDefinition]) -> usize {
-    foods
-        .iter()
-        .map(|food| food.category())
-        .collect::<BTreeSet<_>>()
-        .len()
-}
-
 #[cfg(not(test))]
 pub(super) fn food_option_summary(registries: &Registries, foods: &[FoodDefinition]) -> String {
     foods
@@ -375,10 +314,9 @@ pub(super) fn provisioning_drink_supply(
     registries: &Registries,
     world: &ProvisioningWorld,
 ) -> Volume {
-    // Provision the world with enough finite drink to recover from any legal player reserve state.
-    // One maximum-hydration supply covers both a full-volume lived-wait top-up and a
-    // full-volume decision-point drink, so setup does not need to predict passive losses.
-    // The acting plans below size each actual drink from authoritative assessments.
+    // Provision the world with enough finite drink for one decision-point recovery from any legal
+    // reserve state. Passive exposure creates pressure but does not insert hidden mid-interval
+    // consumption; the acting policy sizes its actual drink from the authoritative assessment.
     world
         .drink
         .minimum_volume_for_hydration(registries.survival().physiology().maximum_hydration())

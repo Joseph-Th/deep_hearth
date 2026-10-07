@@ -3,9 +3,10 @@
 use super::abundance::resolve_region_abundance_bounds;
 use super::*;
 use crate::content::{
-    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, FORM_HANDLE, FORM_ORE, FORM_TOOL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
-    PROSPECTING_LOCAL_TRANSECT, PROSPECTING_REGIONAL_RECONNAISSANCE, build_registries,
+    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_ORE, FORM_TOOL,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROSPECTING_DETAILED_FIELD_SURVEY,
+    PROSPECTING_FIELD_INSPECTION, PROSPECTING_LOCAL_TRANSECT, PROSPECTING_REGIONAL_RECONNAISSANCE,
+    build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
@@ -62,6 +63,57 @@ fn prospecting_rejects_player_outside_requested_region() {
             player_position,
             region,
         })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn remote_prospecting_equipment_rejects_access_before_provider_compatibility() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+        panic!("remote incompatible prospecting survival setup failed: {error}")
+    });
+    let equipment = assemble_stone_pick_for_wrong_provider_test(&registries, &mut state);
+    let region = one_voxel(42);
+    let player_position = region.min();
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| {
+            panic!("remote incompatible prospecting logistics setup failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote incompatible prospecting logistics commit failed: {error}")
+        });
+    let equipment_position = VoxelCoord::new(43, -1, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        equipment,
+        equipment_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_field_prospecting(
+            &registries,
+            &state,
+            FieldProspectingRequest::new_with_equipment(
+                PROSPECTING_DETAILED_FIELD_SURVEY,
+                region,
+                MATERIAL_COPPER,
+                equipment,
+            ),
+        )
+        .err(),
+        Some(FieldProspectingStartError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment,
+                equipment_position,
+                player_position,
+            }
+        ))
     );
     assert_eq!(state, before);
 }
@@ -185,6 +237,79 @@ fn trusted_load_rejects_active_prospecting_with_player_outside_region() {
                 player_position: remote_position,
                 region,
             }
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_remote_prospecting_equipment_before_condition_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+        panic!("remote equipment load prospecting survival setup failed: {error}")
+    });
+    let hammer = assemble_sampling_hammer(&registries, &mut state);
+    let region = one_voxel(42);
+    let player_position = region.min();
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| {
+            panic!("remote equipment load prospecting logistics setup failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote equipment load prospecting logistics commit failed: {error}")
+        });
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        hammer,
+        player_position,
+    );
+    validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new_with_equipment(
+            PROSPECTING_DETAILED_FIELD_SURVEY,
+            region,
+            MATERIAL_COPPER,
+            hammer,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("remote equipment load prospecting validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote equipment load prospecting commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let equipment_position = VoxelCoord::new(
+        player_position.x() + 1,
+        player_position.y(),
+        player_position.z(),
+    );
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("remote equipment load prospecting serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["logistics"]["equipment_locations"][hammer.value().to_string()] = serde_json::json!({
+        "x": equipment_position.x(),
+        "y": equipment_position.y(),
+        "z": equipment_position.z()
+    });
+    encoded["state"]["systems"]["equipment"]["records"][hammer.value().to_string()]["condition"] =
+        serde_json::json!(999_999_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("remote equipment load prospecting decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::ProspectingEquipmentAccess(
+                PlayerEquipmentAccessError::RemoteKnownEquipment {
+                    equipment: hammer,
+                    equipment_position,
+                    player_position,
+                }
+            )
         )))
     );
 }
@@ -625,6 +750,38 @@ fn assemble_sampling_hammer(registries: &Registries, state: &mut AppState) -> Eq
         .unwrap_or_else(|error| panic!("sampling-hammer assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("sampling-hammer assembly commit failed: {error}"))
+}
+
+fn assemble_stone_pick_for_wrong_provider_test(
+    registries: &Registries,
+    state: &mut AppState,
+) -> EquipmentId {
+    let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("wrong-provider pick assembly stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("wrong-provider pick assembly material failed: {error}"));
+    }
+    validate_assemble_equipment(registries, state, EQUIPMENT_STONE_PICK, source)
+        .unwrap_or_else(|error| panic!("wrong-provider pick assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("wrong-provider pick assembly commit failed: {error}"))
 }
 
 fn prospecting_duration(registries: &Registries, method: ProspectingMethodId) -> u64 {

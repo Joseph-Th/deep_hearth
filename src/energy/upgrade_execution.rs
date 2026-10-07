@@ -119,6 +119,8 @@ pub fn validate_upgrade_energy_store(
         .energy()
         .get_store(store)
         .ok_or(EnergyStoreUpgradeError::UnknownStore { store })?;
+    validate_player_energy_store_access(state, store)
+        .map_err(EnergyStoreUpgradeError::StoreAccess)?;
     let target_definition = registries
         .energy()
         .get_store(target)
@@ -126,6 +128,8 @@ pub fn validate_upgrade_energy_store(
     let upgrade = target_definition
         .upgrade_profile()
         .ok_or(EnergyStoreUpgradeError::NoUpgradeProfile { target })?;
+    validate_player_stockpile_access(state, source)
+        .map_err(EnergyStoreUpgradeError::SourceAccess)?;
     if record.definition() != upgrade.from() {
         return Err(EnergyStoreUpgradeError::WrongBaseDefinition {
             store,
@@ -152,10 +156,6 @@ pub fn validate_upgrade_energy_store(
         }
         None => {}
     }
-    validate_player_energy_store_access(state, store)
-        .map_err(EnergyStoreUpgradeError::StoreAccess)?;
-    validate_player_stockpile_access(state, source)
-        .map_err(EnergyStoreUpgradeError::SourceAccess)?;
     let selection =
         validate_consumption_selection(state.inventory(), source, upgrade.additions().inputs())
             .map_err(|error| match error {

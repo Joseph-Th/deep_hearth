@@ -6,7 +6,9 @@ use crate::content::{
     build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
-use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
+use crate::core::state::{
+    AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
+};
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::StockpileStorageError;
 use crate::labor::PlayerWorkValidationError;
@@ -97,6 +99,53 @@ fn public_surface_observation_and_start_errors_do_not_reveal_remote_resources() 
     assert_eq!(
         validate_start_surface_gathering(&registries, &state, request(unknown)).err(),
         Some(SurfaceGatheringError::ResourceUnavailableAtPlayer { resource: unknown })
+    );
+}
+
+#[test]
+fn trusted_load_rejects_remote_surface_gathering_before_source_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(100),
+    );
+    let carried = admit_player(&registries, &mut state, position);
+    validate_start_surface_gathering(
+        &registries,
+        &state,
+        SurfaceGatheringRequest::new(
+            SURFACE_GATHERING_HAND_SCAVENGE,
+            stone,
+            carried,
+            Mass::from_milligrams(100),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("remote trusted-load gathering setup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote trusted-load gathering commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("remote trusted-load gathering serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["logistics"]["player"]["position"] =
+        serde_json::json!({"x": 1, "y": 0, "z": 0});
+    encoded["state"]["systems"]["player_work"]["active"]["SurfaceGathering"]["work"]["source_mass_before"] =
+        serde_json::json!(101_u64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("remote trusted-load gathering decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::SurfaceGatheringPlayerRemote
+        )))
     );
 }
 

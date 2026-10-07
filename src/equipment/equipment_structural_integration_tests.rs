@@ -200,6 +200,43 @@ fn unmounting_rejects_player_remote_from_structural_support() {
     assert_eq!(state, before);
 }
 
+#[test]
+fn remote_unmounted_equipment_rejects_access_before_support_state() {
+    let registries = make_registries(Mass::from_milligrams(1_000));
+    let mut state = AppState::new();
+    let equipment = add_test_equipment(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| {
+            panic!("remote unmounted equipment logistics setup failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote unmounted equipment logistics commit failed: {error}")
+        });
+    let equipment_position = VoxelCoord::new(1, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        equipment,
+        equipment_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_unmount_equipment(&registries, &state, equipment).err(),
+        Some(EquipmentSupportError::Access(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment,
+                equipment_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
 fn make_registries(equipment_mass: Mass) -> Registries {
     let profile = match CapabilityProfile::new([(
         TEST_CAPABILITY,

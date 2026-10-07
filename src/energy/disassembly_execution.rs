@@ -175,6 +175,10 @@ pub fn validate_disassemble_energy_store(
         .energy()
         .get_store(store)
         .ok_or(EnergyStoreDisassemblyError::UnknownStore { store })?;
+    validate_player_energy_store_access(state, store)
+        .map_err(EnergyStoreDisassemblyError::StoreAccess)?;
+    validate_player_stockpile_access(state, destination)
+        .map_err(EnergyStoreDisassemblyError::DestinationAccess)?;
     if record.embodied_mass().is_zero() || record.embodied_material().is_empty() {
         return Err(EnergyStoreDisassemblyError::NoEmbodiedMatter { store });
     }
@@ -197,10 +201,6 @@ pub fn validate_disassemble_energy_store(
         }
         None => {}
     }
-    validate_player_energy_store_access(state, store)
-        .map_err(EnergyStoreDisassemblyError::StoreAccess)?;
-    validate_player_stockpile_access(state, destination)
-        .map_err(EnergyStoreDisassemblyError::DestinationAccess)?;
 
     let ingress = validate_material_ingress(
         registries,

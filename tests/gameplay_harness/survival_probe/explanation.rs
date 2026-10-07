@@ -61,6 +61,9 @@ pub(in super::super) fn diet_comparison_explanation(
     if policy_sensitive {
         tradeoff()
     } else {
-        "comparison:supply-collapsed reason:available-categories-below-authored-diet-set recovery-comparison:not-applicable".to_string()
+        format!(
+            "comparison:supply-constrained policy-choice:converged {}",
+            tradeoff()
+        )
     }
 }

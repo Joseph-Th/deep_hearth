@@ -93,6 +93,8 @@ fn resolve_mining_equipment_plan(
     hardness_is_acquired: bool,
     mass: Mass,
 ) -> Result<MiningEquipmentPlan, MiningStartError> {
+    validate_player_equipment_access(state, equipment)
+        .map_err(MiningStartError::EquipmentAccess)?;
     let (provider, occupancy) =
         resolve_equipment_provider_with_occupancy(registries, state, equipment)
             .map_err(MiningStartError::Equipment)?;
@@ -103,8 +105,6 @@ fn resolve_mining_equipment_plan(
     {
         return Err(MiningStartError::EquipmentMounted { equipment });
     }
-    validate_player_equipment_access(state, equipment)
-        .map_err(MiningStartError::EquipmentAccess)?;
     match occupancy {
         Some(EquipmentProviderOccupancy::Production { job, release }) => {
             return Err(MiningStartError::EquipmentBusyProduction {

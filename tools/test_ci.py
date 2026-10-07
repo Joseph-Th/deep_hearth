@@ -2813,7 +2813,7 @@ class GameplayReportContractTests(unittest.TestCase):
         lines = [
             "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery meal:500000mg drink:500000uL] raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none commitment-reason:return-does-not-clear-threshold minimum-return:3000000ppm best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t] work-interlock=[integrated=[hydration-policy:task-floor initial-drink:1250000uL/30t prospect:24t followup-survey:true:48t followup-drink:true:500000uL/12t continuation:true opportunity-power:true power-drink:false:0uL/0t power:3t stored:100nJ final-reserve:900000ppmE/750000ppmH warning-safe:true serving-actions=[initial:3 followup:1 power:0]]]",
             "SURVIVAL EXPERIENCE seed=0x2 pressure=energy choice=[state:policy-sensitive diet:compact-calories meal:500000mg drink:0uL] raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 commitment-reason:return-clears-threshold minimum-return:1000000ppm best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t] work-interlock=[integrated=[hydration-policy:working-reserve initial-drink:250000uL/6t prospect:48t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:950000ppmE/875000ppmH warning-safe:true serving-actions=[initial:1 followup:0 power:0]]]",
-            "SURVIVAL REVIEW seed=0x1 diet-evidence=[matched-counterfactual=[horizon:130t] tradeoff=[meal-mass-delta:+200000mg water-saved-delta:+0uL diet-quality-delta:+80000ppm recovery-delta:+1ppm/t] recovery-consequence=[choice:actionable deprivation:33000t provisioning-horizon:130t servings=[compact:1meal+3drink balanced:1meal+2drink] observe:1000t vitality:950000->[compact:959000 balanced:953000 realized-delta:-6000ppm window-delta=[compact:+9000 balanced:+3000]] diet:[compact:800000 balanced:880000ppm]]]",
+            "SURVIVAL REVIEW seed=0x1 diet-evidence=[matched-counterfactual=[horizon:130t] tradeoff=[meal-mass-delta:+200000mg water-saved-delta:+0uL diet-quality-delta:+80000ppm recovery-delta:+1ppm/t] recovery-consequence=[choice:policy-sensitive deprivation:33000t provisioning=[compact:110t balanced:130t horizon:130t] servings=[compact:1meal+3drink balanced:1meal+2drink] observe:1000t vitality:950000->[compact:959000 balanced:953000 realized-delta:-6000ppm window-delta=[compact:+9000 balanced:+3000]] diet:[compact:800000 balanced:880000ppm]]]",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn("declined:1", summary)
@@ -2824,7 +2824,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn(
             "provisioning=[meal:500..500g drink:0..500mL] "
-            "balanced-diet-counterfactual=[meal-extra:200..200g diet-quality-gain:80000..80000ppm realized-vitality-delta:-6000..-6000ppm]",
+            "balanced-diet-counterfactual=[meal-delta:200..200g diet-quality-delta:80000..80000ppm realized-vitality-delta:-6000..-6000ppm]",
             summary,
         )
         self.assertIn("commitment=[cleared:1 declined-return:1]", summary)
@@ -2835,6 +2835,17 @@ class GameplayReportContractTests(unittest.TestCase):
             "followup-drink:0..500mL power-drink:0..0mL "
             "servings=[initial:1..3 followup:0..1 power:0..0] prospect:24..48t power:0..3t "
             "final-hydration:750000..875000ppm warning-safe:2/2]",
+            summary,
+        )
+
+    def test_survival_summary_keeps_supply_converged_recovery_as_measured_evidence(self) -> None:
+        lines = [
+            "SURVIVAL EXPERIENCE seed=0x1 sample=organic pressure=energy choice=[state:supply-constrained diet:compact-calories meal:250000mg drink:0uL] inherited-reserve=[storage:none preservation:1000000ppm rotation:consume-ambient-first retained:0mg age-saved:0t] storage-policy:decline commitment-reason:return-does-not-clear-threshold work-interlock=[short-loop-serving-floor:250000uL integrated=[hydration-policy:task-floor initial-drink:0uL/0t prospect:0t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:900000ppmE/900000ppmH warning-safe:true serving-actions=[initial:0 followup:0 power:0]]]",
+            "SURVIVAL REVIEW seed=0x1 diet-evidence=[comparison:supply-constrained policy-choice:converged matched-counterfactual=[horizon:130t compact-calories:[action:20t selected:2 meal:250000mg drink:0uL diet:700000->750000ppm recovery:1->1ppm/t] balanced:[action:20t selected:2 meal:250000mg drink:0uL diet:700000->750000ppm recovery:1->1ppm/t]] tradeoff=[meal-mass-delta:+0mg water-saved-delta:+0uL diet-quality-delta:+0ppm recovery-delta:+0ppm/t] recovery-consequence=[choice:supply-converged deprivation:33000t provisioning=[compact:130t balanced:130t horizon:130t] servings=[compact:1meal+3drink balanced:1meal+3drink] observe:1000t vitality:950000->[compact:953000 balanced:953000 realized-delta:+0ppm window-delta=[compact:+3000 balanced:+3000]] diet:[compact:750000 balanced:750000ppm]]]",
+        ]
+        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
+        self.assertIn(
+            "balanced-diet-counterfactual=[meal-delta:0..0g diet-quality-delta:0..0ppm realized-vitality-delta:0..0ppm]",
             summary,
         )
 
@@ -3118,7 +3129,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("thermal-bootstrap=1/1", concise)
         self.assertIn(
             "GAMEPLAY loop-shape continuity=[progression:1/1 settlement-repeat:0/1 "
-            "liberation-carry:1/1 foundry-carry:1/1 literal-cross-era:false]",
+            "liberation-carry:1/1 foundry-carry:1/1 cross-era:modeled-handoffs]",
             concise,
         )
         self.assertIn(

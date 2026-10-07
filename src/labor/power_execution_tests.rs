@@ -26,7 +26,7 @@ use crate::equipment::{
 use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError};
 use crate::logistics::{
-    PlayerEnergyStoreAccessError, validate_allocate_ground_stockpile,
+    PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, validate_allocate_ground_stockpile,
     validate_initialize_player_logistics,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
@@ -94,6 +94,64 @@ fn manual_power_rejects_known_remote_destination_store() {
             PlayerEnergyStoreAccessError::RemoteKnownEnergyStore {
                 store: drive,
                 store_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn remote_mounted_manual_power_equipment_rejects_access_before_mount_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote mounted power survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let support = active_support(&registries, &mut state);
+    let _ = validate_mount_equipment(&registries, &state, crank, support)
+        .unwrap_or_else(|error| panic!("remote mounted power crank mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote mounted power crank mount commit failed: {error}"));
+    let player_position = VoxelCoord::new(1, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote mounted power logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote mounted power logistics commit failed: {error}"));
+    let equipment_position = VoxelCoord::new(0, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        crank,
+        equipment_position,
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        drive,
+        player_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_manual_power(
+            &registries,
+            &state,
+            ManualPowerRequest::new(
+                MANUAL_POWER_HAND_CRANK,
+                crank,
+                drive,
+                Energy::from_nanojoules(100_000_000_000),
+            ),
+        )
+        .err(),
+        Some(ManualPowerError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment: crank,
+                equipment_position,
                 player_position,
             }
         ))

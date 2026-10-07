@@ -136,6 +136,9 @@ pub enum StockpileSupportError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    StockpileBusySurfaceGathering {
+        stockpile: StockpileId,
+    },
     StockpileBusyStorageDismantling {
         stockpile: StockpileId,
     },
@@ -194,6 +197,11 @@ impl Display for StockpileSupportError {
                 stockpile.value(),
                 job.value()
             ),
+            Self::StockpileBusySurfaceGathering { stockpile } => write!(
+                formatter,
+                "stockpile {} is the destination of active surface gathering and cannot be moved",
+                stockpile.value()
+            ),
             Self::StockpileBusyStorageDismantling { stockpile } => write!(
                 formatter,
                 "stockpile {} participates in active storage-enclosure dismantling and cannot be moved",
@@ -219,6 +227,7 @@ impl Error for StockpileSupportError {
             | Self::StockpileNotOnTarget { .. }
             | Self::TargetNotActive { .. }
             | Self::StockpileBusy { .. }
+            | Self::StockpileBusySurfaceGathering { .. }
             | Self::StockpileBusyStorageDismantling { .. }
             | Self::InventoryRevisionExhausted => None,
         }
@@ -248,6 +257,9 @@ pub enum StockpileSupportCommitError {
         stockpile: StockpileId,
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
+    },
+    StockpileBusySurfaceGathering {
+        stockpile: StockpileId,
     },
     StockpileBusyStorageDismantling {
         stockpile: StockpileId,
@@ -290,6 +302,11 @@ impl Display for StockpileSupportCommitError {
                 stockpile.value(),
                 job.value()
             ),
+            Self::StockpileBusySurfaceGathering { stockpile } => write!(
+                formatter,
+                "stockpile {} became the destination of active surface gathering before support commit",
+                stockpile.value()
+            ),
             Self::StockpileBusyStorageDismantling { stockpile } => write!(
                 formatter,
                 "stockpile {} became occupied by active storage-enclosure dismantling before support commit",
@@ -312,6 +329,7 @@ impl Error for StockpileSupportCommitError {
             | Self::UnknownStockpile { .. }
             | Self::SupportChanged { .. }
             | Self::StockpileBusy { .. }
+            | Self::StockpileBusySurfaceGathering { .. }
             | Self::StockpileBusyStorageDismantling { .. } => None,
         }
     }

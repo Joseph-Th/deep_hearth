@@ -41,6 +41,63 @@ fn is_disclosed_preservation_raw_material(commodity: CommodityKey) -> bool {
 }
 
 #[test]
+fn full_reserve_worlds_use_varied_proactive_provisioning_windows() {
+    let registries = build_registries();
+    let ticks_per_day = registries.core().calendar().ticks_per_day();
+    let lower = (ticks_per_day / 4).max(1);
+    let upper = lower
+        .checked_add((ticks_per_day / 4).max(1))
+        .unwrap_or_else(|| panic!("survival proactive provisioning window overflowed"));
+    let waits = (1_u64..=256)
+        .map(|seed| provisioning_world(&registries, seed))
+        .filter(|world| world.start_profile == SurvivalStartProfile::FullReserve)
+        .map(|world| world.provisioning_wait_ticks)
+        .collect::<Vec<_>>();
+
+    assert!(!waits.is_empty());
+    assert!(waits.iter().all(|wait| (lower..upper).contains(wait)));
+    assert!(
+        waits.iter().copied().collect::<BTreeSet<_>>().len() > 8,
+        "rested survival worlds collapsed to a scripted provisioning delay"
+    );
+}
+
+#[test]
+fn constrained_food_worlds_execute_real_diet_recovery_instead_of_collapsing_evidence() {
+    let registries = build_registries();
+    let authored_category_count = registries
+        .survival()
+        .foods()
+        .map(|food| food.category())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let (world, available_category_count) = (1_u64..=256)
+        .find_map(|seed| {
+            let world =
+                super::survival_probe::provisioning_world::provisioning_world(&registries, seed);
+            let count = world
+                .foods
+                .iter()
+                .map(|food| food.category())
+                .collect::<BTreeSet<_>>()
+                .len();
+            (count < authored_category_count).then_some((world, count))
+        })
+        .unwrap_or_else(|| panic!("bounded survival generator produced no constrained-food world"));
+
+    let recovery = super::survival_probe::evaluate_diet_recovery_consequence(&registries, &world);
+    assert!(recovery.deprivation_ticks > 0);
+    assert!(recovery.provisioning_horizon_ticks > 0);
+    assert!(recovery.compact_provisioning_ticks > 0);
+    assert!(recovery.balanced_provisioning_ticks > 0);
+    assert!(recovery.observation_ticks > 0);
+    assert!(recovery.compact_meal_actions > 0);
+    assert!(recovery.balanced_meal_actions > 0);
+    assert!(recovery.vitality_before_ppm > 0);
+    assert!(available_category_count > 0);
+}
+
+#[test]
 fn four_world_survival_sample_spans_choice_rich_and_bulk_preservation_capacity_pressure() {
     let registries = build_registries();
     let base = 0xBCE8_0742_3D33_E090_u64;
@@ -353,7 +410,7 @@ fn survival_explanation_preserves_real_comparisons_and_distinguishes_shared_refe
 }
 
 #[test]
-fn survival_explanation_collapses_supply_limited_diet_not_policy_preferences() {
+fn survival_explanation_reports_supply_limited_policy_convergence_and_measured_outcome() {
     use super::survival_probe::{explanation::diet_comparison_explanation, selected_food_indices};
     let registries = build_registries();
     let world = provisioning_world(&registries, 1);
@@ -368,9 +425,10 @@ fn survival_explanation_collapses_supply_limited_diet_not_policy_preferences() {
         compact, balanced,
         "two-category supply removes the category choice"
     );
-    let _ = diet_comparison_explanation(false, || {
-        panic!("supply collapse must not print duplicate diet branches")
-    });
+    assert_eq!(
+        diet_comparison_explanation(false, || "measured constrained outcome".into()),
+        "comparison:supply-constrained policy-choice:converged measured constrained outcome"
+    );
     assert_ne!(
         DietProvisioningPolicy::CompactCalories,
         DietProvisioningPolicy::BalancedRecovery

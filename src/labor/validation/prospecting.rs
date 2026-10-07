@@ -28,6 +28,8 @@ fn validate_equipment_trace(
         .equipment()
         .get_equipment(equipment)
         .ok_or(PlayerWorkValidationError::ProspectingEquipmentMissing)?;
+    validate_player_equipment_access(state, equipment)
+        .map_err(PlayerWorkValidationError::ProspectingEquipmentAccess)?;
     if record.definition() != trace.definition() {
         return Err(PlayerWorkValidationError::ProspectingEquipmentDefinitionMismatch);
     }
@@ -44,8 +46,6 @@ fn validate_equipment_trace(
     if record.supported_by().is_some() {
         return Err(PlayerWorkValidationError::ProspectingEquipmentMounted { equipment });
     }
-    validate_player_equipment_access(state, equipment)
-        .map_err(PlayerWorkValidationError::ProspectingEquipmentAccess)?;
     if matches!(
         equipment_occupancy(state, equipment),
         Some(EquipmentOccupancy::Production { .. } | EquipmentOccupancy::Mining { .. })

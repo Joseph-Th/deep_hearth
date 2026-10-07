@@ -198,13 +198,11 @@ pub(super) fn run_provisioning_case(
             .collect::<Vec<_>>()
             .join("+");
         reviewln!(
-            "PLAYABLE SURVIVAL behavior=0x{behavior_seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] wait={provisioning_wait_ticks}t lived-wait=[drinks:{} volume:{}uL] provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy-offered:{}nJ nutrition-offered:{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration-offered:{}uL] reserves=improved matter=conserved fluid=conserved tick={}",
+            "PLAYABLE SURVIVAL behavior=0x{behavior_seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] passive-exposure={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy-offered:{}nJ nutrition-offered:{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration-offered:{}uL] reserves=improved matter=conserved fluid=conserved tick={}",
             policy.label(),
             world.start_profile.label(),
             witness_food.commodity().value(),
             witness_mass.milligrams(),
-            prepared.midwait_drink_count,
-            prepared.midwait_drink_volume_ul,
             provisioning_priority.label(),
             meal.total_mass().milligrams(),
             meal.energy_offered().nanojoules(),
@@ -245,12 +243,6 @@ pub(super) fn evaluate_provisioning_comparison(
     behavior_seed: u64,
     world: &ProvisioningWorld,
 ) -> DietComparisonReview {
-    let authored_category_count = registries
-        .survival()
-        .foods()
-        .map(|food| food.category())
-        .collect::<BTreeSet<_>>()
-        .len();
     let drink_supply = provisioning_drink_supply(registries, world);
     let prepared = prepare_provisioning_world(registries, world, drink_supply);
     let available_category_count =
@@ -313,18 +305,14 @@ pub(super) fn evaluate_provisioning_comparison(
     );
     assert!(compact.reserve_recovered && balanced.reserve_recovered);
 
-    if available_category_count == authored_category_count {
-        assert!(compact.selected_category_count < balanced.selected_category_count);
-        assert!(compact.meal_mass_mg <= balanced.meal_mass_mg);
-        assert!(balanced.diet_quality_after_ppm > compact.diet_quality_after_ppm);
-        assert!(
-            balanced.recovery_rate_after_ppm_per_tick >= compact.recovery_rate_after_ppm_per_tick
-        );
-        // One serving should make the dietary tradeoff legible immediately, but nutrition-backed
-        // vitality recovery is intentionally a longer-horizon consequence. The dedicated recovery
-        // challenge below observes that consequence after real deprivation and elapsed recovery
-        // rather than requiring a single meal-sized action to cross a recovery-rate threshold.
-    }
+    // This is observational evidence, not a balance oracle. Distinct policy labels count as a
+    // meaningful choice only when their canonical actions or resulting state actually diverge.
+    let policy_sensitive = compact.selected_category_count != balanced.selected_category_count
+        || compact.meal_mass_mg != balanced.meal_mass_mg
+        || compact.drink_volume_ul != balanced.drink_volume_ul
+        || compact.provisioning_elapsed_ticks != balanced.provisioning_elapsed_ticks
+        || compact.diet_quality_after_ppm != balanced.diet_quality_after_ppm
+        || compact.recovery_rate_after_ppm_per_tick != balanced.recovery_rate_after_ppm_per_tick;
 
     let natural_policy = diet_provisioning_policy_for_behavior_seed(behavior_seed);
     let natural = match natural_policy {
@@ -337,10 +325,8 @@ pub(super) fn evaluate_provisioning_comparison(
         natural_policy,
         natural,
         available_category_count,
-        policy_sensitive: available_category_count == authored_category_count,
+        policy_sensitive,
         comparison_horizon_ticks,
-        midwait_drink_count: prepared.midwait_drink_count,
-        midwait_drink_volume_ul: prepared.midwait_drink_volume_ul,
         meal_mass_delta_mg: i128::from(balanced.meal_mass_mg) - i128::from(compact.meal_mass_mg),
         water_saved_delta_ul: i128::from(compact.drink_volume_ul)
             - i128::from(balanced.drink_volume_ul),

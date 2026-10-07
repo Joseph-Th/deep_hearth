@@ -191,6 +191,7 @@ pub fn validate_mount_stockpile(
         .inventory()
         .get_stockpile(stockpile)
         .ok_or(StockpileSupportError::UnknownStockpile { stockpile })?;
+    validate_player_stockpile_access(state, stockpile).map_err(StockpileSupportError::Access)?;
     if state
         .logistics()
         .player()
@@ -205,7 +206,6 @@ pub fn validate_mount_stockpile(
         });
     }
     validate_not_busy(state, stockpile)?;
-    validate_player_stockpile_access(state, stockpile).map_err(StockpileSupportError::Access)?;
     let target = state
         .structures()
         .get_element(element)
@@ -281,11 +281,11 @@ pub fn validate_unmount_stockpile(
         .inventory()
         .get_stockpile(stockpile)
         .ok_or(StockpileSupportError::UnknownStockpile { stockpile })?;
+    validate_player_stockpile_access(state, stockpile).map_err(StockpileSupportError::Access)?;
     let element = record
         .supported_by()
         .ok_or(StockpileSupportError::NotMounted { stockpile })?;
     validate_not_busy(state, stockpile)?;
-    validate_player_stockpile_access(state, stockpile).map_err(StockpileSupportError::Access)?;
     if state.structures().get_element(element).is_none() {
         return Err(StockpileSupportError::Load(
             StockpileStructuralLoadError::UnknownSupport { stockpile, element },

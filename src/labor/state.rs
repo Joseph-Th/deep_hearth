@@ -176,6 +176,16 @@ impl PlayerWorkState {
     }
 
     #[must_use]
+    pub(crate) fn get_surface_gathering_stockpile_occupant(
+        &self,
+        stockpile: StockpileId,
+    ) -> Option<SurfaceGatheringWork> {
+        self.active
+            .and_then(PlayerWork::surface_gathering)
+            .filter(|work| work.destination() == stockpile)
+    }
+
+    #[must_use]
     pub(crate) fn get_storage_dismantling_stockpile_occupant(
         &self,
         stockpile: StockpileId,

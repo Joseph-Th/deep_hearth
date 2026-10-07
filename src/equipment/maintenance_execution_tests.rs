@@ -117,6 +117,55 @@ fn maintenance_rejects_known_remote_equipment() {
 }
 
 #[test]
+fn remote_maintenance_rejects_access_before_stale_equipment_state() {
+    let registries = registries();
+    let mut state = AppState::new();
+    initialize_service_player(&registries, &mut state);
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+        .unwrap_or_else(|error| panic!("stale remote maintenance equipment failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("stale remote maintenance source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("stale remote maintenance spent failed: {error}"));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("stale remote maintenance resolution failed: {error}"));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale remote maintenance logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("stale remote maintenance logistics commit failed: {error}")
+        });
+    let equipment_position = VoxelCoord::new(1, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        equipment,
+        equipment_position,
+    );
+    degrade_equipment_condition_for_test(&mut state, equipment, 1_000);
+    let before = state.clone();
+
+    assert_eq!(
+        validate_equipment_maintenance(&registries, &state, resolution),
+        Err(EquipmentMaintenanceError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment,
+                equipment_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
     let registries = registries_with_service_duration(TickSpan::new(4));
     let mut state = AppState::new();
@@ -169,6 +218,8 @@ fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
         .unwrap_or_else(|error| panic!("remote-load maintenance serialization failed: {error}"));
     encoded["state"]["systems"]["logistics"]["equipment_locations"]
         [equipment.value().to_string()] = serde_json::json!({"x": 1, "y": 0, "z": 0});
+    encoded["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["condition"] =
+        serde_json::json!(499_999_u32);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("remote-load maintenance decode failed: {error}"));
 

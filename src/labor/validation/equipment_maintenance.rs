@@ -30,14 +30,14 @@ pub(super) fn validate_equipment_maintenance_work(
         .equipment()
         .get_equipment(work.equipment())
         .ok_or(PlayerWorkValidationError::EquipmentMaintenanceEquipmentMissing)?;
+    validate_player_equipment_access(state, work.equipment())
+        .map_err(PlayerWorkValidationError::EquipmentMaintenanceAccess)?;
     if record.definition() != work.equipment_trace().definition() {
         return Err(PlayerWorkValidationError::EquipmentMaintenanceDefinitionMismatch);
     }
     if record.condition() != work.condition_before() {
         return Err(PlayerWorkValidationError::EquipmentMaintenanceConditionMismatch);
     }
-    validate_player_equipment_access(state, work.equipment())
-        .map_err(PlayerWorkValidationError::EquipmentMaintenanceAccess)?;
     let profile = registries
         .equipment()
         .get_equipment(record.definition())

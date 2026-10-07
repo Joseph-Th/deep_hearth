@@ -118,6 +118,13 @@ A known completion tick is an upper bound, not guaranteed completion. Helpers mu
 decision-relevant events or return intervening outcomes. Semantic fast-forward is outside the actor contract
 unless production owns and proves the equivalent authoritative transition.
 
+Passive elapsed time is temporal pressure, not player activity. A harness may advance ordinary ticks to expose
+food aging, reserve drawdown, or another time-dependent state, but reports must label that interval as passive
+exposure unless the actor actually took actions during it. Do not insert hidden maintenance, eating, drinking, or
+other policy decisions merely to force an otherwise rested case into a warning state. Survival exploration keeps
+rested cases on varied proactive provisioning horizons and uses separately authored warning-boundary starts for
+urgent response, so routine preparation and emergency recovery remain distinct experiences.
+
 ## Evidence modes
 
 | Mode | Surface | Supported conclusion |
@@ -127,6 +134,12 @@ unless production owns and proves the equivalent authoritative transition.
 | Controlled capability | `workshop`, `ore`, `foundry` | Canonical mechanics under disclosed prearranged infrastructure, not ordinary reachability. |
 | Counterfactual | matched branches | Action-attributable differences from one actor-visible starting state over one fixed comparison horizon. |
 | Exploratory | `python ci.py report`, explicit replays/sweeps | Bounded discovery and diagnostics; exploration does not create a routine pass/fail requirement. |
+
+Cross-episode continuity must say what actually persists. Reconstructing conserved carried assets, embodied matter,
+and inherited condition at an episode boundary is modeled handoff evidence, not literal same-state continuity.
+Reports name modeled handoffs explicitly so a cold reader can distinguish one continuous runtime history from an
+adjacent episode exercising the next economic decision. Counterfactual branches likewise remain visibly marked as
+counterfactual even when they execute canonical runtime operations and are useful for calibrating an actor decision.
 
 Automation can establish mechanical consequences, production blockers, conservation, persistence, replay,
 relative treatment effects, and behavior of the declared automated policy. It does not establish human
@@ -177,7 +190,7 @@ scope may establish.
 
 | Scope | Contract |
 | --- | --- |
-| `survival` | Hunger, thirst, recovery, preservation investment, storage recovery, and work/provisioning interaction through ordinary runtime paths. |
+| `survival` | Hunger, thirst, recovery, preservation investment, storage recovery, and work/provisioning interaction through ordinary runtime paths. Rested worlds exercise varied proactive provisioning after bounded passive exposure; warning-boundary worlds own urgent hunger/thirst response rather than forcing every rested case into crisis. |
 | `progression` | Evidence-gated mining, primitive processing, mechanization, maintenance, and reinvestment. |
 | `liberation` | Material-backed carryover of the progression processing line and a workload-dependent choice between low-infrastructure manual ore recovery and ordinary same-voxel acquisition of the incremental quern/riddle extension. The actor freezes that choice from the disclosed campaign using canonical manual-recovery cost plus a conservative production-backed powered-attention bound; matched execution then measures recovery, wear, body cost, and realized payback without retroactive reselection. |
 | `settlement` | A lived lumber episode freezes its first frame-saw/sawmill investment against disclosed demand, then reveals a repeat order in the same worn state so owned machinery can be reused or later reinvestment can become rational. Separate executed crossover witnesses cover spindle drill, wire drawbench, helve hammer, and other machine families; the report labels those separately so they do not masquerade as one continuous settlement. |

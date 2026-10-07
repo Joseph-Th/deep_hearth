@@ -11,7 +11,10 @@ use crate::fluid::{
     FluidDefinition, FluidDefinitionId, FluidEgressError, FluidValidationError, add_fluid_store,
     add_fluid_store_with_contents_for_fixture, validate_fluid_egress,
 };
-use crate::logistics::{LogisticsValidationError, validate_place_fluid_store};
+use crate::logistics::{
+    LogisticsValidationError, PlayerFluidStoreAccessError, validate_initialize_player_logistics,
+    validate_place_fluid_store,
+};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
@@ -83,6 +86,40 @@ fn located_fluid_store_rejects_mount_to_disjoint_support() {
             position,
             element: support,
         })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn remote_unmounted_fluid_store_rejects_access_before_support_state() {
+    let registries = registries();
+    let mut state = AppState::new();
+    let store = add_filled(&registries, &mut state, 1_000);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(
+        &state,
+        player_position,
+        crate::core::quantity::Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("remote fluid logistics setup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote fluid logistics commit failed: {error}"));
+    let store_position = VoxelCoord::new(1, 0, 0);
+    validate_place_fluid_store(&state, store, store_position)
+        .unwrap_or_else(|error| panic!("remote fluid placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote fluid placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_unmount_fluid_store(&registries, &state, store).err(),
+        Some(FluidSupportError::Access(
+            PlayerFluidStoreAccessError::RemoteKnownFluidStore {
+                store,
+                store_position,
+                player_position,
+            }
+        ))
     );
     assert_eq!(state, before);
 }

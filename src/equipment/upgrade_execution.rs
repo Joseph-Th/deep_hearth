@@ -177,6 +177,8 @@ pub fn validate_upgrade_equipment(
         .equipment()
         .get_equipment(equipment)
         .ok_or(EquipmentUpgradeError::UnknownEquipment { equipment })?;
+    validate_player_equipment_access(state, equipment)
+        .map_err(EquipmentUpgradeError::EquipmentAccess)?;
     let target_definition = registries
         .equipment()
         .get_equipment(target)
@@ -184,6 +186,7 @@ pub fn validate_upgrade_equipment(
     let upgrade = target_definition
         .upgrade_profile()
         .ok_or(EquipmentUpgradeError::NoUpgradeProfile { target })?;
+    validate_player_stockpile_access(state, source).map_err(EquipmentUpgradeError::SourceAccess)?;
     if record.definition() != upgrade.from() {
         return Err(EquipmentUpgradeError::WrongBaseDefinition {
             equipment,
@@ -197,9 +200,6 @@ pub fn validate_upgrade_equipment(
     if let Some(error) = validation_occupancy_error(state, equipment) {
         return Err(error);
     }
-    validate_player_equipment_access(state, equipment)
-        .map_err(EquipmentUpgradeError::EquipmentAccess)?;
-    validate_player_stockpile_access(state, source).map_err(EquipmentUpgradeError::SourceAccess)?;
 
     let selection =
         validate_consumption_selection(state.inventory(), source, upgrade.additions().inputs())

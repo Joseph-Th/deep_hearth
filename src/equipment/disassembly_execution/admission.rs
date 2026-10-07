@@ -154,6 +154,10 @@ pub fn validate_disassemble_equipment(
         .equipment()
         .get_equipment(equipment)
         .ok_or(EquipmentDisassemblyError::UnknownEquipment { equipment })?;
+    validate_player_equipment_access(state, equipment)
+        .map_err(EquipmentDisassemblyError::EquipmentAccess)?;
+    validate_player_stockpile_access(state, destination)
+        .map_err(EquipmentDisassemblyError::DestinationAccess)?;
     if record.embodied_mass().is_zero() || record.embodied_material().is_empty() {
         return Err(EquipmentDisassemblyError::NoEmbodiedMatter { equipment });
     }
@@ -164,10 +168,6 @@ pub fn validate_disassemble_equipment(
     if let Some(error) = validation_occupancy_error(state, equipment) {
         return Err(error);
     }
-    validate_player_equipment_access(state, equipment)
-        .map_err(EquipmentDisassemblyError::EquipmentAccess)?;
-    validate_player_stockpile_access(state, destination)
-        .map_err(EquipmentDisassemblyError::DestinationAccess)?;
 
     let ingress = validate_material_ingress(
         registries,

@@ -130,13 +130,13 @@ pub fn validate_mount_fluid_store(
         .fluid()
         .get_store(store)
         .ok_or(FluidSupportError::UnknownStore { store })?;
+    validate_player_fluid_store_access(state, store).map_err(FluidSupportError::Access)?;
     if let Some(existing) = record.supported_by() {
         return Err(FluidSupportError::AlreadyMounted {
             store,
             element: existing,
         });
     }
-    validate_player_fluid_store_access(state, store).map_err(FluidSupportError::Access)?;
     let target = state
         .structures()
         .get_element(element)
@@ -195,10 +195,10 @@ pub fn validate_unmount_fluid_store(
         .fluid()
         .get_store(store)
         .ok_or(FluidSupportError::UnknownStore { store })?;
+    validate_player_fluid_store_access(state, store).map_err(FluidSupportError::Access)?;
     let element = record
         .supported_by()
         .ok_or(FluidSupportError::NotMounted { store })?;
-    validate_player_fluid_store_access(state, store).map_err(FluidSupportError::Access)?;
     if state.structures().get_element(element).is_none() {
         return Err(FluidSupportError::Load(
             FluidStructuralLoadError::UnknownSupport { store, element },

@@ -112,7 +112,6 @@ pub fn validate_equipment_maintenance(
     resolution: EquipmentMaintenanceResolution,
 ) -> Result<ValidatedEquipmentMaintenance, EquipmentMaintenanceError> {
     let equipment = resolution.equipment;
-    let record = validate_resolved_equipment(registries, state, &resolution)?;
     let condition_before = resolution.condition_before;
     let condition_after = resolution.condition_after;
     validate_resolved_outcome(&resolution)?;
@@ -122,6 +121,7 @@ pub fn validate_equipment_maintenance(
         .map_err(EquipmentMaintenanceError::MaterialSourceAccess)?;
     validate_player_stockpile_access(state, resolution.spent_destination())
         .map_err(EquipmentMaintenanceError::SpentDestinationAccess)?;
+    let record = validate_resolved_equipment(registries, state, &resolution)?;
     let expected_equipment_revision = state.equipment().revision();
     // Maintenance mutates equipment twice: admission exchanges the service component and
     // completion applies the deferred condition recovery. Reserve both owner revisions before

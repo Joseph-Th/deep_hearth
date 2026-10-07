@@ -19,7 +19,7 @@ use crate::crafting::{
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::equipment::{
     EquipmentId, degrade_equipment_condition_for_test, validate_assemble_equipment,
-    validate_upgrade_equipment,
+    validate_mount_equipment, validate_upgrade_equipment,
 };
 #[cfg(feature = "test-soak")]
 use crate::geology::GeologicalDepositLifecycle;
@@ -1022,6 +1022,55 @@ fn mining_rejects_player_outside_acquired_target_without_revealing_hidden_deposi
 }
 
 #[test]
+fn remote_mounted_mining_equipment_rejects_access_before_mount_state() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let support = active_stockpile_support(&registries, &mut state);
+    let _ = validate_mount_equipment(&registries, &state, pick, support)
+        .unwrap_or_else(|error| panic!("remote mounted mining pick mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote mounted mining pick mount commit failed: {error}"));
+    let player_position = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds().min())
+        .unwrap_or_else(|| panic!("remote mounted mining deposit disappeared"));
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote mounted mining logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote mounted mining logistics commit failed: {error}"));
+    let equipment_position = VoxelCoord::new(8, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        pick,
+        equipment_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment: pick,
+                equipment_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn mining_rejects_known_remote_equipment() {
     let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
     let player_position = state
@@ -1230,6 +1279,85 @@ fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
                 job,
                 player_position: remote_position,
                 bounds,
+            }
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_remote_mining_equipment_before_condition_state() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let player_position = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds().min())
+        .unwrap_or_else(|| panic!("remote equipment load mining deposit disappeared"));
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| {
+            panic!("remote equipment load mining logistics setup failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote equipment load mining logistics commit failed: {error}")
+        });
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        pick,
+        player_position,
+    );
+    validate_place_ground_stockpile(&state, destination, player_position)
+        .unwrap_or_else(|error| {
+            panic!("remote equipment load mining destination placement failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote equipment load mining destination placement commit failed: {error}")
+        });
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("remote equipment load mining validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote equipment load mining commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let equipment_position = VoxelCoord::new(
+        player_position.x() + 1,
+        player_position.y(),
+        player_position.z(),
+    );
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("remote equipment load mining serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["logistics"]["equipment_locations"][pick.value().to_string()] = serde_json::json!({
+        "x": equipment_position.x(),
+        "y": equipment_position.y(),
+        "z": equipment_position.z()
+    });
+    encoded["state"]["systems"]["equipment"]["records"][pick.value().to_string()]["condition"] =
+        serde_json::json!(999_999_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("remote equipment load mining decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::MiningJob(
+            MiningJobValidationError::WorkingEquipmentAccess {
+                job,
+                error: PlayerEquipmentAccessError::RemoteKnownEquipment {
+                    equipment: pick,
+                    equipment_position,
+                    player_position,
+                },
             }
         )))
     );

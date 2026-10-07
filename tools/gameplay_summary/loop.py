@@ -111,7 +111,7 @@ def _continuity_evidence(evidence: _LoopEvidenceLines) -> str:
         f"settlement-repeat:{settlement_same_state_followup}/{len(evidence.settlement)} "
         f"liberation-carry:{liberation_carryover}/{len(selected_liberation)} "
         f"foundry-carry:{foundry_carryover}/{len(evidence.first_foundry)} "
-        "literal-cross-era:false]"
+        "cross-era:modeled-handoffs]"
     )
 
 

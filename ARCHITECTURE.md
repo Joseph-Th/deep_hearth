@@ -86,6 +86,10 @@ Read surfaces expose domain meaning at the narrowest owner that knows it:
   reproduce the same inclusion rule, physical formula, blocker, or relationship.
 - **Concrete resolution:** bind selected runtime identities and current condition/custody/support/energy/
   knowledge facts before validation.
+- **Player access:** player-facing authorization for a known runtime asset proves locality/custody before using
+  that asset's condition, support, contents, occupancy, or capability state to select an error or outcome. Authored
+  registry facts and already-authorized local or knowledge-scoped observations may be resolved first; unknown
+  runtime identities still belong to their canonical owner error.
 - **Freshness:** retained plans or projections are usable only while the authoritative dependencies that produced
   them remain unchanged. Use narrow revision/dependency stamps only when retention is useful.
 - **Feasibility:** when production already computes a monotonic bound such as capacity, batch size, duration, or
@@ -262,6 +266,9 @@ For every consequential edge:
 - make admission capacity and exclusivity explicit;
 - preserve exact represented quantities or an explicit modeled sink/source;
 - persist any custody that survives beyond the command;
+- when delayed work retains an endpoint assumption that is not recomputed into its completion transaction,
+  block canonical mutations that would invalidate that assumption for the work interval; otherwise compose the
+  changed endpoint into one authoritative completion projection rather than relying on admission-time state;
 - expose enough outcome information to identify what moved or changed;
 - when the destination owner resolves persistent identity during ingress, propagate that landing identity far
   enough for legitimate continuation rather than forcing callers to rediscover it by scanning the destination;

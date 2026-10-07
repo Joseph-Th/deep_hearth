@@ -70,6 +70,11 @@ pub(super) fn review(
         planned_batches,
         extension_selected,
     } = comparison;
+    let branch = if extension_selected {
+        "actor-selected"
+    } else {
+        "counterfactual-only"
+    };
     validate_loaded_state(registries, &full.state)
         .unwrap_or_else(|error| panic!("full-buffer branch must remain loadable: {error}"));
     assert_eq!(
@@ -140,7 +145,7 @@ pub(super) fn review(
     // These are completion costs for the same finite job, not equal-horizon final reserves.
     // The full-buffer arm's remaining work stays visible: it could be useful for a later job.
     reviewln!(
-        "LIBERATION COST seed=0x{seed:016X} basis=matched-post-setup-same-finite-pipeline primary={}t scavenger={}t cleanup={}t direct-cleanup={}t total={}t charge=[demand:{}t full:{}t] generated=[demand:{}nJ full:{}nJ] retained=[demand:{}nJ full:{}nJ] scavenger-extra={}mg native-copper={}mg direct-native={}mg scavenger-marginal=[attention:{}t native:{}mg] output=identical-within-branch extension-cost=reported-separately",
+        "LIBERATION COST seed=0x{seed:016X} evidence={branch} basis=matched-post-setup-same-finite-pipeline primary={}t scavenger={}t cleanup={}t direct-cleanup={}t total={}t charge=[demand:{}t full:{}t] generated=[demand:{}nJ full:{}nJ] retained=[demand:{}nJ full:{}nJ] scavenger-extra={}mg native-copper={}mg direct-native={}mg scavenger-marginal=[attention:{}t native:{}mg] output=identical-within-branch extension-cost=reported-separately",
         primary_ticks,
         scavenger_ticks,
         cleanup_ticks,
@@ -253,7 +258,7 @@ pub(super) fn review(
         justified = justified,
     );
     reviewln!(
-        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation extension=[{kit}] continuity={} inherited-processing-line=reused interpretation=manual-is-low-infrastructure-fallback;powered-route-extends-earned-infrastructure-for-recovery-and-throughput",
+        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} evidence={branch} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation extension=[{kit}] continuity={} inherited-processing-line=reused interpretation=manual-is-low-infrastructure-fallback;powered-route-extends-earned-infrastructure-for-recovery-and-throughput",
         manual_recovery.feed_mass.milligrams(),
         manual_recovery.attention_ticks,
         manual_recovery.recovered_native.milligrams(),
@@ -270,7 +275,7 @@ pub(super) fn review(
         },
     );
     reviewln!(
-        "LIBERATION PACING seed=0x{seed:016X} primary={} scavenger={} cleanup={} charge-body=[demand:{}nJ/{}uL full:{}nJ/{}uL] machine-time={}t parallel-work=covered-by-progression-probe interpretation=recovered-native-copper-pays-extra-dressing-cost",
+        "LIBERATION PACING seed=0x{seed:016X} evidence={branch} primary={} scavenger={} cleanup={} charge-body=[demand:{}nJ/{}uL full:{}nJ/{}uL] machine-time={}t parallel-work=covered-by-progression-probe interpretation=recovered-native-copper-pays-extra-dressing-cost",
         super::super::physical_time::format_physical_duration(registries, primary_ticks),
         super::super::physical_time::format_physical_duration(registries, scavenger_ticks),
         super::super::physical_time::format_physical_duration(registries, cleanup_ticks),

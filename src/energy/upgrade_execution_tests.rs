@@ -93,6 +93,48 @@ fn energy_store_upgrade_rejects_known_remote_store() {
 }
 
 #[test]
+fn remote_energy_upgrade_rejects_access_before_base_definition_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
+        .unwrap_or_else(|error| panic!("wrong-base remote store fixture failed: {error}"));
+    let source = reinforcement_source(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("wrong-base remote store logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("wrong-base remote store logistics commit failed: {error}"));
+    let store_position = VoxelCoord::new(1, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        store,
+        store_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_upgrade_energy_store(
+            &registries,
+            &state,
+            store,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            source,
+        )
+        .err(),
+        Some(EnergyStoreUpgradeError::StoreAccess(
+            PlayerEnergyStoreAccessError::RemoteKnownEnergyStore {
+                store,
+                store_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn upgraded_store_load_rejects_post_construction_base_material_provenance() {
     let registries = build_registries();
     let mut state = AppState::new();

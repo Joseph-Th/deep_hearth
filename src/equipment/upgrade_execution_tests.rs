@@ -100,6 +100,49 @@ fn equipment_upgrade_rejects_known_remote_equipment() {
 }
 
 #[test]
+fn remote_equipment_upgrade_rejects_access_before_base_definition_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let equipment = assemble_stone_crank(&registries, &mut state);
+    let reinforcement = reinforcement_source(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("wrong-base remote upgrade logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("wrong-base remote upgrade logistics commit failed: {error}")
+        });
+    let equipment_position = VoxelCoord::new(1, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        equipment,
+        equipment_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            equipment,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            reinforcement,
+        )
+        .err(),
+        Some(EquipmentUpgradeError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment,
+                equipment_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn equipment_upgrade_rejects_known_remote_material_source() {
     let registries = build_registries();
     let mut state = AppState::new();

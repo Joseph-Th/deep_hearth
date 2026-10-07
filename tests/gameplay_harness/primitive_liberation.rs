@@ -957,6 +957,11 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .map(|record| record.stored_mass())
         .unwrap_or_else(|| panic!("primitive native-copper stockpile disappeared"));
     assert_eq!(native_copper_mass, cleaned.native_copper_mass);
+    let powered_branch = if selected_build {
+        "actor-selected"
+    } else {
+        "counterfactual-only"
+    };
     // Use exact constituent numerators, not rounded concentrate grades. Keep any fractional
     // milligrams as decimal digits without floating point or truncating represented copper.
     let copper_mg = |numerator: u128| {
@@ -1034,7 +1039,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         melting.energy_carrier(),
     );
     reviewln!(
-        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} cleanup-executed=true reason=required-native-copper-conversion route=reinforced-hand-crank+copper-banded-flywheel->reinforced-crusher->quern->timber-riddle->regrind->reinforced-separator->tailings-regrind->scavenger->concentrate-cleanup input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] native-copper={}mg cleanup-residue={}mg exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
+        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} evidence={powered_branch} cleanup-executed=true reason=required-native-copper-conversion route=reinforced-hand-crank+copper-banded-flywheel->reinforced-crusher->quern->timber-riddle->regrind->reinforced-separator->tailings-regrind->scavenger->concentrate-cleanup input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] native-copper={}mg cleanup-residue={}mg exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
         case.role().label(),
         batch_mass.milligrams(),
         copper_ppm,
@@ -1059,7 +1064,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .unwrap_or(0)
         .min(1_000_000);
     reviewln!(
-        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] cleanup=[native-copper:{}mg recovery:{}ppm residue:{}mg] sink=usable-native-copper remaining-frontier=industrial-foundry-scale ordinary-continuation=[first-foundry->80g-batch-upgrades] industrial-foundry-frontier=[{}] reachability-authority=STATUS.md",
+        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} evidence={powered_branch} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] cleanup=[native-copper:{}mg recovery:{}ppm residue:{}mg] sink=usable-native-copper remaining-frontier=industrial-foundry-scale ordinary-continuation=[first-foundry->80g-batch-upgrades] industrial-foundry-frontier=[{}] reachability-authority=STATUS.md",
         case.role().label(),
         batch_mass.milligrams(),
         copper_ppm,

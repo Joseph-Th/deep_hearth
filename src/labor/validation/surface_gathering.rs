@@ -33,6 +33,14 @@ pub(super) fn validate_surface_gathering_work(
         .surface()
         .get(work.resource())
         .ok_or(PlayerWorkValidationError::SurfaceGatheringResourceMissing)?;
+    let player_position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .ok_or(PlayerWorkValidationError::SurfaceGatheringPlayerNotLocated)?;
+    if player_position != resource.position() {
+        return Err(PlayerWorkValidationError::SurfaceGatheringPlayerRemote);
+    }
     if resource.lifecycle() != SurfaceResourceLifecycle::Available {
         return Err(PlayerWorkValidationError::SurfaceGatheringResourceDepleted);
     }
@@ -43,14 +51,6 @@ pub(super) fn validate_surface_gathering_work(
     }
     if work.gathered_mass().is_zero() || work.gathered_mass() > method.maximum_batch_mass() {
         return Err(PlayerWorkValidationError::SurfaceGatheringMassInvalid);
-    }
-    let player_position = state
-        .logistics()
-        .player()
-        .map(|player| player.position())
-        .ok_or(PlayerWorkValidationError::SurfaceGatheringPlayerNotLocated)?;
-    if player_position != resource.position() {
-        return Err(PlayerWorkValidationError::SurfaceGatheringPlayerRemote);
     }
     validate_player_stockpile_access(state, work.destination())
         .map_err(PlayerWorkValidationError::SurfaceGatheringDestinationAccess)?;

@@ -171,6 +171,7 @@ pub fn validate_mount_equipment(
         .equipment()
         .get_equipment(equipment)
         .ok_or(EquipmentSupportError::UnknownEquipment { equipment })?;
+    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
     if let Some(existing) = record.supported_by() {
         return Err(EquipmentSupportError::AlreadyMounted {
             equipment,
@@ -178,7 +179,6 @@ pub fn validate_mount_equipment(
         });
     }
     validate_not_busy(state, equipment)?;
-    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
 
     let target =
         state
@@ -238,11 +238,11 @@ pub fn validate_unmount_equipment(
         .equipment()
         .get_equipment(equipment)
         .ok_or(EquipmentSupportError::UnknownEquipment { equipment })?;
+    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
     let element = record
         .supported_by()
         .ok_or(EquipmentSupportError::NotMounted { equipment })?;
     validate_not_busy(state, equipment)?;
-    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
     state
         .structures()
         .get_element(element)
@@ -285,6 +285,7 @@ pub fn validate_relocate_equipment(
         .equipment()
         .get_equipment(equipment)
         .ok_or(EquipmentSupportError::UnknownEquipment { equipment })?;
+    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
     let source = record
         .supported_by()
         .ok_or(EquipmentSupportError::NotMounted { equipment })?;
@@ -295,7 +296,6 @@ pub fn validate_relocate_equipment(
         });
     }
     validate_not_busy(state, equipment)?;
-    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
 
     let target_record =
         state

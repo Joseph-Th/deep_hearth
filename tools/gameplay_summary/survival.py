@@ -23,22 +23,22 @@ def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
             meal_mass_mg.append(int(choice.group(1)))
             drink_volume_ul.append(int(choice.group(2)))
 
-    balanced_meal_extra_mg: list[int] = []
-    balanced_diet_quality_gain_ppm: list[int] = []
+    balanced_meal_delta_mg: list[int] = []
+    balanced_diet_quality_delta_ppm: list[int] = []
     balanced_realized_vitality_delta_ppm: list[int] = []
     for line in lines:
         if not line.startswith("SURVIVAL REVIEW "):
             continue
         tradeoff = re.search(
-            r"tradeoff=\[meal-mass-delta:\+(\d+)mg .*?"
-            r"diet-quality-delta:\+(\d+)ppm",
+            r"tradeoff=\[meal-mass-delta:([+-]\d+)mg .*?"
+            r"diet-quality-delta:([+-]\d+)ppm",
             line,
         )
         if tradeoff is not None:
-            balanced_meal_extra_mg.append(int(tradeoff.group(1)))
-            balanced_diet_quality_gain_ppm.append(int(tradeoff.group(2)))
+            balanced_meal_delta_mg.append(int(tradeoff.group(1)))
+            balanced_diet_quality_delta_ppm.append(int(tradeoff.group(2)))
         recovery = re.search(
-            r"recovery-consequence=\[choice:actionable .*?"
+            r"recovery-consequence=\[choice:(?:policy-sensitive|supply-converged) .*?"
             r"vitality:\d+->\[compact:\d+ balanced:\d+ realized-delta:([+-]\d+)ppm",
             line,
         )
@@ -50,8 +50,8 @@ def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
         f"meal:{scaled_span(meal_mass_mg, 1_000, 'g')} "
         f"drink:{scaled_span(drink_volume_ul, 1_000, 'mL')}] "
         "balanced-diet-counterfactual=["
-        f"meal-extra:{scaled_span(balanced_meal_extra_mg, 1_000, 'g')} "
-        f"diet-quality-gain:{scaled_span(balanced_diet_quality_gain_ppm, 1, 'ppm')} "
+        f"meal-delta:{scaled_span(balanced_meal_delta_mg, 1_000, 'g')} "
+        f"diet-quality-delta:{scaled_span(balanced_diet_quality_delta_ppm, 1, 'ppm')} "
         f"realized-vitality-delta:{scaled_span(balanced_realized_vitality_delta_ppm, 1, 'ppm')}]"
     )
 

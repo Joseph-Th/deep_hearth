@@ -16,6 +16,7 @@ enum StockpileSupportBlocker {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    SurfaceGathering,
     StorageDismantling,
 }
 
@@ -28,6 +29,13 @@ fn blocker(state: &AppState, stockpile: StockpileId) -> Option<StockpileSupportB
             job: job.id(),
             release: job.occupancy_release(),
         });
+    }
+    if state
+        .player_work()
+        .get_surface_gathering_stockpile_occupant(stockpile)
+        .is_some()
+    {
+        return Some(StockpileSupportBlocker::SurfaceGathering);
     }
     state
         .player_work()
@@ -48,6 +56,9 @@ pub(super) fn support_validation_error(
                 release,
             }
         }
+        StockpileSupportBlocker::SurfaceGathering => {
+            StockpileSupportError::StockpileBusySurfaceGathering { stockpile }
+        }
         StockpileSupportBlocker::StorageDismantling => {
             StockpileSupportError::StockpileBusyStorageDismantling { stockpile }
         }
@@ -65,6 +76,9 @@ pub(super) fn support_commit_error(
                 job,
                 release,
             }
+        }
+        StockpileSupportBlocker::SurfaceGathering => {
+            StockpileSupportCommitError::StockpileBusySurfaceGathering { stockpile }
         }
         StockpileSupportBlocker::StorageDismantling => {
             StockpileSupportCommitError::StockpileBusyStorageDismantling { stockpile }

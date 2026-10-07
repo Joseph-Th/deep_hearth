@@ -4,8 +4,9 @@ use std::ops::Deref;
 
 use super::*;
 use crate::content::{
-    FORM_FOOD, FORM_LOG, MATERIAL_BERRIES, MATERIAL_WOOD, STANDARD_TEST_HEATER,
-    STANDARD_TEST_HEATING_ENERGY, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    STANDARD_TEST_HEATER, STANDARD_TEST_HEATING_ENERGY, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    SURFACE_GATHERING_HAND_SCAVENGE, build_registries,
     make_test_registries_with_standard_sensible_heating,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
@@ -19,10 +20,11 @@ use crate::inventory::{
     validate_material_relocation_for_test,
 };
 use crate::logistics::{
-    LogisticsValidationError, validate_initialize_player_logistics, validate_place_ground_stockpile,
+    LogisticsValidationError, PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
 };
 use crate::maintenance::Condition;
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
     ProcessId, ProcessResolution, ProductionAvailabilityChange, ProductionSuspensionReason,
@@ -36,7 +38,11 @@ use crate::structural::{
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_remove_structural_element, validate_set_structural_load,
 };
-use crate::survival::{FoodFreshness, assess_food_freshness};
+use crate::surface::{
+    GeneratedSurfaceResourceSpec, SurfaceGatheringRequest, insert_generated_surface_resource,
+    validate_start_surface_gathering,
+};
+use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_survival};
 use crate::thermal::{
     ResolvedSensibleHeating, SensibleHeatingRequest, resolve_sensible_heating_process,
 };
@@ -115,6 +121,102 @@ fn mounting_colocated_stockpile_preserves_its_world_location() {
         Some(support)
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn remote_unmounted_stockpile_rejects_access_before_support_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000))
+        .unwrap_or_else(|error| panic!("remote unmounted stockpile fixture failed: {error}"));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| {
+            panic!("remote unmounted stockpile logistics setup failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote unmounted stockpile logistics commit failed: {error}")
+        });
+    let stockpile_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, stockpile, stockpile_position)
+        .unwrap_or_else(|error| panic!("remote unmounted stockpile placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote unmounted stockpile placement commit failed: {error}")
+        });
+    let before = state.clone();
+
+    assert_eq!(
+        validate_unmount_stockpile(&registries, &state, stockpile).err(),
+        Some(StockpileSupportError::Access(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile,
+                stockpile_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn active_surface_gathering_destination_cannot_be_mounted() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("surface gathering support survival setup failed: {error}"));
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1_000))
+        .unwrap_or_else(|error| panic!("surface gathering support logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("surface gathering support logistics commit failed: {error}")
+        });
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
+        .unwrap_or_else(|error| panic!("surface gathering support destination failed: {error}"));
+    validate_place_ground_stockpile(&state, destination, position)
+        .unwrap_or_else(|error| panic!("surface gathering support placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("surface gathering support placement commit failed: {error}")
+        });
+    let support = active_support(&registries, &mut state, 0);
+    let resource = insert_generated_surface_resource(
+        &registries,
+        &mut state,
+        GeneratedSurfaceResourceSpec::new(
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(100),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap_or_else(|error| panic!("surface gathering support resource spec failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("surface gathering support resource failed: {error}"));
+    validate_start_surface_gathering(
+        &registries,
+        &state,
+        SurfaceGatheringRequest::new(
+            SURFACE_GATHERING_HAND_SCAVENGE,
+            resource,
+            destination,
+            Mass::from_milligrams(100),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("surface gathering support start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("surface gathering support start commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_mount_stockpile(&registries, &state, destination, support).err(),
+        Some(StockpileSupportError::StockpileBusySurfaceGathering {
+            stockpile: destination,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

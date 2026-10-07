@@ -221,6 +221,8 @@ fn resolve_prospecting_equipment_plan(
         }
         (Some(profile), Some(equipment)) => (profile, equipment),
     };
+    validate_player_equipment_access(state, equipment)
+        .map_err(FieldProspectingStartError::EquipmentAccess)?;
     let (provider, occupancy) =
         resolve_equipment_provider_with_occupancy(registries, state, equipment)
             .map_err(FieldProspectingStartError::Equipment)?;
@@ -240,8 +242,6 @@ fn resolve_prospecting_equipment_plan(
     {
         return Err(FieldProspectingStartError::EquipmentMounted { equipment });
     }
-    validate_player_equipment_access(state, equipment)
-        .map_err(FieldProspectingStartError::EquipmentAccess)?;
     validate_start_equipment_occupancy(occupancy, equipment)?;
     let use_trace = provider.validated_use();
     let condition_after = calculate_usable_condition_after_active_ticks(

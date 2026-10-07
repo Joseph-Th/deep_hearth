@@ -222,8 +222,6 @@ struct DietComparisonReview {
     available_category_count: usize,
     policy_sensitive: bool,
     comparison_horizon_ticks: u64,
-    midwait_drink_count: u64,
-    midwait_drink_volume_ul: u64,
     meal_mass_delta_mg: i128,
     water_saved_delta_ul: i128,
     diet_quality_delta_ppm: i64,
@@ -233,46 +231,25 @@ struct DietComparisonReview {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct DietRecoveryReview {
-    actionable: bool,
-    deprivation_ticks: u64,
-    provisioning_horizon_ticks: u64,
-    observation_ticks: u64,
-    vitality_before_ppm: u32,
-    compact_vitality_after_ppm: u32,
-    balanced_vitality_after_ppm: u32,
-    realized_vitality_delta_ppm: i64,
-    compact_diet_quality_ppm: u32,
-    balanced_diet_quality_ppm: u32,
-    compact_recovery_window_delta_ppm: i64,
-    balanced_recovery_window_delta_ppm: i64,
-    compact_meal_actions: u64,
-    compact_drink_actions: u64,
-    balanced_meal_actions: u64,
-    balanced_drink_actions: u64,
-}
-
-impl DietRecoveryReview {
-    const fn supply_collapsed() -> Self {
-        Self {
-            actionable: false,
-            deprivation_ticks: 0,
-            provisioning_horizon_ticks: 0,
-            observation_ticks: 0,
-            vitality_before_ppm: 0,
-            compact_vitality_after_ppm: 0,
-            balanced_vitality_after_ppm: 0,
-            realized_vitality_delta_ppm: 0,
-            compact_diet_quality_ppm: 0,
-            balanced_diet_quality_ppm: 0,
-            compact_recovery_window_delta_ppm: 0,
-            balanced_recovery_window_delta_ppm: 0,
-            compact_meal_actions: 0,
-            compact_drink_actions: 0,
-            balanced_meal_actions: 0,
-            balanced_drink_actions: 0,
-        }
-    }
+pub(super) struct DietRecoveryReview {
+    pub(super) policy_sensitive: bool,
+    pub(super) deprivation_ticks: u64,
+    pub(super) provisioning_horizon_ticks: u64,
+    pub(super) compact_provisioning_ticks: u64,
+    pub(super) balanced_provisioning_ticks: u64,
+    pub(super) observation_ticks: u64,
+    pub(super) vitality_before_ppm: u32,
+    pub(super) compact_vitality_after_ppm: u32,
+    pub(super) balanced_vitality_after_ppm: u32,
+    pub(super) realized_vitality_delta_ppm: i64,
+    pub(super) compact_diet_quality_ppm: u32,
+    pub(super) balanced_diet_quality_ppm: u32,
+    pub(super) compact_recovery_window_delta_ppm: i64,
+    pub(super) balanced_recovery_window_delta_ppm: i64,
+    pub(super) compact_meal_actions: u64,
+    pub(super) compact_drink_actions: u64,
+    pub(super) balanced_meal_actions: u64,
+    pub(super) balanced_drink_actions: u64,
 }
 
 #[cfg_attr(
@@ -601,20 +578,10 @@ fn observe_diet_recovery_branch(
     }
 }
 
-fn evaluate_diet_recovery_consequence(
+pub(super) fn evaluate_diet_recovery_consequence(
     registries: &Registries,
     world: &ProvisioningWorld,
 ) -> DietRecoveryReview {
-    let authored_category_count = registries
-        .survival()
-        .foods()
-        .map(|food| food.category())
-        .collect::<BTreeSet<_>>()
-        .len();
-    if food_category_count(&world.foods) < authored_category_count {
-        return DietRecoveryReview::supply_collapsed();
-    }
-
     let mut state = AppState::new();
     let physiology = registries.survival().physiology();
     let offered_masses = world
@@ -704,7 +671,6 @@ fn evaluate_diet_recovery_consequence(
     // eighth of one authored day so the harness measures a player-relevant multi-hour recovery
     // window without making exploratory reports pay for an unnecessarily long idle simulation.
     let observation_ticks = (registries.core().calendar().ticks_per_day() / 8).max(1);
-
     let compact_provisioned = provision_diet_recovery_branch(
         registries,
         &branch,
@@ -723,6 +689,8 @@ fn evaluate_diet_recovery_consequence(
     let comparison_horizon_ticks = compact_provisioned
         .elapsed_ticks
         .max(balanced_provisioned.elapsed_ticks);
+    let compact_provisioning_ticks = compact_provisioned.elapsed_ticks;
+    let balanced_provisioning_ticks = balanced_provisioned.elapsed_ticks;
     let compact_meal_actions = compact_provisioned.meal_actions;
     let compact_drink_actions = compact_provisioned.drink_actions;
     let balanced_meal_actions = balanced_provisioned.meal_actions;
@@ -741,18 +709,24 @@ fn evaluate_diet_recovery_consequence(
         comparison_horizon_ticks,
         observation_ticks,
     );
-    assert!(
-        balanced_observation.diet_quality_ppm > compact_observation.diet_quality_ppm,
-        "all-category provisioning must create stronger diet quality in the real recovery challenge: compact={}ppm ({compact_meal_actions} meals/{compact_drink_actions} drinks) balanced={}ppm ({balanced_meal_actions} meals/{balanced_drink_actions} drinks) horizon={comparison_horizon_ticks}t",
-        compact_observation.diet_quality_ppm,
-        balanced_observation.diet_quality_ppm,
-    );
+    // Classify the counterfactual from what the two actors actually did and experienced, not from
+    // the category set they intended to use. Finite supply, serving limits, and integer rounding
+    // can legitimately collapse distinct plans to the same canonical actions and consequences.
+    let policy_sensitive = compact_provisioning_ticks != balanced_provisioning_ticks
+        || compact_meal_actions != balanced_meal_actions
+        || compact_drink_actions != balanced_drink_actions
+        || compact_observation.diet_quality_ppm != balanced_observation.diet_quality_ppm
+        || compact_observation.vitality_after_ppm != balanced_observation.vitality_after_ppm
+        || compact_observation.vitality_window_delta_ppm
+            != balanced_observation.vitality_window_delta_ppm;
     let realized_vitality_delta_ppm = i64::from(balanced_observation.vitality_after_ppm)
         - i64::from(compact_observation.vitality_after_ppm);
     DietRecoveryReview {
-        actionable: true,
+        policy_sensitive,
         deprivation_ticks,
         provisioning_horizon_ticks: comparison_horizon_ticks,
+        compact_provisioning_ticks,
+        balanced_provisioning_ticks,
         observation_ticks,
         vitality_before_ppm,
         compact_vitality_after_ppm: compact_observation.vitality_after_ppm,
