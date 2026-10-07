@@ -26,7 +26,7 @@ use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::production::validate_start_process;
+use deep_hearth::production::validate_start_player_process;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::assess_survival;
 use deep_hearth::thermal::{
@@ -789,7 +789,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         melt_ticks = melt_ticks
             .checked_add(melting.process_resolution().duration().value())
             .unwrap_or_else(|| panic!("first foundry bootstrap melt time overflowed"));
-        let melt_job = validate_start_process(
+        let melt_job = validate_start_player_process(
             registries,
             &state,
             melting.process_resolution(),
@@ -833,7 +833,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         released_heat = released_heat
             .checked_add(casting.released_energy())
             .unwrap_or_else(|| panic!("first foundry bootstrap released heat overflowed"));
-        let cast_job = validate_start_process(
+        let cast_job = validate_start_player_process(
             registries,
             &state,
             casting.process_resolution(),
@@ -973,7 +973,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             settlement_melt_ticks = settlement_melt_ticks
                 .checked_add(melting.process_resolution().duration().value())
                 .unwrap_or_else(|| panic!("first foundry settlement melt time overflowed"));
-            let job = validate_start_process(
+            let job = validate_start_player_process(
                 registries,
                 &state,
                 melting.process_resolution(),
@@ -1019,7 +1019,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         settlement_cooldown_ticks = waited;
         settlement_cast_ticks = casting.process_resolution().duration().value();
         settlement_released_heat = casting.released_energy();
-        let job = validate_start_process(
+        let job = validate_start_player_process(
             registries,
             &state,
             casting.process_resolution(),

@@ -20,7 +20,7 @@ use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::production::validate_start_process;
+use deep_hearth::production::validate_start_player_process;
 use deep_hearth::thermal::{
     CastingRequest, MeltingRequest, calculate_fusion_heat, calculate_sensible_heat,
     resolve_casting_process, resolve_melting_process,
@@ -303,7 +303,7 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
     )
     .unwrap_or_else(|error| panic!("settlement foundry melt resolution failed: {error}"));
     assert_eq!(melting.required_energy(), required_energy);
-    let melt_job = validate_start_process(
+    let melt_job = validate_start_player_process(
         &registries,
         &state,
         melting.process_resolution(),
@@ -338,7 +338,7 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
         ),
     )
     .unwrap_or_else(|error| panic!("settlement foundry casting resolution failed: {error}"));
-    let cast_job = validate_start_process(
+    let cast_job = validate_start_player_process(
         &registries,
         &state,
         casting.process_resolution(),

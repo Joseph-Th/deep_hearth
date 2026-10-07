@@ -7,7 +7,8 @@ pub use completion::{
     ProcessCompletion, ProcessOutputLanding, ProcessParcelLanding, ProductionAvailabilityChange,
 };
 pub use start::{
-    ProcessOutputRoute, StartProcessCommitError, StartProcessError, ValidatedStartProcess,
+    ProcessOutputRoute, StartPlayerProcessError, StartProcessCommitError, StartProcessError,
+    ValidatedStartProcess, validate_start_player_process, validate_start_player_process_routed,
     validate_start_process, validate_start_process_routed,
 };
 

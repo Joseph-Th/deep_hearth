@@ -3,9 +3,13 @@
 mod admission;
 mod commit;
 mod errors;
+mod player;
 mod routing;
 pub use commit::StartProcessCommitError;
 pub use errors::StartProcessError;
+pub use player::{
+    StartPlayerProcessError, validate_start_player_process, validate_start_player_process_routed,
+};
 
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;

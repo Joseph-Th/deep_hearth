@@ -17,7 +17,7 @@ use deep_hearth::ore_processing::{
     resolve_comminution_process, resolve_constituent_separation_process,
 };
 use deep_hearth::production::{
-    ProcessOutputRoute, validate_start_process, validate_start_process_routed,
+    ProcessOutputRoute, validate_start_player_process, validate_start_player_process_routed,
 };
 use deep_hearth::registry::Registries;
 
@@ -280,7 +280,7 @@ pub(super) fn execute_powered_ore_recovery(
         .unwrap_or_else(|error| panic!("first foundry inherited crushing failed: {error}"));
         assert_eq!(crushing.required_energy(), crush_energy);
         let crush_ticks = crushing.process_resolution().duration().value();
-        let job = validate_start_process(
+        let job = validate_start_player_process(
             registries,
             state,
             crushing.process_resolution(),
@@ -341,7 +341,7 @@ pub(super) fn execute_powered_ore_recovery(
             "canonical powered recovery must meet the batch target used to size its feed"
         );
         let separation_ticks = separation.process_resolution().duration().value();
-        let job = validate_start_process_routed(
+        let job = validate_start_player_process_routed(
             registries,
             state,
             separation.process_resolution(),

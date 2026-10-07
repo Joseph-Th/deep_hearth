@@ -23,7 +23,10 @@ use crate::inventory::{
     add_solid_stockpile_for_test, add_stockpile, deposit_bulk_for_test, deposit_lot_for_test,
     deposit_lot_spec_for_test, validate_material_relocation_for_test, validate_mount_stockpile,
 };
-use crate::logistics::validate_place_ground_stockpile;
+use crate::logistics::{
+    PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::maintenance::Condition;
 use crate::material::{
     CommodityKey, MaterialComposition, MaterialLotSpec, ParticleSizeClass,
@@ -302,6 +305,65 @@ fn process_start_rejects_separated_known_endpoints() {
             second: ProductionSiteEndpoint::EnergyStore(resources.energy),
             second_position: energy_position,
         })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn player_process_start_rejects_remote_co_located_process_site() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resources = add_test_heating_resources(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    let process_position = VoxelCoord::new(1, 0, 0);
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, process_position)
+            .unwrap_or_else(|error| panic!("remote process stockpile placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("remote process stockpile placement commit failed: {error}")
+            });
+    }
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        resources.equipment,
+        process_position,
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        resources.energy,
+        process_position,
+    );
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote process player logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote process player logistics commit failed: {error}"));
+    let resolved = resolve_test_heating(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+
+    assert!(
+        validate_start_process(&registries, &state, &resolved, source, destination).is_ok(),
+        "capability-level production admission should remain independent of player locality"
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_process(&registries, &state, &resolved, source, destination).err(),
+        Some(StartPlayerProcessError::StockpileAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: source,
+                stockpile_position: process_position,
+                player_position,
+            }
+        ))
     );
     assert_eq!(state, before);
 }

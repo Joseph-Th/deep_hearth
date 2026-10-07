@@ -10,7 +10,7 @@ use deep_hearth::ore_processing::{
     ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
     resolve_constituent_separation_process,
 };
-use deep_hearth::production::{ProcessOutputRoute, validate_start_process_routed};
+use deep_hearth::production::{ProcessOutputRoute, validate_start_player_process_routed};
 use deep_hearth::registry::Registries;
 
 use super::super::production_timing::finish_uninterrupted_production_job;
@@ -75,7 +75,7 @@ pub(super) fn run(
     let cleanup_residue_mass = resolved.residue_mass();
     assert!(native_mass > Mass::ZERO);
     assert!(cleanup_residue_mass > Mass::ZERO);
-    let job = validate_start_process_routed(
+    let job = validate_start_player_process_routed(
         registries,
         state,
         resolved.process_resolution(),

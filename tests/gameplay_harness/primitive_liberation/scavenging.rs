@@ -9,7 +9,7 @@ use deep_hearth::ore_processing::{
     resolve_comminution_process, resolve_constituent_separation_process,
 };
 use deep_hearth::production::{
-    ProcessOutputRoute, validate_start_process, validate_start_process_routed,
+    ProcessOutputRoute, validate_start_player_process, validate_start_player_process_routed,
 };
 use deep_hearth::registry::Registries;
 
@@ -65,7 +65,7 @@ pub(super) fn run(
         ),
     )
     .unwrap_or_else(|error| panic!("primitive tailings regrind failed: {error}"));
-    let regrind_job = validate_start_process(
+    let regrind_job = validate_start_player_process(
         registries,
         state,
         regrind.process_resolution(),
@@ -119,7 +119,7 @@ pub(super) fn run(
     .unwrap_or_else(|error| panic!("primitive tailings scavenging failed: {error}"));
     let scavenged_concentrate_mass = scavenged.target_mass();
     let scavenged_residue_mass = scavenged.residue_mass();
-    let scavenger_job = validate_start_process_routed(
+    let scavenger_job = validate_start_player_process_routed(
         registries,
         state,
         scavenged.process_resolution(),

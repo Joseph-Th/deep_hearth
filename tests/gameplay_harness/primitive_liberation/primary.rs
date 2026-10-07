@@ -12,7 +12,7 @@ use deep_hearth::ore_processing::{
     resolve_constituent_separation_process, resolve_screening_process,
 };
 use deep_hearth::production::{
-    ProcessOutputRoute, validate_start_process, validate_start_process_routed,
+    ProcessOutputRoute, validate_start_player_process, validate_start_player_process_routed,
 };
 use deep_hearth::registry::Registries;
 
@@ -73,7 +73,7 @@ pub(super) fn run(
     )
     .unwrap_or_else(|error| panic!("primitive liberation crushing failed: {error}"));
     let crush_job =
-        validate_start_process(registries, state, crush.process_resolution(), ore, crushed)
+        validate_start_player_process(registries, state, crush.process_resolution(), ore, crushed)
             .unwrap_or_else(|error| panic!("primitive liberation crushing start failed: {error}"))
             .commit(state)
             .unwrap_or_else(|error| panic!("primitive liberation crushing commit failed: {error}"));
@@ -105,7 +105,7 @@ pub(super) fn run(
         ),
     )
     .unwrap_or_else(|error| panic!("primitive rotary-quern grinding failed: {error}"));
-    let grind_job = validate_start_process(
+    let grind_job = validate_start_player_process(
         registries,
         state,
         grind.process_resolution(),
@@ -143,7 +143,7 @@ pub(super) fn run(
         ),
     )
     .unwrap_or_else(|error| panic!("primitive sizing screen failed: {error}"));
-    let screen_job = validate_start_process_routed(
+    let screen_job = validate_start_player_process_routed(
         registries,
         state,
         screened.process_resolution(),
@@ -185,7 +185,7 @@ pub(super) fn run(
         ),
     )
     .unwrap_or_else(|error| panic!("primitive rotary-quern regrinding failed: {error}"));
-    let regrind_job = validate_start_process(
+    let regrind_job = validate_start_player_process(
         registries,
         state,
         regrind.process_resolution(),
@@ -225,7 +225,7 @@ pub(super) fn run(
     .unwrap_or_else(|error| panic!("primitive concentration failed: {error}"));
     let resolved_concentrate_mass = separated.target_mass();
     let resolved_tailings_mass = separated.residue_mass();
-    let separation_job = validate_start_process_routed(
+    let separation_job = validate_start_player_process_routed(
         registries,
         state,
         separated.process_resolution(),

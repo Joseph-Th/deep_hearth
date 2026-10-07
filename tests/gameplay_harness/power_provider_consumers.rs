@@ -12,7 +12,7 @@ use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::ore_processing::{ComminutionRequest, resolve_comminution_process};
-use deep_hearth::production::validate_start_process;
+use deep_hearth::production::validate_start_player_process;
 use deep_hearth::registry::Registries;
 
 use super::super::material_selection::{select_stockpile_commodity_mass, select_stockpile_mass};
@@ -107,7 +107,7 @@ pub(super) fn consume_primitive_work(
         Energy::from_nanojoules(requested_nj)
     );
     let ticks = resolved.process_resolution().duration().value();
-    let job = validate_start_process(
+    let job = validate_start_player_process(
         registries,
         state,
         resolved.process_resolution(),
