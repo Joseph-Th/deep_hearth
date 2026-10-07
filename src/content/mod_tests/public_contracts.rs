@@ -1,6 +1,6 @@
 //! Public built-in content contracts grouped for exact authoring proof on the library-test artifact.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_ELECTRICAL_BUFFER,
@@ -8,9 +8,11 @@ use super::super::{
     ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE, ENERGY_THERMAL_SINK,
     ENERGY_TIMBER_FLYWHEEL_DRIVE, ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_GRAVITY_SEPARATOR,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_FOOD, FORM_LOG, FORM_LUMP,
-    FORM_NATIVE_METAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_LEGUMES, MATERIAL_MEAT,
-    MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK, build_registries,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_DIGGING_SHOVEL,
+    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_HANDLE, FORM_LOG,
+    FORM_LUMP, FORM_NATIVE_METAL, FORM_TOOL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_LEGUMES,
+    MATERIAL_MEAT, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_SHAPE_WOOD_HANDLE, SURFACE_GATHERING_HAND_SCAVENGE, build_registries,
 };
 use crate::core::quantity::{Mass, Power, Volume};
 use crate::core::time::TickSpan;
@@ -29,6 +31,128 @@ fn built_in_direct_drinking_uses_a_meaningful_serving_floor() {
     assert!(
         (Volume::from_microliters(150_000)..=Volume::from_microliters(500_000)).contains(&serving),
         "ordinary drinking should use a human-scale cup serving rather than threshold-sipping"
+    );
+}
+
+#[test]
+fn built_in_wilderness_stone_toolkit_has_a_real_attention_horizon_before_copper() {
+    let registries = build_registries();
+    let stone_tool = CommodityKey::new(MATERIAL_STONE, FORM_TOOL);
+    let wood_handle = CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
+    let mut required = BTreeMap::<CommodityKey, Mass>::new();
+
+    // These three tools cover the opening physical jobs that already have authored equipment
+    // owners: rock extraction, woodworking, and earthwork. Their construction should remain a
+    // meaningful stone-age project rather than a near-instant prelude to copper.
+    for equipment in [
+        EQUIPMENT_STONE_PICK,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        EQUIPMENT_STONE_DIGGING_SHOVEL,
+    ] {
+        let definition = registries
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("wilderness stone-tool definition disappeared"));
+        let assembly = definition
+            .assembly_profile()
+            .unwrap_or_else(|| panic!("wilderness stone tool lost its assembly route"));
+        for input in assembly.inputs() {
+            assert!(
+                input.commodity() == stone_tool || input.commodity() == wood_handle,
+                "opening stone tool {} gained a non-stone/timber assembly input {}",
+                equipment.value(),
+                input.commodity().value(),
+            );
+            let total = required.entry(input.commodity()).or_insert(Mass::ZERO);
+            *total = total
+                .checked_add(input.mass())
+                .unwrap_or_else(|| panic!("wilderness toolkit material requirement overflowed"));
+        }
+    }
+
+    let knapping = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("stone-tool knapping disappeared"));
+    let handle_shaping = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_HANDLE)
+        .unwrap_or_else(|| panic!("wood-handle shaping disappeared"));
+    let stone_output = knapping
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == stone_tool)
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("stone-tool knapping lost its useful output"));
+    let handle_output = handle_shaping
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == wood_handle)
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("wood-handle shaping lost its useful output"));
+    let stone_batches = required
+        .get(&stone_tool)
+        .copied()
+        .unwrap_or(Mass::ZERO)
+        .milligrams()
+        .div_ceil(stone_output.milligrams());
+    let handle_batches = required
+        .get(&wood_handle)
+        .copied()
+        .unwrap_or(Mass::ZERO)
+        .milligrams()
+        .div_ceil(handle_output.milligrams());
+    let loose_stone = Mass::from_milligrams(
+        knapping
+            .input_mass()
+            .milligrams()
+            .checked_mul(stone_batches)
+            .unwrap_or_else(|| panic!("wilderness stone gathering requirement overflowed")),
+    );
+    let loose_wood = Mass::from_milligrams(
+        handle_shaping
+            .input_mass()
+            .milligrams()
+            .checked_mul(handle_batches)
+            .unwrap_or_else(|| panic!("wilderness wood gathering requirement overflowed")),
+    );
+    let gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_SCAVENGE)
+        .copied()
+        .unwrap_or_else(|| panic!("hand surface gathering disappeared"));
+    let gather_ticks = gathering
+        .duration_for_mass(loose_stone)
+        .and_then(|stone| {
+            gathering
+                .duration_for_mass(loose_wood)
+                .and_then(|wood| stone.value().checked_add(wood.value()))
+        })
+        .unwrap_or_else(|| panic!("wilderness toolkit no longer fits ordinary hand gathering"));
+    let craft_ticks = knapping
+        .duration()
+        .value()
+        .checked_mul(stone_batches)
+        .and_then(|stone| {
+            handle_shaping
+                .duration()
+                .value()
+                .checked_mul(handle_batches)
+                .and_then(|wood| stone.checked_add(wood))
+        })
+        .unwrap_or_else(|| panic!("wilderness toolkit hand-work duration overflowed"));
+    let total_ticks = gather_ticks
+        .checked_add(craft_ticks)
+        .unwrap_or_else(|| panic!("wilderness toolkit total duration overflowed"));
+    let physical_microseconds = u128::from(total_ticks)
+        .checked_mul(u128::from(
+            registries.core().physical_tick_duration().microseconds(),
+        ))
+        .unwrap_or_else(|| panic!("wilderness toolkit physical duration overflowed"));
+    let minute = 60_u128 * 1_000_000;
+    assert!(
+        (15 * minute..=45 * minute).contains(&physical_microseconds),
+        "gathering and hand-fabricating the basic pick/adze/shovel toolkit should consume a meaningful opening-time horizon before food, fire, shelter, travel, or geology"
     );
 }
 

@@ -83,9 +83,17 @@ crafting, equipment, storage, survival, fluid, thermal, and structural owners. F
 the entry point; exact physical consequences should remain consequences of those actions rather than
 prerequisites for learning a special interaction language.
 
+Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
+first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a
+small stone-and-timber toolkit. Geological clues may establish a future objective, but copper extraction and ore
+processing are later work. Keep that pacing physical rather than adding an unlock timer: gathering, fabrication,
+survival needs, movement, construction, and actual geological opportunity should create the delay.
+
 Completion criterion: from a fresh ordinary world and empty carried inventory, the player can complete a
 recognizable block-survival first-day loop through canonical world actions, including basic acquisition, tool
-crafting, storage, food/water, and shelter/fire, without harness-only material injection.
+crafting, storage, food/water, and shelter/fire, without harness-only material injection. The fresh-start proof
+must begin before copper progression and must not seed copper, prebuilt tools, provisions, or shelter components
+as a substitute for those opening actions.
 
 ### 4. Add explicit physical networks
 

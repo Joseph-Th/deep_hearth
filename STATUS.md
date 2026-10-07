@@ -70,6 +70,7 @@ ordinarily acquirable.
 
 | Area | Boundary |
 | --- | --- |
+| Wilderness opening | Ordinary fresh-world wood/stone/forage/water acquisition, fire and warmth, shelter construction, and one continuous empty-inventory first-day loop. Existing survival, gathering, crafting, storage, thermal, and structural owners are supporting infrastructure, not proof that this opening is reachable. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Voxel/chunk storage, terrain generation, streaming, world-scale indexing, and runtime clue-location discovery. |
 | Logistics | Movement/pathing, haulage, general delivery/transport, ordinary resource-source acquisition, container/hotbar presentation, fluid transport, and mounted-production transport/site geometry. |

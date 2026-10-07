@@ -190,6 +190,28 @@ not mandatory tier gates.
 | Precision industry | advanced machine tools, bearings, instrumentation, automation, electronics |
 | Advanced industry | advanced alloys, computer control, semiconductors, nuclear and other high-energy systems |
 
+### Opening wilderness phase
+
+The opening should spend real time in a useful stone-age economy rather than treating stone tools as disposable
+tutorial prerequisites for copper. The player's first problems are immediate physical ones: obtain water and
+food, make a safe place to work and sleep, establish fire and warmth, improvise storage, and turn nearby stone,
+wood, earth, and plant matter into a small working toolkit. Making a tool should matter because it improves a
+repeated task the player is already doing, not because a technology ladder demands that item once.
+
+The first roughly fifteen minutes are a pacing target, not a scripted sequence. In an ordinary start they should
+still be dominated by orientation, gathering, provisioning, fire/shelter work, and basic stone-tool fabrication.
+A visible copper clue may give the player a future objective, but the default opening should not already be
+delivering useful copper, copper upgrades, or ore-processing machinery. First useful copper should normally come
+after the player has a functional wilderness baseline and has spent additional attention locating, extracting,
+and processing a real opportunity. Exceptional geography or expert play may shorten that path; an abstract unlock
+must not lengthen it.
+
+This phase should support several worthwhile stone-and-timber improvements before metal is necessary: cutting or
+hewing, digging, stone extraction, food preparation, storage, fire making, and shelter construction. Add those
+capabilities only through physical owners that support their real gameplay consequences. Do not add placeholder
+recipes for fire, shelter, cordage, containers, or tools before the corresponding world interaction, thermal,
+structural, survival, or resource-acquisition edge exists.
+
 Industrialization shifts the dominant cost of work:
 
 `human attention -> organized labor -> machinery -> energy + maintenance + logistics + control`
@@ -200,6 +222,8 @@ matter and better information should open further physical capability.
 
 ### Pacing constraints
 
+- The wilderness phase is a real progression era. Ordinary copper progression begins after, not instead of, the
+  basic food/water, fire/shelter, storage, and stone-tool loop.
 - Critical resources have legible clues and reliable first uses. Richer or deeper resources require better information, access, or infrastructure rather than search randomness.
 - Geological search moves coarse-to-fine. Broad evidence guides attention; local evidence resolves actionable targets without revealing hidden owners. A visibly localized target can still be tried directly; sampling buys advance knowledge of hardness/resource scale rather than permission to swing a tool.
 - Repeated manual input becomes delegable before it dominates play.
