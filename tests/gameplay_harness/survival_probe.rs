@@ -66,11 +66,8 @@ pub(super) mod preservation_evaluation;
 pub(super) mod preservation_decision;
 use preservation_decision::evaluate_preservation_decision;
 
+#[cfg(not(test))]
 #[path = "survival_probe/explanation.rs"]
-#[allow(
-    dead_code,
-    reason = "focused survival omits explanation contracts; contract and report targets consume them"
-)]
 pub(super) mod explanation;
 #[cfg(not(test))]
 use explanation::{diet_comparison_explanation, preservation_comparison_explanation};

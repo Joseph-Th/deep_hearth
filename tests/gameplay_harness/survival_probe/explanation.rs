@@ -3,14 +3,14 @@
 use deep_hearth::inventory::StorageDefinitionId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in super::super) enum PreservationComparison {
+pub(crate) enum PreservationComparison {
     EnclosureSingleton,
     SharedReference,
     DistinctReferences,
 }
 
 impl PreservationComparison {
-    pub(in super::super) fn selection_label(self, selected_policy: &'static str) -> &'static str {
+    pub(crate) fn selection_label(self, selected_policy: &'static str) -> &'static str {
         if self == Self::EnclosureSingleton {
             "enclosure-singleton"
         } else {
@@ -18,7 +18,7 @@ impl PreservationComparison {
         }
     }
 
-    pub(in super::super) fn from_candidates(
+    pub(crate) fn from_candidates(
         candidate_count: usize,
         fastest: StorageDefinitionId,
         strongest: StorageDefinitionId,
@@ -41,7 +41,7 @@ impl PreservationComparison {
     }
 }
 
-pub(in super::super) fn preservation_comparison_explanation(
+pub(crate) fn preservation_comparison_explanation(
     comparison: PreservationComparison,
     tradeoff: impl FnOnce() -> String,
 ) -> String {
@@ -54,7 +54,7 @@ pub(in super::super) fn preservation_comparison_explanation(
     }
 }
 
-pub(in super::super) fn diet_comparison_explanation(
+pub(crate) fn diet_comparison_explanation(
     policy_sensitive: bool,
     tradeoff: impl FnOnce() -> String,
 ) -> String {

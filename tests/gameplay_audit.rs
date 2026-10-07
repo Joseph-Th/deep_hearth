@@ -268,6 +268,8 @@ mod settlement_machine_contract_tests;
 mod settlement_wire_contract_tests;
 #[path = "gameplay_harness/survival_contract_tests.rs"]
 mod survival_contract_tests;
+#[path = "gameplay_harness/survival_probe/explanation.rs"]
+mod survival_explanation;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
 #[path = "gameplay_harness/woodworking_contract_tests.rs"]

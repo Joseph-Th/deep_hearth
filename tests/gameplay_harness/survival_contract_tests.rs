@@ -336,7 +336,7 @@ fn generated_preservation_witnesses_are_old_enough_to_show_the_authored_rate() {
 
 #[test]
 fn survival_explanation_marks_singleton_enclosure_without_forcing_investment() {
-    use super::survival_probe::explanation::{
+    use super::survival_explanation::{
         PreservationComparison, preservation_comparison_explanation,
     };
     let registries = build_registries();
@@ -379,7 +379,7 @@ fn survival_explanation_marks_singleton_enclosure_without_forcing_investment() {
 
 #[test]
 fn survival_explanation_preserves_real_comparisons_and_distinguishes_shared_references() {
-    use super::survival_probe::explanation::{
+    use super::survival_explanation::{
         PreservationComparison, diet_comparison_explanation, preservation_comparison_explanation,
     };
     let comparison = PreservationComparison::from_candidates(
@@ -411,7 +411,9 @@ fn survival_explanation_preserves_real_comparisons_and_distinguishes_shared_refe
 
 #[test]
 fn survival_explanation_reports_supply_limited_policy_convergence_and_measured_outcome() {
-    use super::survival_probe::{explanation::diet_comparison_explanation, selected_food_indices};
+    use super::{
+        survival_explanation::diet_comparison_explanation, survival_probe::selected_food_indices,
+    };
     let registries = build_registries();
     let world = provisioning_world(&registries, 1);
     let foods = &world.foods[..2];

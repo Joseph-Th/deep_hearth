@@ -599,6 +599,30 @@ class BuildFreeCiTests(unittest.TestCase):
                 f"focused gameplay target {scope!r} must not compile report-only catalog code",
             )
 
+        survival_explanation = (
+            ROOT / "tests" / "gameplay_harness" / "survival_probe" / "explanation.rs"
+        )
+        survival_target = ci.GAMEPLAY_TARGETS["survival"]
+        survival_reachable = {
+            path
+            for path, _prefix in run_test.test_catalog.reachable_modules(
+                ROOT,
+                run_test.cargo_test_target_path(survival_target),
+                run_test.cargo_feature_set(survival_target, None),
+            )
+        }
+        self.assertNotIn(
+            survival_explanation,
+            survival_reachable,
+            "focused survival must not rebuild report/contract-only explanation code",
+        )
+        self.assertIn(
+            survival_explanation,
+            run_test.target_source_paths(
+                gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"], None
+            ),
+        )
+
     def test_test_targets_exclude_report_only_formatter_modules(self) -> None:
         cases = {
             "workshop": ROOT

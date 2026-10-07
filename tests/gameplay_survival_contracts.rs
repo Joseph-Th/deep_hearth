@@ -51,6 +51,8 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/survival_contract_tests.rs"]
 mod survival_contract_tests;
+#[path = "gameplay_harness/survival_probe/explanation.rs"]
+mod survival_explanation;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
 #[path = "gameplay_harness/temporal.rs"]
