@@ -1159,6 +1159,7 @@ pub(super) fn run_primitive_progression_case(
         "bulk"
     };
 
+    #[cfg(not(test))]
     if emit_detail && priority == natural_priority {
         let information_path = if information_refinement_required {
             "deferred-survey"

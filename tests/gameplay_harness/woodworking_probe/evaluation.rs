@@ -1,5 +1,11 @@
 //! Builds woodworking actor decisions, matched lifecycle evidence, and replayable report outcomes.
 
+use super::super::focused_witnesses::{
+    WOODWORKING_BARE_HANDS_COVERAGE_SEED, WOODWORKING_COPPER_BLOCKED_COVERAGE_SEED,
+    WOODWORKING_MAINTAINED_ANCHOR_SEED, WOODWORKING_REINFORCED_PAYBACK_COVERAGE_SEED,
+    WOODWORKING_REINFORCED_RESERVE_COVERAGE_SEED, WOODWORKING_SAW_SERVICE_COVERAGE_SEED,
+    WOODWORKING_SHORT_QUEUE_COVERAGE_SEED, WOODWORKING_TIMBER_NEUTRAL_COVERAGE_SEED,
+};
 use super::super::primitive_workload::primitive_mining_cycle_mass;
 use super::execution::{
     AdzePipelinePlan, SawPipelinePlan, SawSetup, WoodworkingRouteOutcome, assemble_adze,
@@ -882,7 +888,9 @@ fn assert_woodworking_maintained_witness(
     evidence: &WoodworkingLifecycleEvidence,
     metrics: WoodworkingLifecycleMetrics,
 ) {
-    if case.role() == FocusedProbeRole::MaintainedCoverage && case.seed() == 12 {
+    if case.role() == FocusedProbeRole::MaintainedCoverage
+        && case.seed() == WOODWORKING_REINFORCED_PAYBACK_COVERAGE_SEED
+    {
         assert!(evidence.adze_route.maintenance_services > 0);
         assert!(
             decision
@@ -893,20 +901,20 @@ fn assert_woodworking_maintained_witness(
         );
     }
     match (case.role(), case.seed()) {
-        (FocusedProbeRole::MaintainedAnchor, 1) => {
+        (FocusedProbeRole::MaintainedAnchor, WOODWORKING_MAINTAINED_ANCHOR_SEED) => {
             assert_eq!(
                 decision.reason,
                 WoodworkingInvestmentReason::PipelineNetTimberSaving
             );
             assert!(metrics.saw_fallback_due_to_copper);
         }
-        (FocusedProbeRole::MaintainedCoverage, 3) => {
+        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_COPPER_BLOCKED_COVERAGE_SEED) => {
             assert_eq!(
                 decision.reason,
                 WoodworkingInvestmentReason::CopperSupplyLimited
             );
         }
-        (FocusedProbeRole::MaintainedCoverage, 12) => {
+        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_REINFORCED_PAYBACK_COVERAGE_SEED) => {
             assert_eq!(
                 decision.reason,
                 WoodworkingInvestmentReason::ReinforcedAdzeRepaysAttention
@@ -917,11 +925,13 @@ fn assert_woodworking_maintained_witness(
                     .is_some_and(|ticks| ticks < metrics.adze_total_attention)
             );
         }
-        (FocusedProbeRole::MaintainedCoverage, 4) => assert_eq!(
-            decision.reason,
-            WoodworkingInvestmentReason::PipelineTimberNeutralWithinSetupBudget
-        ),
-        (FocusedProbeRole::MaintainedCoverage, 6) => {
+        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_TIMBER_NEUTRAL_COVERAGE_SEED) => {
+            assert_eq!(
+                decision.reason,
+                WoodworkingInvestmentReason::PipelineTimberNeutralWithinSetupBudget
+            )
+        }
+        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_REINFORCED_RESERVE_COVERAGE_SEED) => {
             assert_eq!(
                 decision.reason,
                 WoodworkingInvestmentReason::ReinforcedAdzePreservesCopper
@@ -933,14 +943,25 @@ fn assert_woodworking_maintained_witness(
                     .is_some_and(|ticks| ticks < metrics.adze_total_attention)
             );
         }
-        (FocusedProbeRole::MaintainedCoverage, 250) => {
+        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_SHORT_QUEUE_COVERAGE_SEED) => {
+            assert!(
+                !decision.invest_in_saw,
+                "short queued work must not buy a saw whose executed lifecycle fails to repay setup"
+            );
+            assert!(!metrics.saw_attention_payback);
+            assert_eq!(
+                metrics.actual_timber_balance,
+                WoodworkingTimberBalance::Costlier
+            );
+        }
+        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_BARE_HANDS_COVERAGE_SEED) => {
             assert_eq!(
                 decision.reason,
                 WoodworkingInvestmentReason::BareHandsAvoidsInvestmentCost
             );
             assert!(decision.bare_attention < metrics.adze_total_attention);
         }
-        (FocusedProbeRole::MaintainedCoverage, 0x36F7_E3A2_7870_3A8A) => {
+        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_SAW_SERVICE_COVERAGE_SEED) => {
             assert_eq!(
                 decision.reason,
                 WoodworkingInvestmentReason::PipelineNetTimberSaving

@@ -588,10 +588,11 @@ def gameplay_replay_environment(
     return replay
 
 
-def execute_cargo_command(
-    command: list[str],
+def cargo_execution_environment(
     environment_overrides: dict[str, str] | None = None,
-) -> tuple[subprocess.CompletedProcess[str], float]:
+) -> dict[str, str]:
+    """Return one cache-stable Cargo environment with gameplay sampling opt-in only."""
+
     environment = cargo_env.local_cargo_environment()
     for key in (
         GAMEPLAY_REPORT_MODE_ENV,
@@ -602,6 +603,14 @@ def execute_cargo_command(
         environment.pop(key, None)
     if environment_overrides:
         environment.update(environment_overrides)
+    return environment
+
+
+def execute_cargo_command(
+    command: list[str],
+    environment_overrides: dict[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], float]:
+    environment = cargo_execution_environment(environment_overrides)
     started = time.perf_counter()
     result = subprocess.run(
         command,

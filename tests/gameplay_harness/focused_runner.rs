@@ -19,6 +19,10 @@ use super::focused_witnesses::{
     SURVIVAL_BALANCED_PRESERVATION_BEHAVIOR_SEED, SURVIVAL_BALANCED_PRESERVATION_COVERAGE_SEED,
     SURVIVAL_CONTINUATION_COVERAGE_SEED, SURVIVAL_DECLINE_COVERAGE_SEED,
     SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED, SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
+    WOODWORKING_BARE_HANDS_COVERAGE_SEED, WOODWORKING_COPPER_BLOCKED_COVERAGE_SEED,
+    WOODWORKING_MAINTAINED_ANCHOR_SEED, WOODWORKING_REINFORCED_PAYBACK_COVERAGE_SEED,
+    WOODWORKING_REINFORCED_RESERVE_COVERAGE_SEED, WOODWORKING_SAW_SERVICE_COVERAGE_SEED,
+    WOODWORKING_SHORT_QUEUE_COVERAGE_SEED, WOODWORKING_TIMBER_NEUTRAL_COVERAGE_SEED,
 };
 #[cfg(not(test))]
 use super::fresh_seed::fresh_root;
@@ -114,8 +118,16 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
         // a short queued job just below the saw crossover, a long saw-to-adze fallback, and a
         // copper-rich pipeline that actually replaces a worn blade.
         "woodworking" => (
-            1,
-            &[3, 4, 6, 12, 14, 250, 0x36F7_E3A2_7870_3A8A],
+            WOODWORKING_MAINTAINED_ANCHOR_SEED,
+            &[
+                WOODWORKING_COPPER_BLOCKED_COVERAGE_SEED,
+                WOODWORKING_TIMBER_NEUTRAL_COVERAGE_SEED,
+                WOODWORKING_REINFORCED_RESERVE_COVERAGE_SEED,
+                WOODWORKING_REINFORCED_PAYBACK_COVERAGE_SEED,
+                WOODWORKING_SHORT_QUEUE_COVERAGE_SEED,
+                WOODWORKING_BARE_HANDS_COVERAGE_SEED,
+                WOODWORKING_SAW_SERVICE_COVERAGE_SEED,
+            ],
             0x574F_4F44_5052_4F42,
         ),
         // Maintained fieldwork spans all four extraction tools, soft/reinforcement/hard-specialist

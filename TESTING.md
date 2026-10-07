@@ -15,9 +15,9 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Shared gameplay contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
-| Production-library type-check when no executable test fits | `python ci.py gate` |
+| Production-library type-check when no executable test fits | `python ci.py gate --production` |
 
-Iteration is `quick`, then **one** proof. Run an executable proof directly whenever one fits; a separate test-target type-check only spends compiler time on an artifact the executable cannot reuse. `gate` is an optional production-only type-check when no executable contract fits and does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes, run all test targets, or append an audit to routine edits.
+Iteration is `quick`, then **one** proof. Run an executable proof directly whenever one fits; a separate production type-check spends compiler time on an artifact the executable cannot reuse. `gate --production` is explicit because it is a fallback for changes without an executable contract, not a routine pre-test step, and it does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes, run all test targets, or append an audit to routine edits.
 
 Use `run_test.py --list <substring>` for build-free discovery and prefer the smallest authoritative target. Exact owner/unit/contract tests stay deterministic. Focused gameplay adds one fresh replayable case and prints roots; `ci.py gate --gameplay <scope>` uses the same shape. Reports reuse focused artifacts when practical and otherwise use a report-only example. Exact/core library tests share one feature-minimal persistent `unit-test` artifact; gameplay fixtures compile only in smaller `test-gameplay` integration targets. Keep Cargo invocations serial and parallelize only build-free `quick` checks.
 
@@ -30,7 +30,7 @@ Use `run_test.py --list <substring>` for build-free discovery and prefer the sma
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. Focused gameplay runs maintained witnesses plus one fresh replayable case. Broad gameplay audits rotate that one-case budget through one scope instead of sampling every scope. `report` owns broader exploration. `test-gameplay` is additive but belongs only to gameplay targets; core/unit tests stay feature-minimal. Negative feature gating is forbidden. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
+`quick` is build-free, `gate` requires one explicit build lane, and `audit` is an explicit checkpoint. Focused gameplay runs maintained witnesses plus one fresh replayable case. Broad gameplay audits rotate that one-case budget through one scope instead of sampling every scope. `report` owns broader exploration. `test-gameplay` is additive but belongs only to gameplay targets; core/unit tests stay feature-minimal. Negative feature gating is forbidden. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
 
 ## Evidence ladder
 

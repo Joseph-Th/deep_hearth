@@ -571,6 +571,7 @@ def gate_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     selected_lanes = sum(
         bool(selected)
         for selected in (
+            args.production,
             args.soak,
             args.gameplay,
             args.shaders,
@@ -578,9 +579,11 @@ def gate_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
             args.lint,
         )
     )
-    if selected_lanes > 1:
-        raise ValueError("gate accepts exactly one build-producing lane at a time")
+    if selected_lanes != 1:
+        raise ValueError("gate requires exactly one build-producing lane")
 
+    if args.production:
+        return [("check", cargo("check-fast"))]
     if args.soak:
         return [("soak", cargo("test-soak"))]
     if args.gameplay:
@@ -591,7 +594,7 @@ def gate_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
         return [("rustdoc", cargo("test-doc"))]
     if args.lint:
         return [("clippy", lint_command())]
-    return [("check", cargo("check-fast"))]
+    raise AssertionError("validated gate lane must return a plan")
 
 
 def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
@@ -779,8 +782,13 @@ def build_parser() -> argparse.ArgumentParser:
     quick = presets.add_parser("quick", help="build-free edit-loop checks")
     add_dry_run(quick)
 
-    gate = presets.add_parser("gate", help="one compile, lint, or focused runtime proof")
-    lane = gate.add_mutually_exclusive_group()
+    gate = presets.add_parser("gate", help="one explicit compile, lint, or focused runtime proof")
+    lane = gate.add_mutually_exclusive_group(required=True)
+    lane.add_argument(
+        "--production",
+        action="store_true",
+        help="type-check the production library when no executable proof fits",
+    )
     lane.add_argument("--lint", action="store_true", help="lint the production library")
     lane.add_argument("--soak", action="store_true", help="run ignored long-horizon soak tests")
     lane.add_argument(
@@ -843,6 +851,7 @@ def normalize_args(args: argparse.Namespace) -> argparse.Namespace:
         "all": False,
         "core": False,
         "lint": False,
+        "production": False,
         "soak": False,
         "gameplay": None,
         "shaders": False,

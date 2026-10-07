@@ -65,6 +65,7 @@ def gate_args(**overrides: object) -> argparse.Namespace:
         "preset": "gate",
         "all": False,
         "core": False,
+        "production": False,
         "soak": False,
         "gameplay": None,
         "shaders": False,
@@ -1335,11 +1336,13 @@ class TestTopologyContractTests(unittest.TestCase):
             "gameplay actor decision/planning code must not gain fixture mutation authority",
         )
 
-    def test_standard_gate_typechecks_production_once(self) -> None:
+    def test_production_gate_typechecks_only_when_explicitly_selected(self) -> None:
         self.assertEqual(
-            ci.plan_for(gate_args()),
+            ci.plan_for(gate_args(production=True)),
             [("check", ["cargo", "check-fast"])],
         )
+        with self.assertRaisesRegex(ValueError, "requires exactly one build-producing lane"):
+            ci.plan_for(gate_args())
 
     def test_local_test_profiles_keep_incremental_cache_shape_explicit(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -1396,7 +1399,7 @@ class TestTopologyContractTests(unittest.TestCase):
 
     def test_gate_does_not_repeat_build_free_quick_checks(self) -> None:
         for args in (
-            gate_args(),
+            gate_args(production=True),
             gate_args(gameplay="survival"),
             gate_args(soak=True),
             gate_args(lint=True),
@@ -2327,13 +2330,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertNotIn(ci.GAMEPLAY_REPORT_MODE_ENV, gate_environment)
 
     def test_run_test_never_inherits_gameplay_sampling_environment(self) -> None:
-        command = [
-            sys.executable,
-            "-c",
-            "import os; print('|'.join(str(os.getenv(key)) for key in "
-            "('DEEP_HEARTH_GAMEPLAY_REPORT','DEEP_HEARTH_GAMEPLAY_VARIATION_SEED',"
-            "'DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED','DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE')))",
-        ]
         with mock.patch.dict(
             os.environ,
             {
@@ -2344,8 +2340,20 @@ class GameplayCiRoutingTests(unittest.TestCase):
             },
             clear=False,
         ):
-            result, _elapsed = run_test.execute_cargo_command(command)
-        self.assertEqual(result.stdout.strip(), "None|None|None|None")
+            environment = run_test.cargo_execution_environment()
+        for key in (
+            run_test.GAMEPLAY_REPORT_MODE_ENV,
+            run_test.GAMEPLAY_VARIATION_ENV,
+            run_test.GAMEPLAY_BEHAVIOR_ENV,
+            run_test.GAMEPLAY_VARIATION_SCOPE_ENV,
+        ):
+            self.assertNotIn(key, environment)
+
+        explicit = run_test.cargo_execution_environment(
+            {run_test.GAMEPLAY_VARIATION_ENV: "0x3333"}
+        )
+        self.assertEqual(explicit[run_test.GAMEPLAY_VARIATION_ENV], "0x3333")
+        self.assertNotIn(run_test.GAMEPLAY_BEHAVIOR_ENV, explicit)
 
 
 class GameplayReportContractTests(unittest.TestCase):
@@ -3512,11 +3520,13 @@ class AuthorityContractTests(unittest.TestCase):
     def test_ci_parser_exposes_only_options_owned_by_each_command(self) -> None:
         self.assertEqual(ci.parse_args([]).preset, "quick")
         self.assertEqual(ci.parse_args(["--dry-run"]).preset, "quick")
+        self.assertTrue(ci.parse_args(["gate", "--production"]).production)
         self.assertEqual(ci.parse_args(["gate", "--gameplay", "fieldwork"]).gameplay, "fieldwork")
         self.assertEqual(ci.parse_args(["audit", "--gameplay"]).gameplay, "all")
 
         invalid = (
             ["quick", "--lint"],
+            ["gate"],
             ["gate", "--core"],
             ["gate", "--gameplay", "all"],
             ["audit", "--lint"],
@@ -3580,6 +3590,7 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertTrue(ci.parse_args(["audit", "--all"]).all)
 
     def test_documented_ci_command_checker_rejects_removed_flags(self) -> None:
+        self.assertIsNone(check_authority_docs.ci_command_error("python ci.py gate --production"))
         self.assertIsNone(check_authority_docs.ci_command_error("python ci.py gate --rustdoc"))
         self.assertIsNone(
             check_authority_docs.ci_command_error("python ci.py gate --gameplay [scope]")
@@ -3600,6 +3611,9 @@ class AuthorityContractTests(unittest.TestCase):
                 "python ci.py bca --hotspots --path src/inventory"
             )
         )
+        gate_error = check_authority_docs.ci_command_error("python ci.py gate")
+        self.assertIsNotNone(gate_error)
+        self.assertIn("invalid local CI command", gate_error or "")
         audit_error = check_authority_docs.ci_command_error("python ci.py audit")
         self.assertIsNotNone(audit_error)
         self.assertIn("invalid local CI command", audit_error or "")
