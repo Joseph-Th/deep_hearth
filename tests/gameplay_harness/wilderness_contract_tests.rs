@@ -76,6 +76,24 @@ fn local_surface_resource(state: &AppState, commodity: CommodityKey) -> SurfaceR
     matches[0]
 }
 
+fn local_equipment_by_definition(
+    state: &AppState,
+    definition: EquipmentDefinitionId,
+    context: &str,
+) -> EquipmentId {
+    let matches = state
+        .available_local_equipment()
+        .filter(|record| record.definition() == definition)
+        .map(|record| record.id())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "controlled wilderness opening requires exactly one locally observable {context}"
+    );
+    matches[0]
+}
+
 fn local_drinkable_store(
     registries: &Registries,
     state: &AppState,
@@ -314,26 +332,44 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         None,
         "wood handles",
     );
-    let _pick = assemble_tool(
+    let _ = assemble_tool(
         &registries,
         &mut state,
         EQUIPMENT_STONE_PICK,
         components,
         "stone pick",
     );
-    let adze = assemble_tool(
+    let _ = assemble_tool(
         &registries,
         &mut state,
         EQUIPMENT_STONE_WOODWORKING_ADZE,
         components,
         "stone adze",
     );
-    let _shovel = assemble_tool(
+    let _ = assemble_tool(
         &registries,
         &mut state,
         EQUIPMENT_STONE_DIGGING_SHOVEL,
         components,
         "stone shovel",
+    );
+    let local_tool_definitions = state
+        .available_local_equipment()
+        .map(|record| record.definition())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        local_tool_definitions,
+        std::collections::BTreeSet::from([
+            EQUIPMENT_STONE_PICK,
+            EQUIPMENT_STONE_WOODWORKING_ADZE,
+            EQUIPMENT_STONE_DIGGING_SHOVEL,
+        ]),
+        "the actor must rediscover the complete assembled stone toolkit from exact-local runtime state"
+    );
+    let adze = local_equipment_by_definition(
+        &state,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        "stone woodworking adze",
     );
 
     // The first timber load was enough to establish the toolkit without exceeding carried capacity.

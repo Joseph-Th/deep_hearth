@@ -5,7 +5,7 @@ use std::fmt::{Debug, Formatter};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::energy::EnergyState;
-use crate::equipment::EquipmentState;
+use crate::equipment::{EquipmentRecord, EquipmentState};
 use crate::fluid::{FluidState, FluidStoreRecord};
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
 use crate::inventory::{InventoryState, StockpileRecord};
@@ -202,6 +202,24 @@ impl AppState {
     #[must_use]
     pub const fn equipment(&self) -> &EquipmentState {
         &self.systems.equipment
+    }
+
+    /// Iterates equipment explicitly located at the admitted player's exact voxel.
+    ///
+    /// No equipment is observable before logistics admission. Callers cannot supply an arbitrary
+    /// voxel, so ordinary actor policy can rediscover local tools and machines without enumerating
+    /// remote equipment custody or retaining setup identities.
+    pub fn available_local_equipment(&self) -> impl Iterator<Item = &EquipmentRecord> {
+        let player_position = self
+            .systems
+            .logistics
+            .player()
+            .map(|player| player.position());
+        self.systems
+            .logistics
+            .equipment_locations()
+            .filter(move |(_, position)| Some(*position) == player_position)
+            .filter_map(|(equipment, _)| self.systems.equipment.get_equipment(equipment))
     }
 
     pub(crate) fn equipment_state_mut(&mut self) -> &mut EquipmentState {

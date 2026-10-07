@@ -34,6 +34,52 @@ fn condition(parts_per_million: u32) -> Condition {
 }
 
 #[test]
+fn local_equipment_observation_requires_actor_admission_and_exact_colocation() {
+    let registries = make_registries(Mass::from_milligrams(1_000));
+    let mut state = AppState::new();
+    let local = add_test_equipment(&registries, &mut state);
+    let remote = add_test_equipment(&registries, &mut state);
+    let _unlocated = add_test_equipment(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        local,
+        player_position,
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        remote,
+        VoxelCoord::new(1, 0, 0),
+    );
+
+    assert!(
+        state.available_local_equipment().next().is_none(),
+        "equipment must not be actor-observable before logistics admission"
+    );
+
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("local equipment observation player setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("local equipment observation player setup commit failed: {error}")
+        });
+    assert_eq!(
+        state
+            .available_local_equipment()
+            .map(|record| record.id())
+            .collect::<Vec<_>>(),
+        vec![local],
+        "local equipment observation must exclude remote and unlocated equipment"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn mounting_colocated_equipment_preserves_logistics_location() {
     let registries = make_registries(Mass::from_milligrams(1_000));
     let mut state = AppState::new();
