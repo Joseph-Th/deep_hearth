@@ -6,7 +6,7 @@ use deep_hearth::equipment::EquipmentId;
 
 use super::campaign::decide_fieldwork_survey_strategy;
 use super::extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
-use super::planning::fieldwork_mining_limits;
+use super::planning::fieldwork_hardness_frontier;
 use super::preparation::upgrade_sampling_hammer;
 use super::retooling::{
     FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, FieldworkSiteToolRequest,
@@ -96,8 +96,8 @@ struct RecoveryProgress {
     recovered_native: Mass,
     additional_extracted: Mass,
     owned_equipment: Vec<EquipmentId>,
-    current_tool_label: &'static str,
-    previous_hardness_tier: u8,
+    current_tool_definition: deep_hearth::equipment::EquipmentDefinitionId,
+    previous_hardness_tier: usize,
 }
 
 impl RecoveryProgress {
@@ -133,7 +133,7 @@ impl RecoveryProgress {
             recovered_native: Mass::ZERO,
             additional_extracted: Mass::ZERO,
             owned_equipment: vec![review.mining_equipment],
-            current_tool_label: review.estimate.tool.label,
+            current_tool_definition: review.estimate.tool.target,
             previous_hardness_tier: hardness_tier(
                 review.registries,
                 review.observed_hardness.upper(),
@@ -182,10 +182,10 @@ impl RecoveryProgress {
             self.tool_builds += 1;
             self.owned_equipment.push(tool.equipment);
         }
-        if tool.label != self.current_tool_label {
+        if tool.definition != self.current_tool_definition {
             self.tool_switches += 1;
         }
-        self.current_tool_label = tool.label;
+        self.current_tool_definition = tool.definition;
     }
 
     fn finish(self, review: &FieldworkEpisodeReview<'_>) -> InitialShortfallRun {
@@ -226,15 +226,12 @@ impl RecoveryProgress {
 fn hardness_tier(
     registries: &deep_hearth::registry::Registries,
     upper: deep_hearth::core::quantity::Pressure,
-) -> u8 {
-    let limits = fieldwork_mining_limits(registries);
-    if upper <= limits.base_quarry_hardness {
-        0
-    } else if upper <= limits.reinforced_quarry_hardness {
-        1
-    } else {
-        2
-    }
+) -> usize {
+    let frontier = fieldwork_hardness_frontier(registries);
+    frontier
+        .iter()
+        .position(|limit| upper <= *limit)
+        .unwrap_or(frontier.len())
 }
 
 fn recover_site(

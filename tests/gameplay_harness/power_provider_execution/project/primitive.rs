@@ -172,37 +172,11 @@ pub(in super::super::super) fn execute_selected_primitive_project(
     let started_at = selected_state.tick().value();
     let survival_before = assess_survival(registries, &selected_state)
         .unwrap_or_else(|| panic!("selected primitive power project lost initial survival state"));
-    let (provider_definition, method, label) = match plan.choice {
-        PrimitivePowerChoice::Crank => (
-            EQUIPMENT_STONE_HAND_CRANK,
-            MANUAL_POWER_HAND_CRANK,
-            "selected primitive crank project",
-        ),
-        PrimitivePowerChoice::Treadle => (
-            EQUIPMENT_TIMBER_TREADLE_DRIVE,
-            MANUAL_POWER_FOOT_TREADLE,
-            "selected primitive treadle project",
-        ),
-        PrimitivePowerChoice::WalkingWheel => (
-            EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-            MANUAL_POWER_WALKING_WHEEL,
-            "selected primitive walking-wheel project",
-        ),
-    };
-    let (expected_provider_attention, expected_provider_condition) = match plan.choice {
-        PrimitivePowerChoice::Crank => (
-            plan.crank_lifecycle_attention,
-            plan.crank_lifecycle_condition,
-        ),
-        PrimitivePowerChoice::Treadle => (
-            plan.treadle_lifecycle_attention,
-            plan.treadle_lifecycle_condition,
-        ),
-        PrimitivePowerChoice::WalkingWheel => (
-            plan.walking_lifecycle_attention,
-            plan.walking_lifecycle_condition,
-        ),
-    };
+    let provider_definition = plan.choice.equipment;
+    let method = plan.choice.method;
+    let label = "selected primitive power project";
+    let expected_provider_attention = plan.selected_lifecycle_attention;
+    let expected_provider_condition = plan.selected_lifecycle_condition;
     let (provider, provider_build) = build_provider(
         registries,
         &mut selected_state,

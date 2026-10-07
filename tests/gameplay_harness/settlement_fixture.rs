@@ -108,6 +108,7 @@ pub(super) fn seed_inherited_workshop_package(
 /// upgrade path. The resulting stockpile is intentionally shaped material: callers use this when
 /// the experience under test is preservation/scaling of already-earned infrastructure rather than
 /// re-testing the fabrication recipes that produced each component.
+#[cfg(not(test))]
 pub(super) fn seed_energy_upgrade_package(
     registries: &Registries,
     state: &mut AppState,

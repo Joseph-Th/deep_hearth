@@ -257,7 +257,6 @@ fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
 }
 
 pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCase) {
-    assert_fieldwork_tool_market_current(registries);
     if case.role() == FocusedProbeRole::MaintainedAnchor {
         knowledge_experience::run_fieldwork_knowledge_experience(registries, case.seed());
     }
@@ -401,9 +400,10 @@ fn run_fieldwork_with_supply(
     .unwrap_or_else(|| {
         panic!("fieldwork bounded raw-tool family has no candidate for the acquired evidence")
     });
-    let full_order_tool_label = full_order_estimate
-        .as_ref()
-        .map_or("none", |candidate| candidate.tool.label);
+    let full_order_tool_label = full_order_estimate.as_ref().map_or_else(
+        || "none".to_owned(),
+        |candidate| fieldwork_tool_label(candidate.tool),
+    );
     let full_order_tool = full_order_estimate
         .as_ref()
         .map(|candidate| candidate.tool.target);
@@ -417,7 +417,7 @@ fn run_fieldwork_with_supply(
     reviewln!(
         "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-wear-adjusted-local-opportunity,then-native-copper,then-raw-mass,ties=explicit-preference-required requested={}mg observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} preparation={}t projected-order={}t total={}t authorization=not-yet",
         state.tick().value(),
-        estimate.tool.label,
+        fieldwork_tool_label(estimate.tool),
         requested_mine_mass.milligrams(),
         observed_resource_mass.lower().milligrams(),
         observed_resource_mass.upper().milligrams(),

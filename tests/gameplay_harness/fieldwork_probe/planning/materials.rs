@@ -94,7 +94,6 @@ pub(in super::super) fn raw_opportunity_for_equipment_components(
 fn upgrade_raw_requirements(
     registries: &Registries,
     target: EquipmentDefinitionId,
-    expected_base: EquipmentDefinitionId,
     context: &'static str,
 ) -> (BTreeMap<CommodityKey, Mass>, Mass) {
     let upgrade = registries
@@ -107,7 +106,6 @@ fn upgrade_raw_requirements(
                 target.value()
             )
         });
-    assert_eq!(upgrade.from(), expected_base);
     let mut raw = BTreeMap::new();
     let mut total_raw = Mass::ZERO;
     for input in upgrade.additions().inputs() {
@@ -145,33 +143,35 @@ fn merge_maximum_requirements(
 pub(in super::super) fn fieldwork_raw_opportunity(
     registries: &Registries,
 ) -> (BTreeMap<CommodityKey, Mass>, Mass) {
+    let mut direct_equipment = vec![EQUIPMENT_STONE_GEOLOGICAL_HAMMER];
+    for tool in super::tools::fieldwork_tools(registries) {
+        let definition = registries
+            .equipment()
+            .get_equipment(tool.target)
+            .unwrap_or_else(|| panic!("discovered fieldwork equipment disappeared"));
+        // Upgrade-capable targets share the same physical base plus an additions package. Budget
+        // the base once below and one alternative upgrade parcel separately, rather than seeding
+        // enough raw material to build every specialization simultaneously.
+        if definition.upgrade_profile().is_none() && !direct_equipment.contains(&tool.target) {
+            direct_equipment.push(tool.target);
+        }
+    }
     let (mut raw, mut parts_capacity) = raw_opportunity_for_equipment_components(
         registries,
-        &[
-            EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
-            EQUIPMENT_STONE_QUARRY_PICK,
-            EQUIPMENT_STONE_PICK,
-        ],
+        &direct_equipment,
         "field-tool component planning",
     );
 
-    // The quarry and hard-pick reinforcements are mutually exclusive extraction choices. Reserve
-    // the component-wise maximum raw bill for one of them, not the sum of both alternatives.
-    let (quarry_upgrade, quarry_upgrade_mass) = upgrade_raw_requirements(
-        registries,
-        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
-        EQUIPMENT_STONE_QUARRY_PICK,
-        "fieldwork quarry reinforcement planning",
-    );
-    let (hard_pick_upgrade, hard_pick_upgrade_mass) = upgrade_raw_requirements(
-        registries,
-        EQUIPMENT_COPPER_REINFORCED_PICK,
-        EQUIPMENT_STONE_PICK,
-        "fieldwork hard-pick reinforcement planning",
-    );
+    // Mining upgrades are mutually exclusive fresh investments. Reserve the component-wise maximum
+    // raw bill for one current upgrade choice, not the sum of every specialization in the registry.
     let mut mining_upgrade = BTreeMap::new();
-    merge_maximum_requirements(&mut mining_upgrade, &quarry_upgrade);
-    merge_maximum_requirements(&mut mining_upgrade, &hard_pick_upgrade);
+    let mut mining_upgrade_mass = Mass::ZERO;
+    for tool in super::tools::fieldwork_upgrade_tools(registries) {
+        let (candidate, candidate_mass) =
+            upgrade_raw_requirements(registries, tool.target, "fieldwork mining upgrade planning");
+        merge_maximum_requirements(&mut mining_upgrade, &candidate);
+        mining_upgrade_mass = mining_upgrade_mass.max(candidate_mass);
+    }
     for (&commodity, &mass) in &mining_upgrade {
         add_mass(
             &mut raw,
@@ -181,7 +181,7 @@ pub(in super::super) fn fieldwork_raw_opportunity(
         );
     }
     parts_capacity = parts_capacity
-        .checked_add(quarry_upgrade_mass.max(hard_pick_upgrade_mass))
+        .checked_add(mining_upgrade_mass)
         .unwrap_or_else(|| panic!("fieldwork mining reinforcement parts capacity overflowed"));
 
     // A second reinforcement parcel is a distinct information investment: after the extraction
@@ -189,7 +189,6 @@ pub(in super::super) fn fieldwork_raw_opportunity(
     let (hammer_upgrade, hammer_upgrade_mass) = upgrade_raw_requirements(
         registries,
         EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
-        EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
         "fieldwork sampling-hammer reinforcement planning",
     );
     for (commodity, mass) in hammer_upgrade {

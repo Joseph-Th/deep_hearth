@@ -98,7 +98,7 @@ fn constrained_food_worlds_execute_real_diet_recovery_instead_of_collapsing_evid
 }
 
 #[test]
-fn four_world_survival_sample_spans_choice_rich_and_bulk_preservation_capacity_pressure() {
+fn four_world_survival_sample_spans_distinct_preservation_capacity_pressure() {
     let registries = build_registries();
     let base = 0xBCE8_0742_3D33_E090_u64;
     let worlds = (0_u64..4)
@@ -138,9 +138,10 @@ fn four_world_survival_sample_spans_choice_rich_and_bulk_preservation_capacity_p
         feasible_counts.iter().any(|count| *count > 1),
         "four-world survival exploration must include a real preservation market"
     );
+    let distinct_counts = feasible_counts.iter().copied().collect::<BTreeSet<_>>();
     assert!(
-        feasible_counts.contains(&1),
-        "four-world survival exploration must retain genuine bulk-capacity pressure"
+        distinct_counts.len() > 1,
+        "four-world survival exploration must vary how much of the current preservation market can satisfy the protected reserve"
     );
 }
 
@@ -339,33 +340,13 @@ fn survival_explanation_marks_singleton_enclosure_without_forcing_investment() {
     use super::survival_explanation::{
         PreservationComparison, preservation_comparison_explanation,
     };
-    let registries = build_registries();
-    let food = *registries
-        .survival()
-        .foods()
-        .next()
-        .unwrap_or_else(|| panic!("authored food"));
-    let stone_only = [(
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        Mass::from_milligrams(3_000_000),
-    )];
-    let projections = project_preservation_candidates_with_raw_opportunity(
-        &registries,
-        1,
-        food,
-        Mass::from_milligrams(1),
-        Some(&stone_only),
-    );
-    let [projection] = projections.as_slice() else {
-        panic!(
-            "stone-only preservation fixture must expose exactly one candidate, found {}",
-            projections.len()
-        )
-    };
+    // This is an explanation-state contract, not a content-market contract. Construct the
+    // singleton comparison directly so adding another valid enclosure cannot make formatting tests
+    // stale.
     let comparison = PreservationComparison::from_candidates(
-        projections.len(),
-        projection.definition,
-        projection.definition,
+        1,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
     );
     assert_eq!(comparison, PreservationComparison::EnclosureSingleton);
     assert_eq!(

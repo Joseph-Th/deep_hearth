@@ -2918,7 +2918,7 @@ class GameplayReportContractTests(unittest.TestCase):
             summary,
         )
         self.assertIn(
-            "geology=[soft:1 reinforcement:1 hard-specialist:1]", summary
+            "geology=[soft:1 reinforcement:1 hard-specialist:1 other:none distinct:3]", summary
         )
         self.assertIn(
             "depletion-adaptation=[supply-ended:1/1 rerouted:1/1 retooled:1 salvaged:0 ore-funded:1(payback:0/access:1)]",
@@ -2926,13 +2926,13 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("copper=[available:2 absent:1]", summary)
         self.assertIn(
-            "tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:1 hard-pick:1]",
+            "tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:1 hard-pick:1 other:none distinct:3]",
             summary,
         )
         self.assertIn(
-            "geology-tool=[soft:pick0/quarry1/reinforced0/hard0 "
-            "reinforcement:pick0/quarry0/reinforced1/hard0 "
-            "hard-specialist:pick0/quarry0/reinforced0/hard1]",
+            "geology-tool=[soft:pick0/quarry1/reinforced0/hard0/other0 "
+            "reinforcement:pick0/quarry0/reinforced1/hard0/other0 "
+            "hard-specialist:pick0/quarry0/reinforced0/hard1/other0]",
             summary,
         )
 
@@ -2963,6 +2963,18 @@ class GameplayReportContractTests(unittest.TestCase):
             "organic=[heavy:1/3 bulk:3/3 payback-sized:1/3 reserve-cut:1/3 blocked=hardness:1]",
             summary,
         )
+
+    def test_fieldwork_summary_surfaces_newly_discovered_tool_labels(self) -> None:
+        lines = [
+            "FIELDWORK EXPERIENCE seed=0xA sample=organic outcome=completed order-horizon=short "
+            "field-inspections=1 full-order-tool=equipment-999 tool=equipment-999 "
+            "copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg "
+            "resource-knowledge-effect=same-tool",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0xA geology=quarry-soft policy-input=false report-only=true",
+        ]
+        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
+        self.assertIn("other:equipment-999:1 distinct:1", summary)
+        self.assertIn("soft:pick0/quarry0/reinforced0/hard0/other1", summary)
 
     def test_default_gameplay_report_keeps_compact_semantic_summaries_only(self) -> None:
         lines = [
@@ -2998,9 +3010,9 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIELDWORK TOOL MARKET phase=acquired-evidence selected=stone-pick selected-total=24t heavy-best=stone-quarry heavy-total=37t heavy-preparation-extra=+20t heavy-order-saving=+7t heavy-total-delta=+13t heavy-investment=deferred",
             "FIELDWORK BULK CROSSOVER seed=0x1 available=true tool=stone-quarry order=16000000mg base-batches=32 current-order=1000000mg scope=diagnostic-visible-state no-hidden-reserve=true",
             "FIELDWORK PACING seed=0x1 search=10t/36.0s sampling-tool=20t/72.0s extraction-tool=30t/108.0s extraction=4t/14.4s batches=1 first-ore=64t/3.8m episode-end=64t/3.8m output=1mg outcome=completed requested=1mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade=500000ppm",
-            "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=primitive selected=crank declared=[work:1000000000000nJ pristine-charge-events:1 consumer-projected-charge-events:1 consumer-projected-services:1 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:2 survival-limited-batches:1 active-attention:20t provider-attention:5t consumer-runtime:9t maintenance=[services:1 preparation:4t service:3t replacement:1000mg] provisioning=[stops:1 attention:8t drinks:1 volume:10000uL meals:0 mass:0mg] elapsed:29t reserves=[start:101nJ/101uL end:1nJ/1uL]] condition=[provider:990000ppm consumer:900000ppm] full-counterfactual=[crank-active-attention:20t treadle-active-attention:21t walking-wheel-active-attention:19t attention-best:walking-wheel selected-attention-gap:1t] evidence=complete-selected-project-canonical",
+            "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=primitive selected=crank declared=[work:1000000000000nJ pristine-charge-events:1 consumer-projected-charge-events:1 consumer-projected-services:1 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:2 survival-limited-batches:1 active-attention:20t provider-attention:5t consumer-runtime:9t maintenance=[services:1 preparation:4t service:3t replacement:1000mg] provisioning=[stops:1 attention:8t drinks:1 volume:10000uL meals:0 mass:0mg] elapsed:29t reserves=[start:101nJ/101uL end:1nJ/1uL]] condition=[provider:990000ppm consumer:900000ppm] reference-counterfactual=[crank-active-attention:20t treadle-active-attention:21t walking-wheel-active-attention:19t attention-best:walking-wheel selected-vs-reference-attention-delta:+1t] evidence=complete-selected-project-canonical",
             "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:stone-crusher feed:1000000mg work:1000000000000nJ declared-charge-events:1 consumer-projected-batches:1 projected-services:1] buffer:1000000000000nJ decision=[selected:crank policy=minimize-workload-attention-then-metabolic-then-hydration-then-material] crank=[first-charge:2t second-charge:3t] treadle=[first-charge:1t second-charge:2t] productive-cycle=[consumer:stone-crusher crank:9t treadle:9t] projected-provider-lifecycle=[crank:body:10000000000000nJ/20000uL condition:990000ppm treadle:body:8000000000000nJ/18000uL condition:995000ppm] comparison=[charge-attention-reduction:1ppm metabolic-crank:2nJ metabolic-treadle:1nJ pristine-rate-break-even:2 market-frontier:1:crank,3:treadle provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher]",
-            "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=settlement selected=copper-crank copper-policy=spend-available declared=[work:400000000000000nJ pristine-charge-events:80 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:80 survival-limited-batches:0 active-attention:2500t provider-attention:2200t consumer-runtime:5600t maintenance=[services:4 preparation:240t service:12t replacement:216000mg] provisioning=[stops:2 attention:48t drinks:2 volume:200000uL meals:0 mass:0mg] elapsed:8100t reserves=[start:1001nJ/1001uL end:1nJ/1uL]] condition=[provider:900000ppm consumer:800000ppm] full-counterfactual=[stone-crank-active-attention:2550t copper-crank-active-attention:2400t treadle-active-attention:2600t treadle-dynamo-active-attention:2650t double-wound-treadle-dynamo-active-attention:2350t walking-wheel-active-attention:2500t attention-best:copper-crank allowed-attention-best:copper-crank selected-attention-gap:0t] evidence=complete-selected-project-canonical",
+            "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=settlement selected=copper-crank copper-policy=spend-available declared=[work:400000000000000nJ pristine-charge-events:80 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:80 survival-limited-batches:0 active-attention:2500t provider-attention:2200t consumer-runtime:5600t maintenance=[services:4 preparation:240t service:12t replacement:216000mg] provisioning=[stops:2 attention:48t drinks:2 volume:200000uL meals:0 mass:0mg] elapsed:8100t reserves=[start:1001nJ/1001uL end:1nJ/1uL]] condition=[provider:900000ppm consumer:800000ppm] reference-counterfactual=[stone-crank-active-attention:2550t copper-crank-active-attention:2400t treadle-active-attention:2600t treadle-dynamo-active-attention:2650t double-wound-treadle-dynamo-active-attention:2350t walking-wheel-active-attention:2500t attention-best:copper-crank allowed-attention-best:copper-crank selected-vs-reference-attention-delta:+0t] evidence=complete-selected-project-canonical",
             "POWER SETTLEMENT seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:powered-saw feed:1600000000mg work:400000000000000nJ charge-events:80] buffer:5000000000000nJ decision=[selected:walking-wheel copper-policy:spend-available policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:2290t projected-attention-walking:2210t] treadle=[first-charge:14t second-charge:15t] walking-wheel=[first-charge:10t second-charge:11t] productive-cycle=[consumer:powered-saw treadle:56t walking:56t] projected-provider-lifecycle=[treadle:body:100000000000000nJ/200000uL condition:800000ppm walking-wheel:body:80000000000000nJ/150000uL condition:900000ppm] comparison=[charge-saving:4t metabolic-saving:1nJ pristine-rate-break-even:60charges market-frontier:1:stone-crank,3:copper-crank provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw]",
             "PROBE INPUT name=settlement mode=explore samples=1 organic=0",
             "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:20 mass:20000000mg] decision=[choice:frame-saw policy:min-player-attention baseline:139t mechanized:221t setup:181t charge-per-batch:2t margin:-82t] execution=[active:139t elapsed:139t/8.3m delegated:0t upgraded:false boards:18000000mg chips:2000000mg] survival=[energy-spent:150537000000000nJ hydration-spent:45175uL] prior-infrastructure=[frame-saw-condition:1000000ppm crank-condition:1000000ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
@@ -3131,12 +3143,15 @@ class GameplayReportContractTests(unittest.TestCase):
             "settlement-scale=[charges:80..80 treadle:n/a wheel:n/a]",
             concise,
         )
-        self.assertIn("policy-gap=[attention-min:0/1 gap:1..1t]", concise)
         self.assertNotIn(" calibration=[", concise)
         power_summary = gameplay_report_summary.power_provider_summary(lines)
         self.assertIsNotNone(power_summary)
         assert power_summary is not None
         self.assertIn("declared-charge-events:1..1", power_summary)
+        self.assertIn(
+            "reference-comparison=[selected-equals-best:0/1 attention-delta:1..1t]",
+            power_summary,
+        )
         self.assertIn("consumer-projected-batches:1..1", power_summary)
         self.assertNotIn("consumer-projected-charges:", power_summary)
         self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", power_summary)
@@ -3220,6 +3235,32 @@ class GameplayReportContractTests(unittest.TestCase):
             digest,
         )
 
+    def test_power_digest_preserves_dynamic_provider_and_signed_reference_delta(self) -> None:
+        lines = [
+            "POWER PROVIDER EXPERIENCE seed=0x1 sample=organic workload-source=routine-stockpile "
+            "project=[consumer:stone-crusher feed:100mg work:100nJ declared-charge-events:1 "
+            "consumer-projected-batches:1 projected-services:0] "
+            "decision=[selected:method-9-equipment-42] "
+            "comparison=[market-frontier:1:method-9-equipment-42]",
+            "POWER PROJECT EXPERIENCE seed=0x1 sample=organic era=primitive survival-start=full-reserve "
+            "selected=method-9-equipment-42 declared=[work:100nJ pristine-charge-events:1 "
+            "project-cache=[food:100mg preservation:1000000ppm water:100uL]] "
+            "executed=[charge-events:1 survival-limited-batches:0 active-attention:7t "
+            "provider-attention:2t consumer-runtime:5t maintenance=[services:0 preparation:0t "
+            "service:0t replacement:0mg] provisioning=[stops:0 attention:0t drinks:0 volume:0uL "
+            "meals:0 mass:0mg] elapsed:7t] reference-counterfactual=[crank-active-attention:10t "
+            "selected-vs-reference-attention-delta:-3t] evidence=complete-selected-project-canonical",
+        ]
+        summary = gameplay_report_summary.power_provider_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn("choice=[method-9-equipment-42:1]", summary)
+        self.assertIn("market=[crank,method-9-equipment-42]", summary)
+        self.assertIn(
+            "selected-vs-reference-attention-delta:-3..-3t",
+            summary,
+        )
+
     def test_scoped_gameplay_report_omits_cross_system_loop_digest(self) -> None:
         with (
             mock.patch.object(
@@ -3279,8 +3320,14 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("orders=[short:0 project:0 bulk:1]", digest)
         self.assertIn("reserve=[workload-capped:1 tool-changed:1]", digest)
         self.assertIn("info=[scope:maintained-specialist-witness frame=[n:1", digest)
-        self.assertIn("geology=[soft:1 reinforcement:0 hard-specialist:0]", digest)
-        self.assertIn("tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:0 hard-pick:0]", digest)
+        self.assertIn(
+            "geology=[soft:1 reinforcement:0 hard-specialist:0 other:none distinct:1]",
+            digest,
+        )
+        self.assertIn(
+            "tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:0 hard-pick:0 other:none distinct:1]",
+            digest,
+        )
         self.assertTrue(digest_lines[0].startswith("GAMEPLAY fieldwork scope=spatial-proxy "))
         self.assertTrue(any(line.startswith("GAMEPLAY fieldwork-info ") for line in digest_lines))
         self.assertTrue(

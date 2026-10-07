@@ -684,6 +684,40 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         and field(line, "tool") == tool
         for line in fieldwork
     )
+    known_tools = {
+        "stone-pick",
+        "stone-quarry",
+        "copper-reinforced-quarry",
+        "copper-reinforced-hard-pick",
+    }
+    selected_tools = [tool for line in fieldwork if (tool := field(line, "tool")) is not None]
+    extra_tool_counts = {
+        tool: selected_tools.count(tool) for tool in sorted(set(selected_tools) - known_tools)
+    }
+    extra_tools = (
+        ",".join(f"{tool}:{count}" for tool, count in extra_tool_counts.items()) or "none"
+    )
+    geology_other_count = lambda geology: sum(
+        geology_by_seed.get(field(line, "seed") or "") == geology
+        and field(line, "tool") not in known_tools
+        for line in fieldwork
+    )
+    known_geology = {
+        "quarry-soft",
+        "quarry-reinforcement",
+        "hard-pick-specialist",
+    }
+    selected_geology = [geology_by_seed[seed] for seed in experience_seeds]
+    extra_geology_counts = {
+        geology: selected_geology.count(geology)
+        for geology in sorted(set(selected_geology) - known_geology)
+    }
+    extra_geology = (
+        ",".join(
+            f"{geology}:{count}" for geology, count in extra_geology_counts.items()
+        )
+        or "none"
+    )
     organic_fieldwork = organic_only(fieldwork)
     depletion_horizon, depletion_adaptation = _depletion_summary(lines)
     initial_shortfall, shortfall_recovery = _initial_shortfall_recovery_summary(lines)
@@ -716,23 +750,28 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         f"{_bulk_crossover_summary(lines)} "
         f"geology=[soft:{geology_count('quarry-soft')} "
         f"reinforcement:{geology_count('quarry-reinforcement')} "
-        f"hard-specialist:{geology_count('hard-pick-specialist')}] "
+        f"hard-specialist:{geology_count('hard-pick-specialist')} "
+        f"other:{extra_geology} distinct:{len(set(selected_geology))}] "
         f"copper=[available:{count('copper-opportunity=available')} "
         f"absent:{count('copper-opportunity=absent')}] "
         f"tools=[stone-pick:{count_field('tool', 'stone-pick')} "
         f"soft-quarry:{count_field('tool', 'stone-quarry')} "
         f"reinforced-quarry:{count_field('tool', 'copper-reinforced-quarry')} "
-        f"hard-pick:{count_field('tool', 'copper-reinforced-hard-pick')}] "
+        f"hard-pick:{count_field('tool', 'copper-reinforced-hard-pick')} "
+        f"other:{extra_tools} distinct:{len(set(selected_tools))}] "
         f"geology-tool=[soft:pick{geology_tool_count('quarry-soft', 'stone-pick')}"
         f"/quarry{geology_tool_count('quarry-soft', 'stone-quarry')}"
         f"/reinforced{geology_tool_count('quarry-soft', 'copper-reinforced-quarry')}"
-        f"/hard{geology_tool_count('quarry-soft', 'copper-reinforced-hard-pick')} "
+        f"/hard{geology_tool_count('quarry-soft', 'copper-reinforced-hard-pick')}"
+        f"/other{geology_other_count('quarry-soft')} "
         f"reinforcement:pick{geology_tool_count('quarry-reinforcement', 'stone-pick')}"
         f"/quarry{geology_tool_count('quarry-reinforcement', 'stone-quarry')}"
         f"/reinforced{geology_tool_count('quarry-reinforcement', 'copper-reinforced-quarry')}"
-        f"/hard{geology_tool_count('quarry-reinforcement', 'copper-reinforced-hard-pick')} "
+        f"/hard{geology_tool_count('quarry-reinforcement', 'copper-reinforced-hard-pick')}"
+        f"/other{geology_other_count('quarry-reinforcement')} "
         f"hard-specialist:pick{geology_tool_count('hard-pick-specialist', 'stone-pick')}"
         f"/quarry{geology_tool_count('hard-pick-specialist', 'stone-quarry')}"
         f"/reinforced{geology_tool_count('hard-pick-specialist', 'copper-reinforced-quarry')}"
-        f"/hard{geology_tool_count('hard-pick-specialist', 'copper-reinforced-hard-pick')}]"
+        f"/hard{geology_tool_count('hard-pick-specialist', 'copper-reinforced-hard-pick')}"
+        f"/other{geology_other_count('hard-pick-specialist')}]"
     )

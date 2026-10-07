@@ -1,15 +1,12 @@
 //! Matched primitive and settlement human-power comparisons through canonical craft and charging.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
-    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_SASH_SAWMILL, EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
-    EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
-    PROCESS_POWER_SAW_WOOD_BOARDS,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_TIMBER_SASH_SAWMILL,
+    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
@@ -62,12 +59,10 @@ use execution::{
     execute_selected_settlement_project, execute_settlement_comparison,
 };
 #[cfg(not(test))]
+use planning::{PowerProviderChoice, PrimitivePowerChoice, SettlementPowerChoice};
 use planning::{
-    PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
-};
-use planning::{
-    PrimitivePowerProject, SettlementCopperPolicy, assert_primitive_power_provider_market_current,
-    assert_settlement_power_provider_market_current, primitive_power_plan, settlement_power_plan,
+    PrimitivePowerProject, SettlementCopperPolicy, primitive_power_plan,
+    reachable_mechanical_power_providers, settlement_power_plan,
 };
 use provisioning::seed_power_project_provisions;
 
@@ -126,19 +121,19 @@ fn power_project_survival_start(
 }
 
 #[cfg(not(test))]
-fn primitive_frontier_label(frontier: &[(u64, PrimitivePowerChoice)]) -> String {
+fn primitive_frontier_label(frontier: &[(u64, PowerProviderChoice)]) -> String {
     frontier
         .iter()
-        .map(|(charges, choice)| format!("{charges}:{}", choice.label()))
+        .map(|(charges, choice)| format!("{charges}:{}", choice.primitive_label()))
         .collect::<Vec<_>>()
         .join(",")
 }
 
 #[cfg(not(test))]
-fn settlement_frontier_label(frontier: &[(u64, SettlementPowerChoice)]) -> String {
+fn settlement_frontier_label(frontier: &[(u64, PowerProviderChoice)]) -> String {
     frontier
         .iter()
-        .map(|(charges, choice)| format!("{charges}:{}", choice.label()))
+        .map(|(charges, choice)| format!("{charges}:{}", choice.settlement_label()))
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -331,6 +326,18 @@ fn power_raw_opportunity(
         context,
     );
     requirements
+}
+
+fn power_provider_equipment_for_roots(
+    registries: &Registries,
+    roots: &[CommodityKey],
+) -> Vec<EquipmentDefinitionId> {
+    reachable_mechanical_power_providers(registries, roots.iter().copied())
+        .into_iter()
+        .map(|choice| choice.equipment)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn seed_raw_opportunity(
@@ -553,8 +560,6 @@ fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyS
 }
 
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
-    assert_primitive_power_provider_market_current(registries);
-    assert_settlement_power_provider_market_current(registries);
     let seed = case.seed();
     let investment_policy = investment_policy(case);
     let primitive_survival_start = power_project_survival_start(case, PowerProjectEra::Primitive);
@@ -571,15 +576,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
     ];
+    let mut primitive_provider_equipment =
+        power_provider_equipment_for_roots(registries, &primitive_roots);
+    primitive_provider_equipment.push(EQUIPMENT_STONE_CRUSHER);
     let primitive_requirements = power_raw_opportunity(
         registries,
         &primitive_roots,
-        &[
-            EQUIPMENT_STONE_CRUSHER,
-            EQUIPMENT_STONE_HAND_CRANK,
-            EQUIPMENT_TIMBER_TREADLE_DRIVE,
-            EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        ],
+        &primitive_provider_equipment,
         &[store_definition],
         EQUIPMENT_STONE_CRUSHER,
         planning::primitive_project_batch_limit(),
@@ -683,18 +686,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
     ];
+    let mut settlement_provider_equipment =
+        power_provider_equipment_for_roots(registries, &settlement_roots);
+    settlement_provider_equipment.push(EQUIPMENT_TIMBER_SASH_SAWMILL);
     let settlement_requirements = power_raw_opportunity(
         registries,
         &settlement_roots,
-        &[
-            EQUIPMENT_TIMBER_SASH_SAWMILL,
-            EQUIPMENT_STONE_HAND_CRANK,
-            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-            EQUIPMENT_TIMBER_TREADLE_DRIVE,
-            EQUIPMENT_TIMBER_TREADLE_DYNAMO,
-            EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
-            EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        ],
+        &settlement_provider_equipment,
         &[ENERGY_TIMBER_FRAME_FLYWHEEL_BANK],
         EQUIPMENT_TIMBER_SASH_SAWMILL,
         SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
@@ -817,23 +815,21 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         matter_before,
         fluid_before,
     );
-    #[cfg(test)]
-    let _primitive_selected = execute_selected_primitive_project(
+    let primitive_selected = execute_selected_primitive_project(
         registries,
         &state,
         primitive_resources,
         plan,
         primitive_consumer,
     );
+    #[cfg(test)]
+    let _ = &primitive_selected;
     #[cfg(not(test))]
     let primitive_crank_project = execute_selected_primitive_project(
         registries,
         &state,
         primitive_resources,
-        PrimitivePowerPlan {
-            choice: PrimitivePowerChoice::Crank,
-            ..plan
-        },
+        plan.with_reference_choice(PrimitivePowerChoice::Crank),
         primitive_consumer,
     );
     #[cfg(not(test))]
@@ -841,10 +837,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         registries,
         &state,
         primitive_resources,
-        PrimitivePowerPlan {
-            choice: PrimitivePowerChoice::Treadle,
-            ..plan
-        },
+        plan.with_reference_choice(PrimitivePowerChoice::Treadle),
         primitive_consumer,
     );
     #[cfg(not(test))]
@@ -852,18 +845,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         registries,
         &state,
         primitive_resources,
-        PrimitivePowerPlan {
-            choice: PrimitivePowerChoice::WalkingWheel,
-            ..plan
-        },
+        plan.with_reference_choice(PrimitivePowerChoice::WalkingWheel),
         primitive_consumer,
     );
-    #[cfg(not(test))]
-    let primitive_selected = match plan.choice {
-        PrimitivePowerChoice::Crank => primitive_crank_project,
-        PrimitivePowerChoice::Treadle => primitive_treadle_project,
-        PrimitivePowerChoice::WalkingWheel => primitive_walking_project,
-    };
     let settlement_resources = ProjectExecutionResources::new(
         settlement_raw,
         settlement_shaped,
@@ -873,23 +857,21 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_matter_before,
         settlement_fluid_before,
     );
-    #[cfg(test)]
-    let _settlement_selected = execute_selected_settlement_project(
+    let settlement_selected = execute_selected_settlement_project(
         registries,
         &settlement_state,
         settlement_resources,
         settlement_plan,
         settlement_consumer,
     );
+    #[cfg(test)]
+    let _ = &settlement_selected;
     #[cfg(not(test))]
     let settlement_stone_project = execute_selected_settlement_project(
         registries,
         &settlement_state,
         settlement_resources,
-        SettlementPowerPlan {
-            choice: SettlementPowerChoice::StoneCrank,
-            ..settlement_plan
-        },
+        settlement_plan.with_reference_choice(SettlementPowerChoice::StoneCrank),
         settlement_consumer,
     );
     #[cfg(not(test))]
@@ -897,10 +879,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         registries,
         &settlement_state,
         settlement_resources,
-        SettlementPowerPlan {
-            choice: SettlementPowerChoice::CopperCrank,
-            ..settlement_plan
-        },
+        settlement_plan.with_reference_choice(SettlementPowerChoice::CopperCrank),
         settlement_consumer,
     );
     #[cfg(not(test))]
@@ -908,10 +887,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         registries,
         &settlement_state,
         settlement_resources,
-        SettlementPowerPlan {
-            choice: SettlementPowerChoice::Treadle,
-            ..settlement_plan
-        },
+        settlement_plan.with_reference_choice(SettlementPowerChoice::Treadle),
         settlement_consumer,
     );
     #[cfg(not(test))]
@@ -919,10 +895,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         registries,
         &settlement_state,
         settlement_resources,
-        SettlementPowerPlan {
-            choice: SettlementPowerChoice::TreadleDynamo,
-            ..settlement_plan
-        },
+        settlement_plan.with_reference_choice(SettlementPowerChoice::TreadleDynamo),
         settlement_consumer,
     );
     #[cfg(not(test))]
@@ -930,10 +903,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         registries,
         &settlement_state,
         settlement_resources,
-        SettlementPowerPlan {
-            choice: SettlementPowerChoice::DoubleWoundTreadleDynamo,
-            ..settlement_plan
-        },
+        settlement_plan.with_reference_choice(SettlementPowerChoice::DoubleWoundTreadleDynamo),
         settlement_consumer,
     );
     #[cfg(not(test))]
@@ -941,23 +911,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         registries,
         &settlement_state,
         settlement_resources,
-        SettlementPowerPlan {
-            choice: SettlementPowerChoice::WalkingWheel,
-            ..settlement_plan
-        },
+        settlement_plan.with_reference_choice(SettlementPowerChoice::WalkingWheel),
         settlement_consumer,
     );
-    #[cfg(not(test))]
-    let settlement_selected = match settlement_plan.choice {
-        SettlementPowerChoice::StoneCrank => settlement_stone_project,
-        SettlementPowerChoice::CopperCrank => settlement_copper_project,
-        SettlementPowerChoice::Treadle => settlement_treadle_project,
-        SettlementPowerChoice::TreadleDynamo => settlement_treadle_dynamo_project,
-        SettlementPowerChoice::DoubleWoundTreadleDynamo => {
-            settlement_double_wound_treadle_dynamo_project
-        }
-        SettlementPowerChoice::WalkingWheel => settlement_walking_project,
-    };
     #[cfg(not(test))]
     {
         let actual_crank_attention = primitive_crank_project.active_attention_ticks();
@@ -971,16 +927,16 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             actual_treadle_attention,
             actual_treadle_return_floor,
         );
-        match plan.choice {
-            PrimitivePowerChoice::Crank => assert!(
+        if plan.choice == PrimitivePowerChoice::Crank.provider() {
+            assert!(
                 !actual_treadle_is_eligible,
                 "primitive provider planner kept the crank even though the fully executed treadle saved enough attention to repay its declared capital-return floor"
-            ),
-            PrimitivePowerChoice::Treadle => assert!(
+            );
+        } else if plan.choice == PrimitivePowerChoice::Treadle.provider() {
+            assert!(
                 actual_treadle_is_eligible,
                 "primitive provider planner selected the treadle but its fully executed project did not repay the declared capital-return floor"
-            ),
-            PrimitivePowerChoice::WalkingWheel => {}
+            );
         }
     }
     #[cfg(not(test))]
@@ -1015,10 +971,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         }
     };
     #[cfg(not(test))]
-    let primitive_selected_attention_gap = primitive_selected
-        .active_attention_ticks()
-        .checked_sub(primitive_actual_attention_minimum)
-        .unwrap_or_else(|| unreachable!("minimum primitive attention cannot exceed selected arm"));
+    let primitive_selected_reference_attention_delta =
+        i128::from(primitive_selected.active_attention_ticks())
+            - i128::from(primitive_actual_attention_minimum);
     #[cfg(not(test))]
     let settlement_actual_attention_minimum = [
         settlement_stone_project.active_attention_ticks(),
@@ -1113,16 +1068,15 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         }
     };
     #[cfg(not(test))]
-    let settlement_selected_attention_gap = settlement_selected
-        .active_attention_ticks()
-        .checked_sub(settlement_allowed_attention_minimum)
-        .unwrap_or_else(|| unreachable!("allowed settlement minimum cannot exceed selected arm"));
+    let settlement_selected_reference_attention_delta =
+        i128::from(settlement_selected.active_attention_ticks())
+            - i128::from(settlement_allowed_attention_minimum);
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive survival-start={} selected={} declared=[work:{}nJ pristine-charge-events:{} consumer-projected-batches:{} consumer-projected-services:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive survival-start={} selected={} declared=[work:{}nJ pristine-charge-events:{} consumer-projected-batches:{} consumer-projected-services:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] reference-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} selected-vs-reference-attention-delta:{:+}t] evidence=complete-selected-project-canonical",
         case.role().label(),
         primitive_survival_start.label(),
-        plan.choice.label(),
+        plan.choice.primitive_label(),
         plan.declared_work_nj,
         plan.charge_events,
         plan.consumer_projected_batches,
@@ -1156,14 +1110,14 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         primitive_treadle_project.active_attention_ticks(),
         primitive_walking_project.active_attention_ticks(),
         primitive_actual_attention_best,
-        primitive_selected_attention_gap,
+        primitive_selected_reference_attention_delta,
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement survival-start={} selected={} copper-policy={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[stone-crank-active-attention:{}t copper-crank-active-attention:{}t treadle-active-attention:{}t treadle-dynamo-active-attention:{}t double-wound-treadle-dynamo-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} allowed-attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement survival-start={} selected={} copper-policy={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] reference-counterfactual=[stone-crank-active-attention:{}t copper-crank-active-attention:{}t treadle-active-attention:{}t treadle-dynamo-active-attention:{}t double-wound-treadle-dynamo-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} allowed-attention-best:{} selected-vs-reference-attention-delta:{:+}t] evidence=complete-selected-project-canonical",
         case.role().label(),
         settlement_survival_start.label(),
-        settlement_plan.choice.label(),
+        settlement_plan.choice.settlement_label(),
         copper_policy.label(),
         settlement_plan.declared_work_nj,
         settlement_plan.charge_events,
@@ -1200,7 +1154,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_walking_project.active_attention_ticks(),
         settlement_actual_attention_best,
         settlement_allowed_attention_best,
-        settlement_selected_attention_gap,
+        settlement_selected_reference_attention_delta,
     );
 
     // Matched arms inherit the same actor-visible state. Execution owns projection agreement,
@@ -1313,7 +1267,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_project_work.nanojoules(),
         settlement_plan.charge_events,
         settlement_capacity_nj,
-        settlement_plan.choice.label(),
+        settlement_plan.choice.settlement_label(),
         copper_policy.label(),
         settlement_plan.minimum_return_ppm,
         settlement_plan.minimum_attention_return_ticks,
@@ -1480,7 +1434,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         plan.consumer_projected_batches,
         plan.consumer_projected_services,
         capacity_nj,
-        plan.choice.label(),
+        plan.choice.primitive_label(),
         plan.minimum_return_ppm,
         plan.minimum_attention_return_ticks,
         plan.crank_lifecycle_attention,

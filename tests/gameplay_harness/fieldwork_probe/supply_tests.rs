@@ -128,19 +128,27 @@ fn organic_fieldwork_hardness_varies_independently_of_demand_and_reserve_strata(
                 supply,
                 true,
             );
-            geology.insert(diagnostics.geology_label);
+            geology.insert(diagnostics.geology_label.clone());
             stratum_geology.insert(diagnostics.geology_label);
         }
         varied_strata += usize::from(stratum_geology.len() > 1);
     }
-    assert_eq!(
-        geology,
-        BTreeSet::from([
+    let required_current_pressures = BTreeSet::from(
+        [
             "quarry-soft",
             "quarry-reinforcement",
-            "hard-pick-specialist"
-        ]),
-        "broad organic fieldwork generation must retain every authored hardness pressure"
+            "hard-pick-specialist",
+        ]
+        .map(str::to_owned),
+    );
+    assert!(
+        required_current_pressures.is_subset(&geology),
+        "broad organic fieldwork generation lost a current authored hardness pressure"
+    );
+    assert_eq!(
+        geology.len(),
+        fieldwork_hardness_frontier(&registries).len(),
+        "broad organic fieldwork generation must exercise every distinct live extraction-hardness frontier"
     );
     assert!(
         varied_strata >= 12,

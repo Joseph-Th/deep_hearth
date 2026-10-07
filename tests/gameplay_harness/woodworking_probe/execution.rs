@@ -7,12 +7,13 @@ pub(super) fn assemble_adze(
     state: &mut AppState,
     raw: StockpileId,
     parts: StockpileId,
+    definition: deep_hearth::equipment::EquipmentDefinitionId,
 ) -> (EquipmentId, u64) {
     let assembly = registries
         .equipment()
-        .get_equipment(EQUIPMENT_STONE_WOODWORKING_ADZE)
+        .get_equipment(definition)
         .and_then(|definition| definition.assembly_profile())
-        .unwrap_or_else(|| panic!("woodworking adze lost its authored assembly"));
+        .unwrap_or_else(|| panic!("woodworking selected adze lost its authored assembly"));
     let mut attention = 0_u64;
     for input in assembly.inputs() {
         let (craft, batches, source) = manual_craft_plan_for_available_output(
@@ -21,7 +22,7 @@ pub(super) fn assemble_adze(
             &[raw],
             input.commodity(),
             input.mass(),
-            "woodworking adze component planning",
+            "woodworking selected-adze component planning",
         );
         let duration = execute_manual_craft_batches(
             registries,
@@ -30,85 +31,19 @@ pub(super) fn assemble_adze(
             source,
             parts,
             batches,
-            "woodworking adze component",
+            "woodworking selected-adze component",
         );
         attention = attention
             .checked_add(duration.value())
             .unwrap_or_else(|| panic!("woodworking adze setup overflowed"));
     }
-    let equipment =
-        validate_assemble_equipment(registries, state, EQUIPMENT_STONE_WOODWORKING_ADZE, parts)
-            .unwrap_or_else(|error| panic!("woodworking adze assembly failed: {error}"))
-            .commit(state)
-            .unwrap_or_else(|error| panic!("woodworking adze assembly commit failed: {error}"));
+    let equipment = validate_assemble_equipment(registries, state, definition, parts)
+        .unwrap_or_else(|error| panic!("woodworking selected-adze assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("woodworking selected-adze assembly commit failed: {error}")
+        });
     (equipment, attention)
-}
-
-pub(super) fn reinforce_adze(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    parts: StockpileId,
-    adze: EquipmentId,
-) -> u64 {
-    let upgrade = registries
-        .equipment()
-        .get_equipment(EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE)
-        .and_then(|definition| definition.upgrade_profile())
-        .unwrap_or_else(|| panic!("woodworking reinforced adze lost its authored upgrade"));
-    assert_eq!(upgrade.from(), EQUIPMENT_STONE_WOODWORKING_ADZE);
-    let mut attention = 0_u64;
-    for input in upgrade.additions().inputs() {
-        let available = state
-            .inventory()
-            .get_stockpile(parts)
-            .unwrap_or_else(|| panic!("woodworking adze parts stockpile disappeared"))
-            .get_mass(input.commodity());
-        if available >= input.mass() {
-            continue;
-        }
-        let missing = input
-            .mass()
-            .checked_sub(available)
-            .unwrap_or_else(|| unreachable!("checked woodworking upgrade component deficit"));
-        let (craft, batches, source) = manual_craft_plan_for_available_output(
-            registries,
-            state,
-            &[raw],
-            input.commodity(),
-            missing,
-            "woodworking adze reinforcement planning",
-        );
-        attention = attention
-            .checked_add(
-                execute_manual_craft_batches(
-                    registries,
-                    state,
-                    craft.process(),
-                    source,
-                    parts,
-                    batches,
-                    "woodworking adze reinforcement",
-                )
-                .value(),
-            )
-            .unwrap_or_else(|| panic!("woodworking adze reinforcement attention overflowed"));
-    }
-    let upgraded = validate_upgrade_equipment(
-        registries,
-        state,
-        adze,
-        EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
-        parts,
-    )
-    .unwrap_or_else(|error| panic!("woodworking adze reinforcement failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("woodworking adze reinforcement commit failed: {error}"));
-    assert_eq!(
-        upgraded, adze,
-        "woodworking adze reinforcement must preserve identity"
-    );
-    attention
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

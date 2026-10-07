@@ -2,14 +2,14 @@
 
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
-    build_registries,
+    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK, build_registries,
 };
 use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::validate_loaded_state;
 use deep_hearth::matter::calculate_matter_accounting;
 
 use super::extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
-use super::planning::{FIELDWORK_TOOLS, fieldwork_mining_limits, multiplied_mass};
+use super::planning::{FieldworkTool, fieldwork_mining_limits, multiplied_mass};
 use super::preparation::{
     assemble_fieldwork_tool, assemble_sampling_hammer, upgrade_sampling_hammer,
 };
@@ -41,14 +41,18 @@ fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
         &mut world.state,
         world.raw,
         world.parts,
-        FIELDWORK_TOOLS[1],
+        FieldworkTool {
+            target: EQUIPMENT_COPPER_REINFORCED_PICK,
+        },
     );
     let (quarry, _) = assemble_fieldwork_tool(
         &registries,
         &mut world.state,
         world.raw,
         world.parts,
-        FIELDWORK_TOOLS[2],
+        FieldworkTool {
+            target: EQUIPMENT_STONE_QUARRY_PICK,
+        },
     );
     let owned = [hard_pick, quarry];
     let recovery = FieldworkOwnedOreRecovery {
@@ -111,7 +115,9 @@ fn owned_base_tool_uses_the_authored_in_place_upgrade_before_fresh_rebuild() {
         &mut world.state,
         world.raw,
         world.parts,
-        FIELDWORK_TOOLS[0],
+        FieldworkTool {
+            target: EQUIPMENT_STONE_PICK,
+        },
     );
     let before = world
         .state
@@ -184,14 +190,18 @@ fn equally_fast_owned_tools_prefer_better_condition_over_internal_identity() {
         &mut world.state,
         world.raw,
         world.parts,
-        FIELDWORK_TOOLS[0],
+        FieldworkTool {
+            target: EQUIPMENT_STONE_PICK,
+        },
     );
     let (fresh, _) = assemble_fieldwork_tool(
         &registries,
         &mut world.state,
         world.raw,
         world.parts,
-        FIELDWORK_TOOLS[0],
+        FieldworkTool {
+            target: EQUIPMENT_STONE_PICK,
+        },
     );
     assert!(worn.value() < fresh.value());
 
@@ -295,7 +305,9 @@ fn obsolete_specialization_can_be_salvaged_into_the_new_geology_tool() {
         &mut world.state,
         world.raw,
         world.parts,
-        FIELDWORK_TOOLS[3],
+        FieldworkTool {
+            target: EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        },
     );
     let hard_upper = Pressure::from_pascals(
         limits
@@ -373,7 +385,9 @@ fn owned_ore_specialization_can_pay_back_before_the_current_tool_is_blocked() {
         &mut world.state,
         world.raw,
         world.parts,
-        FIELDWORK_TOOLS[1],
+        FieldworkTool {
+            target: EQUIPMENT_COPPER_REINFORCED_PICK,
+        },
     );
     let primary = localize_target(
         &registries,

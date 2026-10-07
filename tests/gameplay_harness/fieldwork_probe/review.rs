@@ -21,7 +21,7 @@ use super::campaign::FieldworkSurveyCampaignReview;
 use super::extraction::{
     FieldworkExtraction, FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction,
 };
-use super::planning::FieldworkToolEstimate;
+use super::planning::{FieldworkTool, FieldworkToolEstimate, fieldwork_tool_label};
 use super::recovery::execute_initial_shortfall_recovery;
 use super::retooling::{
     FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, FieldworkSiteToolRequest,
@@ -83,7 +83,7 @@ pub(super) struct FieldworkEpisodeReview<'a> {
     pub(super) observed_resource_mass: ResourceMassEstimate,
     pub(super) planned_local_mass: Mass,
     pub(super) full_order_tool: Option<EquipmentDefinitionId>,
-    pub(super) full_order_tool_label: &'static str,
+    pub(super) full_order_tool_label: String,
     pub(super) resource_knowledge_effect: FieldworkResourceKnowledgeEffect,
     pub(super) starting_native_copper: Mass,
     pub(super) native_copper: CommodityKey,
@@ -222,7 +222,7 @@ struct SiteReroute {
     tool_preparation_ticks: u64,
     tool_reused: bool,
     tool_upgraded: bool,
-    tool_label: Option<&'static str>,
+    tool_label: Option<String>,
     ore_recovery_ticks: u64,
     ore_feed_mass: Mass,
     recovered_native: Mass,
@@ -325,7 +325,9 @@ fn execute_site_reroute(
         tool_preparation_ticks: tool.preparation_ticks,
         tool_reused: tool.reused_existing,
         tool_upgraded: tool.upgraded_existing,
-        tool_label: Some(tool.label),
+        tool_label: Some(fieldwork_tool_label(FieldworkTool {
+            target: tool.definition,
+        })),
         ore_recovery_ticks: tool.ore_recovery_ticks,
         ore_feed_mass: tool.ore_feed_mass,
         recovered_native: tool.recovered_native,
@@ -430,7 +432,7 @@ fn report_known_site_exploitation(
                     review.case.seed(),
                     reroute.tool_reused,
                     reroute.tool_upgraded,
-                    reroute.tool_label.unwrap_or("unknown"),
+                    reroute.tool_label.as_deref().unwrap_or("unknown"),
                     reroute.tool_preparation_ticks,
                     reroute.salvaged,
                     reroute
@@ -668,7 +670,7 @@ pub(super) fn finalize_fieldwork_episode(
     reviewln!(
         "FIELDWORK ESTIMATE FEEDBACK seed=0x{:016X} selected={} order-horizon={} outcome={} requested={}mg output={}mg preparation-estimate={}t preparation-actual={}t wear-adjusted-order-estimate={}t extraction-actual={}t extraction-error={extraction_error} actual-build-plus-order={}t/{} condition={}ppm->{}ppm comparison={comparison} estimate-matched={estimate_matched} choice-frozen-before-action=true service=none",
         review.case.seed(),
-        review.estimate.tool.label,
+        fieldwork_tool_label(review.estimate.tool),
         review.order_horizon,
         extraction.stop.outcome(),
         review.requested.milligrams(),
@@ -723,7 +725,7 @@ pub(super) fn finalize_fieldwork_episode(
         review.planned_local_mass.milligrams(),
         review.full_order_tool_label,
         review.resource_knowledge_effect.label(),
-        review.estimate.tool.label,
+        fieldwork_tool_label(review.estimate.tool),
         extraction.adaptation.label(),
         review.sampling_setup_ticks,
         format_physical_duration(review.registries, review.sampling_setup_ticks),

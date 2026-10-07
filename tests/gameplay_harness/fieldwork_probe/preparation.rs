@@ -113,31 +113,14 @@ pub(super) fn assemble_fieldwork_tool(
         state,
         raw,
         parts,
-        &[tool.base],
+        &[tool.target],
         "fieldwork selected-tool components",
     );
-    let pick = validate_assemble_equipment(registries, state, tool.base, parts)
+    let pick = validate_assemble_equipment(registries, state, tool.target, parts)
         .unwrap_or_else(|error| panic!("fieldwork hard-pick assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("fieldwork hard-pick assembly commit failed: {error}"));
-    if tool.target == tool.base {
-        return (pick, component_ticks);
-    }
-    let reinforcement_ticks = upgrade_fieldwork_tool(
-        registries,
-        state,
-        raw,
-        parts,
-        pick,
-        tool.target,
-        "fieldwork selected-tool reinforcement",
-    );
-    (
-        pick,
-        component_ticks
-            .checked_add(reinforcement_ticks)
-            .unwrap_or_else(|| panic!("fieldwork hard-pick adaptation duration overflowed")),
-    )
+    (pick, component_ticks)
 }
 
 pub(super) fn assemble_sampling_hammer(

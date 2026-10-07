@@ -3,9 +3,7 @@
 use std::num::NonZeroU64;
 
 use deep_hearth::content::{
-    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE,
     EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
     MANUAL_POWER_WALKING_WHEEL, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
@@ -40,10 +38,7 @@ use super::consumers::{
     PrimitivePowerConsumer, SettlementPowerConsumer, consume_primitive_work,
     consume_settlement_charge,
 };
-use super::planning::{
-    PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
-    ShapedBuild,
-};
+use super::planning::{PrimitivePowerPlan, SettlementPowerPlan, ShapedBuild};
 use super::provisioning::{PowerProjectProvisions, ProvisioningOutcome, provision_for_project_leg};
 
 #[path = "power_provider_execution/project.rs"]

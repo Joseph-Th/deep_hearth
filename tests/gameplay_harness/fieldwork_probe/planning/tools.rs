@@ -67,47 +67,25 @@ pub(in super::super) fn fieldwork_mining_limits(registries: &Registries) -> Fiel
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) struct FieldworkTool {
-    pub(in super::super) base: EquipmentDefinitionId,
     pub(in super::super) target: EquipmentDefinitionId,
-    pub(in super::super) label: &'static str,
 }
 
-// A bounded actor family, not an exhaustive equipment catalog. Array order is not actor policy;
-// selection below requires one unique minimum over the declared observable costs.
-pub(in super::super) const FIELDWORK_TOOLS: [FieldworkTool; 4] = [
-    FieldworkTool {
-        base: EQUIPMENT_STONE_PICK,
-        target: EQUIPMENT_STONE_PICK,
-        label: "stone-pick",
-    },
-    FieldworkTool {
-        base: EQUIPMENT_STONE_PICK,
-        target: EQUIPMENT_COPPER_REINFORCED_PICK,
-        label: "copper-reinforced-hard-pick",
-    },
-    FieldworkTool {
-        base: EQUIPMENT_STONE_QUARRY_PICK,
-        target: EQUIPMENT_STONE_QUARRY_PICK,
-        label: "stone-quarry",
-    },
-    FieldworkTool {
-        base: EQUIPMENT_STONE_QUARRY_PICK,
-        target: EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
-        label: "copper-reinforced-quarry",
-    },
-];
-
-pub(in super::super) fn assert_fieldwork_tool_market_current(registries: &Registries) {
+/// Current portable hand-pick providers that the actor can assemble directly from authored content.
+///
+/// The gameplay probe must discover this market from the same registry a player-facing catalog
+/// would inspect. Adding a valid provider therefore expands the actor's candidate frame instead of
+/// making the harness stale until a hard-coded list is updated.
+pub(in super::super) fn fieldwork_tools(registries: &Registries) -> Vec<FieldworkTool> {
     let method = registries
         .mining()
         .get_method(MINING_METHOD_HAND_PICK)
         .unwrap_or_else(|| panic!("fieldwork hand-pick method disappeared"));
-    let authored = registries
+    registries
         .equipment()
         .definitions()
         .filter(|definition| {
             !definition.requires_structural_support()
-                && definition.has_authored_acquisition_edge()
+                && definition.assembly_profile().is_some()
                 && matches!(
                     definition
                         .capabilities()
@@ -127,48 +105,90 @@ pub(in super::super) fn assert_fieldwork_tool_market_current(registries: &Regist
                     Some(CapabilityValue::Pressure(hardness)) if !hardness.is_zero()
                 )
         })
-        .map(|definition| definition.id())
-        .collect::<std::collections::BTreeSet<_>>();
-    let played = FIELDWORK_TOOLS
-        .iter()
-        .map(|tool| tool.target)
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-        played, authored,
-        "fieldwork played tool market diverged from the current portable ordinarily acquirable hand-pick providers"
+        .map(|definition| FieldworkTool {
+            target: definition.id(),
+        })
+        .collect()
+}
+
+/// Current portable hand-pick upgrades that can be applied to already-owned equipment.
+///
+/// Upgrade-only definitions belong in reassessment even when they intentionally have no direct
+/// assembly route. Fresh-tool planning stays on `fieldwork_tools`, which requires direct assembly.
+pub(in super::super) fn fieldwork_upgrade_tools(registries: &Registries) -> Vec<FieldworkTool> {
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("fieldwork hand-pick method disappeared"));
+    registries
+        .equipment()
+        .definitions()
+        .filter(|definition| {
+            !definition.requires_structural_support()
+                && definition.upgrade_profile().is_some()
+                && matches!(
+                    definition
+                        .capabilities()
+                        .get_capability(method.mass_flow_capability()),
+                    Some(CapabilityValue::MassFlow(flow)) if !flow.is_zero()
+                )
+                && matches!(
+                    definition
+                        .capabilities()
+                        .get_capability(method.max_batch_mass_capability()),
+                    Some(CapabilityValue::Mass(batch)) if !batch.is_zero()
+                )
+                && matches!(
+                    definition
+                        .capabilities()
+                        .get_capability(method.max_hardness_capability()),
+                    Some(CapabilityValue::Pressure(hardness)) if !hardness.is_zero()
+                )
+        })
+        .map(|definition| FieldworkTool {
+            target: definition.id(),
+        })
+        .collect()
+}
+
+/// Distinct hand-pick hardness limits reachable from the current portable fresh-build and upgrade
+/// market. World generation uses this frontier so adding a legitimate extraction tier also adds a
+/// geological pressure band instead of leaving the new capability invisible to organic play.
+pub(in super::super) fn fieldwork_hardness_frontier(registries: &Registries) -> Vec<Pressure> {
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("fieldwork hand-pick method disappeared"));
+    let mut frontier = fieldwork_tools(registries)
+        .into_iter()
+        .chain(fieldwork_upgrade_tools(registries))
+        .map(|tool| {
+            let CapabilityValue::Pressure(hardness) = pristine_equipment_capability(
+                registries,
+                tool.target,
+                method.max_hardness_capability(),
+            ) else {
+                panic!("fieldwork discovered hardness capability changed physical kind")
+            };
+            hardness
+        })
+        .collect::<Vec<_>>();
+    frontier.sort_by_key(|hardness| hardness.pascals());
+    frontier.dedup();
+    assert!(
+        !frontier.is_empty(),
+        "fieldwork current portable hand-pick market has no hardness frontier"
     );
-    for tool in FIELDWORK_TOOLS {
-        if tool.target == tool.base {
-            continue;
-        }
-        let target = registries
-            .equipment()
-            .get_equipment(tool.target)
-            .unwrap_or_else(|| panic!("fieldwork played reinforced tool disappeared"));
-        let upgrade = target.upgrade_profile().unwrap_or_else(|| {
-            panic!("fieldwork played reinforced tool lost its authored upgrade")
-        });
-        assert_eq!(
-            upgrade.from(),
-            tool.base,
-            "fieldwork played upgrade base diverged from the authored equipment edge"
-        );
-        let direct = equipment_component_requirements(registries, &[tool.target]);
-        let mut via_upgrade = equipment_component_requirements(registries, &[tool.base]);
-        for input in upgrade.additions().inputs() {
-            add_mass(
-                &mut via_upgrade,
-                input.commodity(),
-                input.mass(),
-                "fieldwork virgin upgrade-route equivalence",
-            );
-        }
-        assert_eq!(
-            via_upgrade,
-            direct,
-            "fieldwork virgin base-plus-upgrade route no longer matches direct assembly for equipment {}; compare both authored acquisition routes explicitly",
-            tool.target.value()
-        );
+    frontier
+}
+
+pub(in super::super) fn fieldwork_tool_label(tool: FieldworkTool) -> String {
+    match tool.target {
+        EQUIPMENT_STONE_PICK => "stone-pick".to_owned(),
+        EQUIPMENT_COPPER_REINFORCED_PICK => "copper-reinforced-hard-pick".to_owned(),
+        EQUIPMENT_STONE_QUARRY_PICK => "stone-quarry".to_owned(),
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK => "copper-reinforced-quarry".to_owned(),
+        other => format!("equipment-{}", other.value()),
     }
 }
 
@@ -240,6 +260,9 @@ pub(in super::super) enum FieldworkToolBlocker {
         commodity: CommodityKey,
         required: Mass,
     },
+    ConstructionRoute {
+        commodity: CommodityKey,
+    },
     Order(deep_hearth::mining::MiningOrderError),
 }
 
@@ -278,12 +301,7 @@ fn estimate_component_preparation(
             &disclosed_raw_inputs(),
             "fieldwork pre-action components",
         )
-        .unwrap_or_else(|| {
-            panic!(
-                "fieldwork component {} lost its equipment-free route from disclosed raw inputs",
-                commodity.value()
-            )
-        });
+        .ok_or(FieldworkToolBlocker::ConstructionRoute { commodity })?;
         add_mass(
             &mut raw_required,
             route.raw_commodity,
@@ -316,26 +334,9 @@ fn estimate_tool_preparation(
     parts: StockpileId,
     tool: FieldworkTool,
 ) -> Result<(u64, BTreeMap<CommodityKey, Mass>), FieldworkToolBlocker> {
-    // Assembly and upgrade execute as separate crafts. Preserve their batch rounding rather
-    // than merging a shared component into one cheaper hypothetical preparation step.
-    let mut requirements: Vec<_> = equipment_component_requirements(registries, &[tool.base])
+    let requirements: Vec<_> = equipment_component_requirements(registries, &[tool.target])
         .into_iter()
         .collect();
-    if tool.target != tool.base {
-        let upgrade = registries
-            .equipment()
-            .get_equipment(tool.target)
-            .and_then(|definition| definition.upgrade_profile())
-            .unwrap_or_else(|| panic!("fieldwork upgrade disappeared"));
-        assert_eq!(upgrade.from(), tool.base);
-        requirements.extend(
-            upgrade
-                .additions()
-                .inputs()
-                .iter()
-                .map(|input| (input.commodity(), input.mass())),
-        );
-    }
     estimate_component_preparation(registries, state, raw, parts, requirements)
 }
 
@@ -422,9 +423,9 @@ pub(in super::super) fn estimate_fieldwork_tool(
     })
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(in super::super) struct FieldworkBulkCrossover {
-    pub(in super::super) tool_label: &'static str,
+    pub(in super::super) tool_label: String,
     pub(in super::super) batches: u64,
     pub(in super::super) order: Mass,
 }
@@ -440,10 +441,11 @@ pub(in super::super) fn fieldwork_bulk_crossover(
     observed_upper: Pressure,
     base_batch: Mass,
 ) -> Option<FieldworkBulkCrossover> {
+    let tools = fieldwork_tools(registries);
     for batches in 1..=BULK_FIELDWORK_ORDER_MAX_BATCHES {
         let order = multiplied_mass(base_batch, batches, "bulk crossover diagnostic");
         let selected = select_unique_best_tool(
-            FIELDWORK_TOOLS.iter().filter_map(|&tool| {
+            tools.iter().copied().filter_map(|tool| {
                 estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order)
                     .ok()
             }),
@@ -452,12 +454,9 @@ pub(in super::super) fn fieldwork_bulk_crossover(
         let Some(selected) = selected else {
             continue;
         };
-        if matches!(
-            selected.tool.target,
-            EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
-        ) {
+        if fieldwork_tool_is_heavy(registries, selected.tool, base_batch) {
             return Some(FieldworkBulkCrossover {
-                tool_label: selected.tool.label,
+                tool_label: fieldwork_tool_label(selected.tool),
                 batches,
                 order,
             });
@@ -483,15 +482,10 @@ pub(in super::super) fn fieldwork_bulk_crossover_blocker(
         BULK_FIELDWORK_ORDER_MAX_BATCHES,
         "bulk crossover blocker diagnostic",
     );
-    let heavy_results = FIELDWORK_TOOLS
-        .iter()
-        .filter(|tool| {
-            matches!(
-                tool.target,
-                EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
-            )
-        })
-        .map(|&tool| {
+    let heavy_results = fieldwork_tools(registries)
+        .into_iter()
+        .filter(|&tool| fieldwork_tool_is_heavy(registries, tool, base_batch))
+        .map(|tool| {
             estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order)
         })
         .collect::<Vec<_>>();
@@ -512,6 +506,12 @@ pub(in super::super) fn fieldwork_bulk_crossover_blocker(
     }
     if heavy_results
         .iter()
+        .any(|result| matches!(result, Err(FieldworkToolBlocker::ConstructionRoute { .. })))
+    {
+        return "construction-route";
+    }
+    if heavy_results
+        .iter()
         .any(|result| matches!(result, Err(FieldworkToolBlocker::Order(_))))
     {
         return "order-limit";
@@ -529,14 +529,15 @@ fn viable_fieldwork_tools(
     report_candidates: bool,
 ) -> Vec<FieldworkToolEstimate> {
     let mut viable = Vec::new();
-    for tool in FIELDWORK_TOOLS {
+    for tool in fieldwork_tools(registries) {
         let estimate =
             estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order);
         if report_candidates {
             println!(
-                "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=current-portable-ordinary-hand-pick-market authorization=not-yet assumptions=no-service,caller-supplied-visible-workload",
+                "FIELDWORK CANDIDATE tick={} tool={} equipment={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=current-portable-direct-assembly-hand-pick-market authorization=not-yet assumptions=no-service,caller-supplied-visible-workload",
                 state.tick().value(),
-                tool.label,
+                fieldwork_tool_label(tool),
+                tool.target.value(),
                 observed_upper.pascals(),
                 order.milligrams()
             );
@@ -574,27 +575,18 @@ pub(in super::super) fn choose_fieldwork_tool_with_market_phase(
     let viable = viable_fieldwork_tools(registries, state, raw, parts, observed_upper, order, true);
     let selected = select_unique_best_tool(viable.iter().cloned(), "market planning");
     if let Some(selected) = &selected {
+        let base_batch = fieldwork_mining_limits(registries).base_quarry_batch;
         let heavy = select_unique_best_tool(
             viable
                 .iter()
-                .filter(|estimate| {
-                    matches!(
-                        estimate.tool.target,
-                        EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
-                    )
-                })
+                .filter(|estimate| fieldwork_tool_is_heavy(registries, estimate.tool, base_batch))
                 .cloned(),
             "heavy-tool market comparison",
         );
         let light = select_unique_best_tool(
             viable
                 .iter()
-                .filter(|estimate| {
-                    !matches!(
-                        estimate.tool.target,
-                        EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
-                    )
-                })
+                .filter(|estimate| !fieldwork_tool_is_heavy(registries, estimate.tool, base_batch))
                 .cloned(),
             "light-tool market comparison",
         );
@@ -606,11 +598,11 @@ pub(in super::super) fn choose_fieldwork_tool_with_market_phase(
                 let total_delta = i128::from(heavy.total_ticks()) - i128::from(light.total_ticks());
                 reviewln!(
                     "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t light-best={} light-total={}t heavy-best={} heavy-total={}t heavy-preparation-extra={preparation_extra:+}t heavy-order-saving={order_saving:+}t heavy-total-delta={total_delta:+}t heavy-investment={}",
-                    selected.tool.label,
+                    fieldwork_tool_label(selected.tool),
                     selected.total_ticks(),
-                    light.tool.label,
+                    fieldwork_tool_label(light.tool),
                     light.total_ticks(),
-                    heavy.tool.label,
+                    fieldwork_tool_label(heavy.tool),
                     heavy.total_ticks(),
                     if heavy.tool.target == selected.tool.target {
                         "selected"
@@ -621,19 +613,34 @@ pub(in super::super) fn choose_fieldwork_tool_with_market_phase(
             } else {
                 reviewln!(
                     "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t light-best=unavailable heavy-best={} heavy-total={}t heavy-investment=selected",
-                    selected.tool.label,
+                    fieldwork_tool_label(selected.tool),
                     selected.total_ticks(),
-                    heavy.tool.label,
+                    fieldwork_tool_label(heavy.tool),
                     heavy.total_ticks(),
                 );
             }
         } else {
             reviewln!(
                 "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t heavy-best=unavailable heavy-investment=unavailable",
-                selected.tool.label,
+                fieldwork_tool_label(selected.tool),
                 selected.total_ticks(),
             );
         }
     }
     selected
+}
+
+fn fieldwork_tool_is_heavy(registries: &Registries, tool: FieldworkTool, base_batch: Mass) -> bool {
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("fieldwork hand-pick method disappeared"));
+    matches!(
+        pristine_equipment_capability(
+            registries,
+            tool.target,
+            method.max_batch_mass_capability(),
+        ),
+        CapabilityValue::Mass(batch) if batch >= base_batch
+    )
 }

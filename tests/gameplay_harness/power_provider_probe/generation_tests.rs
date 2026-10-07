@@ -3,8 +3,10 @@
 use std::collections::BTreeSet;
 
 use deep_hearth::content::{
-    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
+use deep_hearth::material::CommodityKey;
 
 use super::super::bulk_fieldwork_workload::{
     BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, primitive_quarry_batch_mass,
@@ -13,7 +15,7 @@ use super::super::settlement_demand::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batches,
 };
 use super::planning::{
-    assert_primitive_power_provider_market_current, assert_settlement_power_provider_market_current,
+    PrimitivePowerChoice, SettlementPowerChoice, reachable_mechanical_power_providers,
 };
 use super::*;
 
@@ -50,10 +52,50 @@ fn organic_power_sample_pairs_each_workload_scale_with_inherited_survival_pressu
 }
 
 #[test]
-fn played_power_provider_sets_match_current_buildable_mechanical_content() {
+fn report_reference_power_providers_remain_members_of_the_live_buildable_market() {
     let registries = deep_hearth::content::build_registries();
-    assert_primitive_power_provider_market_current(&registries);
-    assert_settlement_power_provider_market_current(&registries);
+    let primitive = reachable_mechanical_power_providers(
+        &registries,
+        [
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        ],
+    );
+    let settlement = reachable_mechanical_power_providers(
+        &registries,
+        [
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        ],
+    );
+    assert!(!primitive.is_empty());
+    assert!(!settlement.is_empty());
+    for reference in [
+        PrimitivePowerChoice::Crank,
+        PrimitivePowerChoice::Treadle,
+        PrimitivePowerChoice::WalkingWheel,
+    ] {
+        assert!(
+            primitive.contains(&reference.provider()),
+            "primitive report reference {:?} is no longer directly buildable from disclosed roots",
+            reference
+        );
+    }
+    for reference in [
+        SettlementPowerChoice::StoneCrank,
+        SettlementPowerChoice::CopperCrank,
+        SettlementPowerChoice::Treadle,
+        SettlementPowerChoice::TreadleDynamo,
+        SettlementPowerChoice::DoubleWoundTreadleDynamo,
+        SettlementPowerChoice::WalkingWheel,
+    ] {
+        assert!(
+            settlement.contains(&reference.provider()),
+            "settlement report reference {:?} is no longer directly buildable from disclosed roots",
+            reference
+        );
+    }
 }
 
 #[test]

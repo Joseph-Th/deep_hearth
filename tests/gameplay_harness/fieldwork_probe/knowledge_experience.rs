@@ -24,7 +24,7 @@ use super::super::ore_fixture::copper_ore_composition;
 use super::extraction::{FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction};
 use super::planning::{
     choose_fieldwork_tool_quiet, fieldwork_bulk_crossover, fieldwork_mining_limits,
-    fieldwork_raw_opportunity, raw_opportunity_for_equipment_components,
+    fieldwork_raw_opportunity, fieldwork_tool_label, raw_opportunity_for_equipment_components,
 };
 use super::preparation::{assemble_fieldwork_tool, craft_equipment_components};
 use super::survey::{FieldworkSurveyStrategy, horizontal_region, run_survey, search_target};
@@ -540,9 +540,9 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
         core_resource_mass.lower().milligrams(),
         core_resource_mass.upper().milligrams(),
         capital_crossover_order.milligrams(),
-        hammer_choice.tool.label,
+        fieldwork_tool_label(hammer_choice.tool),
         hammer_choice.total_ticks(),
-        core_choice.tool.label,
+        fieldwork_tool_label(core_choice.tool),
         core_choice.total_ticks(),
         core_plan.milligrams(),
         extraction.extracted.milligrams(),

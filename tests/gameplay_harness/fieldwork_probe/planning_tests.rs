@@ -37,9 +37,33 @@ fn choose_fieldwork_tool(
 }
 
 #[test]
-fn fieldwork_actor_family_tracks_all_portable_ordinary_hand_pick_providers() {
+fn fieldwork_actor_market_is_registry_derived_and_contains_current_specializations() {
     let registries = deep_hearth::content::build_registries();
-    assert_fieldwork_tool_market_current(&registries);
+    let tools = fieldwork_tools(&registries);
+    let definitions = tools
+        .iter()
+        .map(|tool| tool.target)
+        .collect::<std::collections::BTreeSet<_>>();
+    for expected in [
+        EQUIPMENT_STONE_PICK,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        EQUIPMENT_STONE_QUARRY_PICK,
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+    ] {
+        assert!(
+            definitions.contains(&expected),
+            "current authored fieldwork specialization {} disappeared from the player-visible market",
+            expected.value()
+        );
+    }
+    for tool in tools {
+        let definition = registries
+            .equipment()
+            .get_equipment(tool.target)
+            .unwrap_or_else(|| panic!("discovered fieldwork definition disappeared"));
+        assert!(definition.assembly_profile().is_some());
+        assert!(!definition.requires_structural_support());
+    }
 }
 
 #[test]
@@ -187,12 +211,12 @@ fn candidate_frame_respects_visible_hardness_and_finite_copper() {
     .unwrap_or_else(|| panic!("stone route remains available"));
     assert_eq!(selected.tool.target, EQUIPMENT_STONE_PICK);
     assert!(
-        matches!(estimate_fieldwork_tool(&registries, &state, raw, parts, FIELDWORK_TOOLS[1],
+        matches!(estimate_fieldwork_tool(&registries, &state, raw, parts, FieldworkTool { target: EQUIPMENT_COPPER_REINFORCED_PICK },
         limits.reinforced_quarry_hardness, limits.base_quarry_batch),
         Err(FieldworkToolBlocker::RawInput { commodity, .. }) if commodity.material() == MATERIAL_COPPER)
     );
     assert!(
-        matches!(estimate_fieldwork_tool(&registries, &state, raw, parts, FIELDWORK_TOOLS[2],
+        matches!(estimate_fieldwork_tool(&registries, &state, raw, parts, FieldworkTool { target: EQUIPMENT_STONE_QUARRY_PICK },
         limits.reinforced_quarry_hardness, limits.base_quarry_batch),
         Err(FieldworkToolBlocker::AcquiredHardness { upper, maximum })
             if upper == limits.reinforced_quarry_hardness && maximum == limits.base_quarry_hardness)
@@ -385,7 +409,9 @@ fn wear_adjusted_order_can_favor_the_lighter_reinforced_tool() {
         &state,
         raw,
         parts,
-        FIELDWORK_TOOLS[2],
+        FieldworkTool {
+            target: EQUIPMENT_STONE_QUARRY_PICK,
+        },
         fieldwork_mining_limits(&registries).base_quarry_hardness,
         order,
     )

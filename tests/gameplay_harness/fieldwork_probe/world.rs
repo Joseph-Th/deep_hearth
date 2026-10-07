@@ -19,7 +19,8 @@ use super::super::inventory_support::add_solid_stockpile;
 use super::super::ore_fixture::copper_ore_composition;
 use super::super::seed::mix64;
 use super::planning::{
-    FieldworkMiningLimits, fieldwork_mining_limits, fieldwork_raw_opportunity, multiplied_mass,
+    FieldworkMiningLimits, fieldwork_hardness_frontier, fieldwork_mining_limits,
+    fieldwork_raw_opportunity, multiplied_mass,
 };
 use super::survey::{CHANNEL_COUNT, CHANNEL_START_X, FOLLOWUP_CHANNEL_STARTS, horizontal_region};
 
@@ -41,9 +42,9 @@ pub(super) struct FieldworkWorld {
 /// This type is deliberately separate from [`FieldworkWorld`]. Actor planning must operate on the
 /// actor-visible spatial-proxy world plus acquired runtime evidence and must never receive exact
 /// geological truth.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct FieldworkFixtureDiagnostics {
-    pub(super) geology_label: &'static str,
+    pub(super) geology_label: String,
     pub(super) excavation_hardness: Pressure,
     pub(super) deposit_mass: Mass,
 }
@@ -148,10 +149,11 @@ fn hidden_location(
 }
 
 fn geology_profile(
+    registries: &Registries,
     seed: u64,
     limits: FieldworkMiningLimits,
     stratify_hardness: bool,
-) -> (u64, &'static str, FieldworkGeologyProfile) {
+) -> (usize, String, FieldworkGeologyProfile) {
     // Hardness is its own physical pressure channel. Do not derive it from demand or reserve
     // strata merely to force a particular tool-investment opportunity into a bounded report.
     // `stratify_hardness` retains a separate replay salt so ordinary organic samples and unstratified
@@ -161,55 +163,53 @@ fn geology_profile(
     } else {
         0x4649_454C_4448_4152
     };
-    let hardness_tier = mix64(seed ^ hardness_salt) % 3;
-    let base_pa = limits.base_quarry_hardness.pascals();
-    let reinforced_quarry_pa = limits.reinforced_quarry_hardness.pascals();
-    let reinforced_pick_pa = limits.reinforced_pick_hardness.pascals();
-    let (label, hardness) = match hardness_tier {
-        0 => {
-            let floor = base_pa.saturating_mul(3) / 4;
-            let span = base_pa - floor;
-            (
-                "quarry-soft",
-                Pressure::from_pascals(floor + mix64(seed ^ 0x4649_454C_4453_4F46) % (span + 1)),
-            )
-        }
-        1 => {
-            let gap = reinforced_quarry_pa
-                .checked_sub(base_pa)
-                .unwrap_or_else(|| {
-                    unreachable!("reinforced quarry hardness exceeds base hardness")
-                });
-            let sampled_gap = if stratify_hardness {
-                // Keep the bounded exploratory witness away from the capability edge. The ordinary
-                // detailed survey reports 50 MPa hardness buckets; sampling the lower half of the
-                // live 500-600 MPa reinforced-quarry band leaves the actor's conservative upper
-                // estimate inside the tool envelope instead of creating a hidden-truth-only niche.
-                (gap / 2).max(1)
-            } else {
-                gap
-            };
-            (
-                "quarry-reinforcement",
-                Pressure::from_pascals(
-                    base_pa + 1 + mix64(seed ^ 0x4649_454C_444D_4544) % sampled_gap,
-                ),
-            )
-        }
-        2 => {
-            let gap = reinforced_pick_pa
-                .checked_sub(reinforced_quarry_pa)
-                .unwrap_or_else(|| {
-                    unreachable!("reinforced pick hardness exceeds reinforced quarry hardness")
-                });
-            (
-                "hard-pick-specialist",
-                Pressure::from_pascals(
-                    reinforced_quarry_pa + 1 + mix64(seed ^ 0x4649_454C_4448_4152) % gap,
-                ),
-            )
-        }
-        _ => unreachable!("three fieldwork hardness tiers are exhaustive"),
+    let frontier = fieldwork_hardness_frontier(registries);
+    let hardness_tier = usize::try_from(
+        mix64(seed ^ hardness_salt)
+            % u64::try_from(frontier.len())
+                .unwrap_or_else(|_| unreachable!("bounded hardness frontier fits u64")),
+    )
+    .unwrap_or_else(|_| unreachable!("bounded hardness tier fits usize"));
+    let upper = frontier[hardness_tier].pascals();
+    let lower = if hardness_tier == 0 {
+        upper.saturating_mul(3) / 4
+    } else {
+        frontier[hardness_tier - 1]
+            .pascals()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("fieldwork hardness frontier lower bound overflowed"))
+    };
+    assert!(
+        lower <= upper,
+        "fieldwork hardness frontier is not strictly ordered"
+    );
+    // Exploratory primary worlds stay in the lower half of each non-base band. Actor-visible
+    // hardness estimates are conservative buckets, so this keeps a generated capability niche
+    // actionable without using hidden exact truth to select the tool. Follow-up sites sample the
+    // complete band and can still reveal edge pressure or an unavailable harder site.
+    let sampled_upper = if stratify_hardness && hardness_tier > 0 {
+        lower + (upper - lower) / 2
+    } else {
+        upper
+    };
+    let span = sampled_upper - lower;
+    let hardness = Pressure::from_pascals(
+        lower
+            + mix64(
+                seed ^ 0x4649_454C_4447_454F
+                    ^ u64::try_from(hardness_tier)
+                        .unwrap_or_else(|_| unreachable!("bounded hardness tier fits u64")),
+            ) % (span + 1),
+    );
+    let tier_upper = frontier[hardness_tier];
+    let label = if tier_upper == limits.base_quarry_hardness {
+        "quarry-soft".to_owned()
+    } else if tier_upper == limits.reinforced_quarry_hardness {
+        "quarry-reinforcement".to_owned()
+    } else if tier_upper == limits.reinforced_pick_hardness {
+        "hard-pick-specialist".to_owned()
+    } else {
+        format!("tool-frontier-{}Pa", tier_upper.pascals())
     };
     (
         hardness_tier,
@@ -267,7 +267,7 @@ fn build_fieldwork_world_inner(
 
     let mining_limits = fieldwork_mining_limits(registries);
     let (hardness_tier, geology_label, profile) =
-        geology_profile(seed, mining_limits, stratify_hardness);
+        geology_profile(registries, seed, mining_limits, stratify_hardness);
     let mut state = AppState::new();
     let (mut raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
     let native_copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
@@ -355,6 +355,7 @@ fn build_fieldwork_world_inner(
             0x4649_454C_4453_534C,
         );
         let followup_profile = geology_profile(
+            registries,
             mix64(site_seed ^ 0x5349_5445_5052_4F46),
             mining_limits,
             false,

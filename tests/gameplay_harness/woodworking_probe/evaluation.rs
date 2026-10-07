@@ -11,7 +11,6 @@ use super::execution::{
     AdzePipelinePlan, SawPipelinePlan, SawSetup, WoodworkingRouteOutcome, assemble_adze,
     assemble_saw, authored_output_mass, checked_mass_times, execute_adze_pipeline,
     execute_bare_pipeline, execute_saw_pipeline, project_saw_setup_budget, projected_board_mass,
-    reinforce_adze,
 };
 use super::*;
 
@@ -735,8 +734,13 @@ fn execute_woodworking_lifecycle(
     let (bare_state, bare_route) = execute_bare_counterfactual(registries, world, demand, decision);
 
     let mut common_state = world.state.clone();
-    let (adze, adze_setup) =
-        assemble_adze(registries, &mut common_state, world.raw, world.adze_parts);
+    let (adze, adze_setup) = assemble_adze(
+        registries,
+        &mut common_state,
+        world.raw,
+        world.adze_parts,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+    );
     let immediate_adze_request = select_manual_craft_request(
         registries,
         &common_state,
@@ -794,16 +798,18 @@ fn execute_woodworking_lifecycle(
         .unwrap_or_else(|error| panic!("woodworking adze counterfactual state invalid: {error}"));
 
     let reinforced_adze = (visible_native_copper(world) >= world.reinforcement_input).then(|| {
-        let mut state = common_state.clone();
-        let reinforcement_ticks =
-            reinforce_adze(registries, &mut state, world.raw, world.adze_parts, adze);
-        let setup_ticks = adze_setup
-            .checked_add(reinforcement_ticks)
-            .unwrap_or_else(|| panic!("woodworking reinforced-adze setup overflowed"));
+        let mut state = world.state.clone();
+        let (reinforced_adze, setup_ticks) = assemble_adze(
+            registries,
+            &mut state,
+            world.raw,
+            world.adze_parts,
+            EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+        );
         assert_eq!(
             Some(setup_ticks),
             decision.reinforced_adze_budget,
-            "pre-action reinforced-adze setup projection must match canonical execution"
+            "pre-action direct reinforced-adze setup projection must match canonical execution"
         );
         let route = execute_adze_pipeline(
             registries,
@@ -813,7 +819,7 @@ fn execute_woodworking_lifecycle(
                 output: world.output,
                 replacement: world.adze_replacement,
                 spent: world.adze_spent,
-                adze,
+                adze: reinforced_adze,
                 batches: demand.adze_batches,
             },
         );

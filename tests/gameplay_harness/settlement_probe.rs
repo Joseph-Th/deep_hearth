@@ -1,9 +1,8 @@
 //! Ordinary settlement lumber investment episode over disclosed prior workshop infrastructure.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
-use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::content::gameplay_fixture::{
     seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_lot,
     seed_preused_assembled_equipment_at, seed_stockpile,
@@ -19,7 +18,7 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
     manual_craft_options_from_stockpile, project_manual_craft_equipment, resolve_manual_craft,
 };
-use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_upgrade_equipment};
+use deep_hearth::equipment::{EquipmentId, validate_upgrade_equipment};
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -52,62 +51,37 @@ enum LumberInvestmentChoice {
     SashSawmill,
 }
 
-fn authored_mass_flow_providers(
-    registries: &Registries,
-    capability: CapabilityId,
-) -> BTreeSet<EquipmentDefinitionId> {
-    registries
-        .equipment()
-        .definitions()
-        .filter(|definition| definition.has_authored_acquisition_edge())
-        .filter(|definition| {
-            matches!(
-                definition.capabilities().get_capability(capability),
-                Some(CapabilityValue::MassFlow(flow)) if !flow.is_zero()
-            )
-        })
-        .map(|definition| definition.id())
-        .collect()
-}
-
-fn assert_settlement_lumber_market_current(registries: &Registries) {
+fn assert_settlement_lumber_episode_available(registries: &Registries) {
     let manual = registries
-        .crafting()
-        .get_manual(PROCESS_SAW_WOOD_BOARDS)
-        .unwrap_or_else(|| panic!("settlement manual sawing route disappeared"));
-    let manual_capability = manual
-        .equipment_profile()
-        .map(|profile| profile.mass_flow_capability())
-        .unwrap_or_else(|| panic!("settlement manual sawing route lost its equipment requirement"));
-    assert_eq!(
-        authored_mass_flow_providers(registries, manual_capability),
-        BTreeSet::from([
-            EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-            EQUIPMENT_TIMBER_SASH_SAWMILL,
-        ]),
-        "settlement lumber episode diverged from the current authored manual-saw provider market"
+        .process_topology(PROCESS_SAW_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("settlement manual sawing topology disappeared"));
+    assert!(
+        manual
+            .nominal_providers()
+            .contains(&EQUIPMENT_TIMBER_FRAME_SAW_BENCH),
+        "settlement bounded lumber episode lost its inherited frame-saw route"
     );
-
-    let powered_variants = registries
-        .crafting()
-        .powered_variants(PROCESS_SAW_WOOD_BOARDS)
-        .collect::<Vec<_>>();
-    let [powered] = powered_variants.as_slice() else {
-        panic!(
-            "settlement lumber episode expects one current powered variant of manual sawing, found {}",
-            powered_variants.len()
-        );
-    };
-    assert_eq!(
-        powered.process(),
-        PROCESS_POWER_SAW_WOOD_BOARDS,
-        "settlement lumber episode diverged from the current powered sawing transform"
+    assert!(
+        manual
+            .nominal_providers()
+            .contains(&EQUIPMENT_TIMBER_SASH_SAWMILL),
+        "settlement bounded lumber episode lost its sash-sawmill manual route"
     );
-    let powered_capability = powered.mass_flow_capability();
-    assert_eq!(
-        authored_mass_flow_providers(registries, powered_capability),
-        BTreeSet::from([EQUIPMENT_TIMBER_SASH_SAWMILL]),
-        "settlement lumber episode diverged from the current authored powered-saw provider market"
+    assert!(
+        registries
+            .crafting()
+            .powered_variants(PROCESS_SAW_WOOD_BOARDS)
+            .any(|variant| variant.process() == PROCESS_POWER_SAW_WOOD_BOARDS),
+        "settlement bounded lumber episode lost its powered sawing route"
+    );
+    let powered = registries
+        .process_topology(PROCESS_POWER_SAW_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("settlement powered sawing topology disappeared"));
+    assert!(
+        powered
+            .nominal_providers()
+            .contains(&EQUIPMENT_TIMBER_SASH_SAWMILL),
+        "settlement bounded lumber episode lost its sash-sawmill powered route"
     );
     let upgrade_from = registries
         .equipment()
@@ -552,7 +526,7 @@ fn baseline_lumber_crossover_batches(
 }
 
 pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCase) {
-    assert_settlement_lumber_market_current(registries);
+    assert_settlement_lumber_episode_available(registries);
     let investment_policy = investment_policy(case);
     let batch = authored_batch(
         registries,

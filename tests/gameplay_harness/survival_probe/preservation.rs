@@ -64,8 +64,13 @@ impl PreservationRawOpportunityKind {
 }
 
 pub(super) struct PreservationRawOpportunity {
+    #[cfg_attr(test, allow(dead_code, reason = "report-only opportunity provenance"))]
     origin: StorageDefinitionId,
     available: Vec<(CommodityKey, Mass)>,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "report-only observed market classification")
+    )]
     kind: PreservationRawOpportunityKind,
 }
 
@@ -84,30 +89,39 @@ impl PreservationRawOpportunity {
         self.kind.label()
     }
 
-    fn assert_mode_contract(&self, registries: &Registries, minimum_capacity: Mass) {
-        let buildable = preservation_candidates_for_opportunity(
-            registries,
-            minimum_capacity,
-            Some(self.available()),
+    fn from_available(
+        registries: &Registries,
+        minimum_capacity: Mass,
+        origin: StorageDefinitionId,
+        available: Vec<(CommodityKey, Mass)>,
+    ) -> Self {
+        let buildable =
+            preservation_candidates_for_opportunity(registries, minimum_capacity, Some(&available));
+        assert!(
+            !buildable.is_empty(),
+            "preservation raw opportunity is not buildable"
         );
-        match self.kind {
-            PreservationRawOpportunityKind::ChoiceRichTimber => assert!(
-                buildable.len() > 1,
-                "choice-rich preservation opportunity must expose multiple buildable enclosures"
-            ),
-            PreservationRawOpportunityKind::ScarceTimber => assert_eq!(
-                buildable.len(),
-                1,
-                "scarce preservation opportunity must expose exactly one buildable enclosure"
-            ),
-            PreservationRawOpportunityKind::AlternateMaterial => {}
-        }
         assert!(
             buildable
                 .iter()
-                .any(|candidate| candidate.definition == self.origin),
+                .any(|candidate| candidate.definition == origin),
             "preservation opportunity origin must remain buildable from its disclosed raw material"
         );
+        let alternate_material = available
+            .iter()
+            .any(|(commodity, _)| commodity.material() != MATERIAL_WOOD);
+        let kind = if alternate_material {
+            PreservationRawOpportunityKind::AlternateMaterial
+        } else if buildable.len() > 1 {
+            PreservationRawOpportunityKind::ChoiceRichTimber
+        } else {
+            PreservationRawOpportunityKind::ScarceTimber
+        };
+        Self {
+            origin,
+            available,
+            kind,
+        }
     }
 }
 
@@ -181,13 +195,12 @@ pub(super) fn preservation_raw_opportunity(
         )
         .unwrap_or_else(|_| unreachable!("bounded alternate preservation opportunity fits usize"));
         let (origin, available, _, _) = alternate_material[index];
-        let opportunity = PreservationRawOpportunity {
-            origin: *origin,
-            available: available.clone(),
-            kind: PreservationRawOpportunityKind::AlternateMaterial,
-        };
-        opportunity.assert_mode_contract(registries, protected_reserve_mass);
-        return opportunity;
+        return PreservationRawOpportunity::from_available(
+            registries,
+            protected_reserve_mass,
+            *origin,
+            available.clone(),
+        );
     }
 
     let timber = opportunities
@@ -205,13 +218,12 @@ pub(super) fn preservation_raw_opportunity(
         )
         .unwrap_or_else(|_| unreachable!("bounded alternate preservation opportunity fits usize"));
         let (origin, available, _, _) = alternate_material[index];
-        let opportunity = PreservationRawOpportunity {
-            origin: *origin,
-            available: available.clone(),
-            kind: PreservationRawOpportunityKind::AlternateMaterial,
-        };
-        opportunity.assert_mode_contract(registries, protected_reserve_mass);
-        return opportunity;
+        return PreservationRawOpportunity::from_available(
+            registries,
+            protected_reserve_mass,
+            *origin,
+            available.clone(),
+        );
     }
 
     let choice_rich = timber.len() > 1 && !mix64(seed ^ 0x5052_4553_4348_4F49).is_multiple_of(4);
@@ -237,17 +249,12 @@ pub(super) fn preservation_raw_opportunity(
     .unwrap_or_else(|_| unreachable!("bounded timber opportunity tie fits usize"));
     let selected = tied[tie_index];
     let (origin, available, _, _) = selected;
-    let opportunity = PreservationRawOpportunity {
-        origin: *origin,
-        available: available.clone(),
-        kind: if choice_rich {
-            PreservationRawOpportunityKind::ChoiceRichTimber
-        } else {
-            PreservationRawOpportunityKind::ScarceTimber
-        },
-    };
-    opportunity.assert_mode_contract(registries, protected_reserve_mass);
-    opportunity
+    PreservationRawOpportunity::from_available(
+        registries,
+        protected_reserve_mass,
+        *origin,
+        available.clone(),
+    )
 }
 
 pub(super) fn preservation_raw_material_totals(

@@ -72,7 +72,7 @@ def _choice_counts_text(counts: dict[str, int]) -> str:
 
 
 def _provider_market_text(counts: dict[str, int]) -> str:
-    """Expose the actually executed counterfactual market without a second provider catalog."""
+    """Expose provider labels observed in selected play or fixed reference counterfactuals."""
 
     return ",".join(counts) or "none"
 
@@ -212,7 +212,7 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
         "charge_events": [],
         "wear_projected_extra_charge_events": [],
         "unplanned_extra_charge_events": [],
-        "attention_gap": [],
+        "reference_attention_delta": [],
         "limited_batches": [],
         "attention": [],
         "services": [],
@@ -229,7 +229,7 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
         "water": [],
     }
     patterns = {
-        "attention_gap": r"selected-attention-gap:(\d+)t",
+        "reference_attention_delta": r"selected-vs-reference-attention-delta:([+-]?\d+)t",
         "pristine_charge_events": r"pristine-charge-events:(\d+)",
         "charge_events": r"executed=\[charge-events:(\d+)",
         "limited_batches": r"survival-limited-batches:(\d+)",
@@ -374,7 +374,9 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     treadle_load = _selected_project_mass(power, "stone-crusher", "treadle")
     lived = _project_experience(projects, "primitive")
     lived_samples = lived["samples"][0]
-    unconstrained_attention_matches = sum(gap == 0 for gap in lived["attention_gap"])
+    reference_attention_matches = sum(
+        delta == 0 for delta in lived["reference_attention_delta"]
+    )
     return (
         f"choice=[{_choice_counts_text(choice_counts)}] "
         f"market=[{_provider_market_text(choice_counts)}] "
@@ -391,8 +393,8 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"provisioning-stops:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])} "
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])}] "
-        f"policy-gap=[attention-min:{unconstrained_attention_matches}/{lived_samples} "
-        f"gap:{_span(lived['attention_gap'], 't')}] "
+        f"reference-comparison=[selected-equals-best:{reference_attention_matches}/{lived_samples} "
+        f"attention-delta:{_span(lived['reference_attention_delta'], 't')}] "
         f"lifecycle-obligations=[services:{_span(lived['services'])} "
         f"prep:{_span(lived['maintenance_preparation_ticks'], 't')} "
         f"share:{_span(lived['maintenance_active_share_percent'], '%')} "
@@ -421,7 +423,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"consumer-duration:{_span(consumer_ticks, 't')} "
         f"carried-state-recharge:{second_charge_pairs}/{len(power)}] "
         f"lived-project=[executed:{lived_samples}/{len(power)} "
-        f"selected-attention-gap:{_span(lived['attention_gap'], 't')} "
+        f"selected-vs-reference-attention-delta:{_span(lived['reference_attention_delta'], 't')} "
         f"charge-events:{_span(lived['charge_events'])} "
         f"consumer-projected-charge-events:{_span(lived['projected_charge_events'])} "
         f"wear-projected-extra-charges:{_span(lived['wear_projected_extra_charge_events'])} "
@@ -523,7 +525,7 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"consumer-duration:{_span(consumer_ticks, 't')} "
         f"carried-state-recharge:{second_charge_pairs}/{len(settlement)}] "
         f"settlement-lived-project=[executed:{lived_samples}/{len(settlement)} "
-        f"selected-attention-gap:{_span(lived['attention_gap'], 't')} "
+        f"selected-vs-reference-attention-delta:{_span(lived['reference_attention_delta'], 't')} "
         f"charge-events:{_span(lived['charge_events'])} "
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])} "
         f"survival-limited-batches:{_span(lived['limited_batches'])} "

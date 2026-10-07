@@ -10,7 +10,8 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::AppState;
 use deep_hearth::equipment::{
-    EquipmentId, project_equipment_capability, validate_disassemble_equipment,
+    EquipmentDefinitionId, EquipmentId, project_equipment_capability,
+    validate_disassemble_equipment,
 };
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
@@ -19,9 +20,9 @@ use deep_hearth::registry::Registries;
 
 use super::super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
 use super::planning::{
-    FIELDWORK_ORDER_MAX_BATCHES, FIELDWORK_TOOLS, FieldworkTool, FieldworkToolBlocker,
-    choose_fieldwork_tool_quiet, choose_fieldwork_tool_with_market_phase, estimate_fieldwork_tool,
-    estimate_fieldwork_upgrade_preparation,
+    FIELDWORK_ORDER_MAX_BATCHES, FieldworkTool, FieldworkToolBlocker, choose_fieldwork_tool_quiet,
+    choose_fieldwork_tool_with_market_phase, estimate_fieldwork_tool,
+    estimate_fieldwork_upgrade_preparation, fieldwork_tools, fieldwork_upgrade_tools,
 };
 use super::preparation::{assemble_fieldwork_tool, upgrade_fieldwork_tool};
 
@@ -73,7 +74,7 @@ struct ExistingToolProjection {
     batch: Mass,
     order_ticks: u64,
     condition_ppm: u32,
-    label: &'static str,
+    definition: EquipmentDefinitionId,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -137,7 +138,7 @@ pub(super) struct FieldworkSiteToolChoice {
     pub(super) batch: Mass,
     pub(super) preparation_ticks: u64,
     pub(super) projected_order_ticks: u64,
-    pub(super) label: &'static str,
+    pub(super) definition: EquipmentDefinitionId,
     pub(super) reused_existing: bool,
     pub(super) upgraded_existing: bool,
     pub(super) ore_recovery_ticks: u64,
@@ -184,16 +185,11 @@ fn existing_tool_projection(
         ),
     )
     .ok()?;
-    let label = FIELDWORK_TOOLS
-        .iter()
-        .find(|candidate| candidate.target == record.definition())
-        .map(|candidate| candidate.label)
-        .unwrap_or("existing-tool");
     Some(ExistingToolProjection {
         batch,
         order_ticks: resolution.duration().value(),
         condition_ppm: record.condition().parts_per_million(),
-        label,
+        definition: record.definition(),
     })
 }
 
@@ -289,17 +285,19 @@ fn best_owned_upgrade_projection(
     let candidates = owned_equipment
         .iter()
         .flat_map(|&equipment| {
-            FIELDWORK_TOOLS.into_iter().filter_map(move |tool| {
-                owned_upgrade_projection(
-                    registries,
-                    state,
-                    stockpiles,
-                    equipment,
-                    tool,
-                    observed_hardness_upper,
-                    order,
-                )
-            })
+            fieldwork_upgrade_tools(registries)
+                .into_iter()
+                .filter_map(move |tool| {
+                    owned_upgrade_projection(
+                        registries,
+                        state,
+                        stockpiles,
+                        equipment,
+                        tool,
+                        observed_hardness_upper,
+                        order,
+                    )
+                })
         })
         .collect::<Vec<_>>();
     let best_key = candidates
@@ -404,7 +402,7 @@ fn prepare_from_current_materials(
             batch: existing.batch,
             preparation_ticks: 0,
             projected_order_ticks: existing.order_ticks,
-            label: existing.label,
+            definition: existing.definition,
             reused_existing: true,
             upgraded_existing: false,
             ore_recovery_ticks: 0,
@@ -452,7 +450,7 @@ fn prepare_from_current_materials(
             batch: upgrade.batch,
             preparation_ticks,
             projected_order_ticks: upgrade.order_ticks,
-            label: upgrade.tool.label,
+            definition: upgrade.tool.target,
             reused_existing: true,
             upgraded_existing: true,
             ore_recovery_ticks: 0,
@@ -477,7 +475,7 @@ fn prepare_from_current_materials(
         batch: fresh.batch,
         preparation_ticks,
         projected_order_ticks: fresh.order_ticks,
-        label: fresh.tool.label,
+        definition: fresh.tool.target,
         reused_existing: false,
         upgraded_existing: false,
         ore_recovery_ticks: 0,
@@ -598,15 +596,15 @@ fn native_copper_shortage_for_feasible_tool(
     order: Mass,
 ) -> Option<Mass> {
     let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
-    FIELDWORK_TOOLS
-        .iter()
+    fieldwork_tools(registries)
+        .into_iter()
         .filter_map(|tool| {
             match estimate_fieldwork_tool(
                 registries,
                 state,
                 raw,
                 parts,
-                *tool,
+                tool,
                 observed_hardness_upper,
                 order,
             ) {

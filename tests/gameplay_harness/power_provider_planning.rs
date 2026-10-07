@@ -7,16 +7,15 @@ use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
-    EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
-    MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK, MANUAL_POWER_WALKING_WHEEL,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
+    EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
+    MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER, PROCESS_CRUSH_ORE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::{EnergyCarrier, EnergyStoreDefinitionId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::labor::ManualPowerProjection;
+use deep_hearth::labor::{ManualPowerMethodId, ManualPowerProjection};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::ore_processing::{
@@ -105,43 +104,64 @@ fn bootstrap_commodity_reachable(
     .is_some()
 }
 
-fn bootstrap_equipment_reachable(
-    registries: &Registries,
-    equipment: EquipmentDefinitionId,
-    roots: &BTreeSet<CommodityKey>,
-    visiting: &mut BTreeSet<EquipmentDefinitionId>,
-) -> bool {
-    if !visiting.insert(equipment) {
-        return false;
-    }
-    let definition = registries
-        .equipment()
-        .get_equipment(equipment)
-        .unwrap_or_else(|| panic!("power-provider market references unknown equipment"));
-    let assembly_reachable = definition.assembly_profile().is_some_and(|assembly| {
-        assembly
-            .inputs()
-            .iter()
-            .all(|input| bootstrap_commodity_reachable(registries, input.commodity(), roots))
-    });
-    let upgrade_reachable =
-        definition.upgrade_profile().is_some_and(|upgrade| {
-            bootstrap_equipment_reachable(registries, upgrade.from(), roots, visiting)
-                && upgrade.additions().inputs().iter().all(|input| {
-                    bootstrap_commodity_reachable(registries, input.commodity(), roots)
-                })
-        });
-    assert!(visiting.remove(&equipment));
-    assembly_reachable || upgrade_reachable
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct PowerProviderChoice {
+    pub(super) method: ManualPowerMethodId,
+    pub(super) equipment: EquipmentDefinitionId,
 }
 
-fn reachable_mechanical_power_providers(
+impl PowerProviderChoice {
+    pub(super) const fn new(method: ManualPowerMethodId, equipment: EquipmentDefinitionId) -> Self {
+        Self { method, equipment }
+    }
+
+    pub(super) fn uses_copper(self, registries: &Registries) -> bool {
+        registries
+            .equipment()
+            .get_equipment(self.equipment)
+            .and_then(|definition| definition.assembly_profile())
+            .is_some_and(|assembly| {
+                assembly
+                    .inputs()
+                    .iter()
+                    .any(|input| input.commodity().material() == MATERIAL_COPPER)
+            })
+    }
+
+    #[cfg(not(test))]
+    fn fallback_label(self) -> String {
+        format!(
+            "method-{}-equipment-{}",
+            self.method.value(),
+            self.equipment.value()
+        )
+    }
+
+    #[cfg(not(test))]
+    pub(super) fn primitive_label(self) -> String {
+        for reference in PrimitivePowerChoice::ALL {
+            if reference.provider() == self {
+                return reference.label().to_owned();
+            }
+        }
+        self.fallback_label()
+    }
+
+    #[cfg(not(test))]
+    pub(super) fn settlement_label(self) -> String {
+        for reference in SettlementPowerChoice::ALL {
+            if reference.provider() == self {
+                return reference.label().to_owned();
+            }
+        }
+        self.fallback_label()
+    }
+}
+
+pub(super) fn reachable_mechanical_power_providers(
     registries: &Registries,
     roots: impl IntoIterator<Item = CommodityKey>,
-) -> BTreeSet<(
-    deep_hearth::labor::ManualPowerMethodId,
-    EquipmentDefinitionId,
-)> {
+) -> BTreeSet<PowerProviderChoice> {
     let roots = roots.into_iter().collect::<BTreeSet<_>>();
     let mut providers = BTreeSet::new();
     for method in registries
@@ -151,119 +171,24 @@ fn reachable_mechanical_power_providers(
     {
         for equipment in registries.equipment().definitions() {
             if equipment.requires_structural_support()
+                || !equipment.assembly_profile().is_some_and(|assembly| {
+                    assembly.inputs().iter().all(|input| {
+                        bootstrap_commodity_reachable(registries, input.commodity(), &roots)
+                    })
+                })
                 || !matches!(
                     equipment
                         .capabilities()
                         .get_capability(method.power_capability()),
                     Some(CapabilityValue::Power(power)) if !power.is_zero()
                 )
-                || !bootstrap_equipment_reachable(
-                    registries,
-                    equipment.id(),
-                    &roots,
-                    &mut BTreeSet::new(),
-                )
             {
                 continue;
             }
-            providers.insert((method.id(), equipment.id()));
+            providers.insert(PowerProviderChoice::new(method.id(), equipment.id()));
         }
     }
     providers
-}
-
-fn assembly_input_totals(
-    profile: &deep_hearth::material::MaterialAssemblyProfile,
-) -> std::collections::BTreeMap<CommodityKey, Mass> {
-    let mut totals = std::collections::BTreeMap::new();
-    for input in profile.inputs() {
-        let entry = totals.entry(input.commodity()).or_insert(Mass::ZERO);
-        *entry = entry
-            .checked_add(input.mass())
-            .unwrap_or_else(|| panic!("power-provider assembly input total overflowed"));
-    }
-    totals
-}
-
-fn assert_virgin_provider_acquisition_shape_current(
-    registries: &Registries,
-    equipment: EquipmentDefinitionId,
-) {
-    let definition = registries
-        .equipment()
-        .get_equipment(equipment)
-        .unwrap_or_else(|| panic!("played power-provider equipment disappeared"));
-    let Some(upgrade) = definition.upgrade_profile() else {
-        return;
-    };
-    let direct = definition.assembly_profile().unwrap_or_else(|| {
-        panic!(
-            "played power provider {} is upgrade-only; virgin planning must compare the authored upgrade route explicitly",
-            equipment.value()
-        )
-    });
-    let base = registries
-        .equipment()
-        .get_equipment(upgrade.from())
-        .and_then(|base| base.assembly_profile())
-        .unwrap_or_else(|| {
-            panic!(
-                "played power provider {} has no direct-assembly base for its authored upgrade route",
-                equipment.value()
-            )
-        });
-    let mut via_upgrade = assembly_input_totals(base);
-    for input in upgrade.additions().inputs() {
-        let entry = via_upgrade.entry(input.commodity()).or_insert(Mass::ZERO);
-        *entry = entry
-            .checked_add(input.mass())
-            .unwrap_or_else(|| panic!("power-provider upgrade-route component total overflowed"));
-    }
-    assert_eq!(
-        assembly_input_totals(direct),
-        via_upgrade,
-        "played power provider {} has materially different virgin direct-assembly and base-plus-upgrade routes; compare both actor choices instead of assuming direct assembly",
-        equipment.value()
-    );
-}
-
-pub(super) fn assert_primitive_power_provider_market_current(registries: &Registries) {
-    let roots = [
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-    ];
-    let played = PrimitivePowerChoice::ALL
-        .into_iter()
-        .map(|choice| (choice.method(), choice.equipment()))
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        played,
-        reachable_mechanical_power_providers(registries, roots),
-        "primitive played provider market diverged from portable mechanical equipment ordinarily bootstrap-reachable from disclosed stone/wood roots"
-    );
-    for choice in PrimitivePowerChoice::ALL {
-        assert_virgin_provider_acquisition_shape_current(registries, choice.equipment());
-    }
-}
-
-pub(super) fn assert_settlement_power_provider_market_current(registries: &Registries) {
-    let roots = [
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-    ];
-    let played = SettlementPowerChoice::ALL
-        .into_iter()
-        .map(|choice| (choice.method(), choice.equipment()))
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        played,
-        reachable_mechanical_power_providers(registries, roots),
-        "settlement played provider market diverged from portable mechanical equipment ordinarily bootstrap-reachable from disclosed stone/wood/native-copper roots"
-    );
-    for choice in SettlementPowerChoice::ALL {
-        assert_virgin_provider_acquisition_shape_current(registries, choice.equipment());
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -274,6 +199,7 @@ pub(super) enum PrimitivePowerChoice {
 }
 
 impl PrimitivePowerChoice {
+    #[cfg(not(test))]
     pub(super) const ALL: [Self; 3] = [Self::Crank, Self::Treadle, Self::WalkingWheel];
 
     pub(super) const fn equipment(self) -> EquipmentDefinitionId {
@@ -290,6 +216,10 @@ impl PrimitivePowerChoice {
             Self::Treadle => MANUAL_POWER_FOOT_TREADLE,
             Self::WalkingWheel => MANUAL_POWER_WALKING_WHEEL,
         }
+    }
+
+    pub(super) const fn provider(self) -> PowerProviderChoice {
+        PowerProviderChoice::new(self.method(), self.equipment())
     }
 
     #[cfg(not(test))]
@@ -313,6 +243,7 @@ pub(super) enum SettlementPowerChoice {
 }
 
 impl SettlementPowerChoice {
+    #[cfg(not(test))]
     pub(super) const ALL: [Self; 6] = [
         Self::StoneCrank,
         Self::CopperCrank,
@@ -343,17 +274,13 @@ impl SettlementPowerChoice {
         }
     }
 
+    pub(super) const fn provider(self) -> PowerProviderChoice {
+        PowerProviderChoice::new(self.method(), self.equipment())
+    }
+
+    #[cfg(not(test))]
     pub(super) fn uses_copper(self, registries: &Registries) -> bool {
-        registries
-            .equipment()
-            .get_equipment(self.equipment())
-            .and_then(|definition| definition.assembly_profile())
-            .is_some_and(|assembly| {
-                assembly
-                    .inputs()
-                    .iter()
-                    .any(|input| input.commodity().material() == MATERIAL_COPPER)
-            })
+        self.provider().uses_copper(registries)
     }
 
     #[cfg(not(test))]
@@ -370,8 +297,17 @@ impl SettlementPowerChoice {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "fixed-provider counterfactual telemetry is consumed by exploratory report execution"
+    )
+)]
 pub(super) struct PrimitivePowerPlan {
-    pub(super) choice: PrimitivePowerChoice,
+    pub(super) choice: PowerProviderChoice,
+    pub(super) selected_lifecycle_attention: u64,
+    pub(super) selected_lifecycle_condition: Condition,
     pub(super) minimum_return_ppm: u64,
     pub(super) store_definition: EnergyStoreDefinitionId,
     pub(super) capacity_nj: u128,
@@ -437,9 +373,35 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) minimum_attention_return_ticks: u64,
 }
 
+impl PrimitivePowerPlan {
+    #[cfg(not(test))]
+    pub(super) fn with_reference_choice(self, choice: PrimitivePowerChoice) -> Self {
+        let (selected_lifecycle_attention, selected_lifecycle_condition) = match choice {
+            PrimitivePowerChoice::Crank => (
+                self.crank_lifecycle_attention,
+                self.crank_lifecycle_condition,
+            ),
+            PrimitivePowerChoice::Treadle => (
+                self.treadle_lifecycle_attention,
+                self.treadle_lifecycle_condition,
+            ),
+            PrimitivePowerChoice::WalkingWheel => (
+                self.walking_lifecycle_attention,
+                self.walking_lifecycle_condition,
+            ),
+        };
+        Self {
+            choice: choice.provider(),
+            selected_lifecycle_attention,
+            selected_lifecycle_condition,
+            ..self
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct PrimitiveCandidateRoute {
-    choice: PrimitivePowerChoice,
+    choice: PowerProviderChoice,
     build: ShapedBuild,
     route: ManualPowerRoute,
 }
@@ -462,7 +424,7 @@ impl SettlementCopperPolicy {
 
 #[derive(Clone, Copy)]
 struct PrimitiveCandidateProjection {
-    choice: PrimitivePowerChoice,
+    choice: PowerProviderChoice,
     build: ShapedBuild,
     lifecycle_attention: u64,
     lifecycle_metabolic_nj: u128,
@@ -497,26 +459,35 @@ fn primitive_candidate_routes(
     shaped: StockpileId,
     store_definition: EnergyStoreDefinitionId,
     capacity_nj: u128,
-) -> [PrimitiveCandidateRoute; 3] {
-    PrimitivePowerChoice::ALL.map(|choice| PrimitiveCandidateRoute {
-        choice,
-        build: project_power_package(
-            registries,
-            state,
-            raw,
-            shaped,
-            choice.equipment(),
-            store_definition,
-            "primitive provider package",
-        ),
-        route: ManualPowerRoute::new(
-            choice.method(),
-            choice.equipment(),
-            store_definition,
-            Energy::from_nanojoules(capacity_nj),
-            "primitive provider",
-        ),
-    })
+) -> Vec<PrimitiveCandidateRoute> {
+    let roots = super::power_raw_roots(state, raw);
+    let routes = reachable_mechanical_power_providers(registries, roots)
+        .into_iter()
+        .map(|choice| PrimitiveCandidateRoute {
+            choice,
+            build: project_power_package(
+                registries,
+                state,
+                raw,
+                shaped,
+                choice.equipment,
+                store_definition,
+                "primitive provider package",
+            ),
+            route: ManualPowerRoute::new(
+                choice.method,
+                choice.equipment,
+                store_definition,
+                Energy::from_nanojoules(capacity_nj),
+                "primitive provider",
+            ),
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !routes.is_empty(),
+        "primitive disclosed raw roots expose no directly assemblable mechanical power provider"
+    );
+    routes
 }
 
 fn primitive_candidate_projection(
@@ -547,8 +518,8 @@ fn primitive_candidate_projection(
 
 fn select_primitive_candidate(
     investment_policy: CapitalInvestmentPolicy,
-    candidates: &[PrimitiveCandidateProjection; 3],
-) -> (PrimitivePowerChoice, u64) {
+    candidates: &[PrimitiveCandidateProjection],
+) -> (PowerProviderChoice, u64) {
     let baseline_key = candidates
         .iter()
         .map(|candidate| candidate.setup_key())
@@ -603,14 +574,16 @@ fn select_primitive_candidate(
 }
 
 fn primitive_projection_for(
-    candidates: &[PrimitiveCandidateProjection; 3],
-    choice: PrimitivePowerChoice,
+    candidates: &[PrimitiveCandidateProjection],
+    choice: PowerProviderChoice,
 ) -> PrimitiveCandidateProjection {
     candidates
         .iter()
         .copied()
         .find(|candidate| candidate.choice == choice)
-        .unwrap_or_else(|| unreachable!("every primitive choice has one candidate projection"))
+        .unwrap_or_else(|| {
+            panic!("primitive reference provider is not in the current reachable market")
+        })
 }
 
 #[derive(Clone, Copy)]
@@ -630,8 +603,19 @@ pub(super) struct SettlementPowerProject {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "fixed-provider counterfactual telemetry is consumed by exploratory report execution"
+    )
+)]
 pub(super) struct SettlementPowerPlan {
-    pub(super) choice: SettlementPowerChoice,
+    pub(super) choice: PowerProviderChoice,
+    pub(super) selected_lifecycle_attention: u64,
+    pub(super) selected_lifecycle_metabolic_nj: u128,
+    pub(super) selected_lifecycle_hydration_ul: u64,
+    pub(super) selected_lifecycle_condition: Condition,
     pub(super) minimum_return_ppm: u64,
     pub(super) capacity_nj: u128,
     pub(super) declared_mass: Mass,
@@ -672,9 +656,66 @@ pub(super) struct SettlementPowerPlan {
     pub(super) minimum_attention_return_ticks: u64,
 }
 
+impl SettlementPowerPlan {
+    #[cfg(not(test))]
+    pub(super) fn with_reference_choice(self, choice: SettlementPowerChoice) -> Self {
+        let (
+            selected_lifecycle_attention,
+            selected_lifecycle_metabolic_nj,
+            selected_lifecycle_hydration_ul,
+            selected_lifecycle_condition,
+        ) = match choice {
+            SettlementPowerChoice::StoneCrank => (
+                self.stone_crank_lifecycle_attention,
+                self.stone_crank_lifecycle_metabolic_nj,
+                self.stone_crank_lifecycle_hydration_ul,
+                self.stone_crank_lifecycle_condition,
+            ),
+            SettlementPowerChoice::CopperCrank => (
+                self.copper_crank_lifecycle_attention,
+                self.copper_crank_lifecycle_metabolic_nj,
+                self.copper_crank_lifecycle_hydration_ul,
+                self.copper_crank_lifecycle_condition,
+            ),
+            SettlementPowerChoice::Treadle => (
+                self.treadle_lifecycle_attention,
+                self.treadle_lifecycle_metabolic_nj,
+                self.treadle_lifecycle_hydration_ul,
+                self.treadle_lifecycle_condition,
+            ),
+            SettlementPowerChoice::TreadleDynamo => (
+                self.treadle_dynamo_lifecycle_attention,
+                self.treadle_dynamo_lifecycle_metabolic_nj,
+                self.treadle_dynamo_lifecycle_hydration_ul,
+                self.treadle_dynamo_lifecycle_condition,
+            ),
+            SettlementPowerChoice::DoubleWoundTreadleDynamo => (
+                self.double_wound_treadle_dynamo_lifecycle_attention,
+                self.double_wound_treadle_dynamo_lifecycle_metabolic_nj,
+                self.double_wound_treadle_dynamo_lifecycle_hydration_ul,
+                self.double_wound_treadle_dynamo_lifecycle_condition,
+            ),
+            SettlementPowerChoice::WalkingWheel => (
+                self.walking_lifecycle_attention,
+                self.walking_lifecycle_metabolic_nj,
+                self.walking_lifecycle_hydration_ul,
+                self.walking_lifecycle_condition,
+            ),
+        };
+        Self {
+            choice: choice.provider(),
+            selected_lifecycle_attention,
+            selected_lifecycle_metabolic_nj,
+            selected_lifecycle_hydration_ul,
+            selected_lifecycle_condition,
+            ..self
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct SettlementCandidateRoute {
-    choice: SettlementPowerChoice,
+    choice: PowerProviderChoice,
     build: ShapedBuild,
     route: ManualPowerRoute,
     uses_copper: bool,
@@ -682,7 +723,7 @@ struct SettlementCandidateRoute {
 
 #[derive(Clone, Copy)]
 struct SettlementCandidateProjection {
-    choice: SettlementPowerChoice,
+    choice: PowerProviderChoice,
     build: ShapedBuild,
     charge: ManualPowerProjection,
     uses_copper: bool,
@@ -718,66 +759,85 @@ fn settlement_candidate_routes(
     raw: StockpileId,
     shaped: StockpileId,
     capacity_nj: u128,
-) -> [SettlementCandidateRoute; 6] {
-    SettlementPowerChoice::ALL.map(|choice| SettlementCandidateRoute {
-        choice,
-        build: project_power_package(
-            registries,
-            state,
-            raw,
-            shaped,
-            choice.equipment(),
-            ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-            "settlement provider package",
-        ),
-        route: ManualPowerRoute::new(
-            choice.method(),
-            choice.equipment(),
-            ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-            Energy::from_nanojoules(capacity_nj),
-            "settlement provider",
-        ),
-        uses_copper: choice.uses_copper(registries),
-    })
+) -> Vec<SettlementCandidateRoute> {
+    let roots = super::power_raw_roots(state, raw);
+    let routes = reachable_mechanical_power_providers(registries, roots)
+        .into_iter()
+        .map(|choice| SettlementCandidateRoute {
+            choice,
+            build: project_power_package(
+                registries,
+                state,
+                raw,
+                shaped,
+                choice.equipment,
+                ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+                "settlement provider package",
+            ),
+            route: ManualPowerRoute::new(
+                choice.method,
+                choice.equipment,
+                ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+                Energy::from_nanojoules(capacity_nj),
+                "settlement provider",
+            ),
+            uses_copper: choice.uses_copper(registries),
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !routes.is_empty(),
+        "settlement disclosed raw roots expose no directly assemblable mechanical power provider"
+    );
+    routes
 }
 
 fn project_settlement_candidates(
     registries: &Registries,
-    routes: [SettlementCandidateRoute; 6],
+    routes: &[SettlementCandidateRoute],
     declared_work: Energy,
-) -> [SettlementCandidateProjection; 6] {
-    routes.map(|candidate| {
-        let lifecycle = candidate.route.project_lifecycle(registries, declared_work);
-        SettlementCandidateProjection {
-            choice: candidate.choice,
-            build: candidate.build,
-            charge: candidate.route.project(registries, Condition::PRISTINE),
-            uses_copper: candidate.uses_copper,
-            lifecycle_attention: candidate
-                .build
-                .attention_ticks
-                .checked_add(lifecycle.attention_ticks)
-                .unwrap_or_else(|| panic!("settlement provider lifecycle attention overflowed")),
-            lifecycle_metabolic_nj: candidate
-                .build
-                .metabolic_nj
-                .checked_add(lifecycle.metabolic_nj)
-                .unwrap_or_else(|| panic!("settlement provider lifecycle metabolism overflowed")),
-            lifecycle_hydration_ul: candidate
-                .build
-                .hydration_ul
-                .checked_add(lifecycle.hydration_ul)
-                .unwrap_or_else(|| panic!("settlement provider lifecycle hydration overflowed")),
-            lifecycle_condition: lifecycle.condition_after,
-        }
-    })
+) -> Vec<SettlementCandidateProjection> {
+    routes
+        .iter()
+        .copied()
+        .map(|candidate| {
+            let lifecycle = candidate.route.project_lifecycle(registries, declared_work);
+            SettlementCandidateProjection {
+                choice: candidate.choice,
+                build: candidate.build,
+                charge: candidate.route.project(registries, Condition::PRISTINE),
+                uses_copper: candidate.uses_copper,
+                lifecycle_attention: candidate
+                    .build
+                    .attention_ticks
+                    .checked_add(lifecycle.attention_ticks)
+                    .unwrap_or_else(|| {
+                        panic!("settlement provider lifecycle attention overflowed")
+                    }),
+                lifecycle_metabolic_nj: candidate
+                    .build
+                    .metabolic_nj
+                    .checked_add(lifecycle.metabolic_nj)
+                    .unwrap_or_else(|| {
+                        panic!("settlement provider lifecycle metabolism overflowed")
+                    }),
+                lifecycle_hydration_ul: candidate
+                    .build
+                    .hydration_ul
+                    .checked_add(lifecycle.hydration_ul)
+                    .unwrap_or_else(|| {
+                        panic!("settlement provider lifecycle hydration overflowed")
+                    }),
+                lifecycle_condition: lifecycle.condition_after,
+            }
+        })
+        .collect()
 }
 
 fn select_settlement_candidate(
     investment_policy: CapitalInvestmentPolicy,
     copper_policy: SettlementCopperPolicy,
-    candidates: &[SettlementCandidateProjection; 6],
-) -> (SettlementPowerChoice, u64) {
+    candidates: &[SettlementCandidateProjection],
+) -> (PowerProviderChoice, u64) {
     let available = candidates.iter().copied().filter(|candidate| {
         copper_policy == SettlementCopperPolicy::SpendAvailable || !candidate.uses_copper
     });
@@ -836,14 +896,16 @@ fn select_settlement_candidate(
 }
 
 fn settlement_projection_for(
-    candidates: &[SettlementCandidateProjection; 6],
-    choice: SettlementPowerChoice,
+    candidates: &[SettlementCandidateProjection],
+    choice: PowerProviderChoice,
 ) -> SettlementCandidateProjection {
     candidates
         .iter()
         .copied()
         .find(|candidate| candidate.choice == choice)
-        .unwrap_or_else(|| unreachable!("every settlement choice has one candidate projection"))
+        .unwrap_or_else(|| {
+            panic!("settlement reference provider is not in the current reachable market")
+        })
 }
 
 #[cfg(not(test))]
@@ -855,44 +917,51 @@ pub(super) fn settlement_power_decision_frontier(
     capacity_nj: u128,
     copper_policy: SettlementCopperPolicy,
     investment_policy: CapitalInvestmentPolicy,
-) -> Vec<(u64, SettlementPowerChoice)> {
+) -> Vec<(u64, PowerProviderChoice)> {
     let routes = settlement_candidate_routes(registries, state, raw, shaped, capacity_nj);
-    let lifecycle: [Vec<lifecycle::ManualPowerLifecycleCost>; 6] = std::array::from_fn(|index| {
-        routes[index]
-            .route
-            .project_full_charge_series(registries, MAX_SETTLEMENT_CROSSOVER_CHARGES)
-    });
+    let lifecycle = routes
+        .iter()
+        .map(|route| {
+            route
+                .route
+                .project_full_charge_series(registries, MAX_SETTLEMENT_CROSSOVER_CHARGES)
+        })
+        .collect::<Vec<_>>();
     let mut frontier = Vec::new();
     let mut previous = None;
     for charges in 1..=MAX_SETTLEMENT_CROSSOVER_CHARGES {
         let index = usize::try_from(charges - 1)
             .unwrap_or_else(|_| unreachable!("bounded settlement charge index fits usize"));
-        let candidates = std::array::from_fn(|candidate| {
-            let route = routes[candidate];
-            let lifecycle = lifecycle[candidate][index];
-            SettlementCandidateProjection {
-                choice: route.choice,
-                build: route.build,
-                charge: route.route.project(registries, Condition::PRISTINE),
-                uses_copper: route.uses_copper,
-                lifecycle_attention: route
-                    .build
-                    .attention_ticks
-                    .checked_add(lifecycle.attention_ticks)
-                    .unwrap_or_else(|| panic!("settlement frontier attention overflowed")),
-                lifecycle_metabolic_nj: route
-                    .build
-                    .metabolic_nj
-                    .checked_add(lifecycle.metabolic_nj)
-                    .unwrap_or_else(|| panic!("settlement frontier metabolism overflowed")),
-                lifecycle_hydration_ul: route
-                    .build
-                    .hydration_ul
-                    .checked_add(lifecycle.hydration_ul)
-                    .unwrap_or_else(|| panic!("settlement frontier hydration overflowed")),
-                lifecycle_condition: lifecycle.condition_after,
-            }
-        });
+        let candidates = routes
+            .iter()
+            .copied()
+            .zip(lifecycle.iter())
+            .map(|(route, series)| {
+                let lifecycle = series[index];
+                SettlementCandidateProjection {
+                    choice: route.choice,
+                    build: route.build,
+                    charge: route.route.project(registries, Condition::PRISTINE),
+                    uses_copper: route.uses_copper,
+                    lifecycle_attention: route
+                        .build
+                        .attention_ticks
+                        .checked_add(lifecycle.attention_ticks)
+                        .unwrap_or_else(|| panic!("settlement frontier attention overflowed")),
+                    lifecycle_metabolic_nj: route
+                        .build
+                        .metabolic_nj
+                        .checked_add(lifecycle.metabolic_nj)
+                        .unwrap_or_else(|| panic!("settlement frontier metabolism overflowed")),
+                    lifecycle_hydration_ul: route
+                        .build
+                        .hydration_ul
+                        .checked_add(lifecycle.hydration_ul)
+                        .unwrap_or_else(|| panic!("settlement frontier hydration overflowed")),
+                    lifecycle_condition: lifecycle.condition_after,
+                }
+            })
+            .collect::<Vec<_>>();
         let choice = select_settlement_candidate(investment_policy, copper_policy, &candidates).0;
         if previous != Some(choice) {
             frontier.push((charges, choice));
@@ -918,19 +987,29 @@ pub(super) fn settlement_power_plan(
         "settlement project",
     );
     let declared_work = Energy::from_nanojoules(project.declared_work_nj);
-    let candidates = project_settlement_candidates(registries, routes, declared_work);
+    let candidates = project_settlement_candidates(registries, &routes, declared_work);
     let (choice, minimum_attention_return_ticks) =
         select_settlement_candidate(investment_policy, copper_policy, &candidates);
-    let stone = settlement_projection_for(&candidates, SettlementPowerChoice::StoneCrank);
-    let copper = settlement_projection_for(&candidates, SettlementPowerChoice::CopperCrank);
-    let treadle = settlement_projection_for(&candidates, SettlementPowerChoice::Treadle);
+    let selected = settlement_projection_for(&candidates, choice);
+    let stone =
+        settlement_projection_for(&candidates, SettlementPowerChoice::StoneCrank.provider());
+    let copper =
+        settlement_projection_for(&candidates, SettlementPowerChoice::CopperCrank.provider());
+    let treadle = settlement_projection_for(&candidates, SettlementPowerChoice::Treadle.provider());
     let treadle_dynamo =
-        settlement_projection_for(&candidates, SettlementPowerChoice::TreadleDynamo);
-    let double_wound_treadle_dynamo =
-        settlement_projection_for(&candidates, SettlementPowerChoice::DoubleWoundTreadleDynamo);
-    let walking = settlement_projection_for(&candidates, SettlementPowerChoice::WalkingWheel);
+        settlement_projection_for(&candidates, SettlementPowerChoice::TreadleDynamo.provider());
+    let double_wound_treadle_dynamo = settlement_projection_for(
+        &candidates,
+        SettlementPowerChoice::DoubleWoundTreadleDynamo.provider(),
+    );
+    let walking =
+        settlement_projection_for(&candidates, SettlementPowerChoice::WalkingWheel.provider());
     SettlementPowerPlan {
         choice,
+        selected_lifecycle_attention: selected.lifecycle_attention,
+        selected_lifecycle_metabolic_nj: selected.lifecycle_metabolic_nj,
+        selected_lifecycle_hydration_ul: selected.lifecycle_hydration_ul,
+        selected_lifecycle_condition: selected.lifecycle_condition,
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
         capacity_nj: project.capacity_nj,
         declared_mass: project.declared_mass,
@@ -1029,7 +1108,7 @@ pub(super) fn primitive_power_decision_frontier(
     store_definition: EnergyStoreDefinitionId,
     capacity_nj: u128,
     investment_policy: CapitalInvestmentPolicy,
-) -> Vec<(u64, PrimitivePowerChoice)> {
+) -> Vec<(u64, PowerProviderChoice)> {
     let routes = primitive_candidate_routes(
         registries,
         state,
@@ -1038,19 +1117,25 @@ pub(super) fn primitive_power_decision_frontier(
         store_definition,
         capacity_nj,
     );
-    let lifecycle: [Vec<lifecycle::ManualPowerLifecycleCost>; 3] = std::array::from_fn(|index| {
-        routes[index]
-            .route
-            .project_full_charge_series(registries, MAX_PRIMITIVE_CROSSOVER_CHARGES)
-    });
+    let lifecycle = routes
+        .iter()
+        .map(|route| {
+            route
+                .route
+                .project_full_charge_series(registries, MAX_PRIMITIVE_CROSSOVER_CHARGES)
+        })
+        .collect::<Vec<_>>();
     let mut frontier = Vec::new();
     let mut previous = None;
     for charges in 1..=MAX_PRIMITIVE_CROSSOVER_CHARGES {
         let index = usize::try_from(charges - 1)
             .unwrap_or_else(|_| unreachable!("bounded primitive charge index fits usize"));
-        let candidates = std::array::from_fn(|candidate| {
-            primitive_candidate_projection(routes[candidate], lifecycle[candidate][index])
-        });
+        let candidates = routes
+            .iter()
+            .copied()
+            .zip(lifecycle.iter())
+            .map(|(route, series)| primitive_candidate_projection(route, series[index]))
+            .collect::<Vec<_>>();
         let choice = select_primitive_candidate(investment_policy, &candidates).0;
         if previous != Some(choice) {
             frontier.push((charges, choice));
@@ -1081,8 +1166,17 @@ pub(super) fn primitive_power_plan_for_consumer(
         store_definition,
         capacity_nj,
     );
-    let crank_route = routes[0].route;
-    let treadle_route = routes[1].route;
+    let route_for = |provider: PowerProviderChoice| {
+        routes
+            .iter()
+            .copied()
+            .find(|route| route.choice == provider)
+            .unwrap_or_else(|| {
+                panic!("primitive reference provider is not in the current reachable market")
+            })
+    };
+    let crank_route = route_for(PrimitivePowerChoice::Crank.provider()).route;
+    let treadle_route = route_for(PrimitivePowerChoice::Treadle.provider()).route;
     let crank_charge = crank_route.project(registries, Condition::PRISTINE);
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     let charge_events =
@@ -1126,21 +1220,29 @@ pub(super) fn primitive_power_plan_for_consumer(
         consumer_projected_batches,
         "primitive provider charge schedule must follow the canonical consumer batch schedule"
     );
-    let candidates = routes.map(|candidate| {
-        primitive_candidate_projection(
-            candidate,
-            candidate
-                .route
-                .project_sequence(registries, charge_sequence.iter().copied()),
-        )
-    });
+    let candidates = routes
+        .iter()
+        .copied()
+        .map(|candidate| {
+            primitive_candidate_projection(
+                candidate,
+                candidate
+                    .route
+                    .project_sequence(registries, charge_sequence.iter().copied()),
+            )
+        })
+        .collect::<Vec<_>>();
     let (choice, minimum_attention_return_ticks) =
         select_primitive_candidate(investment_policy, &candidates);
-    let crank = primitive_projection_for(&candidates, PrimitivePowerChoice::Crank);
-    let treadle = primitive_projection_for(&candidates, PrimitivePowerChoice::Treadle);
-    let walking = primitive_projection_for(&candidates, PrimitivePowerChoice::WalkingWheel);
+    let selected = primitive_projection_for(&candidates, choice);
+    let crank = primitive_projection_for(&candidates, PrimitivePowerChoice::Crank.provider());
+    let treadle = primitive_projection_for(&candidates, PrimitivePowerChoice::Treadle.provider());
+    let walking =
+        primitive_projection_for(&candidates, PrimitivePowerChoice::WalkingWheel.provider());
     PrimitivePowerPlan {
         choice,
+        selected_lifecycle_attention: selected.lifecycle_attention,
+        selected_lifecycle_condition: selected.lifecycle_condition,
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
         store_definition,
         capacity_nj,
