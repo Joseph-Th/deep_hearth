@@ -27,8 +27,8 @@ use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId, validate_build_storage_enclosure};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
-    validate_allocate_ground_stockpile, validate_initialize_player_logistics,
-    validate_place_fluid_store,
+    validate_allocate_player_ground_stockpile, validate_drop_to_ground,
+    validate_initialize_player_logistics, validate_pickup_from_ground, validate_place_fluid_store,
 };
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
@@ -257,14 +257,15 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("wilderness carrying commit failed: {error}"))
     .carried_stockpile();
-    let components = validate_allocate_ground_stockpile(
-        &state,
-        STATIONARY_PLAYER_ORIGIN,
-        Mass::from_milligrams(12_000_000),
-    )
-    .unwrap_or_else(|error| panic!("wilderness component stockpile allocation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("wilderness component stockpile commit failed: {error}"));
+    let components =
+        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(12_000_000))
+            .unwrap_or_else(|error| {
+                panic!("wilderness component stockpile allocation failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness component stockpile commit failed: {error}")
+            });
     assert_exact_local_runtime_ready(&registries, &state, "controlled wilderness opening");
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("wilderness initial matter audit failed: {error}"))
@@ -418,14 +419,15 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         !boards_after_box.is_zero(),
         "wilderness camp project should leave useful prepared timber after building storage"
     );
-    let provisions = validate_allocate_ground_stockpile(
-        &state,
-        STATIONARY_PLAYER_ORIGIN,
-        Mass::from_milligrams(10_000_000),
-    )
-    .unwrap_or_else(|error| panic!("wilderness provisions stockpile allocation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("wilderness provisions stockpile commit failed: {error}"));
+    let provisions =
+        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(10_000_000))
+            .unwrap_or_else(|error| {
+                panic!("wilderness provisions stockpile allocation failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness provisions stockpile commit failed: {error}")
+            });
     validate_build_storage_enclosure(
         &registries,
         &state,
@@ -436,6 +438,20 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
     .unwrap_or_else(|error| panic!("wilderness field-box construction failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("wilderness field-box construction commit failed: {error}"));
+    let built_provisions = provisions;
+    let provisions = state
+        .available_local_ground_stockpiles()
+        .find(|record| {
+            record
+                .enclosure()
+                .is_some_and(|enclosure| enclosure.definition() == STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        })
+        .map(|record| record.id())
+        .unwrap_or_else(|| panic!("wilderness actor could not rediscover its local field box"));
+    assert_eq!(
+        provisions, built_provisions,
+        "local storage observation must rediscover the field box the actor just built"
+    );
     assert_eq!(
         state
             .inventory()
@@ -451,7 +467,7 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         &mut state,
         SURFACE_GATHERING_HAND_FORAGE_BERRIES,
         berries,
-        provisions,
+        carried,
         Mass::from_milligrams(500_000),
         "berry forage",
     );
@@ -460,24 +476,74 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         "controlled opening must deplete its disclosed local stone, timber, and forage opportunities"
     );
     let berry_commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
-    let berry_lot = state
+    let gathered_berries = state
         .inventory()
-        .lot_ids(provisions)
+        .lot_ids(carried)
         .find(|lot| {
             state
                 .inventory()
                 .get_lot(*lot)
                 .is_some_and(|record| record.commodity() == berry_commodity)
         })
-        .unwrap_or_else(|| panic!("foraged berries disappeared from the field box"));
+        .unwrap_or_else(|| panic!("foraged berries disappeared from carried custody"));
+    validate_drop_to_ground(
+        &registries,
+        &state,
+        provisions,
+        &[MaterialLotSelection::new(
+            gathered_berries,
+            Mass::from_milligrams(500_000),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("wilderness berry storage failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("wilderness berry storage commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(provisions)
+            .map(|record| record.get_mass(berry_commodity)),
+        Some(Mass::from_milligrams(500_000)),
+        "the rediscovered field box must hold the stored forage"
+    );
+    validate_pickup_from_ground(
+        &registries,
+        &state,
+        provisions,
+        &[MaterialLotSelection::new(
+            gathered_berries,
+            Mass::from_milligrams(250_000),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("wilderness berry meal retrieval failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("wilderness berry meal retrieval commit failed: {error}"));
+    let meal_lot = state
+        .inventory()
+        .lot_ids(carried)
+        .find(|lot| {
+            state
+                .inventory()
+                .get_lot(*lot)
+                .is_some_and(|record| record.commodity() == berry_commodity)
+        })
+        .unwrap_or_else(|| panic!("retrieved wilderness meal disappeared from carried custody"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(provisions)
+            .map(|record| record.get_mass(berry_commodity)),
+        Some(Mass::from_milligrams(250_000)),
+        "retrieving one meal must leave the remaining forage stored in the field box"
+    );
     let before_meal = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("wilderness player disappeared before meal"));
     let meal = validate_eat(
         &registries,
         &state,
-        provisions,
+        carried,
         &[MaterialLotSelection::new(
-            berry_lot,
+            meal_lot,
             Mass::from_milligrams(250_000),
         )],
     )

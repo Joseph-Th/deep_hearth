@@ -68,6 +68,43 @@ fn ground_stockpile_allocation_creates_empty_custody_at_requested_voxel() {
 }
 
 #[test]
+fn player_ground_stockpile_allocation_derives_current_voxel_and_requires_admission() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let capacity = Mass::from_milligrams(12_000_000);
+    assert_eq!(
+        validate_allocate_player_ground_stockpile(&state, capacity).err(),
+        Some(PlayerGroundStockpileAllocationError::PlayerNotInitialized)
+    );
+
+    let position = VoxelCoord::new(-5, 2, 9);
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("player-local ground allocation setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("player-local ground allocation setup commit failed: {error}")
+        });
+    let stockpile = validate_allocate_player_ground_stockpile(&state, capacity)
+        .unwrap_or_else(|error| panic!("player-local ground allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("player-local ground allocation commit failed: {error}"));
+
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(position),
+        "ordinary loose storage allocation must derive the admitted player's exact voxel"
+    );
+    assert_eq!(
+        state
+            .available_local_ground_stockpiles()
+            .map(|record| record.id())
+            .collect::<Vec<_>>(),
+        vec![stockpile]
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn ground_stockpile_allocation_rejects_stale_inventory_without_half_location() {
     let mut state = AppState::new();
     let position = VoxelCoord::new(0, 0, 0);

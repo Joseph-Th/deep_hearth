@@ -14,7 +14,8 @@ mod transfer;
 
 pub use allocation::{
     GroundStockpileAllocationCommitError, GroundStockpileAllocationError,
-    ValidatedGroundStockpileAllocation, validate_allocate_ground_stockpile,
+    PlayerGroundStockpileAllocationError, ValidatedGroundStockpileAllocation,
+    validate_allocate_ground_stockpile, validate_allocate_player_ground_stockpile,
 };
 pub use transfer::{
     GroundMaterialTransferCommitError, GroundMaterialTransferError,

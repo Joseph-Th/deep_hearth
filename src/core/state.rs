@@ -8,7 +8,7 @@ use crate::energy::EnergyState;
 use crate::equipment::EquipmentState;
 use crate::fluid::{FluidState, FluidStoreRecord};
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
-use crate::inventory::InventoryState;
+use crate::inventory::{InventoryState, StockpileRecord};
 use crate::labor::PlayerWorkState;
 use crate::logistics::LogisticsState;
 use crate::mining::MiningState;
@@ -268,6 +268,24 @@ impl AppState {
     #[must_use]
     pub const fn inventory(&self) -> &InventoryState {
         &self.systems.inventory
+    }
+
+    /// Iterates stationary stockpiles explicitly located at the admitted player's exact voxel.
+    ///
+    /// The player-carried stockpile is intentionally excluded because it is exposed through
+    /// `assess_player_carrying`. No ground stockpiles are observable before logistics admission,
+    /// and callers cannot supply an arbitrary voxel to scan remote inventory custody.
+    pub fn available_local_ground_stockpiles(&self) -> impl Iterator<Item = &StockpileRecord> {
+        let player_position = self
+            .systems
+            .logistics
+            .player()
+            .map(|player| player.position());
+        self.systems
+            .logistics
+            .stockpile_locations()
+            .filter(move |(_, position)| Some(*position) == player_position)
+            .filter_map(|(stockpile, _)| self.systems.inventory.get_stockpile(stockpile))
     }
 
     pub(crate) fn inventory_state_mut(&mut self) -> &mut InventoryState {

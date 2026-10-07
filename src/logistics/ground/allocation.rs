@@ -21,6 +21,35 @@ pub enum GroundStockpileAllocationError {
     LogisticsRevisionExhausted,
 }
 
+/// Failure while allocating ordinary loose storage at the admitted player's current voxel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlayerGroundStockpileAllocationError {
+    PlayerNotInitialized,
+    Allocation(GroundStockpileAllocationError),
+}
+
+impl Display for PlayerGroundStockpileAllocationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PlayerNotInitialized => {
+                formatter.write_str("player logistics is not initialized")
+            }
+            Self::Allocation(error) => {
+                write!(formatter, "local ground storage allocation failed: {error}")
+            }
+        }
+    }
+}
+
+impl Error for PlayerGroundStockpileAllocationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Allocation(error) => Some(error),
+            Self::PlayerNotInitialized => None,
+        }
+    }
+}
+
 impl Display for GroundStockpileAllocationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -142,4 +171,22 @@ pub fn validate_allocate_ground_stockpile(
         position,
         allocation,
     })
+}
+
+/// Allocates one empty loose stockpile at the admitted player's exact current voxel.
+///
+/// Ordinary player-facing placement should use this boundary rather than supplying a coordinate.
+/// The lower-level allocator remains available to world/bootstrap adapters that separately own why
+/// a custody record exists at a specific voxel.
+pub fn validate_allocate_player_ground_stockpile(
+    state: &AppState,
+    capacity: Mass,
+) -> Result<ValidatedGroundStockpileAllocation, PlayerGroundStockpileAllocationError> {
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .ok_or(PlayerGroundStockpileAllocationError::PlayerNotInitialized)?;
+    validate_allocate_ground_stockpile(state, position, capacity)
+        .map_err(PlayerGroundStockpileAllocationError::Allocation)
 }

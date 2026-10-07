@@ -30,9 +30,10 @@ pub use ground::{
     GroundMaterialTransferCommitError, GroundMaterialTransferError,
     GroundStockpileAllocationCommitError, GroundStockpileAllocationError,
     GroundStockpilePlacementCommitError, GroundStockpilePlacementError,
-    ValidatedGroundMaterialTransfer, ValidatedGroundStockpileAllocation,
-    ValidatedGroundStockpilePlacement, validate_allocate_ground_stockpile, validate_drop_to_ground,
-    validate_pickup_from_ground, validate_place_ground_stockpile,
+    PlayerGroundStockpileAllocationError, ValidatedGroundMaterialTransfer,
+    ValidatedGroundStockpileAllocation, ValidatedGroundStockpilePlacement,
+    validate_allocate_ground_stockpile, validate_allocate_player_ground_stockpile,
+    validate_drop_to_ground, validate_pickup_from_ground, validate_place_ground_stockpile,
 };
 pub use initialization::{
     InitializePlayerLogisticsCommitError, InitializePlayerLogisticsError,
