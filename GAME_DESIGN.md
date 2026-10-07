@@ -212,6 +212,12 @@ capabilities only through physical owners that support their real gameplay conse
 recipes for fire, shelter, cordage, containers, or tools before the corresponding world interaction, thermal,
 structural, survival, or resource-acquisition edge exists.
 
+The stone age should also have a useful second layer after the first camp is stable. Bulk soft-rock work can
+justify heavier stone quarry tools; repeated timber work can justify dedicated turning equipment; worn stone
+components can justify a treadle grindstone; and simple human-powered flywheels or drives can become worthwhile
+where a real non-metal workload exists. Copper should improve hardness access, throughput, durability, precision,
+or delegation. It should not be the first material that makes sustained craft specialization possible.
+
 Industrialization shifts the dominant cost of work:
 
 `human attention -> organized labor -> machinery -> energy + maintenance + logistics + control`

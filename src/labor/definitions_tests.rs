@@ -5,16 +5,41 @@ use crate::capability::{
     CapabilityDefinition, CapabilityId, CapabilityRegistry, CapabilityValueKind,
 };
 use crate::content::{EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, build_registries};
-use crate::core::quantity::{Energy, Pressure, Volume};
+use crate::core::quantity::{Energy, Mass, Pressure, Volume};
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, EnergyRegistry};
 use crate::equipment::{EquipmentDefinitionId, EquipmentRegistry};
 use crate::geology::GeologicalEvidenceKind;
+use crate::material::{CommodityKey, FormId, MaterialId};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::survival::SurvivalExertion;
 
 fn active_exertion() -> SurvivalExertion {
     SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO)
+}
+
+#[test]
+fn surface_gathering_authoring_rejects_unknown_commodity() {
+    let registries = build_registries();
+    let gathering = SurfaceGatheringDefinition::new(
+        SurfaceGatheringMethodId::new(55_011),
+        CommodityKey::new(MaterialId::new(999_999), FormId::new(999)),
+        Mass::from_milligrams(1),
+        TickSpan::new(1),
+        active_exertion(),
+    );
+    let labor = LaborRegistry::new([gathering], std::iter::empty(), std::iter::empty());
+
+    let result = std::panic::catch_unwind(|| {
+        labor.validate_references(
+            registries.capabilities(),
+            registries.equipment(),
+            registries.energy(),
+            registries.materials(),
+        );
+    });
+
+    assert!(result.is_err());
 }
 
 #[test]
@@ -82,6 +107,7 @@ fn manual_power_authoring_rejects_methods_without_a_physical_provider() {
             &capabilities,
             &equipment,
             &EnergyRegistry::new(std::iter::empty()),
+            build_registries().materials(),
         );
     });
 
@@ -99,6 +125,7 @@ fn manual_power_authoring_rejects_methods_without_a_compatible_energy_sink() {
             registries.capabilities(),
             registries.equipment(),
             &no_energy,
+            registries.materials(),
         );
     });
 
@@ -124,6 +151,7 @@ fn prospecting_authoring_rejects_structurally_installed_instruments() {
             registries.capabilities(),
             registries.equipment(),
             registries.energy(),
+            registries.materials(),
         );
     });
 
@@ -149,6 +177,7 @@ fn prospecting_authoring_rejects_duration_beyond_pristine_tool_lifetime() {
             registries.capabilities(),
             registries.equipment(),
             registries.energy(),
+            registries.materials(),
         );
     });
 

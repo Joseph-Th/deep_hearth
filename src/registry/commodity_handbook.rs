@@ -4,6 +4,7 @@ use crate::core::quantity::Mass;
 use crate::energy::EnergyStoreDefinitionId;
 use crate::equipment::EquipmentDefinitionId;
 use crate::inventory::StorageDefinitionId;
+use crate::labor::SurfaceGatheringMethodId;
 use crate::material::{CommodityKey, FormDefinition, MaterialDefinition};
 use crate::production::ProcessId;
 
@@ -36,6 +37,10 @@ pub enum EquipmentDisassemblyRecovery {
 /// These are definition-level relationships, not claims that the source is currently reachable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommoditySource {
+    SurfaceGathering {
+        method: SurfaceGatheringMethodId,
+        maximum_batch_mass: Mass,
+    },
     ManualCraft {
         process: ProcessId,
         output_mass: Mass,
@@ -180,6 +185,15 @@ impl Registries {
         let mut sources = Vec::new();
         let mut uses = Vec::new();
 
+        sources.extend(
+            self.labor()
+                .surface_gathering_definitions()
+                .filter(|definition| definition.commodity() == commodity)
+                .map(|definition| CommoditySource::SurfaceGathering {
+                    method: definition.id(),
+                    maximum_batch_mass: definition.maximum_batch_mass(),
+                }),
+        );
         collect_crafting_relationships(self, commodity, &mut sources, &mut uses);
         collect_ore_processing_relationships(self, commodity, &mut sources, &mut uses);
         collect_separation_relationships(self, commodity, &mut sources, &mut uses);

@@ -70,7 +70,8 @@ fn discover_manual_construction_route(
                         panic!("commodity handbook exposed an unknown manual process")
                     }),
             ),
-            CommoditySource::EquipmentDisassembly { .. }
+            CommoditySource::SurfaceGathering { .. }
+            | CommoditySource::EquipmentDisassembly { .. }
             | CommoditySource::EnergyStoreDisassembly { .. }
             | CommoditySource::StorageDismantling { .. }
             | CommoditySource::EquipmentMaintenanceSpent { .. }

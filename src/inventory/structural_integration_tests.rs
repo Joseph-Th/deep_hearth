@@ -6,7 +6,7 @@ use super::*;
 use crate::content::{
     FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
     STANDARD_TEST_HEATER, STANDARD_TEST_HEATING_ENERGY, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    SURFACE_GATHERING_HAND_SCAVENGE, build_registries,
+    SURFACE_GATHERING_HAND_COLLECT_STONE, build_registries,
     make_test_registries_with_standard_sensible_heating,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
@@ -199,7 +199,7 @@ fn active_surface_gathering_destination_cannot_be_mounted() {
         &registries,
         &state,
         SurfaceGatheringRequest::new(
-            SURFACE_GATHERING_HAND_SCAVENGE,
+            SURFACE_GATHERING_HAND_COLLECT_STONE,
             resource,
             destination,
             Mass::from_milligrams(100),

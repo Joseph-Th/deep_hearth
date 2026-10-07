@@ -41,6 +41,14 @@ pub(super) fn validate_surface_gathering_work(
     if player_position != resource.position() {
         return Err(PlayerWorkValidationError::SurfaceGatheringPlayerRemote);
     }
+    if resource.commodity() != method.commodity() {
+        return Err(
+            PlayerWorkValidationError::SurfaceGatheringCommodityMismatch {
+                expected: method.commodity(),
+                actual: resource.commodity(),
+            },
+        );
+    }
     if resource.lifecycle() != SurfaceResourceLifecycle::Available {
         return Err(PlayerWorkValidationError::SurfaceGatheringResourceDepleted);
     }

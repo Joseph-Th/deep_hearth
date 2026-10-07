@@ -9,6 +9,7 @@ use crate::labor::{
     ProspectingEquipmentProfile, ProspectingMethodId, ProspectingSpatialResolution,
     SurfaceGatheringDefinition, SurfaceGatheringMethodId,
 };
+use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
 use super::capabilities::{
@@ -19,10 +20,19 @@ use super::equipment::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
     EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME, EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL,
 };
+use super::{
+    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WOOD,
+};
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
-pub const SURFACE_GATHERING_HAND_SCAVENGE: SurfaceGatheringMethodId =
+pub const SURFACE_GATHERING_HAND_COLLECT_STONE: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(1);
+pub const SURFACE_GATHERING_HAND_COLLECT_TIMBER: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(2);
+pub const SURFACE_GATHERING_HAND_FORAGE_BERRIES: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(3);
+pub const SURFACE_GATHERING_HAND_COLLECT_CLAY: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(4);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
 pub const MANUAL_POWER_TREADLE_DYNAMO: ManualPowerMethodId = ManualPowerMethodId::new(4);
@@ -36,15 +46,57 @@ pub const PROSPECTING_SHALLOW_CORE_SURVEY: ProspectingMethodId = ProspectingMeth
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
-        [SurfaceGatheringDefinition::new(
-            SURFACE_GATHERING_HAND_SCAVENGE,
-            Mass::from_milligrams(5_000_000),
-            TickSpan::new(60),
-            SurvivalExertion::new(
-                Energy::from_nanojoules(1_200_000_000_000),
-                Volume::from_microliters(300),
+        [
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_COLLECT_STONE,
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(5_000_000),
+                TickSpan::new(60),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_200_000_000_000),
+                    Volume::from_microliters(300),
+                ),
             ),
-        )],
+            // Fallen timber is bulky and awkward to drag into carried custody even when it needs
+            // no cutting. Keep the same practical batch ceiling as loose stone but make collection
+            // somewhat slower so a wood-heavy camp project carries a visible acquisition cost.
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                Mass::from_milligrams(5_000_000),
+                TickSpan::new(90),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_200_000_000_000),
+                    Volume::from_microliters(300),
+                ),
+            ),
+            // Foraging is an attention-limited search-and-pick action, not bulk material loading.
+            // A smaller batch and lower mass rate keep food acquisition distinct from scooping up
+            // construction material without inventing ecology that the world shell does not own yet.
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_FORAGE_BERRIES,
+                CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+                Mass::from_milligrams(1_000_000),
+                TickSpan::new(120),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(900_000_000_000),
+                    Volume::from_microliters(220),
+                ),
+            ),
+            // Exposed clay-rich earth remains a low-tech hand-collected root for later pottery and
+            // binder work. Keep it distinct from stone so authored loose-earth sources cannot be
+            // collected accidentally through a rock-scavenging action.
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_COLLECT_CLAY,
+                CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+                Mass::from_milligrams(5_000_000),
+                TickSpan::new(75),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_000_000_000_000),
+                    Volume::from_microliters(260),
+                ),
+            ),
+        ],
         [
             ManualPowerDefinition::new(
                 MANUAL_POWER_HAND_CRANK,

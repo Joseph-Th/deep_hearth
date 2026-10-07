@@ -97,7 +97,8 @@ pub(super) fn manual_craft_topology_plan_with_equipment<'a>(
                         panic!("commodity handbook exposed an unknown manual process")
                     }),
             ),
-            CommoditySource::EquipmentDisassembly { .. }
+            CommoditySource::SurfaceGathering { .. }
+            | CommoditySource::EquipmentDisassembly { .. }
             | CommoditySource::EnergyStoreDisassembly { .. }
             | CommoditySource::StorageDismantling { .. }
             | CommoditySource::EquipmentMaintenanceSpent { .. }

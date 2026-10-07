@@ -7,7 +7,7 @@ use crate::logistics::{
     PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, PlayerStockpileAccessError,
 };
 use crate::maintenance::{ActiveConditionDurationError, Condition};
-use crate::material::MaterialId;
+use crate::material::{CommodityKey, MaterialId};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
 mod display;
@@ -25,6 +25,10 @@ pub enum PlayerWorkValidationError {
     SurfaceGatheringMassInvalid,
     SurfaceGatheringPlayerNotLocated,
     SurfaceGatheringPlayerRemote,
+    SurfaceGatheringCommodityMismatch {
+        expected: CommodityKey,
+        actual: CommodityKey,
+    },
     SurfaceGatheringDestinationAccess(PlayerStockpileAccessError),
     SurfaceGatheringDestinationMissing,
     SurfaceGatheringDestinationMounted,

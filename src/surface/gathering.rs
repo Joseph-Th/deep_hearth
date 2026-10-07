@@ -24,7 +24,7 @@ use crate::labor::{
     SurfaceGatheringWork, ValidatedPlayerWorkStart, validate_player_work_start,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
-use crate::material::MaterialLotSpec;
+use crate::material::{CommodityKey, MaterialLotSpec};
 use crate::registry::Registries;
 
 use super::{SurfaceResourceId, SurfaceResourceLifecycle};
@@ -62,6 +62,11 @@ pub enum SurfaceGatheringError {
     },
     ResourceUnavailableAtPlayer {
         resource: SurfaceResourceId,
+    },
+    CommodityMismatch {
+        method: SurfaceGatheringMethodId,
+        expected: CommodityKey,
+        actual: CommodityKey,
     },
     ZeroMass,
     BatchTooLarge {
@@ -111,6 +116,7 @@ impl Error for SurfaceGatheringError {
             Self::PlayerNotLocated
             | Self::UnknownMethod { .. }
             | Self::ResourceUnavailableAtPlayer { .. }
+            | Self::CommodityMismatch { .. }
             | Self::ZeroMass
             | Self::BatchTooLarge { .. }
             | Self::InsufficientResource { .. }
@@ -277,6 +283,13 @@ pub fn validate_start_surface_gathering(
         .ok_or(SurfaceGatheringError::ResourceUnavailableAtPlayer {
             resource: request.resource,
         })?;
+    if resource.commodity() != method.commodity() {
+        return Err(SurfaceGatheringError::CommodityMismatch {
+            method: request.method,
+            expected: method.commodity(),
+            actual: resource.commodity(),
+        });
+    }
     if request.mass.is_zero() {
         return Err(SurfaceGatheringError::ZeroMass);
     }

@@ -16,14 +16,15 @@ use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_WOODWORKING_ADZE,
     EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, FORM_BOARD, FORM_LOG, FORM_LUMP,
-    FORM_TIMBER_RIDDLE_PANEL, MATERIAL_STONE, MATERIAL_WOOD, SURFACE_GATHERING_HAND_SCAVENGE,
+    FORM_TIMBER_RIDDLE_PANEL, MATERIAL_STONE, MATERIAL_WOOD, SURFACE_GATHERING_HAND_COLLECT_STONE,
+    SURFACE_GATHERING_HAND_COLLECT_TIMBER,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::labor::PlayerWork;
+use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
     assess_player_carrying, validate_allocate_ground_stockpile,
     validate_initialize_player_logistics,
@@ -57,6 +58,16 @@ pub(super) struct RawKitAcquisitionReview {
     pub(super) hydration_cost_ul: u64,
 }
 
+fn gathering_method_for(commodity: CommodityKey) -> SurfaceGatheringMethodId {
+    if commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP) {
+        SURFACE_GATHERING_HAND_COLLECT_STONE
+    } else if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG) {
+        SURFACE_GATHERING_HAND_COLLECT_TIMBER
+    } else {
+        panic!("liberation kit has no authored surface gathering method for {commodity:?}")
+    }
+}
+
 fn gather_surface_resource(
     registries: &Registries,
     state: &mut AppState,
@@ -65,11 +76,17 @@ fn gather_surface_resource(
     requested: Mass,
     context: &'static str,
 ) -> u64 {
+    let commodity = state
+        .available_surface_resources()
+        .find(|candidate| candidate.id() == resource)
+        .map(|candidate| candidate.commodity())
+        .unwrap_or_else(|| panic!("liberation {context} local surface resource disappeared"));
+    let method_id = gathering_method_for(commodity);
     let method = registries
         .labor()
-        .get_surface_gathering(SURFACE_GATHERING_HAND_SCAVENGE)
+        .get_surface_gathering(method_id)
         .copied()
-        .unwrap_or_else(|| panic!("liberation {context} hand-scavenge method disappeared"));
+        .unwrap_or_else(|| panic!("liberation {context} gathering method disappeared"));
     let started_at = state.tick().value();
     let mut remaining = requested;
     while !remaining.is_zero() {
@@ -77,12 +94,7 @@ fn gather_surface_resource(
         validate_start_surface_gathering(
             registries,
             state,
-            SurfaceGatheringRequest::new(
-                SURFACE_GATHERING_HAND_SCAVENGE,
-                resource,
-                destination,
-                batch,
-            ),
+            SurfaceGatheringRequest::new(method_id, resource, destination, batch),
         )
         .unwrap_or_else(|error| panic!("liberation {context} gathering admission failed: {error}"))
         .commit(state)
@@ -214,14 +226,15 @@ pub(super) fn project_incremental_kit_acquisition_attention(
         &final_requirements,
         panel_board_mass,
     );
-    let gathering = registries
-        .labor()
-        .get_surface_gathering(SURFACE_GATHERING_HAND_SCAVENGE)
-        .copied()
-        .unwrap_or_else(|| panic!("liberation hand-scavenge method disappeared"));
     let mut gathering_ticks = 0_u64;
-    for mass in raw_requirements.values().copied() {
-        let mut remaining = mass;
+    for (commodity, mass) in &raw_requirements {
+        let method_id = gathering_method_for(*commodity);
+        let gathering = registries
+            .labor()
+            .get_surface_gathering(method_id)
+            .copied()
+            .unwrap_or_else(|| panic!("liberation authored gathering method disappeared"));
+        let mut remaining = *mass;
         while !remaining.is_zero() {
             let batch = remaining.min(gathering.maximum_batch_mass());
             let duration = gathering

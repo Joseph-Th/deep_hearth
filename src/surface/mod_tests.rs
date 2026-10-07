@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::content::{
-    FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, SURFACE_GATHERING_HAND_SCAVENGE,
-    build_registries,
+    FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE,
+    SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{
@@ -85,7 +85,7 @@ fn public_surface_observation_and_start_errors_do_not_reveal_remote_resources() 
 
     let request = |resource| {
         SurfaceGatheringRequest::new(
-            SURFACE_GATHERING_HAND_SCAVENGE,
+            SURFACE_GATHERING_HAND_COLLECT_STONE,
             resource,
             carried,
             Mass::from_milligrams(1),
@@ -99,6 +99,89 @@ fn public_surface_observation_and_start_errors_do_not_reveal_remote_resources() 
     assert_eq!(
         validate_start_surface_gathering(&registries, &state, request(unknown)).err(),
         Some(SurfaceGatheringError::ResourceUnavailableAtPlayer { resource: unknown })
+    );
+}
+
+#[test]
+fn surface_gathering_rejects_a_method_authored_for_another_commodity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let berries_commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let berries = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        berries_commodity,
+        Mass::from_milligrams(100_000),
+    );
+    let carried = admit_player(&registries, &mut state, position);
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_surface_gathering(
+            &registries,
+            &state,
+            SurfaceGatheringRequest::new(
+                SURFACE_GATHERING_HAND_COLLECT_STONE,
+                berries,
+                carried,
+                Mass::from_milligrams(100_000),
+            ),
+        )
+        .err(),
+        Some(SurfaceGatheringError::CommodityMismatch {
+            method: SURFACE_GATHERING_HAND_COLLECT_STONE,
+            expected: CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            actual: berries_commodity,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_surface_gathering_with_a_method_for_another_commodity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let stone_commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        stone_commodity,
+        Mass::from_milligrams(100),
+    );
+    let carried = admit_player(&registries, &mut state, position);
+    validate_start_surface_gathering(
+        &registries,
+        &state,
+        SurfaceGatheringRequest::new(
+            SURFACE_GATHERING_HAND_COLLECT_STONE,
+            stone,
+            carried,
+            Mass::from_milligrams(100),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("commodity-mismatch load setup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("commodity-mismatch load commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("commodity-mismatch load serialization failed: {error}"));
+    encoded["state"]["systems"]["player_work"]["active"]["SurfaceGathering"]["work"]["method"] =
+        serde_json::json!(SURFACE_GATHERING_HAND_FORAGE_BERRIES.value());
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("commodity-mismatch load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::SurfaceGatheringCommodityMismatch {
+                expected: CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+                actual: stone_commodity,
+            }
+        )))
     );
 }
 
@@ -119,7 +202,7 @@ fn trusted_load_rejects_remote_surface_gathering_before_source_state() {
         &registries,
         &state,
         SurfaceGatheringRequest::new(
-            SURFACE_GATHERING_HAND_SCAVENGE,
+            SURFACE_GATHERING_HAND_COLLECT_STONE,
             stone,
             carried,
             Mass::from_milligrams(100),
@@ -168,7 +251,7 @@ fn gathered_perishable_retains_ambient_surface_age() {
         &registries,
         &state,
         SurfaceGatheringRequest::new(
-            SURFACE_GATHERING_HAND_SCAVENGE,
+            SURFACE_GATHERING_HAND_FORAGE_BERRIES,
             berries,
             carried,
             Mass::from_milligrams(100),
@@ -208,7 +291,7 @@ fn trusted_load_rejects_active_gathering_into_storage_that_no_longer_accepts_sou
         &registries,
         &state,
         SurfaceGatheringRequest::new(
-            SURFACE_GATHERING_HAND_SCAVENGE,
+            SURFACE_GATHERING_HAND_COLLECT_STONE,
             stone,
             carried,
             Mass::from_milligrams(100),

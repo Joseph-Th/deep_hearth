@@ -33,7 +33,8 @@ fn manual_craft_plan_for_output_matching<'a>(
                         panic!("commodity handbook exposed an unknown manual process")
                     }),
             ),
-            CommoditySource::EquipmentDisassembly { .. }
+            CommoditySource::SurfaceGathering { .. }
+            | CommoditySource::EquipmentDisassembly { .. }
             | CommoditySource::EnergyStoreDisassembly { .. }
             | CommoditySource::StorageDismantling { .. }
             | CommoditySource::EquipmentMaintenanceSpent { .. }

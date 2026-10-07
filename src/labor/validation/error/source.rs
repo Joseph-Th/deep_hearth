@@ -28,6 +28,7 @@ impl Error for PlayerWorkValidationError {
             | Self::SurfaceGatheringMassInvalid
             | Self::SurfaceGatheringPlayerNotLocated
             | Self::SurfaceGatheringPlayerRemote
+            | Self::SurfaceGatheringCommodityMismatch { .. }
             | Self::SurfaceGatheringDestinationMissing
             | Self::SurfaceGatheringDestinationMounted
             | Self::SurfaceGatheringReservationMissing

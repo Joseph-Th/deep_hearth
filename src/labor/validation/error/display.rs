@@ -29,6 +29,12 @@ impl Display for PlayerWorkValidationError {
                 .write_str("surface gathering requires initialized player world position"),
             Self::SurfaceGatheringPlayerRemote => formatter
                 .write_str("surface gathering resource is no longer at the player's voxel"),
+            Self::SurfaceGatheringCommodityMismatch { expected, actual } => write!(
+                formatter,
+                "surface gathering method expects commodity {} but active resource is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::SurfaceGatheringDestinationAccess(error) => write!(
                 formatter,
                 "surface gathering destination access is invalid: {error}"

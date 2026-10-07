@@ -4091,13 +4091,13 @@ class ExactTestCommandTests(unittest.TestCase):
 
     def test_public_content_contracts_resolve_to_the_shared_library_target(self) -> None:
         target, name = run_test.resolve_automatic_exact_selection(
-            "every_declared_primitive_infrastructure_component_has_a_transitive_runtime_route",
+            "every_declared_post_wilderness_primitive_infrastructure_component_has_a_transitive_runtime_route",
             None,
         )
         self.assertEqual(target, "lib")
         self.assertEqual(
             name,
-            "content::tests::public_contracts::every_declared_primitive_infrastructure_component_has_a_transitive_runtime_route",
+            "content::tests::public_contracts::every_declared_post_wilderness_primitive_infrastructure_component_has_a_transitive_runtime_route",
         )
 
     def test_automatic_suite_resolution_stays_on_one_complete_target(self) -> None:

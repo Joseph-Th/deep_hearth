@@ -2,13 +2,56 @@
 
 use super::*;
 use crate::content::{
-    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK, FORM_CHEST_BODY, FORM_CRUSHED, FORM_HANDLE,
-    FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_SCRAP, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER,
-    PROCESS_SHAPE_WOOD_HANDLE, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
+    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK, FORM_CHEST_BODY, FORM_CRUSHED, FORM_FOOD,
+    FORM_HANDLE, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE,
+    FORM_SCRAP, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER, PROCESS_SHAPE_WOOD_HANDLE,
+    STORAGE_TIMBER_PROVISIONS_CHEST, SURFACE_GATHERING_HAND_COLLECT_CLAY,
+    SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+    SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use crate::material::CommodityKey;
+
+#[test]
+fn wilderness_root_handbook_entries_expose_their_authored_gathering_actions() {
+    let registries = build_registries();
+    for (commodity, method) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            SURFACE_GATHERING_HAND_COLLECT_STONE,
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+        ),
+        (
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            SURFACE_GATHERING_HAND_FORAGE_BERRIES,
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+            SURFACE_GATHERING_HAND_COLLECT_CLAY,
+        ),
+    ] {
+        let authored = registries
+            .labor()
+            .get_surface_gathering(method)
+            .unwrap_or_else(|| {
+                panic!("wilderness gathering method {} disappeared", method.value())
+            });
+        let entry = registries
+            .commodity_handbook_entry(commodity)
+            .unwrap_or_else(|| panic!("wilderness commodity handbook entry disappeared"));
+        assert!(entry.sources().iter().any(|source| matches!(
+            source,
+            CommoditySource::SurfaceGathering {
+                method: found,
+                maximum_batch_mass,
+            } if *found == method && *maximum_batch_mass == authored.maximum_batch_mass()
+        )));
+    }
+}
 
 #[test]
 fn handle_handbook_links_crafting_and_physical_equipment_uses() {

@@ -81,9 +81,12 @@ pub(super) fn validate_registry_domains(core: &CoreDefinitions, domains: &Regist
         &domains.materials,
         &domains.capabilities,
     );
-    domains
-        .labor
-        .validate_references(&domains.capabilities, &domains.equipment, &domains.energy);
+    domains.labor.validate_references(
+        &domains.capabilities,
+        &domains.equipment,
+        &domains.energy,
+        &domains.materials,
+    );
     domains
         .equipment
         .validate_references(&domains.capabilities, &domains.materials);

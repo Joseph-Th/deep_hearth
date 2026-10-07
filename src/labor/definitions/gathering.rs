@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
 use crate::core::time::TickSpan;
+use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
 /// Stable authored identity for one direct surface-gathering method.
@@ -27,6 +28,7 @@ impl SurfaceGatheringMethodId {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SurfaceGatheringDefinition {
     id: SurfaceGatheringMethodId,
+    commodity: CommodityKey,
     maximum_batch_mass: Mass,
     maximum_batch_duration: TickSpan,
     exertion: SurvivalExertion,
@@ -36,6 +38,7 @@ impl SurfaceGatheringDefinition {
     #[must_use]
     pub fn new(
         id: SurfaceGatheringMethodId,
+        commodity: CommodityKey,
         maximum_batch_mass: Mass,
         maximum_batch_duration: TickSpan,
         exertion: SurvivalExertion,
@@ -45,6 +48,7 @@ impl SurfaceGatheringDefinition {
         exertion.assert_active_player_work();
         Self {
             id,
+            commodity,
             maximum_batch_mass,
             maximum_batch_duration,
             exertion,
@@ -54,6 +58,11 @@ impl SurfaceGatheringDefinition {
     #[must_use]
     pub const fn id(self) -> SurfaceGatheringMethodId {
         self.id
+    }
+
+    #[must_use]
+    pub const fn commodity(self) -> CommodityKey {
+        self.commodity
     }
 
     #[must_use]

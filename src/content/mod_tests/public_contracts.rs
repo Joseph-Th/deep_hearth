@@ -7,12 +7,20 @@ use super::super::{
     ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
     ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE, ENERGY_THERMAL_SINK,
     ENERGY_TIMBER_FLYWHEEL_DRIVE, ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_CASTING_MOLD,
-    EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_GRAVITY_SEPARATOR,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_DIGGING_SHOVEL,
-    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_HANDLE, FORM_LOG,
-    FORM_LUMP, FORM_NATIVE_METAL, FORM_TOOL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_LEGUMES,
-    MATERIAL_MEAT, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL,
-    PROCESS_SHAPE_WOOD_HANDLE, SURFACE_GATHERING_HAND_SCAVENGE, build_registries,
+    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
+    EQUIPMENT_GRAVITY_SEPARATOR, EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
+    EQUIPMENT_STONE_DIGGING_SHOVEL, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
+    EQUIPMENT_STONE_QUARRY_PICK, EQUIPMENT_STONE_WOODWORKING_ADZE,
+    EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+    EQUIPMENT_TIMBER_SPRING_POLE_LATHE, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_BOARD, FORM_FOOD, FORM_HANDLE, FORM_LOG, FORM_LUMP,
+    FORM_NATIVE_METAL, FORM_TOOL, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
+    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    SURFACE_GATHERING_HAND_COLLECT_CLAY, SURFACE_GATHERING_HAND_COLLECT_STONE,
+    SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use crate::core::quantity::{Mass, Power, Volume};
 use crate::core::time::TickSpan;
@@ -116,15 +124,20 @@ fn built_in_wilderness_stone_toolkit_has_a_real_attention_horizon_before_copper(
             .checked_mul(handle_batches)
             .unwrap_or_else(|| panic!("wilderness wood gathering requirement overflowed")),
     );
-    let gathering = registries
+    let stone_gathering = registries
         .labor()
-        .get_surface_gathering(SURFACE_GATHERING_HAND_SCAVENGE)
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_STONE)
         .copied()
-        .unwrap_or_else(|| panic!("hand surface gathering disappeared"));
-    let gather_ticks = gathering
+        .unwrap_or_else(|| panic!("hand stone collection disappeared"));
+    let timber_gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_TIMBER)
+        .copied()
+        .unwrap_or_else(|| panic!("hand timber collection disappeared"));
+    let gather_ticks = stone_gathering
         .duration_for_mass(loose_stone)
         .and_then(|stone| {
-            gathering
+            timber_gathering
                 .duration_for_mass(loose_wood)
                 .and_then(|wood| stone.value().checked_add(wood.value()))
         })
@@ -154,6 +167,154 @@ fn built_in_wilderness_stone_toolkit_has_a_real_attention_horizon_before_copper(
         (15 * minute..=45 * minute).contains(&physical_microseconds),
         "gathering and hand-fabricating the basic pick/adze/shovel toolkit should consume a meaningful opening-time horizon before food, fire, shelter, travel, or geology"
     );
+}
+
+#[test]
+fn built_in_wilderness_gathering_distinguishes_foraging_from_bulk_material_collection() {
+    let registries = build_registries();
+    let stone = *registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_STONE)
+        .unwrap_or_else(|| panic!("stone collection disappeared"));
+    let timber = *registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_TIMBER)
+        .unwrap_or_else(|| panic!("timber collection disappeared"));
+    let berries = *registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_FORAGE_BERRIES)
+        .unwrap_or_else(|| panic!("berry foraging disappeared"));
+    let clay = *registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_CLAY)
+        .unwrap_or_else(|| panic!("clay collection disappeared"));
+
+    assert_eq!(
+        stone.commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+    );
+    assert_eq!(
+        timber.commodity(),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+    );
+    assert_eq!(
+        berries.commodity(),
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)
+    );
+    assert_eq!(
+        clay.commodity(),
+        CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)
+    );
+    assert!(berries.maximum_batch_mass() < stone.maximum_batch_mass());
+    assert!(berries.maximum_batch_mass() < timber.maximum_batch_mass());
+
+    let comparison_mass = Mass::from_milligrams(500_000);
+    let stone_ticks = stone
+        .duration_for_mass(comparison_mass)
+        .unwrap_or_else(|| panic!("stone comparison gather disappeared"));
+    let timber_ticks = timber
+        .duration_for_mass(comparison_mass)
+        .unwrap_or_else(|| panic!("timber comparison gather disappeared"));
+    let forage_ticks = berries
+        .duration_for_mass(comparison_mass)
+        .unwrap_or_else(|| panic!("berry comparison gather disappeared"));
+    assert!(timber_ticks > stone_ticks);
+    assert!(forage_ticks > timber_ticks);
+}
+
+#[test]
+fn built_in_wilderness_storage_offers_early_capacity_or_preservation_investments() {
+    let registries = build_registries();
+    let timber = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("rough timber field box disappeared"));
+    let stone = registries
+        .storage()
+        .get(STORAGE_CARVED_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("carved stone provisions crock disappeared"));
+    assert!(
+        timber.maximum_stockpile_capacity() > stone.maximum_stockpile_capacity(),
+        "rough timber storage should remain the higher-capacity early option"
+    );
+    assert!(
+        stone.storage_profile().preservation_multiplier_ppm()
+            > timber.storage_profile().preservation_multiplier_ppm(),
+        "carved stone storage should repay its smaller capacity with stronger preservation"
+    );
+
+    let boards = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("wilderness board shaping disappeared"));
+    let field_box = registries
+        .crafting()
+        .get_manual(PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("rough field-box joinery disappeared"));
+    let board_output = boards
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("board shaping lost its board output"));
+    let timber_batches = field_box
+        .input_mass()
+        .milligrams()
+        .div_ceil(board_output.milligrams());
+    let raw_timber = Mass::from_milligrams(
+        boards
+            .input_mass()
+            .milligrams()
+            .checked_mul(timber_batches)
+            .unwrap_or_else(|| panic!("field-box raw timber requirement overflowed")),
+    );
+    let timber_gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_TIMBER)
+        .copied()
+        .unwrap_or_else(|| panic!("hand timber collection disappeared"));
+    let timber_ticks = timber_gathering
+        .duration_for_mass(raw_timber)
+        .map(|gathering| gathering.value())
+        .and_then(|gathering| {
+            boards
+                .duration()
+                .value()
+                .checked_mul(timber_batches)
+                .and_then(|shaping| gathering.checked_add(shaping))
+        })
+        .and_then(|subtotal| subtotal.checked_add(field_box.duration().value()))
+        .unwrap_or_else(|| panic!("field-box opening attention overflowed"));
+
+    let crock = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("stone crock shaping disappeared"));
+    let stone_gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_STONE)
+        .copied()
+        .unwrap_or_else(|| panic!("hand stone collection disappeared"));
+    let stone_ticks = stone_gathering
+        .duration_for_mass(crock.input_mass())
+        .and_then(|gathering| gathering.value().checked_add(crock.duration().value()))
+        .unwrap_or_else(|| panic!("stone-crock opening attention overflowed"));
+
+    let minute = 60_u128 * 1_000_000;
+    for (name, ticks) in [
+        ("rough timber field box", timber_ticks),
+        ("stone crock", stone_ticks),
+    ] {
+        let physical_microseconds = u128::from(ticks)
+            .checked_mul(u128::from(
+                registries.core().physical_tick_duration().microseconds(),
+            ))
+            .unwrap_or_else(|| panic!("{name} physical duration overflowed"));
+        assert!(
+            (5 * minute..=20 * minute).contains(&physical_microseconds),
+            "{name} should remain a meaningful but attainable wilderness storage project"
+        );
+    }
 }
 
 #[test]
@@ -238,8 +399,125 @@ fn primitive_commodity_has_root_route(
 }
 
 #[test]
-fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_route() {
+fn maintained_pre_copper_infrastructure_stays_reachable_from_stone_clay_and_timber() {
     let registries = build_registries();
+    let roots = BTreeSet::from([
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+    ]);
+
+    for equipment in [
+        EQUIPMENT_STONE_PICK,
+        EQUIPMENT_STONE_DIGGING_SHOVEL,
+        EQUIPMENT_STONE_QUARRY_PICK,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        EQUIPMENT_STONE_HAND_CRANK,
+        EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+        EQUIPMENT_TIMBER_TREADLE_GRINDSTONE,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    ] {
+        let profile = registries
+            .equipment()
+            .get_equipment(equipment)
+            .and_then(|definition| definition.assembly_profile())
+            .unwrap_or_else(|| panic!("maintained pre-copper equipment lost assembly profile"));
+        for input in profile.inputs() {
+            assert_ne!(
+                input.commodity().material(),
+                MATERIAL_COPPER,
+                "maintained pre-copper equipment {} gained a copper assembly dependency",
+                equipment.value()
+            );
+            assert!(
+                primitive_commodity_has_root_route(
+                    &registries,
+                    input.commodity(),
+                    &roots,
+                    &mut BTreeSet::new(),
+                ),
+                "maintained pre-copper equipment {} input {} lost its route from stone/clay/timber roots",
+                equipment.value(),
+                input.commodity().value()
+            );
+        }
+    }
+
+    let stone_drive = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("pre-copper stone flywheel drive lost its assembly profile"));
+    for input in stone_drive.inputs() {
+        assert_ne!(input.commodity().material(), MATERIAL_COPPER);
+        assert!(primitive_commodity_has_root_route(
+            &registries,
+            input.commodity(),
+            &roots,
+            &mut BTreeSet::new(),
+        ));
+    }
+}
+
+#[test]
+fn copper_extends_existing_stone_age_specializations_instead_of_creating_the_first_workshop() {
+    let registries = build_registries();
+    for (base, upgraded) in [
+        (EQUIPMENT_STONE_PICK, EQUIPMENT_COPPER_REINFORCED_PICK),
+        (
+            EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+            EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+        ),
+        (
+            EQUIPMENT_TIMBER_TREADLE_GRINDSTONE,
+            EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH,
+        ),
+    ] {
+        let base_definition = registries
+            .equipment()
+            .get_equipment(base)
+            .unwrap_or_else(|| panic!("pre-copper specialization base disappeared"));
+        assert!(
+            base_definition
+                .assembly_profile()
+                .is_some_and(|profile| profile
+                    .inputs()
+                    .iter()
+                    .all(|input| input.commodity().material() != MATERIAL_COPPER)),
+            "specialization base {} must remain directly buildable without copper",
+            base.value()
+        );
+
+        let upgrade = registries
+            .equipment()
+            .get_equipment(upgraded)
+            .and_then(|definition| definition.upgrade_profile())
+            .unwrap_or_else(|| panic!("copper-era specialization upgrade disappeared"));
+        assert_eq!(
+            upgrade.from(),
+            base,
+            "copper-era specialization {} must extend the already-useful stone-age base {}",
+            upgraded.value(),
+            base.value()
+        );
+        assert!(
+            upgrade
+                .additions()
+                .inputs()
+                .iter()
+                .any(|input| input.commodity().material() == MATERIAL_COPPER),
+            "copper-era specialization {} must spend copper for the capability extension",
+            upgraded.value()
+        );
+    }
+}
+
+#[test]
+fn every_declared_post_wilderness_primitive_infrastructure_component_has_a_transitive_runtime_route()
+ {
+    let registries = build_registries();
+    // This broader primitive-workshop closure deliberately includes already-acquired native copper.
+    // It proves the post-wilderness copper graph, not the fresh wilderness starting boundary above.
     let roots = BTreeSet::from([
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
@@ -291,7 +569,7 @@ fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_ro
                 &roots,
                 &mut BTreeSet::new(),
             ),
-            "primitive component commodity {} has no acyclic ordinary route from authored primitive roots",
+            "post-wilderness primitive component commodity {} has no acyclic ordinary route from authored primitive roots",
             commodity.value()
         );
     }

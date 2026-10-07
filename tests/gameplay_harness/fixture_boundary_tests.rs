@@ -9,7 +9,7 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     EQUIPMENT_STONE_PICK, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD,
-    SURFACE_GATHERING_HAND_SCAVENGE, build_registries,
+    SURFACE_GATHERING_HAND_COLLECT_STONE, build_registries,
 };
 use deep_hearth::core::quantity::{Mass, Temperature};
 use deep_hearth::core::state::AppState;
@@ -118,7 +118,7 @@ fn tick_observation_rejects_unexpected_surface_gathering_and_accepts_the_expecte
         &registries,
         &state,
         SurfaceGatheringRequest::new(
-            SURFACE_GATHERING_HAND_SCAVENGE,
+            SURFACE_GATHERING_HAND_COLLECT_STONE,
             resource,
             destination,
             gathered_mass,

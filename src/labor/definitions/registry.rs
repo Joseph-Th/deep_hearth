@@ -6,6 +6,7 @@ use crate::capability::{CapabilityRegistry, CapabilityValue, CapabilityValueKind
 use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
+use crate::material::MaterialRegistry;
 
 use super::{
     ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition, ProspectingMethodId,
@@ -98,9 +99,22 @@ impl LaborRegistry {
         capabilities: &CapabilityRegistry,
         equipment: &EquipmentRegistry,
         energy: &EnergyRegistry,
+        materials: &MaterialRegistry,
     ) {
+        self.validate_surface_gathering_references(materials);
         self.validate_manual_power_references(capabilities, equipment, energy);
         self.validate_prospecting_references(equipment);
+    }
+
+    fn validate_surface_gathering_references(&self, materials: &MaterialRegistry) {
+        for definition in self.surface_gathering.values() {
+            assert!(
+                materials.has_commodity(definition.commodity()),
+                "surface gathering method {} references unknown commodity {}",
+                definition.id().value(),
+                definition.commodity().value()
+            );
+        }
     }
 
     fn validate_manual_power_references(
