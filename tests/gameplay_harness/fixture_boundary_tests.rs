@@ -5,17 +5,25 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, commit_controlled_material_delivery,
     seed_assembled_equipment_at, seed_lot, seed_preused_assembled_equipment_at, seed_stockpile,
+    seed_surface_resource,
 };
-use deep_hearth::content::{EQUIPMENT_STONE_PICK, FORM_LOG, MATERIAL_WOOD, build_registries};
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::content::{
+    EQUIPMENT_STONE_PICK, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD,
+    SURFACE_GATHERING_HAND_SCAVENGE, build_registries,
+};
+use deep_hearth::core::quantity::{Mass, Temperature};
 use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
+use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::validate_initialize_player_logistics;
 use deep_hearth::maintenance::Condition;
-use deep_hearth::material::CommodityKey;
+use deep_hearth::material::{CommodityKey, MaterialComposition};
+use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::VoxelCoord;
+use deep_hearth::surface::{SurfaceGatheringRequest, validate_start_surface_gathering};
 use deep_hearth::survival::initialize_player_survival;
 
+use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::{exact_local_runtime, world_admission};
 
 #[test]
@@ -71,6 +79,100 @@ fn exact_local_admission_rejects_a_forgotten_unlocated_stockpile() {
         result.is_err(),
         "exact-local admission accepted unlocated stockpile {}",
         forgotten.value()
+    );
+}
+
+#[test]
+fn tick_observation_rejects_unexpected_surface_gathering_and_accepts_the_expected_resource() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = exact_local_runtime::STATIONARY_PLAYER_ORIGIN;
+    let gathered_mass = Mass::from_milligrams(1);
+    seed_surface_resource(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        gathered_mass,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    );
+    let destination = seed_stockpile(
+        &mut state,
+        gathered_mass,
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[destination],
+        &[],
+        "tick-observation surface gathering",
+    );
+    let resource = state
+        .available_surface_resources()
+        .next()
+        .map(|record| record.id())
+        .unwrap_or_else(|| panic!("admitted player cannot observe the local surface resource"));
+    validate_start_surface_gathering(
+        &registries,
+        &state,
+        SurfaceGatheringRequest::new(
+            SURFACE_GATHERING_HAND_SCAVENGE,
+            resource,
+            destination,
+            gathered_mass,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("tick-observation gathering admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("tick-observation gathering start failed: {error}"));
+    let work = match state.player_work().active() {
+        Some(PlayerWork::SurfaceGathering { work }) => work,
+        other => panic!("tick-observation gathering did not become active: {other:?}"),
+    };
+    let remaining_ticks = work
+        .completes_at()
+        .value()
+        .checked_sub(state.tick().value())
+        .unwrap_or_else(|| unreachable!("validated gathering completes after it starts"));
+    assert!(remaining_ticks > 0);
+
+    for _ in 1..remaining_ticks {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("tick-observation pre-completion tick failed: {error}"));
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance::default(),
+            "surface gathering pre-completion",
+        );
+    }
+    let before_completion = state.clone();
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("tick-observation completion tick failed: {error}"));
+    assert!(outcome.surface_gathering().is_some());
+    assert_tick_events_within(
+        &outcome,
+        TickEventAllowance {
+            surface_resources: &[resource],
+            ..TickEventAllowance::default()
+        },
+        "expected surface gathering",
+    );
+
+    let mut unexpected = before_completion;
+    let unexpected_outcome = advance_tick(&registries, &mut unexpected)
+        .unwrap_or_else(|error| panic!("tick-observation replay completion failed: {error}"));
+    let rejection = catch_unwind(AssertUnwindSafe(|| {
+        assert_tick_events_within(
+            &unexpected_outcome,
+            TickEventAllowance::default(),
+            "unexpected surface gathering",
+        );
+    }));
+    assert!(
+        rejection.is_err(),
+        "shared tick observation must fail closed on an unclaimed surface-gathering completion"
     );
 }
 

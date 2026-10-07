@@ -23,6 +23,7 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::StockpileId;
+use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     assess_player_carrying, validate_allocate_ground_stockpile,
     validate_initialize_player_logistics,
@@ -47,6 +48,7 @@ use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::super::manual_craft_selection::select_manual_craft_request;
 use super::super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
+use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RawKitAcquisitionReview {
@@ -85,17 +87,55 @@ fn gather_surface_resource(
         .unwrap_or_else(|error| panic!("liberation {context} gathering admission failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("liberation {context} gathering start failed: {error}"));
-        loop {
+        let work = match state.player_work().active() {
+            Some(PlayerWork::SurfaceGathering { work }) => work,
+            other => panic!(
+                "liberation {context} gathering start did not retain surface work: {other:?}"
+            ),
+        };
+        assert_eq!(work.resource(), resource);
+        assert_eq!(work.destination(), destination);
+        assert_eq!(work.gathered_mass(), batch);
+        let expected_ticks = work
+            .completes_at()
+            .value()
+            .checked_sub(state.tick().value())
+            .unwrap_or_else(|| panic!("liberation {context} gathering completion precedes start"));
+        assert!(
+            expected_ticks > 0,
+            "liberation {context} gathering must occupy authoritative time"
+        );
+        for elapsed in 1..=expected_ticks {
             let outcome = advance_tick(registries, state).unwrap_or_else(|error| {
                 panic!("liberation {context} gathering tick failed: {error}")
             });
-            let Some(gathered) = outcome.surface_gathering() else {
+            assert_tick_events_within(
+                &outcome,
+                TickEventAllowance {
+                    surface_resources: &[resource],
+                    ..TickEventAllowance::default()
+                },
+                context,
+            );
+            if elapsed < expected_ticks {
+                assert!(
+                    outcome.surface_gathering().is_none(),
+                    "liberation {context} gathering completed before its admitted schedule"
+                );
+                assert_eq!(
+                    state.player_work().active(),
+                    Some(PlayerWork::SurfaceGathering { work }),
+                    "liberation {context} lost gathering attention before completion"
+                );
                 continue;
-            };
+            }
+            let gathered = outcome.surface_gathering().unwrap_or_else(|| {
+                panic!("liberation {context} gathering produced no completion receipt")
+            });
             assert_eq!(gathered.resource(), resource);
             assert_eq!(gathered.destination(), destination);
             assert_eq!(gathered.gathered_mass(), batch);
-            break;
+            assert_eq!(state.player_work().active(), None);
         }
         remaining = remaining.checked_sub(batch).unwrap_or_else(|| {
             unreachable!("surface gathering batch is bounded by remaining demand")

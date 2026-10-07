@@ -20,6 +20,8 @@ mod manual_craft_selection;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/tick_observation.rs"]
+mod tick_observation;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
 

@@ -3,12 +3,14 @@
 use deep_hearth::mining::MiningJobId;
 use deep_hearth::production::ProductionJobId;
 use deep_hearth::simulation::TickOutcome;
+use deep_hearth::surface::SurfaceResourceId;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct TickEventAllowance<'a> {
     pub(super) production_jobs: &'a [ProductionJobId],
     pub(super) production_availability_changes: bool,
     pub(super) mining_jobs: &'a [MiningJobId],
+    pub(super) surface_resources: &'a [SurfaceResourceId],
     pub(super) manual_power: bool,
     pub(super) equipment_maintenance: bool,
     pub(super) storage_enclosure_dismantling: bool,
@@ -24,6 +26,24 @@ pub(super) fn assert_tick_events_within(
     allowance: TickEventAllowance<'_>,
     context: &str,
 ) {
+    let recognized_event_categories = [
+        !outcome.production_availability_changes().is_empty(),
+        !outcome.production_completions().is_empty(),
+        outcome.ready_mining_job().is_some(),
+        outcome.surface_gathering().is_some(),
+        outcome.manual_power().is_some(),
+        outcome.equipment_maintenance().is_some(),
+        outcome.storage_enclosure_dismantling().is_some(),
+        outcome.field_prospecting().is_some(),
+    ]
+    .into_iter()
+    .filter(|present| *present)
+    .count();
+    assert_eq!(
+        recognized_event_categories,
+        outcome.discrete_event_category_count(),
+        "gameplay harness {context} tick observer is stale relative to the runtime event surface"
+    );
     assert_production_events_within(outcome, allowance, context);
     assert_player_work_events_within(outcome, allowance, context);
 }
@@ -78,6 +98,12 @@ fn assert_player_work_events_within(
             .ready_mining_job()
             .is_none_or(|job| allowance.mining_jobs.contains(&job)),
         "gameplay harness {context} crossed an unrelated mining completion"
+    );
+    assert!(
+        outcome
+            .surface_gathering()
+            .is_none_or(|gathered| allowance.surface_resources.contains(&gathered.resource())),
+        "gameplay harness {context} crossed an unrelated surface-gathering completion"
     );
     assert!(
         allowance.manual_power || outcome.manual_power().is_none(),

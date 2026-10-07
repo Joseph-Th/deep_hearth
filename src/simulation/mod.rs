@@ -116,6 +116,40 @@ impl TickOutcome {
     pub const fn survival(&self) -> Option<SurvivalAssessment> {
         self.survival
     }
+
+    /// Returns how many discrete observable event categories fired during this tick.
+    ///
+    /// The committed tick itself and the continuous survival assessment are not discrete events.
+    /// This deliberately destructures every outcome field so adding another tick result forces the
+    /// runtime owner to decide whether it belongs in the observable event surface.
+    #[must_use]
+    pub fn discrete_event_category_count(&self) -> usize {
+        let Self {
+            tick: _,
+            production_availability_changes,
+            production_completions,
+            ready_mining_job,
+            surface_gathering,
+            manual_power,
+            equipment_maintenance,
+            storage_enclosure_dismantling,
+            field_prospecting,
+            survival: _,
+        } = self;
+        [
+            !production_availability_changes.is_empty(),
+            !production_completions.is_empty(),
+            ready_mining_job.is_some(),
+            surface_gathering.is_some(),
+            manual_power.is_some(),
+            equipment_maintenance.is_some(),
+            storage_enclosure_dismantling.is_some(),
+            field_prospecting.is_some(),
+        ]
+        .into_iter()
+        .filter(|present| *present)
+        .count()
+    }
 }
 
 fn decide_surface_gathering_after_completions(
