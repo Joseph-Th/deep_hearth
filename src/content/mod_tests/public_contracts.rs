@@ -25,6 +25,7 @@ use super::super::{
 use crate::core::quantity::{Mass, Power, Volume};
 use crate::core::time::TickSpan;
 use crate::energy::{PowerRemainder, integrate_power};
+use crate::equipment::EquipmentDefinitionId;
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::registry::Registries;
 use crate::survival::FoodCategory;
@@ -42,21 +43,15 @@ fn built_in_direct_drinking_uses_a_meaningful_serving_floor() {
     );
 }
 
-#[test]
-fn built_in_wilderness_stone_toolkit_has_a_real_attention_horizon_before_copper() {
-    let registries = build_registries();
+fn wilderness_tool_acquisition_microseconds(
+    registries: &Registries,
+    equipment: impl IntoIterator<Item = EquipmentDefinitionId>,
+) -> u128 {
     let stone_tool = CommodityKey::new(MATERIAL_STONE, FORM_TOOL);
     let wood_handle = CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
     let mut required = BTreeMap::<CommodityKey, Mass>::new();
 
-    // These three tools cover the opening physical jobs that already have authored equipment
-    // owners: rock extraction, woodworking, and earthwork. Their construction should remain a
-    // meaningful stone-age project rather than a near-instant prelude to copper.
-    for equipment in [
-        EQUIPMENT_STONE_PICK,
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        EQUIPMENT_STONE_DIGGING_SHOVEL,
-    ] {
+    for equipment in equipment {
         let definition = registries
             .equipment()
             .get_equipment(equipment)
@@ -157,15 +152,38 @@ fn built_in_wilderness_stone_toolkit_has_a_real_attention_horizon_before_copper(
     let total_ticks = gather_ticks
         .checked_add(craft_ticks)
         .unwrap_or_else(|| panic!("wilderness toolkit total duration overflowed"));
-    let physical_microseconds = u128::from(total_ticks)
+    u128::from(total_ticks)
         .checked_mul(u128::from(
             registries.core().physical_tick_duration().microseconds(),
         ))
-        .unwrap_or_else(|| panic!("wilderness toolkit physical duration overflowed"));
+        .unwrap_or_else(|| panic!("wilderness toolkit physical duration overflowed"))
+}
+
+#[test]
+fn built_in_wilderness_stone_tools_support_staged_opening_before_copper() {
+    let registries = build_registries();
     let minute = 60_u128 * 1_000_000;
+    let first_useful_tool =
+        wilderness_tool_acquisition_microseconds(&registries, [EQUIPMENT_STONE_WOODWORKING_ADZE]);
     assert!(
-        (15 * minute..=45 * minute).contains(&physical_microseconds),
-        "gathering and hand-fabricating the basic pick/adze/shovel toolkit should consume a meaningful opening-time horizon before food, fire, shelter, travel, or geology"
+        (5 * minute..=15 * minute).contains(&first_useful_tool),
+        "one useful opening tool should take real work but still fit inside the first-quarter-hour camp loop"
+    );
+
+    // Pick, adze, and shovel cover rock extraction, woodworking, and earthwork. The complete set
+    // should remain a meaningful stone-age investment, but it is not a mandatory gate before the
+    // player can forage, store food, or solve other immediate camp problems.
+    let full_toolkit = wilderness_tool_acquisition_microseconds(
+        &registries,
+        [
+            EQUIPMENT_STONE_PICK,
+            EQUIPMENT_STONE_WOODWORKING_ADZE,
+            EQUIPMENT_STONE_DIGGING_SHOVEL,
+        ],
+    );
+    assert!(
+        (15 * minute..=45 * minute).contains(&full_toolkit),
+        "gathering and hand-fabricating the full pick/adze/shovel set should remain a substantial pre-copper investment that can be staged around immediate camp needs"
     );
 }
 

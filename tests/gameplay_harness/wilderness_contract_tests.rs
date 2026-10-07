@@ -8,12 +8,11 @@ use std::num::NonZeroU64;
 
 use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_surface_resource};
 use deep_hearth::content::{
-    EQUIPMENT_STONE_DIGGING_SHOVEL, EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_WOODWORKING_ADZE,
-    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_BOARDS,
-    PROCESS_SHAPE_WOOD_HANDLE, STORAGE_ROUGH_TIMBER_FIELD_BOX,
-    SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_TIMBER,
-    SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP,
+    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_STONE,
+    SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use deep_hearth::core::quantity::{Mass, Temperature, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -215,7 +214,7 @@ fn assemble_tool(
 }
 
 #[test]
-fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_before_copper() {
+fn controlled_wilderness_opening_builds_useful_tool_storage_and_provisions_before_copper() {
     let registries = build_registries();
     let mut state = AppState::new();
     for (commodity, mass, material) in [
@@ -291,6 +290,7 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         .unwrap_or_else(|error| panic!("wilderness initial fluid audit failed: {error}"))
         .total();
     let started_at = state.tick();
+    let minute = 60_u128 * 1_000_000;
 
     let stone = local_surface_resource(&state, CommodityKey::new(MATERIAL_STONE, FORM_LUMP));
     gather(
@@ -299,8 +299,8 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         SURFACE_GATHERING_HAND_COLLECT_STONE,
         stone,
         carried,
-        Mass::from_milligrams(3_000_000),
-        "loose stone",
+        Mass::from_milligrams(1_000_000),
+        "loose stone for first tool",
     );
     let timber = local_surface_resource(&state, CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
     gather(
@@ -309,8 +309,8 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         SURFACE_GATHERING_HAND_COLLECT_TIMBER,
         timber,
         carried,
-        Mass::from_milligrams(5_000_000),
-        "fallen timber first load",
+        Mass::from_milligrams(1_000_000),
+        "fallen timber for first tool",
     );
     craft_batches(
         &registries,
@@ -318,9 +318,9 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         PROCESS_KNAP_STONE_TOOL,
         carried,
         components,
-        3,
+        1,
         None,
-        "stone tool heads",
+        "first stone tool head",
     );
     craft_batches(
         &registries,
@@ -328,16 +328,9 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         PROCESS_SHAPE_WOOD_HANDLE,
         carried,
         components,
-        4,
+        1,
         None,
-        "wood handles",
-    );
-    let _ = assemble_tool(
-        &registries,
-        &mut state,
-        EQUIPMENT_STONE_PICK,
-        components,
-        "stone pick",
+        "first wood handle",
     );
     let _ = assemble_tool(
         &registries,
@@ -346,41 +339,45 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         components,
         "stone adze",
     );
-    let _ = assemble_tool(
-        &registries,
-        &mut state,
-        EQUIPMENT_STONE_DIGGING_SHOVEL,
-        components,
-        "stone shovel",
-    );
     let local_tool_definitions = state
         .available_local_equipment()
         .map(|record| record.definition())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<Vec<_>>();
     assert_eq!(
         local_tool_definitions,
-        std::collections::BTreeSet::from([
-            EQUIPMENT_STONE_PICK,
-            EQUIPMENT_STONE_WOODWORKING_ADZE,
-            EQUIPMENT_STONE_DIGGING_SHOVEL,
-        ]),
-        "the actor must rediscover the complete assembled stone toolkit from exact-local runtime state"
+        vec![EQUIPMENT_STONE_WOODWORKING_ADZE],
+        "the opening actor should build the useful woodworking tool it has an immediate job for rather than a checklist of unused specializations"
     );
     let adze = local_equipment_by_definition(
         &state,
         EQUIPMENT_STONE_WOODWORKING_ADZE,
         "stone woodworking adze",
     );
+    let adze_ready_ticks = state
+        .tick()
+        .checked_duration_since(started_at)
+        .unwrap_or_else(|| panic!("wilderness first-tool time reversed"))
+        .value();
+    let adze_ready_microseconds = u128::from(adze_ready_ticks)
+        .checked_mul(u128::from(
+            registries.core().physical_tick_duration().microseconds(),
+        ))
+        .unwrap_or_else(|| panic!("wilderness first-tool physical duration overflowed"));
+    assert!(
+        (5 * minute..=15 * minute).contains(&adze_ready_microseconds),
+        "the first useful camp tool should require real acquisition/fabrication work without consuming the whole first quarter-hour"
+    );
 
-    // The first timber load was enough to establish the toolkit without exceeding carried capacity.
-    // Return to the still-visible local source for project timber only after the tools exist.
+    // Once the adze exists, gather only the timber needed for a project that actually repays it.
+    // The remaining local stone and timber stay visible for later pick/shovel work when those jobs
+    // become relevant instead of being consumed just to complete an opening checklist.
     gather(
         &registries,
         &mut state,
         SURFACE_GATHERING_HAND_COLLECT_TIMBER,
         timber,
         carried,
-        Mass::from_milligrams(3_000_000),
+        Mass::from_milligrams(4_000_000),
         "fallen timber project load",
     );
 
@@ -506,9 +503,22 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
         Mass::from_milligrams(500_000),
         "berry forage",
     );
-    assert!(
-        state.available_surface_resources().next().is_none(),
-        "controlled opening must deplete its disclosed local stone, timber, and forage opportunities"
+    assert_eq!(
+        state
+            .available_surface_resources()
+            .map(|resource| (resource.commodity(), resource.remaining_mass()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(2_000_000),
+            ),
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                Mass::from_milligrams(3_000_000),
+            ),
+        ],
+        "the opening should leave finite local stone/timber for later specialized tools instead of exhausting every source before provisioning"
     );
     let berry_commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
     let gathered_berries = state
@@ -661,10 +671,9 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_be
             registries.core().physical_tick_duration().microseconds(),
         ))
         .unwrap_or_else(|| panic!("wilderness physical duration overflowed"));
-    let minute = 60_u128 * 1_000_000;
     assert!(
-        (25 * minute..=50 * minute).contains(&elapsed_microseconds),
-        "controlled gather/tool/storage/food/water opening should occupy a substantial pre-copper session before missing fire, shelter, travel, or ordinary world-source discovery are counted"
+        (15 * minute..=35 * minute).contains(&elapsed_microseconds),
+        "controlled acquisition/adze/storage/food/water opening should occupy a substantial first-session slice without forcing unused tool construction before missing fire, shelter, travel, or ordinary world-source discovery are counted"
     );
     assert_eq!(
         calculate_matter_accounting(&state)
