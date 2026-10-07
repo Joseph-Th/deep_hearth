@@ -2,6 +2,25 @@
 
 use super::*;
 
+fn rediscover_local_equipment(
+    state: &AppState,
+    assembled: EquipmentId,
+    definition: deep_hearth::equipment::EquipmentDefinitionId,
+    context: &str,
+) -> EquipmentId {
+    let matches = state
+        .available_local_equipment()
+        .filter(|record| record.definition() == definition)
+        .map(|record| record.id())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches,
+        vec![assembled],
+        "woodworking {context} must be rediscoverable as the unique exact-local equipment instance after assembly"
+    );
+    matches[0]
+}
+
 pub(super) fn assemble_adze(
     registries: &Registries,
     state: &mut AppState,
@@ -37,12 +56,13 @@ pub(super) fn assemble_adze(
             .checked_add(duration.value())
             .unwrap_or_else(|| panic!("woodworking adze setup overflowed"));
     }
-    let equipment = validate_assemble_equipment(registries, state, definition, parts)
+    let assembled = validate_assemble_equipment(registries, state, definition, parts)
         .unwrap_or_else(|error| panic!("woodworking selected-adze assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| {
             panic!("woodworking selected-adze assembly commit failed: {error}")
         });
+    let equipment = rediscover_local_equipment(state, assembled, definition, "selected adze");
     (equipment, attention)
 }
 
@@ -243,11 +263,17 @@ pub(super) fn assemble_saw(
             .checked_add(input_timber)
             .unwrap_or_else(|| panic!("woodworking saw setup timber overflowed"));
     }
-    let equipment =
+    let assembled =
         validate_assemble_equipment(registries, state, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, parts)
             .unwrap_or_else(|error| panic!("woodworking saw assembly failed: {error}"))
             .commit(state)
             .unwrap_or_else(|error| panic!("woodworking saw assembly commit failed: {error}"));
+    let equipment = rediscover_local_equipment(
+        state,
+        assembled,
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        "frame saw",
+    );
     SawSetup {
         equipment,
         attention_ticks: attention,
