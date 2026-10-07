@@ -1688,6 +1688,7 @@ class TestTopologyContractTests(unittest.TestCase):
         for experience in (
             "run_spindle_drill_investment_experience",
             "run_wire_drawbench_investment_experience",
+            "run_treadle_hammer_investment_experience",
             "run_helve_hammer_investment_experience",
             "run_lathe_investment_experience",
             "run_toolroom_investment_experience",
@@ -3132,7 +3133,7 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "settlement-lifecycle-obligations=[services:4..4 prep:240..240t share:10..10% provisioning:2..2",
+            "settlement-context=[later-workshop timber-bank]",
             concise,
         )
         self.assertIn(
@@ -3156,10 +3157,8 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertNotIn("consumer-projected-charges:", power_summary)
         self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", power_summary)
         self.assertNotIn("settlement-copper-policy=", concise)
-        self.assertIn(
-            "prior-wear=[saw:1000000..1000000ppm crank:1000000..1000000ppm]",
-            concise,
-        )
+        self.assertNotIn("prior-wear=[", concise)
+        self.assertIn("power-cycle=[", concise)
         self.assertNotIn("pacing-physical=[", concise)
         self.assertNotIn("reuse-physical=[", concise)
         self.assertNotIn("integrated-campaign=[", concise)
@@ -3424,21 +3423,40 @@ class GameplayReportContractTests(unittest.TestCase):
             detailed,
         )
 
+    def test_player_loop_exposes_shared_power_portfolio_crossover(self) -> None:
+        detailed = gameplay_report_summary.player_loop_evidence(
+            [
+                "POWER PROVIDER EXPERIENCE seed=0x1 decision=[selected:crank]",
+                "SETTLEMENT STORAGE EXPERIENCE stages=[stone:[capacity:500nJ portfolio-charges:107 max-packed:10] paired:[capacity:1000nJ portfolio-charges:44 max-packed:20] bank:[capacity:5000nJ portfolio-charges:10 max-packed:32]] portfolio=[families:5 batches-per-family:32 productive-batches:160]",
+                "POWER SETTLEMENT seed=0x1 copper-policy:preserve-for-other-uses comparison=[market-frontier:1:stone-crank,7:treadle,56:walking-wheel]",
+            ]
+        )
+        self.assertIsNotNone(detailed)
+        self.assertIn(
+            "shared-power=[bank-portfolio-charges:10..10 treadle-entry:7..7 crosses:true]",
+            detailed,
+        )
+
     def test_foundry_summary_preserves_powered_recovery_attention_and_autonomy(self) -> None:
         line = (
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=organic continuity=separate-episode "
             "inherited-condition=850000..950000ppm "
             "bootstrap-choice=[remaining-native:1mg required:2mg shortfall-before:1000mg shortfall:0mg] "
-            "owned-ore-recovery=[route:powered-inherited-line planned-feed:3000mg available:4000mg "
-            "sufficient:true executed:true feed:3000mg recovered:1000mg attention:2t autonomous:55t "
-            "elapsed:57t batches:1 stop:target-recovered powered-recovery:900000ppm manual-fallback:650000ppm] "
-            "foundry-build=true"
+            "owned-ore-recovery=[route:powered-inherited-line provider:copper-reinforced-hand-crank "
+            "planned-feed:3000mg available:4000mg sufficient:true executed:true feed:3000mg "
+            "recovered:1000mg attention:2t autonomous:55t elapsed:57t batches:1 stop:target-recovered "
+            "powered-recovery:900000ppm manual-fallback:650000ppm] foundry-build=true "
+            "electrical-prime-mover=[base:treadle-built conversion:treadle-dynamo]"
         )
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary([line]))
         self.assertIn("inherited-condition=[850000..950000ppm]", summary)
         self.assertIn(
             "recovery=[needed:1 executed:1 closed:1 partial:0 skipped:0 feed:3..3g native:1..1g "
-            "powered:1/1 attention:2..2t autonomous:55..55t elapsed:57..57t batches:1..1]",
+            "powered:1/1 reinforced-crank:1/1 attention:2..2t autonomous:55..55t elapsed:57..57t batches:1..1]",
+            summary,
+        )
+        self.assertIn(
+            "electrical-transition=[treadle+dynamo:1/1 deferred-unbuilt:0/0]",
             summary,
         )
 
@@ -3447,19 +3465,21 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIRST FOUNDRY EXPERIENCE seed=0x2 sample=organic continuity=separate-episode "
             "inherited-condition=820000..910000ppm "
             "bootstrap-choice=[remaining-native:1mg required:2mg shortfall-before:1000mg shortfall:250mg] "
-            "owned-ore-recovery=[route:powered-inherited-line planned-feed:3000mg available:4000mg "
-            "sufficient:true executed:true feed:2000mg recovered:750mg attention:2t autonomous:40t "
-            "elapsed:42t batches:1 stop:processing-line-unavailable powered-recovery:900000ppm manual-fallback:650000ppm] "
-            "foundry-build=false"
+            "owned-ore-recovery=[route:powered-inherited-line provider:copper-reinforced-hand-crank "
+            "planned-feed:3000mg available:4000mg sufficient:true executed:true feed:2000mg recovered:750mg "
+            "attention:2t autonomous:40t elapsed:42t batches:1 stop:processing-line-unavailable "
+            "powered-recovery:900000ppm manual-fallback:650000ppm] foundry-build=false "
+            "electrical-prime-mover=not-built"
         )
         skipped = (
             "FIRST FOUNDRY EXPERIENCE seed=0x3 sample=organic continuity=separate-episode "
             "inherited-condition=800000..930000ppm "
             "bootstrap-choice=[remaining-native:1mg required:2mg shortfall-before:1000mg shortfall:1000mg] "
-            "owned-ore-recovery=[route:powered-inherited-line planned-feed:3000mg available:1000mg "
-            "sufficient:false executed:false feed:0mg recovered:0mg attention:0t autonomous:0t "
-            "elapsed:0t batches:0 stop:owned-ore-insufficient powered-recovery:900000ppm manual-fallback:650000ppm] "
-            "foundry-build=false"
+            "owned-ore-recovery=[route:powered-inherited-line provider:copper-reinforced-hand-crank "
+            "planned-feed:3000mg available:1000mg sufficient:false executed:false feed:0mg recovered:0mg "
+            "attention:0t autonomous:0t elapsed:0t batches:0 stop:owned-ore-insufficient "
+            "powered-recovery:900000ppm manual-fallback:650000ppm] foundry-build=false "
+            "electrical-prime-mover=not-built"
         )
         summary = "\n".join(
             gameplay_report_summary.ordinary_gameplay_summary([partial, skipped])

@@ -8,14 +8,14 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
-    ENERGY_STONE_THERMAL_SINK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
-    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
-    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    ENERGY_STONE_THERMAL_SINK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+    EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
     EQUIPMENT_TIMBER_TREADLE_DYNAMO, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_INGOT, FORM_LOG,
-    FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, MANUAL_POWER_TREADLE_DYNAMO,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER,
+    FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK,
+    MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_CAST_PURE_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -70,7 +70,7 @@ struct PriorSettlementWorkshop {
     component_source: StockpileId,
     frame_saw: deep_hearth::equipment::EquipmentId,
     treadle_hammer: deep_hearth::equipment::EquipmentId,
-    treadle_drive: deep_hearth::equipment::EquipmentId,
+    processing_provider: deep_hearth::equipment::EquipmentId,
     crusher: deep_hearth::equipment::EquipmentId,
     separator: deep_hearth::equipment::EquipmentId,
     processing_drive: deep_hearth::energy::EnergyStoreId,
@@ -86,7 +86,7 @@ fn seed_prior_settlement_workshop(
     let definitions = [
         EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
         EQUIPMENT_TIMBER_TREADLE_HAMMER,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
         EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     ];
@@ -153,7 +153,7 @@ fn seed_prior_settlement_workshop(
     };
     let frame_saw = assemble(EQUIPMENT_TIMBER_FRAME_SAW_BENCH);
     let treadle_hammer = assemble(EQUIPMENT_TIMBER_TREADLE_HAMMER);
-    let treadle_drive = assemble(EQUIPMENT_TIMBER_TREADLE_DRIVE);
+    let processing_provider = assemble(EQUIPMENT_COPPER_REINFORCED_HAND_CRANK);
     let crusher = assemble(EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER);
     let separator = assemble(EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR);
     let processing_drive = seed_assembled_energy_store_at(
@@ -175,7 +175,7 @@ fn seed_prior_settlement_workshop(
         component_source: source,
         frame_saw,
         treadle_hammer,
-        treadle_drive,
+        processing_provider,
         crusher,
         separator,
         processing_drive,
@@ -275,12 +275,12 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let prior_workshop = seed_prior_settlement_workshop(registries, &mut state, case);
     let frame_saw = prior_workshop.frame_saw;
     let treadle_hammer = prior_workshop.treadle_hammer;
-    let treadle_drive = prior_workshop.treadle_drive;
     let processing_line = InheritedProcessingLine {
         crusher: prior_workshop.crusher,
         separator: prior_workshop.separator,
         drive: prior_workshop.processing_drive,
-        provider: treadle_drive,
+        power_method: MANUAL_POWER_HAND_CRANK,
+        provider: prior_workshop.processing_provider,
     };
     assert_eq!(
         current_processing_batch_limit(registries, &state, processing_line),
@@ -557,7 +557,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         let survival_after = assess_survival(registries, &state)
             .unwrap_or_else(|| panic!("first foundry deferred player survival disappeared"));
         reviewln!(
-            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive,copper-reinforced-crusher,copper-reinforced-separator,copper-banded-flywheel] inherited-condition={}..{}ppm resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=owned-copper-cannot-fund-foundry-plus-first-settlement-batch] owned-ore-recovery=[route:powered-inherited-line planned-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg attention:{}t autonomous:{}t elapsed:{}t batches:{} stop:{} powered-recovery:{}ppm manual-fallback:{}ppm] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
+            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,copper-reinforced-hand-crank,copper-reinforced-crusher,copper-reinforced-separator,copper-banded-flywheel] inherited-condition={}..{}ppm resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=owned-copper-cannot-fund-foundry-plus-first-settlement-batch] owned-ore-recovery=[route:powered-inherited-line provider:copper-reinforced-hand-crank planned-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg attention:{}t autonomous:{}t elapsed:{}t batches:{} stop:{} powered-recovery:{}ppm manual-fallback:{}ppm] foundry-build=false electrical-prime-mover=not-built episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
             case.seed(),
             case.role().label(),
             prior_workshop.minimum_start_condition_ppm,
@@ -666,6 +666,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             .commit(state)
             .unwrap_or_else(|error| panic!("first foundry equipment commit failed: {error}"))
     };
+    let treadle_drive = assemble_equipment(&mut state, EQUIPMENT_TIMBER_TREADLE_DRIVE);
     let dynamo = validate_upgrade_equipment(
         registries,
         &state,
@@ -1094,7 +1095,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|| panic!("first foundry raw stockpile disappeared after bootstrap"));
 
     reviewln!(
-        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive,copper-reinforced-crusher,copper-reinforced-separator,copper-banded-flywheel] inherited-condition={}..{}ppm resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:0mg selection=foundry reason=disclosed-followup-work-justifies-bootstrap] owned-ore-recovery=[route:powered-inherited-line planned-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg attention:{}t autonomous:{}t elapsed:{}t batches:{} stop:{} powered-recovery:{}ppm manual-fallback:{}ppm] foundry-build=true fabrication=[total:{}t/{} material=[stone:{}t wood:{}t copper:{}t] route=[hand:{}t frame-saw:{}t treadle-hammer:{}t]] workshop-reuse=[hand-only:{}t saved:{}t] campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] settlement-cast=[executed:{} batch:{}mg supply-shortfall:{}mg charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] total-autonomous:{}t copper-after-episode:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation={}",
+        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,copper-reinforced-hand-crank,copper-reinforced-crusher,copper-reinforced-separator,copper-banded-flywheel] inherited-condition={}..{}ppm resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:0mg selection=foundry reason=disclosed-followup-work-justifies-bootstrap] owned-ore-recovery=[route:powered-inherited-line provider:copper-reinforced-hand-crank planned-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg attention:{}t autonomous:{}t elapsed:{}t batches:{} stop:{} powered-recovery:{}ppm manual-fallback:{}ppm] foundry-build=true electrical-prime-mover=[base:treadle-built conversion:treadle-dynamo] fabrication=[total:{}t/{} material=[stone:{}t wood:{}t copper:{}t] route=[hand:{}t frame-saw:{}t treadle-hammer:{}t]] workshop-reuse=[hand-only:{}t saved:{}t] campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] settlement-cast=[executed:{} batch:{}mg supply-shortfall:{}mg charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] total-autonomous:{}t copper-after-episode:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation={}",
         case.seed(),
         case.role().label(),
         prior_workshop.minimum_start_condition_ppm,

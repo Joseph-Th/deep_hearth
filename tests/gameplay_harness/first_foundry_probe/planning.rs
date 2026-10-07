@@ -6,9 +6,10 @@ use std::num::NonZeroU64;
 use deep_hearth::content::{
     ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER, ENERGY_STONE_THERMAL_SINK,
     EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
-    EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
-    FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_TREADLE_DYNAMO, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_INGOT, FORM_LOG,
+    FORM_LUMP, FORM_NATIVE_METAL, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
@@ -542,6 +543,20 @@ pub(super) fn select_commodity_mass(
 
 fn foundry_component_requirements(registries: &Registries) -> BTreeMap<CommodityKey, Mass> {
     let mut requirements = BTreeMap::<CommodityKey, Mass>::new();
+    // The first electrical prime mover is not inherited. The foundry bootstrap must pay for the
+    // complete timber treadle and then its additive dynamo conversion, so crossing into electrical
+    // metallurgy is a lived capital transition rather than a fixture assumption.
+    let treadle = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_TREADLE_DRIVE)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("first foundry treadle drive lost its ordinary assembly"));
+    for input in treadle.inputs() {
+        let entry = requirements.entry(input.commodity()).or_insert(Mass::ZERO);
+        *entry = entry
+            .checked_add(input.mass())
+            .unwrap_or_else(|| panic!("first foundry treadle-drive demand overflowed"));
+    }
     let dynamo_upgrade = registries
         .equipment()
         .get_equipment(EQUIPMENT_TIMBER_TREADLE_DYNAMO)

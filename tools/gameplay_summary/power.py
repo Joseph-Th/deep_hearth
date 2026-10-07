@@ -487,6 +487,7 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
     lived = _project_experience(projects, "settlement")
     lived_samples = lived["samples"][0]
     return (
+        "settlement-context=[later-workshop timber-bank] "
         f"settlement-choice=[{_choice_counts_text(choice_counts)}] "
         f"settlement-candidates=[{_provider_market_text(choice_counts)}] "
         f"settlement-frontier=[{frontier_text}] "

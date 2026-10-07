@@ -85,6 +85,7 @@ fn main() {
     let variation_root = configured_variation_root();
     settlement_drill_contract_tests::run_spindle_drill_investment_experience(variation_root);
     settlement_wire_contract_tests::run_wire_drawbench_investment_experience(variation_root);
+    settlement_helve_contract_tests::run_treadle_hammer_investment_experience(variation_root);
     settlement_helve_contract_tests::run_helve_hammer_investment_experience(variation_root);
     settlement_workshop_investment::run_lathe_investment_experience(variation_root);
     settlement_workshop_investment::run_toolroom_investment_experience(variation_root);

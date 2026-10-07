@@ -2,15 +2,14 @@
 
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, MANUAL_POWER_FOOT_TREADLE, PROCESS_CRUSH_ORE,
-    PROCESS_SEPARATE_NATIVE_COPPER,
+    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, PROCESS_CRUSH_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::{EnergyStoreId, calculate_mass_specific_energy};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
+use deep_hearth::labor::{ManualPowerMethodId, ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::ore_processing::{
     ComminutionRequest, ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
@@ -31,6 +30,7 @@ pub(super) struct InheritedProcessingLine {
     pub(super) crusher: EquipmentId,
     pub(super) separator: EquipmentId,
     pub(super) drive: EnergyStoreId,
+    pub(super) power_method: ManualPowerMethodId,
     pub(super) provider: EquipmentId,
 }
 
@@ -166,7 +166,7 @@ fn charge_processing_drive(
     let start = validate_start_manual_power(
         registries,
         state,
-        ManualPowerRequest::new(MANUAL_POWER_FOOT_TREADLE, line.provider, line.drive, energy),
+        ManualPowerRequest::new(line.power_method, line.provider, line.drive, energy),
     )
     .ok()?;
     let work = start.work();

@@ -136,6 +136,52 @@ def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: in
     )
 
 
+def _shared_power_portfolio_evidence(lines: list[str]) -> str:
+    """Expose when shared workshop demand crosses a provider-investment threshold.
+
+    A single later-settlement lumber order can rationally stay on a crank behind the large timber
+    bank, while the same bank serves enough total workshop work to justify a treadle. Keep that
+    portfolio interaction explicit so the report does not make provider economics look
+    contradictory across otherwise valid episodes.
+    """
+
+    bank_charge_events: list[int] = []
+    for line in lines:
+        if not line.startswith("SETTLEMENT STORAGE EXPERIENCE "):
+            continue
+        match = re.search(
+            r"\bbank:\[[^\]]*portfolio-charges:(\d+)",
+            line,
+        )
+        if match is not None:
+            bank_charge_events.append(int(match.group(1)))
+
+    treadle_entry: list[int] = []
+    for line in lines:
+        if not line.startswith("POWER SETTLEMENT "):
+            continue
+        if " copper-policy:preserve-for-other-uses " not in line:
+            continue
+        frontier = re.search(r"\bmarket-frontier:([^\s\]]+)", line)
+        if frontier is None:
+            continue
+        for entry in frontier.group(1).split(","):
+            charge, separator, provider = entry.partition(":")
+            if separator and provider == "treadle" and charge.isdecimal():
+                treadle_entry.append(int(charge))
+                break
+
+    if not bank_charge_events or not treadle_entry:
+        return ""
+    crosses = max(bank_charge_events) >= min(treadle_entry)
+    return (
+        "shared-power=["
+        f"bank-portfolio-charges:{min(bank_charge_events)}..{max(bank_charge_events)} "
+        f"treadle-entry:{min(treadle_entry)}..{max(treadle_entry)} "
+        f"crosses:{str(crosses).lower()}]"
+    )
+
+
 def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
     foundry_builds = sum(" foundry-build=true " in line for line in first_foundry)
     batch_foundry = sum(
@@ -576,6 +622,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
     delegate, reinvest = _delegate_reinvest_evidence(
         evidence.progression, evidence.settlement
     )
+    shared_power = _shared_power_portfolio_evidence(lines)
     return (
         "PLAYER LOOP EVIDENCE "
         f"{_evidence_shape(evidence)} "
@@ -583,6 +630,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_bootstrap_boundary_evidence(evidence.liberation_kit)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
         f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries, evidence.preservation_paths)} "
+        f"{shared_power + ' ' if shared_power else ''}"
         f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted)} "
         f"{_thermal_bootstrap_evidence(evidence.first_foundry)} "
         f"{_world_feedback_evidence(lines, evidence.fieldwork)} "

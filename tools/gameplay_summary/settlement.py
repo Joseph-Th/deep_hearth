@@ -161,6 +161,40 @@ def settlement_summary(lines: list[str]) -> str | None:
             assert not owned_before
             if completed_batches == demand_batches:
                 manual_repeat_growth.append(followup_attention - first_attention)
+    manual_machine_experiences = [
+        line
+        for line in lines
+        if line.startswith("SETTLEMENT MANUAL MACHINE EXPERIENCE ")
+    ]
+    manual_machine_families = {
+        match.group(1)
+        for line in manual_machine_experiences
+        if (match := re.search(r"\bfamily=([^ ]+)", line)) is not None
+    }
+    manual_machine_floors = _values(
+        manual_machine_experiences, r"minimum-attention-return:(\d+)t"
+    )
+    manual_machine_savings = _values(
+        manual_machine_experiences, r"attention-saved:(\d+)t"
+    )
+    manual_short_kept = sum(
+        "choice:keep-prior" in line for line in manual_machine_experiences
+    )
+    manual_project_builds = sum(
+        "choice:build" in line for line in manual_machine_experiences
+    )
+    manual_capital = ""
+    if manual_machine_experiences:
+        manual_capital = (
+            " manual-capital=["
+            f"families:{len(manual_machine_families)} "
+            f"short-kept:{manual_short_kept}/{len(manual_machine_experiences)} "
+            f"project-build:{manual_project_builds}/{len(manual_machine_experiences)} "
+            f"return-floor:{_span(manual_machine_floors, 't')} "
+            f"attention-saved:{_span(manual_machine_savings, 't')} "
+            "delegation:none]"
+        )
+
     machine_experiences = [
         line for line in lines if line.startswith("SETTLEMENT MACHINE EXPERIENCE ")
     ]
@@ -227,6 +261,10 @@ def settlement_summary(lines: list[str]) -> str | None:
 
     witness_scope = ""
     witness_parts = []
+    if manual_machine_experiences:
+        witness_parts.append(
+            f"manual-capital:{len(manual_machine_families)}f/separate-executed"
+        )
     if machine_experiences:
         witness_parts.append(f"capital:{len(machine_families)}f/separate-executed")
     if delegation_experiences:
@@ -273,5 +311,5 @@ def settlement_summary(lines: list[str]) -> str | None:
         f"followup-charge-events:{_span(followup_charge_events, '')} "
         f"machine-max-batches-per-charge:{_span(packed_batches, '')}]"
         f" followup-basis=[attention:{followup_attention_decisions} capacity:{followup_capacity_decisions}]"
-        f"{followup_payoff}{portfolio}{stored_work}{storage_scale}{capital_witnesses}{delegation_witnesses}{witness_scope}"
+        f"{followup_payoff}{manual_capital}{portfolio}{stored_work}{storage_scale}{capital_witnesses}{delegation_witnesses}{witness_scope}"
     )

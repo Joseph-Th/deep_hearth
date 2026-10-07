@@ -43,11 +43,39 @@ def settlement_specialization_summary(
 ) -> str | None:
     """Summarize later-workshop capital decisions that execute outside the main settlement probe."""
 
+    manual_experiences = [
+        line
+        for line in lines
+        if line.startswith("SETTLEMENT MANUAL MACHINE EXPERIENCE ")
+    ]
     experiences = [
         line for line in lines if line.startswith("SETTLEMENT MACHINE EXPERIENCE ")
     ]
-    if not experiences:
+    if not experiences and not manual_experiences:
         return None
+    manual_families = sorted(
+        value
+        for line in manual_experiences
+        if (value := field(line, "family")) is not None
+    )
+    manual_crossovers = [
+        int(match.group(1))
+        for line in manual_experiences
+        if (match := re.search(r"\bcrossover:(\d+)batches", line)) is not None
+    ]
+    manual_attention_saved = [
+        int(match.group(1))
+        for line in manual_experiences
+        if (match := re.search(r"\battention-saved:(\d+)t", line)) is not None
+    ]
+    manual_short_kept = sum(
+        re.search(r"\bshort=\[.*?\bchoice:keep-prior\]", line) is not None
+        for line in manual_experiences
+    )
+    manual_project_built = sum(
+        re.search(r"\bproject=\[.*?\bchoice:build\]", line) is not None
+        for line in manual_experiences
+    )
     families = sorted(
         value
         for line in experiences
@@ -97,6 +125,16 @@ def settlement_specialization_summary(
             f"charges:{min(charge_events)}..{max(charge_events)} "
             f"max-batches-per-charge:{min(packed_batches)}..{max(packed_batches)}]"
         )
+    manual = ""
+    if manual_experiences:
+        manual = (
+            " manual=["
+            f"families:{','.join(manual_families)} "
+            f"crossover:{batch_span(manual_crossovers)} "
+            f"short-kept:{manual_short_kept}/{len(manual_experiences)} "
+            f"project-built:{manual_project_built}/{len(manual_experiences)} "
+            f"attention-saved:{span(manual_attention_saved)} delegation:none]"
+        )
     return (
         "GAMEPLAY settlement-specialization scope=separate-executed-projects "
         f"families=[{','.join(families)}] "
@@ -104,7 +142,7 @@ def settlement_specialization_summary(
         f"short-kept-prior:{short_kept}/{len(experiences)} "
         f"project-upgraded:{project_upgraded}/{len(experiences)} "
         f"attention-saved:{span(attention_saved)} delegated:{span(delegated)}"
-        f"{cadence}"
+        f"{cadence}{manual}"
     )
 
 
@@ -153,20 +191,19 @@ _ORDINARY_DIGEST_FIELDS = {
         "primitive-scale",
         "policy-gap",
         "lifecycle-obligations",
+        "settlement-context",
         "settlement-choice",
         "organic-settlement-choice",
         "organic-settlement-survival",
         "settlement-scale",
-        "settlement-lifecycle-obligations",
     ),
     "settlement": (
-        "choice",
         "organic-play",
-        "prior-wear",
         "baseline-crossover",
         "demand",
         "payoff",
         "followup-payoff",
+        "power-cycle",
         "storage-scale",
     ),
     "foundry-bootstrap": (
@@ -175,6 +212,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "inherited-condition",
         "copper",
         "recovery",
+        "electrical-transition",
         "workshop-reuse",
         "settlement-batch",
     ),
@@ -221,6 +259,7 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
         "inherited-condition",
         "copper",
         "recovery",
+        "electrical-transition",
         "investment",
         "workshop-reuse",
         "mold",
@@ -467,6 +506,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 "bootstrap-boundary",
                 "observe-infer",
                 "prepare-invest",
+                "shared-power",
                 "extract",
                 "world-feedback",
                 "delegate",
@@ -555,9 +595,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ordinary_digests = [
         _digest_summary(summary, scoped=scoped_ordinary) for summary in ordinary
     ]
-    specialization = settlement_specialization_summary(
-        lines, include_cadence=scoped_ordinary
-    )
+    specialization = settlement_specialization_summary(lines, include_cadence=False)
     if specialization is not None:
         specialization_detail = specialization.removeprefix(
             "GAMEPLAY settlement-specialization "

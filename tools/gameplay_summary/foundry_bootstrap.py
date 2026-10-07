@@ -96,9 +96,21 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         recovery_executed,
         r"\bowned-ore-recovery=\[[^\]]*\bbatches:(\d+)",
     )
+    recovery_on_reinforced_crank = sum(
+        " owned-ore-recovery=[route:powered-inherited-line provider:copper-reinforced-hand-crank "
+        in line
+        for line in recovery_executed
+    )
     powered_recovery = sum(
         " owned-ore-recovery=[route:powered-inherited-line " in line
         for line in recovery_executed
+    )
+    electrical_built = sum(
+        "electrical-prime-mover=[base:treadle-built conversion:treadle-dynamo]" in line
+        for line in builds
+    )
+    electrical_deferred = sum(
+        "electrical-prime-mover=not-built" in line for line in deferred
     )
     organic_condition = (
         f"{min(organic_inherited_min)}..{max(organic_inherited_max)}ppm"
@@ -115,6 +127,7 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
             f"feed:{scaled_span(recovery_feed, 1_000, 'g')} "
             f"native:{scaled_span(recovery_native, 1_000, 'g')} "
             f"powered:{powered_recovery}/{len(recovery_executed)} "
+            f"reinforced-crank:{recovery_on_reinforced_crank}/{len(recovery_executed)} "
             f"attention:{_span(recovery_attention, 't')} "
             f"autonomous:{_span(recovery_autonomous, 't')} "
             f"elapsed:{_span(recovery_elapsed, 't')} "
@@ -138,6 +151,8 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         f"cast-stock:{scaled_span(ingots, 1_000, 'g')} setup:{_span(fabrication, 't')} "
         f"fabrication=[stone:{_span(stone_fabrication, 't')} "
         f"wood:{_span(wood_fabrication, 't')} copper:{_span(copper_fabrication, 't')}]] "
+        f"electrical-transition=[treadle+dynamo:{electrical_built}/{len(builds)} "
+        f"deferred-unbuilt:{electrical_deferred}/{len(deferred)}] "
         f"workshop-reuse=[attention-saved:{_span(workshop_saved, 't')}] "
         f"mold=[{scaled_span(mold_from, 1_000, 'g')}->{scaled_span(mold_to, 1_000, 'g')}] "
         f"settlement-batch=[executed:{settlement_executed}/{len(builds)} "

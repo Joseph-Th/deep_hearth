@@ -208,6 +208,9 @@ fn main() {
     settlement_wire_contract_tests::run_wire_drawbench_investment_experience(Some(
         fallback_variation_root,
     ));
+    settlement_helve_contract_tests::run_treadle_hammer_investment_experience(Some(
+        fallback_variation_root,
+    ));
     settlement_helve_contract_tests::run_helve_hammer_investment_experience(Some(
         fallback_variation_root,
     ));

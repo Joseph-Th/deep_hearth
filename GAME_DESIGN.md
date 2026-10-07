@@ -23,6 +23,15 @@ Deep Hearth is a first-person survival, settlement, and industrialization game i
 The player learns local physical and ecological constraints, then builds systems that handle them at increasing
 scale.
 
+The player fantasy is to be one capable individual who, through their own effort, judgment, and strategy,
+progresses from primitive survival to technologically advanced resource management. The player starts with their
+own body, knowledge, tools, local resources, and the surrounding environment, then decides what to learn, gather,
+build, preserve, improve, mechanize, and eventually automate. Every later capability should feel like the result
+of choices the player made and infrastructure they personally caused to exist. Settlements, machines, stores,
+workers, and industrial networks extend that individual's agency; they do not replace the player as the source of
+progress. The satisfaction comes from using the environment intelligently and turning scarce resources into
+increasing control, resilience, productivity, and technological capability.
+
 `observe -> infer -> prepare -> extract -> invest -> delegate -> reinvest`
 
 Responsibility expands through:
