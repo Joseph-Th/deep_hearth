@@ -1,5 +1,6 @@
 //! Deterministic authored lookup and cross-definition validation for finite energy stores.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::quantity::Energy;
@@ -8,6 +9,66 @@ use crate::material::MaterialRegistry;
 
 use super::{EnergyStoreDefinition, EnergyStoreDefinitionId};
 use crate::energy::integration::{PowerRemainder, integrate_power};
+
+fn compare_nonnegative_ratios(
+    mut left_numerator: u128,
+    mut left_denominator: u128,
+    mut right_numerator: u128,
+    mut right_denominator: u128,
+) -> Ordering {
+    assert!(left_denominator != 0 && right_denominator != 0);
+    let mut reversed = false;
+    loop {
+        let left_quotient = left_numerator / left_denominator;
+        let right_quotient = right_numerator / right_denominator;
+        if left_quotient != right_quotient {
+            let ordering = left_quotient.cmp(&right_quotient);
+            return if reversed {
+                ordering.reverse()
+            } else {
+                ordering
+            };
+        }
+        let left_remainder = left_numerator % left_denominator;
+        let right_remainder = right_numerator % right_denominator;
+        match (left_remainder == 0, right_remainder == 0) {
+            (true, true) => return Ordering::Equal,
+            (true, false) => {
+                return if reversed {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                };
+            }
+            (false, true) => {
+                return if reversed {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
+            }
+            (false, false) => {
+                left_numerator = left_denominator;
+                left_denominator = left_remainder;
+                right_numerator = right_denominator;
+                right_denominator = right_remainder;
+                reversed = !reversed;
+            }
+        }
+    }
+}
+
+fn passive_loss_rate_not_worse(
+    target: &EnergyStoreDefinition,
+    base: &EnergyStoreDefinition,
+) -> bool {
+    compare_nonnegative_ratios(
+        target.passive_dissipation_power().picowatts(),
+        target.capacity().nanojoules(),
+        base.passive_dissipation_power().picowatts(),
+        base.capacity().nanojoules(),
+    ) != Ordering::Greater
+}
 
 /// Immutable deterministic authored lookup table for finite energy stores.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -146,8 +207,8 @@ impl EnergyRegistry {
                 target.id().value()
             );
             assert!(
-                target.passive_dissipation_power() <= base.passive_dissipation_power(),
-                "energy store definition {} additive upgrade cannot increase passive loss",
+                passive_loss_rate_not_worse(target, base),
+                "energy store definition {} additive upgrade cannot worsen passive loss per unit capacity",
                 target.id().value()
             );
             let base_assembly = base.assembly_profile().unwrap_or_else(|| {

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
     EQUIPMENT_TIMBER_SPRING_POLE_LATHE, EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_CHIP,
     FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_SCRAP, FORM_TOOL,
@@ -12,7 +12,7 @@ use deep_hearth::content::{
     PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
     PROCESS_POWER_TURN_TIMBER_FLYWHEEL, PROCESS_SHAPE_TIMBER_FLYWHEEL, build_registries,
 };
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
     ManualCraftRequest, PoweredCraftRequest, resolve_manual_craft, validate_start_powered_craft,
@@ -21,9 +21,7 @@ use deep_hearth::energy::{EnergyStoreId, validate_assemble_energy_store};
 use deep_hearth::equipment::{
     EquipmentDefinitionId, EquipmentId, validate_assemble_equipment, validate_upgrade_equipment,
 };
-use deep_hearth::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
-};
+use deep_hearth::inventory::{MaterialLotId, StockpileId, StockpileStorageProfile};
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -37,12 +35,18 @@ use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
 use super::manual_power_timing::finish_manual_power_work;
-use super::powered_craft_planning::{AuthoredPoweredCraftBatch, authored_batch};
+use super::material_selection::select_stockpile_mass;
+use super::powered_craft_planning::{
+    AuthoredPoweredCraftBatch, PoweredCraftSequenceProjection, authored_batch,
+    project_powered_craft_sequence,
+};
 use super::production_timing::finish_uninterrupted_production_job;
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
 };
-use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
+use super::settlement_power_planning::{
+    ManualPowerSequenceProjection, project_manual_power_workload,
+};
 
 fn seed_material(
     registries: &Registries,
@@ -227,26 +231,75 @@ fn execute_upgrade_setup(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PoweredProjectOutcome {
-    charge_attention: u64,
-    delegated_ticks: u64,
+pub(super) struct PoweredProjectOutcome {
+    pub(super) charge_attention: u64,
+    pub(super) delegated_ticks: u64,
+    pub(super) charge_events: u64,
+    pub(super) maximum_leg_batches: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PoweredProjectPlan {
+pub(super) struct PoweredProjectProjection {
+    pub(super) sequence: PoweredCraftSequenceProjection,
+    pub(super) charging: ManualPowerSequenceProjection,
+}
+
+pub(super) fn project_powered_project(
+    registries: &Registries,
+    state: &AppState,
     process: ProcessId,
-    source: StockpileId,
-    input_lot: MaterialLotId,
-    destination: StockpileId,
-    machine: EquipmentId,
-    crank: EquipmentId,
+    machine: EquipmentDefinitionId,
+    machine_condition: deep_hearth::maintenance::Condition,
+    crank_condition: deep_hearth::maintenance::Condition,
     drive: EnergyStoreId,
     batch: AuthoredPoweredCraftBatch,
     batches: u64,
     context: &'static str,
+) -> Option<PoweredProjectProjection> {
+    let sequence = project_powered_craft_sequence(
+        registries,
+        state,
+        process,
+        machine,
+        machine_condition,
+        drive,
+        batch,
+        batches,
+        context,
+    );
+    if sequence.batches != batches || sequence.legs.is_empty() {
+        return None;
+    }
+    let store_definition = state
+        .energy()
+        .get_store(drive)
+        .map(|record| record.definition())
+        .unwrap_or_else(|| panic!("{context} powered project drive disappeared before planning"));
+    let charging = project_manual_power_workload(
+        registries,
+        MANUAL_POWER_HAND_CRANK,
+        EQUIPMENT_STONE_HAND_CRANK,
+        crank_condition,
+        store_definition,
+        sequence.charge_energies(),
+        context,
+    );
+    Some(PoweredProjectProjection { sequence, charging })
 }
 
-fn execute_powered_project(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PoweredProjectPlan {
+    pub(super) process: ProcessId,
+    pub(super) source: StockpileId,
+    pub(super) destination: StockpileId,
+    pub(super) machine: EquipmentId,
+    pub(super) crank: EquipmentId,
+    pub(super) drive: EnergyStoreId,
+    pub(super) batch: AuthoredPoweredCraftBatch,
+    pub(super) batches: u64,
+    pub(super) context: &'static str,
+}
+
+pub(super) fn execute_powered_project(
     registries: &Registries,
     state: &mut AppState,
     plan: PoweredProjectPlan,
@@ -254,7 +307,6 @@ fn execute_powered_project(
     let PoweredProjectPlan {
         process,
         source,
-        input_lot,
         destination,
         machine,
         crank,
@@ -265,11 +317,44 @@ fn execute_powered_project(
     } = plan;
     let mut charge_attention = 0_u64;
     let mut delegated_ticks = 0_u64;
-    for _ in 0..batches {
+    let mut charge_events = 0_u64;
+    let mut maximum_leg_batches = 0_u64;
+    let mut completed_batches = 0_u64;
+    while completed_batches < batches {
+        assert_eq!(
+            state
+                .energy()
+                .get_store(drive)
+                .map(|record| record.stored()),
+            Some(Energy::ZERO),
+            "{context} packed project must begin each leg with an empty work buffer"
+        );
+        let machine_record = state
+            .equipment()
+            .get_equipment(machine)
+            .unwrap_or_else(|| panic!("{context} powered machine disappeared before leg planning"));
+        let remaining = batches.checked_sub(completed_batches).unwrap_or_else(|| {
+            unreachable!("completed powered batches are bounded by the project")
+        });
+        let sequence = project_powered_craft_sequence(
+            registries,
+            state,
+            process,
+            machine_record.definition(),
+            machine_record.condition(),
+            drive,
+            batch,
+            remaining,
+            context,
+        );
+        let leg = *sequence
+            .legs
+            .first()
+            .unwrap_or_else(|| panic!("{context} has no feasible powered project leg"));
         let work = validate_start_manual_power(
             registries,
             state,
-            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, batch.work),
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, leg.work),
         )
         .unwrap_or_else(|error| panic!("{context} charge failed: {error}"))
         .commit(state)
@@ -277,16 +362,19 @@ fn execute_powered_project(
         charge_attention = charge_attention
             .checked_add(finish_manual_power_work(registries, state, work, context))
             .unwrap_or_else(|| panic!("{context} charge attention overflowed"));
+        assert_eq!(
+            state
+                .energy()
+                .get_store(drive)
+                .map(|record| record.stored()),
+            Some(leg.work),
+            "{context} packed charge must equal the productive leg's exact work"
+        );
+        let selections = select_stockpile_mass(state, source, leg.input_mass, context);
         let job = validate_start_powered_craft(
             registries,
             state,
-            PoweredCraftRequest::single(
-                process,
-                source,
-                MaterialLotSelection::new(input_lot, batch.input_mass),
-                machine,
-                drive,
-            ),
+            PoweredCraftRequest::new(process, source, selections, machine, drive),
             destination,
         )
         .unwrap_or_else(|error| panic!("{context} powered start failed: {error}"))
@@ -306,10 +394,40 @@ fn execute_powered_project(
             .checked_add(duration)
             .unwrap_or_else(|| panic!("{context} delegated duration overflowed"));
         finish_uninterrupted_production_job(registries, state, job, context);
+        assert_eq!(
+            duration, leg.delegated_ticks,
+            "{context} executed powered duration diverged from the live packed projection"
+        );
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(machine)
+                .map(|record| record.condition()),
+            Some(leg.condition_after),
+            "{context} executed machine wear diverged from the live packed projection"
+        );
+        assert_eq!(
+            state
+                .energy()
+                .get_store(drive)
+                .map(|record| record.stored()),
+            Some(Energy::ZERO),
+            "{context} powered leg must consume its complete packed charge"
+        );
+        completed_batches = completed_batches
+            .checked_add(leg.batches)
+            .unwrap_or_else(|| panic!("{context} completed batch count overflowed"));
+        charge_events = charge_events
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("{context} charge-event count overflowed"));
+        maximum_leg_batches = maximum_leg_batches.max(leg.batches);
     }
+    assert_eq!(completed_batches, batches);
     PoweredProjectOutcome {
         charge_attention,
         delegated_ticks,
+        charge_events,
+        maximum_leg_batches,
     }
 }
 

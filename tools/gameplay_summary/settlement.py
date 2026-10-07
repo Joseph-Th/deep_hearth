@@ -37,6 +37,16 @@ def settlement_summary(lines: list[str]) -> str | None:
     machine = _values(settlement, r"mechanized:(\d+)t")
     setup = _values(settlement, r"setup:(\d+)t")
     delegated = _values(settlement, r"delegated:(\d+)t")
+    initial_charge_events = _values(
+        settlement, r"execution=\[[^\]]*charge-events:(\d+)"
+    )
+    followup_charge_events = _values(
+        settlement, r"followup=\[[^\]]*charge-events:(\d+)"
+    )
+    packed_batches = _values(
+        settlement,
+        r"decision=\[.*?power-cycle=\[charges:\d+ max-batches-per-charge:(\d+)\].*?policy=",
+    )
     policy_returns = _values(settlement, r"minimum-return:(\d+)ppm")
     crossover_values = _values(settlement, r"baseline-crossover:(\d+)")
     crossover_none = sum("baseline-crossover:none" in line for line in settlement)
@@ -58,6 +68,29 @@ def settlement_summary(lines: list[str]) -> str | None:
             " baseline-crossover=["
             f"found:{len(crossover_values)}/{len(settlement)} "
             f"range:{_span(crossover_values, 'batches')} none:{crossover_none}]"
+        )
+
+    storage_experiences = [
+        line for line in lines if line.startswith("SETTLEMENT STORAGE EXPERIENCE ")
+    ]
+    storage_scale = ""
+    if storage_experiences:
+        assert len(storage_experiences) == 1
+        storage = storage_experiences[0]
+        stages = re.search(
+            r"stages=\[stone:\[capacity:(\d+)nJ embodied:(\d+)mg portfolio-charges:(\d+) max-packed:(\d+)\] "
+            r"paired:\[capacity:(\d+)nJ embodied:(\d+)mg portfolio-charges:(\d+) max-packed:(\d+)\] "
+            r"bank:\[capacity:(\d+)nJ embodied:(\d+)mg portfolio-charges:(\d+) max-packed:(\d+)\]\]",
+            storage,
+        )
+        if stages is None:
+            raise AssertionError("settlement storage experience lost its stage telemetry")
+        storage_scale = (
+            " storage-scale=["
+            f"capacity:{stages.group(1)}->{stages.group(5)}->{stages.group(9)}nJ "
+            f"portfolio-charges:{stages.group(3)}->{stages.group(7)}->{stages.group(11)} "
+            f"max-packed:{stages.group(4)}->{stages.group(8)}->{stages.group(12)} "
+            "identity:additive]"
         )
     builds = sum(" upgraded:true " in line for line in settlement)
     mechanized_lines = [line for line in settlement if "choice:sash-sawmill" in line]
@@ -139,6 +172,12 @@ def settlement_summary(lines: list[str]) -> str | None:
     machine_floors = _values(machine_experiences, r"minimum-attention-return:(\d+)t")
     machine_savings = _values(machine_experiences, r"attention-saved:(\d+)t")
     machine_delegated = _values(machine_experiences, r"delegated:(\d+)t")
+    machine_charge_events = _values(
+        machine_experiences, r"power-cycle=\[charges:(\d+)"
+    )
+    machine_packed_batches = _values(
+        machine_experiences, r"max-batches-per-charge:(\d+)"
+    )
     short_kept = sum("choice:keep-prior" in line for line in machine_experiences)
     project_upgrades = sum("choice:upgrade" in line for line in machine_experiences)
     portfolio = ""
@@ -150,7 +189,9 @@ def settlement_summary(lines: list[str]) -> str | None:
             f"project-upgrade:{project_upgrades}/{len(machine_experiences)} "
             f"return-floor:{_span(machine_floors, 't')} "
             f"attention-saved:{_span(machine_savings, 't')} "
-            f"delegated:{_span(machine_delegated, 't')}]"
+            f"delegated:{_span(machine_delegated, 't')} "
+            f"power-cycle=[charges:{_span(machine_charge_events, '')} "
+            f"max-batches-per-charge:{_span(machine_packed_batches, '')}]]"
         )
         capital_witnesses = (
             " capital-crossover-witnesses=[scope:separate-executed-projects "
@@ -228,6 +269,9 @@ def settlement_summary(lines: list[str]) -> str | None:
         f"mechanization=[builds:{builds}/{len(settlement)} "
         f"delegated:{min(delegated)}..{max(delegated)}t "
         f"decision-basis=[attention:{attention_decisions} capacity:{capacity_decisions}]]"
+        f" power-cycle=[initial-charge-events:{_span(initial_charge_events, '')} "
+        f"followup-charge-events:{_span(followup_charge_events, '')} "
+        f"machine-max-batches-per-charge:{_span(packed_batches, '')}]"
         f" followup-basis=[attention:{followup_attention_decisions} capacity:{followup_capacity_decisions}]"
-        f"{followup_payoff}{portfolio}{stored_work}{capital_witnesses}{delegation_witnesses}{witness_scope}"
+        f"{followup_payoff}{portfolio}{stored_work}{storage_scale}{capital_witnesses}{delegation_witnesses}{witness_scope}"
     )

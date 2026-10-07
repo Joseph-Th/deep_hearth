@@ -7,11 +7,11 @@ use deep_hearth::content::{
     EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_BOARD, FORM_CHIP, MANUAL_POWER_HAND_CRANK, MATERIAL_WOOD,
     PROCESS_POWER_SAW_WOOD_BOARDS,
 };
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::crafting::{
-    PoweredCraftRequest, project_manual_craft_equipment, project_powered_craft_equipment_work,
-    project_powered_craft_work, validate_start_powered_craft,
+    PoweredCraftRequest, project_manual_craft_equipment, project_powered_craft_work,
+    validate_start_powered_craft,
 };
 use deep_hearth::energy::EnergyStoreId;
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_upgrade_equipment};
@@ -28,15 +28,11 @@ use crate::manual_craft_execution::execute_manual_craft;
 use crate::manual_craft_selection::select_manual_craft_request;
 use crate::manual_power_timing::finish_manual_power_work;
 use crate::material_selection::select_stockpile_mass;
-use crate::powered_craft_planning::AuthoredPoweredCraftBatch;
+use crate::powered_craft_planning::{
+    AuthoredPoweredCraftBatch, PoweredCraftSequenceProjection, project_powered_craft_sequence,
+};
 use crate::production_timing::finish_uninterrupted_production_job;
-use crate::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct PoweredLumberSequenceProjection {
-    pub(super) batches: u64,
-    pub(super) delegated_ticks: u64,
-}
+use crate::settlement_power_planning::project_manual_power_workload;
 
 #[derive(Clone, Copy)]
 pub(super) struct PoweredLumberOrder {
@@ -72,6 +68,7 @@ pub(super) struct LumberFollowupInputs<'a> {
 pub(super) struct LumberFollowupResult {
     pub(super) active_attention: u64,
     pub(super) delegated_ticks: u64,
+    pub(super) charge_events: u64,
     pub(super) route: &'static str,
     pub(super) reinvested: bool,
     pub(super) completed_batches: u64,
@@ -127,35 +124,22 @@ pub(super) fn project_future_powered_lumber_sequence(
     registries: &Registries,
     state: &AppState,
     equipment: EquipmentDefinitionId,
-    mut condition: Condition,
+    condition: Condition,
     drive: EnergyStoreId,
     batch: AuthoredPoweredCraftBatch,
     requested_batches: u64,
-) -> PoweredLumberSequenceProjection {
-    let mut batches = 0_u64;
-    let mut delegated_ticks = 0_u64;
-    for _ in 0..requested_batches {
-        let Ok(projection) = project_powered_craft_equipment_work(
-            registries,
-            state,
-            PROCESS_POWER_SAW_WOOD_BOARDS,
-            batch.input_mass,
-            equipment,
-            condition,
-            drive,
-        ) else {
-            break;
-        };
-        batches += 1;
-        delegated_ticks = delegated_ticks
-            .checked_add(projection.duration().value())
-            .unwrap_or_else(|| panic!("settlement projected delegated time overflowed"));
-        condition = projection.condition_after();
-    }
-    PoweredLumberSequenceProjection {
-        batches,
-        delegated_ticks,
-    }
+) -> PoweredCraftSequenceProjection {
+    project_powered_craft_sequence(
+        registries,
+        state,
+        PROCESS_POWER_SAW_WOOD_BOARDS,
+        equipment,
+        condition,
+        drive,
+        batch,
+        requested_batches,
+        "settlement powered lumber",
+    )
 }
 
 fn project_owned_powered_lumber_sequence(
@@ -165,56 +149,44 @@ fn project_owned_powered_lumber_sequence(
     batch: AuthoredPoweredCraftBatch,
     requested_batches: u64,
     drive: EnergyStoreId,
-) -> PoweredLumberSequenceProjection {
-    let mut batches = 0_u64;
-    let mut delegated_ticks = 0_u64;
+) -> PoweredCraftSequenceProjection {
     let record = state
         .equipment()
         .get_equipment(equipment)
         .unwrap_or_else(|| panic!("settlement owned sawmill disappeared before projection"));
-    let definition = record.definition();
-    let mut projected_condition = record.condition();
-    for _ in 0..requested_batches {
-        let projection = if batches == 0 {
-            project_powered_craft_work(
-                registries,
-                state,
-                PROCESS_POWER_SAW_WOOD_BOARDS,
-                batch.input_mass,
-                equipment,
-                drive,
-            )
-        } else {
-            project_powered_craft_equipment_work(
-                registries,
-                state,
-                PROCESS_POWER_SAW_WOOD_BOARDS,
-                batch.input_mass,
-                definition,
-                projected_condition,
-                drive,
-            )
-        };
-        let Ok(projection) = projection else {
-            break;
-        };
-        batches += 1;
-        delegated_ticks = delegated_ticks
-            .checked_add(projection.duration().value())
-            .unwrap_or_else(|| panic!("settlement projected delegated time overflowed"));
-        projected_condition = projection.condition_after();
+    let projection = project_future_powered_lumber_sequence(
+        registries,
+        state,
+        record.definition(),
+        record.condition(),
+        drive,
+        batch,
+        requested_batches,
+    );
+    if let Some(first) = projection.legs.first() {
+        let actual = project_powered_craft_work(
+            registries,
+            state,
+            PROCESS_POWER_SAW_WOOD_BOARDS,
+            first.input_mass,
+            equipment,
+            drive,
+        )
+        .unwrap_or_else(|error| {
+            panic!("settlement owned powered-lumber projection failed: {error}")
+        });
+        assert_eq!(actual.required_energy(), first.work);
+        assert_eq!(actual.duration().value(), first.delegated_ticks);
+        assert_eq!(actual.condition_after(), first.condition_after);
     }
-    PoweredLumberSequenceProjection {
-        batches,
-        delegated_ticks,
-    }
+    projection
 }
 
 pub(super) fn execute_powered_lumber_order(
     registries: &Registries,
     state: &mut AppState,
     order: PoweredLumberOrder,
-) -> (u64, u64) {
+) -> (u64, u64, u64) {
     let PoweredLumberOrder {
         source,
         output,
@@ -227,11 +199,43 @@ pub(super) fn execute_powered_lumber_order(
     } = order;
     let mut attention = 0_u64;
     let mut delegated = 0_u64;
-    for _ in 0..batches {
+    let mut completed_batches = 0_u64;
+    let mut charge_events = 0_u64;
+    while completed_batches < batches {
+        assert_eq!(
+            state
+                .energy()
+                .get_store(drive)
+                .map(|record| record.stored()),
+            Some(Energy::ZERO),
+            "{context} must start each packed powered-lumber leg with an empty work buffer"
+        );
+        let sawmill_record = state
+            .equipment()
+            .get_equipment(sawmill)
+            .unwrap_or_else(|| panic!("{context} sawmill disappeared before leg planning"));
+        let remaining = batches
+            .checked_sub(completed_batches)
+            .unwrap_or_else(|| unreachable!("completed lumber batches are bounded by the order"));
+        let sequence = project_powered_craft_sequence(
+            registries,
+            state,
+            PROCESS_POWER_SAW_WOOD_BOARDS,
+            sawmill_record.definition(),
+            sawmill_record.condition(),
+            drive,
+            batch,
+            remaining,
+            context,
+        );
+        let leg = *sequence
+            .legs
+            .first()
+            .unwrap_or_else(|| panic!("{context} has no feasible powered-lumber leg"));
         let power = validate_start_manual_power(
             registries,
             state,
-            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, batch.work),
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, leg.work),
         )
         .unwrap_or_else(|error| panic!("{context} charging failed: {error}"))
         .commit(state)
@@ -239,7 +243,15 @@ pub(super) fn execute_powered_lumber_order(
         attention = attention
             .checked_add(finish_manual_power_work(registries, state, power, context))
             .unwrap_or_else(|| panic!("{context} active attention overflowed"));
-        let selections = select_stockpile_mass(state, source, batch.input_mass, context);
+        assert_eq!(
+            state
+                .energy()
+                .get_store(drive)
+                .map(|record| record.stored()),
+            Some(leg.work),
+            "{context} packed charge must leave exactly the work required by its productive leg"
+        );
+        let selections = select_stockpile_mass(state, source, leg.input_mass, context);
         let job = validate_start_powered_craft(
             registries,
             state,
@@ -264,8 +276,32 @@ pub(super) fn execute_powered_lumber_order(
             .checked_add(duration)
             .unwrap_or_else(|| panic!("{context} delegated time overflowed"));
         finish_uninterrupted_production_job(registries, state, job, context);
+        assert_eq!(duration, leg.delegated_ticks);
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(sawmill)
+                .map(|record| record.condition()),
+            Some(leg.condition_after),
+            "{context} sawmill wear diverged from the packed-leg projection"
+        );
+        assert_eq!(
+            state
+                .energy()
+                .get_store(drive)
+                .map(|record| record.stored()),
+            Some(Energy::ZERO),
+            "{context} productive leg must consume its complete packed work charge"
+        );
+        completed_batches = completed_batches
+            .checked_add(leg.batches)
+            .unwrap_or_else(|| panic!("{context} completed batch count overflowed"));
+        charge_events = charge_events
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("{context} charge-event count overflowed"));
     }
-    (attention, delegated)
+    assert_eq!(completed_batches, batches);
+    (attention, delegated, charge_events)
 }
 
 pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFollowupResult {
@@ -291,6 +327,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
     let (
         active_attention,
         delegated_ticks,
+        charge_events,
         route,
         reinvested,
         completed_batches,
@@ -360,16 +397,13 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
             let machine_attention = (powered_capacity > 0).then(|| {
                 setup_attention
                     .checked_add(
-                        project_manual_power_sequence(
+                        project_manual_power_workload(
                             registries,
-                            ManualPowerSequenceRequest {
-                                method: MANUAL_POWER_HAND_CRANK,
-                                equipment: EQUIPMENT_STONE_HAND_CRANK,
-                                starting_condition: crank_condition,
-                                store: ENERGY_STONE_FLYWHEEL_DRIVE,
-                                energy_per_charge: batch.work,
-                                charges: powered_capacity,
-                            },
+                            MANUAL_POWER_HAND_CRANK,
+                            EQUIPMENT_STONE_HAND_CRANK,
+                            crank_condition,
+                            ENERGY_STONE_FLYWHEEL_DRIVE,
+                            powered_projection.charge_energies(),
                             "settlement follow-up sawmill workload",
                         )
                         .attention_ticks,
@@ -421,7 +455,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     sawmill, frame_saw,
                     "settlement follow-up upgrade must preserve equipment identity"
                 );
-                let (attention, delegated) = execute_powered_lumber_order(
+                let (attention, delegated, executed_charge_events) = execute_powered_lumber_order(
                     registries,
                     state,
                     PoweredLumberOrder {
@@ -447,14 +481,22 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     delegated, powered_projection.delegated_ticks,
                     "settlement follow-up powered duration projection must match execution"
                 );
+                assert_eq!(
+                    executed_charge_events,
+                    powered_projection.charge_events(),
+                    "settlement follow-up packed charge plan must match execution"
+                );
                 (
                     total_attention,
                     delegated,
+                    executed_charge_events,
                     "sash-sawmill",
                     true,
                     powered_capacity,
                     format!(
-                        "basis:{decision_basis} capacity=[manual:{manual_capacity} powered:{powered_capacity}] attention=[manual:{} powered:{total_attention}t] minimum-return:{minimum_return}t result:upgrade",
+                        "basis:{decision_basis} capacity=[manual:{manual_capacity} powered:{powered_capacity}] power-cycle=[charges:{} max-batches-per-charge:{}] attention=[manual:{} powered:{total_attention}t] minimum-return:{minimum_return}t result:upgrade",
+                        powered_projection.charge_events(),
+                        powered_projection.maximum_leg_batches(),
                         manual_attention
                             .map(|ticks| format!("{ticks}t"))
                             .unwrap_or_else(|| "unavailable".to_owned())
@@ -487,6 +529,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                 (
                     attention,
                     0,
+                    0,
                     "frame-saw",
                     false,
                     manual_capacity,
@@ -500,6 +543,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                 )
             } else {
                 (
+                    0,
                     0,
                     0,
                     "blocked",
@@ -528,6 +572,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                 (
                     0,
                     0,
+                    0,
                     "blocked",
                     false,
                     0,
@@ -535,7 +580,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     true,
                 )
             } else {
-                let (attention, delegated) = execute_powered_lumber_order(
+                let (attention, delegated, executed_charge_events) = execute_powered_lumber_order(
                     registries,
                     state,
                     PoweredLumberOrder {
@@ -553,15 +598,24 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     delegated, projection.delegated_ticks,
                     "settlement owned-sawmill follow-up projection must match execution"
                 );
+                assert_eq!(
+                    executed_charge_events,
+                    projection.charge_events(),
+                    "settlement owned-sawmill packed charge plan must match execution"
+                );
                 (
                     attention,
                     delegated,
+                    executed_charge_events,
                     "sash-sawmill",
                     false,
                     projection.batches,
                     format!(
-                        "owned-sawmill:reuse capacity:{}/{}",
-                        projection.batches, demand_batches
+                        "owned-sawmill:reuse capacity:{}/{} power-cycle=[charges:{} max-batches-per-charge:{}]",
+                        projection.batches,
+                        demand_batches,
+                        projection.charge_events(),
+                        projection.maximum_leg_batches(),
                     ),
                     true,
                 )
@@ -597,6 +651,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
     LumberFollowupResult {
         active_attention,
         delegated_ticks,
+        charge_events,
         route,
         reinvested,
         completed_batches,

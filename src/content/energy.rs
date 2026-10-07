@@ -176,7 +176,20 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(400_000),
             ),
-        ])),
+        ]))
+        .with_upgrade_profile(EnergyStoreUpgradeProfile::new(
+            ENERGY_STONE_FLYWHEEL_DRIVE,
+            MaterialAssemblyProfile::new(vec![
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                    STONE_FLYWHEEL_MASS,
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                    Mass::from_milligrams(200_000),
+                ),
+            ]),
+        )),
         // The bank scales primitive flywheel storage through more stone, framing, and shafting
         // without introducing a new material tier. Passive drag keeps it a workshop work buffer
         // rather than long-duration storage.
@@ -207,7 +220,31 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(800_000),
             ),
-        ])),
+        ]))
+        .with_upgrade_profile(EnergyStoreUpgradeProfile::new(
+            ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
+            MaterialAssemblyProfile::new(vec![
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                    Mass::from_milligrams(
+                        STONE_FLYWHEEL_MASS
+                            .milligrams()
+                            .checked_mul(8)
+                            .unwrap_or_else(|| {
+                                panic!("flywheel-bank upgrade stone mass overflows")
+                            }),
+                    ),
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                    Mass::from_milligrams(3_200_000),
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                    Mass::from_milligrams(400_000),
+                ),
+            ]),
+        )),
         // This is a small workshop buffer, not industrial storage. It supports a primitive melt
         // while repeated casting still requires repeated finite charging.
         EnergyStoreDefinition::new_with_transfer_limits(

@@ -133,6 +133,8 @@ mod settlement_helve_contract_tests;
 mod settlement_power_planning;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
+#[path = "gameplay_harness/settlement_storage_progression.rs"]
+mod settlement_storage_progression;
 #[path = "gameplay_harness/settlement_wire_contract_tests.rs"]
 mod settlement_wire_contract_tests;
 #[path = "gameplay_harness/settlement_workshop_investment.rs"]
@@ -213,6 +215,7 @@ fn main() {
     settlement_workshop_investment::run_toolroom_investment_experience(Some(
         fallback_variation_root,
     ));
+    settlement_storage_progression::run_settlement_storage_progression_experience();
     run_focused_probe_with_registries(
         &registries,
         "foundry-bootstrap",

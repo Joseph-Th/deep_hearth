@@ -103,3 +103,71 @@ pub(super) fn seed_inherited_workshop_package(
     }
     stockpile
 }
+
+/// Seeds one base energy store plus the exact authored additions for a sequential energy-store
+/// upgrade path. The resulting stockpile is intentionally shaped material: callers use this when
+/// the experience under test is preservation/scaling of already-earned infrastructure rather than
+/// re-testing the fabrication recipes that produced each component.
+pub(super) fn seed_energy_upgrade_package(
+    registries: &Registries,
+    state: &mut AppState,
+    base: EnergyStoreDefinitionId,
+    upgrade_targets: &[EnergyStoreDefinitionId],
+    context: &'static str,
+) -> StockpileId {
+    let mut requirements = BTreeMap::<CommodityKey, Mass>::new();
+    let base_profile = registries
+        .energy()
+        .get_store(base)
+        .and_then(|record| record.assembly_profile())
+        .unwrap_or_else(|| {
+            panic!(
+                "{context} base energy store {} lost its assembly profile",
+                base.value()
+            )
+        });
+    add_profile(&mut requirements, base_profile, context);
+    let mut expected_base = base;
+    for &target in upgrade_targets {
+        let upgrade = registries
+            .energy()
+            .get_store(target)
+            .and_then(|record| record.upgrade_profile())
+            .unwrap_or_else(|| {
+                panic!(
+                    "{context} energy upgrade target {} lost its additive profile",
+                    target.value()
+                )
+            });
+        assert_eq!(
+            upgrade.from(),
+            expected_base,
+            "{context} energy upgrade path must be contiguous"
+        );
+        add_profile(&mut requirements, upgrade.additions(), context);
+        expected_base = target;
+    }
+
+    let capacity = requirements
+        .values()
+        .copied()
+        .try_fold(Mass::ZERO, Mass::checked_add)
+        .filter(|mass| !mass.is_zero())
+        .unwrap_or_else(|| panic!("{context} energy upgrade package has no authored matter"));
+    let stockpile = seed_stockpile(
+        state,
+        capacity,
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    for (commodity, mass) in requirements {
+        let _ = seed_lot(
+            registries,
+            state,
+            stockpile,
+            commodity,
+            mass,
+            ROOM_TEMPERATURE,
+        );
+    }
+    stockpile
+}

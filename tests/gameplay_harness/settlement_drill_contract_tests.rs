@@ -2,21 +2,18 @@
 
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_SPINDLE_DRILL, FORM_REINFORCEMENT, FORM_SCRAP, FORM_SCREEN_PLATE,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_SPINDLE_DRILL, FORM_REINFORCEMENT, FORM_SCRAP,
+    FORM_SCREEN_PLATE, MATERIAL_COPPER, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
     PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
     PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::crafting::{
-    PoweredCraftRequest, resolve_manual_craft, validate_start_powered_craft,
-};
+use deep_hearth::crafting::resolve_manual_craft;
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use deep_hearth::inventory::StockpileStorageProfile;
-use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 
@@ -25,14 +22,13 @@ use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
-use super::manual_power_timing::finish_manual_power_work;
-use super::material_selection::select_stockpile_mass;
 use super::powered_craft_planning::authored_batch;
-use super::production_timing::finish_uninterrupted_production_job;
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
 };
-use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
+use super::settlement_workshop_investment::{
+    PoweredProjectPlan, execute_powered_project, project_powered_project,
+};
 
 const SPINDLE_DEMAND_SALT: u64 = 0x5350_494E_444C_4544;
 
@@ -62,9 +58,9 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
     );
     let mut state = AppState::new();
 
-    // This stock is the already-shaped primitive workshop package. The later upgrade additions are
-    // deliberately made through ordinary manual recipes below so the investment cost remains
-    // player attention rather than fixture-only finished parts.
+    // This is a later settlement workshop: the large flywheel bank was earned by prior power
+    // infrastructure progression, while the drill upgrade additions below are still fabricated
+    // through ordinary play and remain the investment decision under test.
     let bootstrap = super::settlement_fixture::seed_inherited_workshop_package(
         &registries,
         &mut state,
@@ -72,7 +68,7 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
             EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
             EQUIPMENT_STONE_HAND_CRANK,
         ],
-        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[ENERGY_TIMBER_FRAME_FLYWHEEL_BANK],
         &[],
         "spindle-drill prior workshop",
     );
@@ -160,11 +156,15 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
             .unwrap_or_else(|error| panic!("spindle investment crank assembly failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("spindle investment crank commit failed: {error}"));
-    let drive =
-        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, bootstrap)
-            .unwrap_or_else(|error| panic!("spindle investment flywheel assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("spindle investment flywheel commit failed: {error}"));
+    let drive = validate_assemble_energy_store(
+        &registries,
+        &state,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        bootstrap,
+    )
+    .unwrap_or_else(|error| panic!("spindle investment workshop-bank assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("spindle investment workshop-bank commit failed: {error}"));
     assert_eq!(
         state
             .inventory()
@@ -252,22 +252,22 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
             )
             .with_equipment(pump);
             let baseline = resolve_manual_craft(&registries, &state, &request).ok()?;
-            let charge = project_manual_power_sequence(
+            let powered = project_powered_project(
                 &registries,
-                ManualPowerSequenceRequest {
-                    method: MANUAL_POWER_HAND_CRANK,
-                    equipment: EQUIPMENT_STONE_HAND_CRANK,
-                    starting_condition: crank_condition,
-                    store: ENERGY_STONE_FLYWHEEL_DRIVE,
-                    energy_per_charge: spindle_batch.work,
-                    charges: batches,
-                },
+                &state,
+                PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+                EQUIPMENT_TIMBER_SPINDLE_DRILL,
+                pump_condition,
+                crank_condition,
+                drive,
+                spindle_batch,
+                batches,
                 "spindle crossover charging",
-            );
+            )?;
             Some((
                 baseline.duration().value(),
                 setup_attention
-                    .checked_add(charge.attention_ticks)
+                    .checked_add(powered.charging.attention_ticks)
                     .unwrap_or_else(|| panic!("spindle crossover attention overflowed")),
             ))
         },
@@ -307,31 +307,34 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
     .with_equipment(pump);
     let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
         .unwrap_or_else(|error| panic!("spindle project baseline projection failed: {error}"));
-    let short_charge_projection = project_manual_power_sequence(
+    let short_powered_projection = project_powered_project(
         &registries,
-        ManualPowerSequenceRequest {
-            method: MANUAL_POWER_HAND_CRANK,
-            equipment: EQUIPMENT_STONE_HAND_CRANK,
-            starting_condition: crank_condition,
-            store: ENERGY_STONE_FLYWHEEL_DRIVE,
-            energy_per_charge: spindle_batch.work,
-            charges: short_order,
-        },
+        &state,
+        PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        pump_condition,
+        crank_condition,
+        drive,
+        spindle_batch,
+        short_order,
         "spindle short-order charging",
-    );
-    let project_charge_projection = project_manual_power_sequence(
+    )
+    .unwrap_or_else(|| panic!("spindle short-order powered route became unavailable"));
+    let project_powered_projection = project_powered_project(
         &registries,
-        ManualPowerSequenceRequest {
-            method: MANUAL_POWER_HAND_CRANK,
-            equipment: EQUIPMENT_STONE_HAND_CRANK,
-            starting_condition: crank_condition,
-            store: ENERGY_STONE_FLYWHEEL_DRIVE,
-            energy_per_charge: spindle_batch.work,
-            charges: project_order,
-        },
+        &state,
+        PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        pump_condition,
+        crank_condition,
+        drive,
+        spindle_batch,
+        project_order,
         "spindle project charging",
-    );
-    let short_machine_attention = setup_attention + short_charge_projection.attention_ticks;
+    )
+    .unwrap_or_else(|| panic!("spindle project powered route became unavailable"));
+    let short_machine_attention =
+        setup_attention + short_powered_projection.charging.attention_ticks;
     assert!(
         !clears_attention_return(
             short_baseline.duration().value(),
@@ -340,7 +343,8 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
         ),
         "a short screen-plate order should keep using the already-owned pump drill"
     );
-    let project_machine_attention = setup_attention + project_charge_projection.attention_ticks;
+    let project_machine_attention =
+        setup_attention + project_powered_projection.charging.attention_ticks;
     assert!(
         clears_attention_return(
             project_baseline.duration().value(),
@@ -407,67 +411,45 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
         "spindle conversion must retain the worn pump drill's condition"
     );
 
-    let mut charge_attention = 0_u64;
-    let mut delegated_ticks = 0_u64;
-    for _ in 0..project_order {
-        let charge = validate_start_manual_power(
-            &registries,
-            &powered,
-            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, spindle_batch.work),
-        )
-        .unwrap_or_else(|error| panic!("spindle project charge failed: {error}"))
-        .commit(&mut powered)
-        .unwrap_or_else(|error| panic!("spindle project charge commit failed: {error}"));
-        charge_attention +=
-            finish_manual_power_work(&registries, &mut powered, charge, "spindle project charge");
-        let selections = select_stockpile_mass(
-            &powered,
-            work_source,
-            spindle_batch.input_mass,
-            "spindle powered plate input",
-        );
-        let job = validate_start_powered_craft(
-            &registries,
-            &powered,
-            PoweredCraftRequest::new(
-                PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
-                work_source,
-                selections,
-                spindle,
-                drive,
-            ),
-            powered_output,
-        )
-        .unwrap_or_else(|error| panic!("spindle project start failed: {error}"))
-        .commit(&mut powered)
-        .unwrap_or_else(|error| panic!("spindle project commit failed: {error}"));
-        assert_eq!(powered.player_work().active(), None);
-        delegated_ticks = delegated_ticks
-            .checked_add(
-                powered
-                    .production()
-                    .get_job(job)
-                    .map(|record| record.active_duration().value())
-                    .unwrap_or_else(|| panic!("spindle project job disappeared before completion")),
-            )
-            .unwrap_or_else(|| panic!("spindle delegated duration overflowed"));
-        finish_uninterrupted_production_job(
-            &registries,
-            &mut powered,
-            job,
-            "spindle project unattended drilling",
-        );
-    }
-    assert_eq!(charge_attention, project_charge_projection.attention_ticks);
+    let powered_project = execute_powered_project(
+        &registries,
+        &mut powered,
+        PoweredProjectPlan {
+            process: PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+            source: work_source,
+            destination: powered_output,
+            machine: spindle,
+            crank,
+            drive,
+            batch: spindle_batch,
+            batches: project_order,
+            context: "spindle project unattended drilling",
+        },
+    );
+    assert_eq!(
+        powered_project.charge_attention,
+        project_powered_projection.charging.attention_ticks
+    );
+    assert_eq!(
+        powered_project.delegated_ticks,
+        project_powered_projection.sequence.delegated_ticks
+    );
+    assert_eq!(
+        powered_project.charge_events,
+        project_powered_projection.sequence.charge_events()
+    );
     assert_eq!(
         powered
             .equipment()
             .get_equipment(crank)
             .map(|record| record.condition()),
-        Some(project_charge_projection.condition_after),
+        Some(project_powered_projection.charging.condition_after),
         "spindle projected hand-crank wear must match execution"
     );
-    assert_eq!(executed_setup + charge_attention, project_machine_attention);
+    assert_eq!(
+        executed_setup + powered_project.charge_attention,
+        project_machine_attention
+    );
     assert!(project_machine_attention < baseline_ticks.value());
     for commodity in [
         CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
@@ -500,7 +482,7 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
     validate_loaded_state(&registries, &powered)
         .unwrap_or_else(|error| panic!("spindle investment final state invalid: {error}"));
     reviewln!(
-        "SETTLEMENT MACHINE EXPERIENCE family=spindle-drill transform=screen-plate prior=pump-drill upgrade=spindle-drill policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t crossover:{}batches short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] used-identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
+        "SETTLEMENT MACHINE EXPERIENCE family=spindle-drill transform=screen-plate prior=pump-drill upgrade=spindle-drill policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t crossover:{}batches short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t power-cycle=[charges:{} max-batches-per-charge:{}] choice:upgrade] used-identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
         policy.minimum_return_ppm(),
         minimum_attention_return,
         crossover,
@@ -510,10 +492,12 @@ pub(super) fn run_spindle_drill_investment_experience(variation_root: Option<u64
         project_order,
         project_baseline.duration().value(),
         setup_attention,
-        project_charge_projection.attention_ticks,
+        project_powered_projection.charging.attention_ticks,
         project_machine_attention,
         project_baseline.duration().value() - project_machine_attention,
-        delegated_ticks,
+        powered_project.delegated_ticks,
+        powered_project.charge_events,
+        powered_project.maximum_leg_batches,
     );
 }
 

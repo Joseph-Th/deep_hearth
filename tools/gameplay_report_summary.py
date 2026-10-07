@@ -38,7 +38,9 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
     return summaries
 
 
-def settlement_specialization_summary(lines: list[str]) -> str | None:
+def settlement_specialization_summary(
+    lines: list[str], *, include_cadence: bool = False
+) -> str | None:
     """Summarize later-workshop capital decisions that execute outside the main settlement probe."""
 
     experiences = [
@@ -66,18 +68,35 @@ def settlement_specialization_summary(lines: list[str]) -> str | None:
         for line in experiences
         if (match := re.search(r"\bdelegated:(\d+)t", line)) is not None
     ]
+    charge_events = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bpower-cycle=\[charges:(\d+)", line)) is not None
+    ]
+    packed_batches = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bmax-batches-per-charge:(\d+)", line)) is not None
+    ]
     span = lambda values: f"{min(values)}..{max(values)}t" if values else "n/a"
     batch_span = (
         lambda values: f"{min(values)}..{max(values)}batches" if values else "n/a"
     )
     short_kept = sum(
-        re.search(r"\bshort=\[[^\]]*\bchoice:keep-prior\]", line) is not None
+        re.search(r"\bshort=\[.*?\bchoice:keep-prior\]", line) is not None
         for line in experiences
     )
     project_upgraded = sum(
-        re.search(r"\bproject=\[[^\]]*\bchoice:upgrade\]", line) is not None
+        re.search(r"\bproject=\[.*?\bchoice:upgrade\]", line) is not None
         for line in experiences
     )
+    cadence = ""
+    if include_cadence and charge_events and packed_batches:
+        cadence = (
+            " power-cycle=["
+            f"charges:{min(charge_events)}..{max(charge_events)} "
+            f"max-batches-per-charge:{min(packed_batches)}..{max(packed_batches)}]"
+        )
     return (
         "GAMEPLAY settlement-specialization scope=separate-executed-projects "
         f"families=[{','.join(families)}] "
@@ -85,6 +104,7 @@ def settlement_specialization_summary(lines: list[str]) -> str | None:
         f"short-kept-prior:{short_kept}/{len(experiences)} "
         f"project-upgraded:{project_upgraded}/{len(experiences)} "
         f"attention-saved:{span(attention_saved)} delegated:{span(delegated)}"
+        f"{cadence}"
     )
 
 
@@ -147,6 +167,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "demand",
         "payoff",
         "followup-payoff",
+        "storage-scale",
     ),
     "foundry-bootstrap": (
         "choice",
@@ -192,6 +213,7 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
         *_ORDINARY_DIGEST_FIELDS["settlement"],
         "attention",
         "mechanization",
+        "power-cycle",
     ),
     "foundry-bootstrap": (
         "choice",
@@ -533,7 +555,9 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ordinary_digests = [
         _digest_summary(summary, scoped=scoped_ordinary) for summary in ordinary
     ]
-    specialization = settlement_specialization_summary(lines)
+    specialization = settlement_specialization_summary(
+        lines, include_cadence=scoped_ordinary
+    )
     if specialization is not None:
         specialization_detail = specialization.removeprefix(
             "GAMEPLAY settlement-specialization "

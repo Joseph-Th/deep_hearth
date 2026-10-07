@@ -44,7 +44,9 @@ use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
 };
 #[cfg(test)]
-use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
+use super::settlement_workshop_investment::{
+    PoweredProjectPlan, execute_powered_project, project_powered_project,
+};
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,
@@ -124,7 +126,7 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         project_input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    let work_lot = seed_material(
+    let _work_lot = seed_material(
         &registries,
         &mut state,
         work_source,
@@ -193,10 +195,12 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         "sawmill upgrade boards",
     )
     .with_equipment(frame_saw);
-    let setup_board_ticks = resolve_manual_craft(&registries, &state, &setup_board_request)
-        .unwrap_or_else(|error| panic!("sawmill upgrade board projection failed: {error}"))
-        .duration()
-        .value();
+    let setup_board_resolution = resolve_manual_craft(&registries, &state, &setup_board_request)
+        .unwrap_or_else(|error| panic!("sawmill upgrade board projection failed: {error}"));
+    let setup_board_ticks = setup_board_resolution.duration().value();
+    let sawmill_condition_after_setup = setup_board_resolution
+        .equipment_condition_after()
+        .unwrap_or_else(|| panic!("sawmill upgrade board work lost its frame-saw wear projection"));
     let setup_handle_request = select_manual_craft_request(
         &registries,
         &state,
@@ -227,6 +231,11 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         .get_equipment(crank)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("sawmill hand crank disappeared before investment decision"));
+    let frame_saw_condition = state
+        .equipment()
+        .get_equipment(frame_saw)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("sawmill frame saw disappeared before investment decision"));
     let minimum_attention_return =
         CapitalInvestmentPolicy::baseline().minimum_attention_return(0, setup_attention);
     assert!(minimum_attention_return > 0);
@@ -244,22 +253,22 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
             )
             .with_equipment(frame_saw);
             let baseline = resolve_manual_craft(&registries, &state, &request).ok()?;
-            let charge = project_manual_power_sequence(
+            let powered = project_powered_project(
                 &registries,
-                ManualPowerSequenceRequest {
-                    method: MANUAL_POWER_HAND_CRANK,
-                    equipment: EQUIPMENT_STONE_HAND_CRANK,
-                    starting_condition: crank_condition,
-                    store: ENERGY_STONE_FLYWHEEL_DRIVE,
-                    energy_per_charge: sawmill_batch.work,
-                    charges: batches,
-                },
+                &state,
+                PROCESS_POWER_SAW_WOOD_BOARDS,
+                EQUIPMENT_TIMBER_SASH_SAWMILL,
+                sawmill_condition_after_setup,
+                crank_condition,
+                drive,
+                sawmill_batch,
+                batches,
                 "sawmill crossover charging",
-            );
+            )?;
             Some((
                 baseline.duration().value(),
                 setup_attention
-                    .checked_add(charge.attention_ticks)
+                    .checked_add(powered.charging.attention_ticks)
                     .unwrap_or_else(|| panic!("sawmill crossover attention overflowed")),
             ))
         },
@@ -314,45 +323,51 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
     .with_equipment(frame_saw);
     let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
         .unwrap_or_else(|error| panic!("sawmill project baseline projection failed: {error}"));
-    let short_charge_projection = project_manual_power_sequence(
+    let short_powered_projection = project_powered_project(
         &registries,
-        ManualPowerSequenceRequest {
-            method: MANUAL_POWER_HAND_CRANK,
-            equipment: EQUIPMENT_STONE_HAND_CRANK,
-            starting_condition: crank_condition,
-            store: ENERGY_STONE_FLYWHEEL_DRIVE,
-            energy_per_charge: sawmill_batch.work,
-            charges: short_order,
-        },
+        &state,
+        PROCESS_POWER_SAW_WOOD_BOARDS,
+        EQUIPMENT_TIMBER_SASH_SAWMILL,
+        sawmill_condition_after_setup,
+        crank_condition,
+        drive,
+        sawmill_batch,
+        short_order,
         "sawmill short-order charging",
-    );
-    let marginal_charge_projection = project_manual_power_sequence(
+    )
+    .unwrap_or_else(|| panic!("sawmill short-order powered route became unavailable"));
+    let marginal_powered_projection = project_powered_project(
         &registries,
-        ManualPowerSequenceRequest {
-            method: MANUAL_POWER_HAND_CRANK,
-            equipment: EQUIPMENT_STONE_HAND_CRANK,
-            starting_condition: crank_condition,
-            store: ENERGY_STONE_FLYWHEEL_DRIVE,
-            energy_per_charge: sawmill_batch.work,
-            charges: marginal_order,
-        },
+        &state,
+        PROCESS_POWER_SAW_WOOD_BOARDS,
+        EQUIPMENT_TIMBER_SASH_SAWMILL,
+        sawmill_condition_after_setup,
+        crank_condition,
+        drive,
+        sawmill_batch,
+        marginal_order,
         "sawmill marginal-order charging",
-    );
-    let project_charge_projection = project_manual_power_sequence(
+    )
+    .unwrap_or_else(|| panic!("sawmill marginal-order powered route became unavailable"));
+    let project_powered_projection = project_powered_project(
         &registries,
-        ManualPowerSequenceRequest {
-            method: MANUAL_POWER_HAND_CRANK,
-            equipment: EQUIPMENT_STONE_HAND_CRANK,
-            starting_condition: crank_condition,
-            store: ENERGY_STONE_FLYWHEEL_DRIVE,
-            energy_per_charge: sawmill_batch.work,
-            charges: project_order,
-        },
+        &state,
+        PROCESS_POWER_SAW_WOOD_BOARDS,
+        EQUIPMENT_TIMBER_SASH_SAWMILL,
+        sawmill_condition_after_setup,
+        crank_condition,
+        drive,
+        sawmill_batch,
+        project_order,
         "sawmill project charging",
-    );
-    let short_machine_attention = setup_attention + short_charge_projection.attention_ticks;
-    let marginal_machine_attention = setup_attention + marginal_charge_projection.attention_ticks;
-    let project_machine_attention = setup_attention + project_charge_projection.attention_ticks;
+    )
+    .unwrap_or_else(|| panic!("sawmill project powered route became unavailable"));
+    let short_machine_attention =
+        setup_attention + short_powered_projection.charging.attention_ticks;
+    let marginal_machine_attention =
+        setup_attention + marginal_powered_projection.charging.attention_ticks;
+    let project_machine_attention =
+        setup_attention + project_powered_projection.charging.attention_ticks;
     assert!(
         !clears_attention_return(
             short_baseline.duration().value(),
@@ -438,71 +453,58 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         sawmill, frame_saw,
         "mechanization must preserve equipment identity"
     );
-
-    let mut executed_charge_attention = 0_u64;
-    let mut powered_elapsed = 0_u64;
-    for _ in 0..project_order {
-        let work = validate_start_manual_power(
-            &registries,
-            &powered,
-            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, sawmill_batch.work),
-        )
-        .unwrap_or_else(|error| panic!("sawmill project charging failed: {error}"))
-        .commit(&mut powered)
-        .unwrap_or_else(|error| panic!("sawmill project charging commit failed: {error}"));
-        let charged =
-            finish_manual_power_work(&registries, &mut powered, work, "sawmill project charge");
-        executed_charge_attention += charged;
-
-        let job = validate_start_powered_craft(
-            &registries,
-            &powered,
-            PoweredCraftRequest::single(
-                PROCESS_POWER_SAW_WOOD_BOARDS,
-                work_source,
-                MaterialLotSelection::new(work_lot, sawmill_batch.input_mass),
-                sawmill,
-                drive,
-            ),
-            powered_output,
-        )
-        .unwrap_or_else(|error| panic!("sawmill project start failed: {error}"))
-        .commit(&mut powered)
-        .unwrap_or_else(|error| panic!("sawmill project commit failed: {error}"));
-        let duration = powered
-            .production()
-            .get_job(job)
-            .map(|record| record.active_duration().value())
-            .unwrap_or_else(|| panic!("sawmill project job disappeared after admission"));
-        assert_eq!(powered.player_work().active(), None);
-        finish_uninterrupted_production_job(
-            &registries,
-            &mut powered,
-            job,
-            "sawmill project unattended sawing",
-        );
-        powered_elapsed += duration;
-    }
     assert_eq!(
-        executed_charge_attention,
-        project_charge_projection.attention_ticks
+        powered
+            .equipment()
+            .get_equipment(sawmill)
+            .map(|record| record.condition()),
+        Some(sawmill_condition_after_setup),
+        "sawmill upgrade must preserve the wear incurred while fabricating its own frame"
+    );
+
+    let powered_project = execute_powered_project(
+        &registries,
+        &mut powered,
+        PoweredProjectPlan {
+            process: PROCESS_POWER_SAW_WOOD_BOARDS,
+            source: work_source,
+            destination: powered_output,
+            machine: sawmill,
+            crank,
+            drive,
+            batch: sawmill_batch,
+            batches: project_order,
+            context: "sawmill project unattended sawing",
+        },
+    );
+    assert_eq!(
+        powered_project.charge_attention,
+        project_powered_projection.charging.attention_ticks
+    );
+    assert_eq!(
+        powered_project.delegated_ticks,
+        project_powered_projection.sequence.delegated_ticks
+    );
+    assert_eq!(
+        powered_project.charge_events,
+        project_powered_projection.sequence.charge_events()
     );
     assert_eq!(
         powered
             .equipment()
             .get_equipment(crank)
             .map(|record| record.condition()),
-        Some(project_charge_projection.condition_after),
+        Some(project_powered_projection.charging.condition_after),
         "sawmill projected hand-crank wear must match execution"
     );
     assert_eq!(
-        executed_setup + executed_charge_attention,
+        executed_setup + powered_project.charge_attention,
         project_machine_attention,
         "pre-action attention estimate must match the executed mechanization package"
     );
     assert!(project_machine_attention < baseline_ticks.value());
     assert!(
-        powered_elapsed > 0,
+        powered_project.delegated_ticks > 0,
         "delegated machine work must still occupy world time"
     );
 

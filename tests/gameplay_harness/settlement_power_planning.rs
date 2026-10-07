@@ -14,7 +14,59 @@ pub(super) struct ManualPowerSequenceProjection {
     pub(super) condition_after: Condition,
 }
 
+/// Projects a concrete sequence of possibly different charge requests while carrying provider
+/// wear forward. This is the actor-facing primitive for workloads that pack productive batches
+/// into finite storage instead of pretending every productive batch requires a separate charge.
+pub(super) fn project_manual_power_workload(
+    registries: &Registries,
+    method: ManualPowerMethodId,
+    equipment: EquipmentDefinitionId,
+    starting_condition: Condition,
+    store: EnergyStoreDefinitionId,
+    charges: impl IntoIterator<Item = Energy>,
+    context: &'static str,
+) -> ManualPowerSequenceProjection {
+    let mut condition = starting_condition;
+    let mut attention_ticks = 0_u64;
+    let mut first_charge_ticks = None;
+    let mut charge_count = 0_u64;
+    for energy in charges {
+        assert!(
+            !energy.is_zero(),
+            "gameplay harness {context} manual-power workload contains a zero charge"
+        );
+        let projection =
+            project_manual_power(registries, method, equipment, condition, store, energy)
+                .unwrap_or_else(|error| {
+                    panic!("gameplay harness {context} manual-power projection failed: {error}")
+                });
+        let ticks = projection.duration().value();
+        first_charge_ticks.get_or_insert(ticks);
+        attention_ticks = attention_ticks
+            .checked_add(ticks)
+            .unwrap_or_else(|| panic!("gameplay harness {context} attention overflowed"));
+        condition = projection.condition_after();
+        charge_count = charge_count
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("gameplay harness {context} charge count overflowed"));
+    }
+    assert!(
+        charge_count > 0,
+        "gameplay harness {context} manual-power workload requires at least one charge"
+    );
+    ManualPowerSequenceProjection {
+        attention_ticks,
+        first_charge_ticks: first_charge_ticks
+            .unwrap_or_else(|| unreachable!("positive charge count projected one charge")),
+        condition_after: condition,
+    }
+}
+
 #[derive(Clone, Copy)]
+#[allow(
+    dead_code,
+    reason = "shared gameplay module is included by targets that use packed variable charges; other gameplay targets still use equal-charge projections"
+)]
 pub(super) struct ManualPowerSequenceRequest {
     pub(super) method: ManualPowerMethodId,
     pub(super) equipment: EquipmentDefinitionId,
@@ -28,6 +80,10 @@ pub(super) struct ManualPowerSequenceRequest {
 ///
 /// The harness owns only the declared workload horizon. Per-charge power, duration, survival cost,
 /// and condition loss remain production-owned through `project_manual_power`.
+#[allow(
+    dead_code,
+    reason = "shared gameplay module is included by targets that use packed variable charges; other gameplay targets still use equal-charge projections"
+)]
 pub(super) fn project_manual_power_sequence(
     registries: &Registries,
     request: ManualPowerSequenceRequest,
@@ -37,32 +93,13 @@ pub(super) fn project_manual_power_sequence(
         request.charges > 0,
         "gameplay harness {context} manual-power sequence requires at least one charge"
     );
-    let mut condition = request.starting_condition;
-    let mut attention_ticks = 0_u64;
-    let mut first_charge_ticks = None;
-    for _ in 0..request.charges {
-        let projection = project_manual_power(
-            registries,
-            request.method,
-            request.equipment,
-            condition,
-            request.store,
-            request.energy_per_charge,
-        )
-        .unwrap_or_else(|error| {
-            panic!("gameplay harness {context} manual-power projection failed: {error}")
-        });
-        let ticks = projection.duration().value();
-        first_charge_ticks.get_or_insert(ticks);
-        attention_ticks = attention_ticks
-            .checked_add(ticks)
-            .unwrap_or_else(|| panic!("gameplay harness {context} attention overflowed"));
-        condition = projection.condition_after();
-    }
-    ManualPowerSequenceProjection {
-        attention_ticks,
-        first_charge_ticks: first_charge_ticks
-            .unwrap_or_else(|| unreachable!("positive charge count projected one charge")),
-        condition_after: condition,
-    }
+    project_manual_power_workload(
+        registries,
+        request.method,
+        request.equipment,
+        request.starting_condition,
+        request.store,
+        std::iter::repeat_n(request.energy_per_charge, request.charges as usize),
+        context,
+    )
 }

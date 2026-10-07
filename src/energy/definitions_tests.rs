@@ -180,7 +180,7 @@ fn registry_rejects_energy_upgrade_that_changes_carrier_or_reduces_capacity() {
 }
 
 #[test]
-fn registry_rejects_energy_upgrade_that_increases_passive_loss() {
+fn registry_rejects_energy_upgrade_that_worsens_fractional_passive_loss() {
     let registries = build_registries();
     let base_id = EnergyStoreDefinitionId::new(930_014);
     let target_id = EnergyStoreDefinitionId::new(930_015);
@@ -214,6 +214,40 @@ fn registry_rejects_energy_upgrade_that_increases_passive_loss() {
     });
 
     assert!(result.is_err());
+}
+
+#[test]
+fn registry_accepts_energy_upgrade_with_proportional_capacity_and_passive_loss() {
+    let registries = build_registries();
+    let base_id = EnergyStoreDefinitionId::new(930_018);
+    let target_id = EnergyStoreDefinitionId::new(930_019);
+    let base = EnergyStoreDefinition::new_with_transfer_limits(
+        base_id,
+        "proportional-loss upgrade base",
+        EnergyCarrier::Mechanical,
+        Energy::from_nanojoules(10_000),
+        Power::from_microwatts(1),
+        Power::from_microwatts(1),
+    )
+    .with_passive_dissipation_power(Power::from_microwatts(1))
+    .with_assembly_profile(assembly_profile());
+    let target = EnergyStoreDefinition::new_with_transfer_limits(
+        target_id,
+        "proportional-loss upgrade target",
+        EnergyCarrier::Mechanical,
+        Energy::from_nanojoules(20_000),
+        Power::from_microwatts(2),
+        Power::from_microwatts(2),
+    )
+    .with_passive_dissipation_power(Power::from_microwatts(2))
+    .with_assembly_profile(upgraded_assembly_profile())
+    .with_upgrade_profile(EnergyStoreUpgradeProfile::new(base_id, copper_additions()));
+    let mut valid = EnergyRegistry::new([base, target]);
+    valid.prepare_tick_dependent_values(registries.core().physical_tick_duration());
+    valid.validate_references(
+        registries.materials(),
+        registries.core().physical_tick_duration(),
+    );
 }
 
 #[test]
