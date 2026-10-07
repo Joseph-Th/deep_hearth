@@ -15,7 +15,10 @@ use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::seed::mix64;
 use super::planning::project_sampling_hammer_upgrade_ticks;
 use super::preparation::upgrade_sampling_hammer;
-use super::survey::{CHANNEL_COUNT, FieldworkSurveyStrategy, horizontal_region, search_target};
+use super::survey::{
+    CHANNEL_COUNT, FOLLOWUP_CHANNEL_STARTS, FieldworkSurveyStrategy, horizontal_region,
+    search_target,
+};
 
 #[derive(Clone, Copy)]
 pub(super) struct FieldworkCampaignSite {
@@ -120,7 +123,9 @@ pub(super) fn planned_future_sites(case: FocusedProbeCase) -> u64 {
             case.required_behavior_seed("fieldwork survey campaign horizon")
         }
     };
-    1 + mix64(policy_seed ^ 0x4649_454C_4443_41BE) % 3
+    let available_sites = u64::try_from(FOLLOWUP_CHANNEL_STARTS.len())
+        .unwrap_or_else(|_| unreachable!("bounded fieldwork campaign site count fits u64"));
+    1 + mix64(policy_seed ^ 0x4649_454C_4443_41BE) % available_sites
 }
 
 fn projected_prospecting_ticks(

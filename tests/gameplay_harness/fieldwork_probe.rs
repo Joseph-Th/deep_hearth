@@ -84,8 +84,8 @@ include_fieldwork_contract_tests!();
 #[path = "fieldwork_probe/survey.rs"]
 mod survey;
 use survey::{
-    CHANNEL_START_X, FieldworkLocalization, FieldworkSurveyStrategy, QUATERNARY_CHANNEL_START_X,
-    SECONDARY_CHANNEL_START_X, TERTIARY_CHANNEL_START_X, localize_target,
+    CHANNEL_START_X, FOLLOWUP_CHANNEL_STARTS, FieldworkLocalization, FieldworkSurveyStrategy,
+    localize_target,
 };
 
 #[path = "fieldwork_probe/world.rs"]
@@ -491,17 +491,7 @@ fn run_fieldwork_with_supply(
         tool_prep_ticks, estimate.preparation_ticks,
         "fieldwork executed preparation must agree with its pre-action craft resolutions"
     );
-    let campaign_sites = [
-        FieldworkCampaignSite {
-            start_x: SECONDARY_CHANNEL_START_X,
-        },
-        FieldworkCampaignSite {
-            start_x: TERTIARY_CHANNEL_START_X,
-        },
-        FieldworkCampaignSite {
-            start_x: QUATERNARY_CHANNEL_START_X,
-        },
-    ];
+    let campaign_sites = FOLLOWUP_CHANNEL_STARTS.map(|start_x| FieldworkCampaignSite { start_x });
     let survey_campaign = evaluate_fieldwork_survey_campaign(
         registries,
         &state,

@@ -57,6 +57,12 @@ path = "tests/gameplay_power_report.rs"
 required-features = ["test-gameplay"]
 test = false
 
+[[example]]
+name = "gameplay-settlement-report"
+path = "tests/gameplay_settlement_report.rs"
+required-features = ["test-gameplay"]
+test = false
+
 [[test]]
 name = "gameplay_contracts"
 path = "tests/gameplay_contracts.rs"

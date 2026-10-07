@@ -79,7 +79,7 @@ def settlement_specialization_summary(lines: list[str]) -> str | None:
         for line in experiences
     )
     return (
-        "GAMEPLAY settlement-specialization "
+        "GAMEPLAY settlement-specialization scope=separate-executed-projects "
         f"families=[{','.join(families)}] "
         f"crossover:{batch_span(crossovers)} "
         f"short-kept-prior:{short_kept}/{len(experiences)} "
@@ -130,13 +130,13 @@ _ORDINARY_DIGEST_FIELDS = {
         "organic-choice",
         "organic-workload",
         "organic-survival",
-        "scale",
+        "primitive-scale",
         "policy-gap",
         "lifecycle-obligations",
         "settlement-choice",
         "organic-settlement-choice",
         "organic-settlement-survival",
-        "settlement-copper-policy",
+        "settlement-scale",
         "settlement-lifecycle-obligations",
     ),
     "settlement": (
@@ -183,6 +183,7 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
     "power-provider": (
         *_ORDINARY_DIGEST_FIELDS["power-provider"],
         "market",
+        "settlement-copper-policy",
         "settlement-candidates",
         "settlement-frontier",
         "settlement-off-frontier",
@@ -338,10 +339,16 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 experience_fields = tuple(
                     name
                     for name in experience_fields
-                    if name not in {"orders", "pacing-physical", "reuse-physical"}
+                    if name
+                    not in {
+                        "orders",
+                        "knowledge",
+                        "pacing-physical",
+                        "reuse-physical",
+                    }
                 )
             knowledge = field(summary, "knowledge")
-            if knowledge is not None and knowledge.startswith("[frame=[n:0 "):
+            if knowledge is not None and " frame=[n:0 " in knowledge:
                 experience_fields = tuple(
                     name for name in experience_fields if name != "knowledge"
                 )

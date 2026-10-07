@@ -47,6 +47,7 @@ SCOPED_REPORT_EXAMPLES = {
     "workshop": "gameplay-workshop-report",
     "survival": "gameplay-survival-report",
     "progression": "gameplay-progression-report",
+    "settlement": "gameplay-settlement-report",
     "woodworking": "gameplay-woodworking-report",
     "power-provider": "gameplay-power-report",
 }

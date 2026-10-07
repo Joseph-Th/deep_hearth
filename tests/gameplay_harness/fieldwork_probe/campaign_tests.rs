@@ -15,18 +15,23 @@ fn has_visible_native_copper(world: &FieldworkWorld) -> bool {
         .is_some_and(|stockpile| !stockpile.get_mass(world.native_copper).is_zero())
 }
 
+fn expected_campaign_horizons() -> std::collections::BTreeSet<u64> {
+    let maximum = u64::try_from(FOLLOWUP_CHANNEL_STARTS.len())
+        .unwrap_or_else(|_| unreachable!("bounded fieldwork site count fits u64"));
+    (1..=maximum).collect()
+}
+
 #[test]
 fn maintained_fieldwork_witnesses_span_campaign_horizons() {
     use super::super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 
     let maintained = |seed| FocusedProbeCase::new(seed, None, FocusedProbeRole::MaintainedCoverage);
-    let horizons = [1, 2, 3, 6]
-        .into_iter()
+    let horizons = (0..128)
         .map(|seed| planned_future_sites(maintained(seed)))
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(
         horizons,
-        [1, 2, 3].into_iter().collect(),
+        expected_campaign_horizons(),
         "maintained fieldwork coverage must exercise every bounded survey horizon"
     );
 }
@@ -43,14 +48,14 @@ fn organic_campaign_horizon_depends_on_behavior_seed_not_world_seed() {
     );
 
     let mut horizons = std::collections::BTreeSet::new();
-    for behavior_seed in 0..32 {
+    for behavior_seed in 0..128 {
         horizons.insert(planned_future_sites(FocusedProbeCase::new(
             1,
             Some(behavior_seed),
             FocusedProbeRole::OrganicVariation,
         )));
     }
-    assert_eq!(horizons, [1, 2, 3].into_iter().collect());
+    assert_eq!(horizons, expected_campaign_horizons());
 }
 
 #[test]

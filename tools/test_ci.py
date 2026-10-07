@@ -1637,6 +1637,38 @@ class TestTopologyContractTests(unittest.TestCase):
                 f"settlement contract target lost owner {prefix.removesuffix('::')}",
             )
 
+    def test_settlement_report_keeps_specialists_off_the_frequent_probe_target(self) -> None:
+        focused_root = run_test.cargo_test_target_path(ci.GAMEPLAY_TARGETS["settlement"])
+        focused_modules = {
+            path.name
+            for path, _prefix in run_test.test_catalog.reachable_modules(
+                ROOT,
+                focused_root,
+                run_test.cargo_feature_set(ci.GAMEPLAY_TARGETS["settlement"], None),
+            )
+        }
+        specialist_modules = {
+            "settlement_drill_contract_tests.rs",
+            "settlement_helve_contract_tests.rs",
+            "settlement_wire_contract_tests.rs",
+            "settlement_workshop_investment.rs",
+        }
+        self.assertTrue(specialist_modules.isdisjoint(focused_modules))
+
+        report_root = (ROOT / "tests/gameplay_settlement_report.rs").read_text(
+            encoding="utf-8"
+        )
+        for experience in (
+            "run_spindle_drill_investment_experience",
+            "run_wire_drawbench_investment_experience",
+            "run_helve_hammer_investment_experience",
+            "run_lathe_investment_experience",
+            "run_toolroom_investment_experience",
+        ):
+            self.assertIn(experience, report_root)
+        self.assertNotIn("first_foundry_probe", report_root)
+        self.assertNotIn("power_provider_probe", report_root)
+
     def test_focused_progression_stages_do_not_compile_each_other(self) -> None:
         pairs = (
             ("progression", "primitive_liberation.rs"),
@@ -3049,7 +3081,11 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "scale=[charges:1..1 treadle:3..3 wheel:n/a]",
+            "primitive-scale=[charges:1..1 treadle:3..3 wheel:n/a]",
+            concise,
+        )
+        self.assertIn(
+            "settlement-scale=[charges:80..80 treadle:n/a wheel:n/a]",
             concise,
         )
         self.assertIn("policy-gap=[attention-min:0/1 gap:1..1t]", concise)
@@ -3060,7 +3096,8 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("declared-charge-events:1..1", power_summary)
         self.assertIn("consumer-projected-batches:1..1", power_summary)
         self.assertNotIn("consumer-projected-charges:", power_summary)
-        self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", concise)
+        self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", power_summary)
+        self.assertNotIn("settlement-copper-policy=", concise)
         self.assertIn(
             "prior-wear=[saw:1000000..1000000ppm crank:1000000..1000000ppm]",
             concise,
@@ -3174,6 +3211,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor order-horizon=bulk requested=100mg planned-local-work=80mg mining=80mg outcome=known-target-supply copper-opportunity=available tool=stone-quarry resource-knowledge-effect=changed-tool field-inspections=2",
             "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 geology=quarry-soft policy-input=false report-only=true",
             "FIELDWORK KNOWLEDGE EXPERIENCE seed=0x1 basis=actor-evidence coarse=[first:50000..550000ppm second:100000..600000ppm overlapping:true selection:defer] specialist=channel-frame refined=[first:287500..312500ppm second:337500..362500ppm separation:25000ppm] selection=[refined:second changed:true] investment=[frame-components:260t raw-roots:finite] followup=[hammer-components:80t strategy:point-search transects:2 inspections:1 detailed:1 target:second] core=[setup:260t survey:12t hammer-reserve:20000000..25000000mg reserve:20000000..20250000mg crossover:24250000mg hammer-tool:copper-reinforced-quarry hammer-plan:362t core-tool:copper-reinforced-hard-pick core-plan:323t plan:20250000mg extracted:20000000mg stop:short-claim attention-saved:39t net:27t payback:10uses] instrument=[condition:988480ppm] scope=ordinary-raw-to-information-to-capital-consequence matter=conserved",
+            "FIELDWORK SURVEY CAMPAIGN seed=0x1 planned-sites=6 localized-sites=4 barren-sites=2 upgrade-available=true selected=indexed-channel policy=min-expected-search-attention-with-minimum-return minimum-return=100000ppm projected=[point:450t indexed:364t] realized=[baseline-search:432t selected-search:324t upgrade:40t attention-delta:+68t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
         ]
         summary = gameplay_report_summary.fieldwork_summary(lines)
         self.assertIsNotNone(summary)
@@ -3181,9 +3219,11 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("orders=[short:0 project:0 bulk:1]", summary)
         self.assertIn("reserve-knowledge=[workload-capped:1 tool-changed:1]", summary)
         self.assertIn(
-            "knowledge=[frame=[n:1 defer:1/1 site:1/1 sep:25000..25000ppm",
+            "knowledge=[scope:maintained-specialist-witness frame=[n:1 defer:1/1 site:1/1 sep:25000..25000ppm",
             summary,
         )
+        self.assertIn("survey-campaign=[choice:point0/indexed1", summary)
+        self.assertIn("h:6x1", summary)
         self.assertIn("setup:260..260t hammer:80..80t", summary)
         self.assertIn(
             "core=[switch:1/1 setup:260..260t use:12..12t gain:39..39t net:27..27t "
@@ -3195,7 +3235,7 @@ class GameplayReportContractTests(unittest.TestCase):
         digest_lines = digest.splitlines()
         self.assertIn("orders=[short:0 project:0 bulk:1]", digest)
         self.assertIn("reserve=[workload-capped:1 tool-changed:1]", digest)
-        self.assertIn("info=[frame=[n:1", digest)
+        self.assertIn("info=[scope:maintained-specialist-witness frame=[n:1", digest)
         self.assertIn("geology=[soft:1 reinforcement:0 hard-specialist:0]", digest)
         self.assertIn("tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:0 hard-pick:0]", digest)
         self.assertTrue(digest_lines[0].startswith("GAMEPLAY fieldwork scope=spatial-proxy "))
@@ -3267,7 +3307,8 @@ class GameplayReportContractTests(unittest.TestCase):
         concise = gameplay_report_summary.concise_gameplay_report(output, {})
         self.assertEqual(
             concise,
-            "GAMEPLAY settlement-specialization families=[spindle-drill,wire-drawbench] "
+            "GAMEPLAY settlement-specialization scope=separate-executed-projects "
+            "families=[spindle-drill,wire-drawbench] "
             "crossover:12..13batches short-kept-prior:2/2 project-upgraded:2/2 "
             "attention-saved:81..83t delegated:56..126t",
         )

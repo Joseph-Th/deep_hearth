@@ -1,7 +1,7 @@
 //! Deterministic primitive-progression world construction before player admission.
 
+use super::super::super::copper_progression_world::progression_ore_grades;
 use super::*;
-use crate::copper_progression_world::progression_ore_grades;
 
 pub(super) struct ProgressionWorldSetup {
     pub(super) state: AppState,

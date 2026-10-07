@@ -399,7 +399,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"provisioning:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
         f"market-regimes={_span(market_regimes)} "
-        f"scale=[charges:{_span(declared_charge_events)} "
+        f"primitive-scale=[charges:{_span(declared_charge_events)} "
         f"treadle:{_span(treadle_thresholds)} wheel:{_span(walking_thresholds)}] "
         f"pristine-rate-break-even={_span(pristine_break_evens)} "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
@@ -462,6 +462,8 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
     )
     project_work = _numeric_values(settlement, r"\bwork:(\d+)nJ")
     charge_events = _numeric_values(settlement, r"charge-events:(\d+)")
+    treadle_thresholds = _frontier_thresholds(settlement, "treadle")
+    walking_thresholds = _frontier_thresholds(settlement, "walking-wheel")
     pristine_break_evens = _numeric_values(
         settlement, r"pristine-rate-break-even:(\d+)charges"
     )
@@ -504,6 +506,8 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"provisioning:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
         f"settlement-copper-policy=[spend:{spend_copper} preserve:{preserve_copper}] "
+        f"settlement-scale=[charges:{_span(charge_events)} "
+        f"treadle:{_span(treadle_thresholds)} wheel:{_span(walking_thresholds)}] "
         f"settlement-regimes={_span(market_regimes)} "
         f"settlement-pristine-rate-break-even={_span(pristine_break_evens)} "
         f"settlement-investment-policy-return={_span(policy_returns, 'ppm')} "

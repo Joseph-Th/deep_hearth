@@ -385,15 +385,17 @@ def _survey_campaign_summary(lines: list[str]) -> str:
         for line in campaigns
         if (match := re.search(r"\bbarren-sites=(\d+)", line)) is not None
     ]
+    horizon_counts = "/".join(
+        f"{horizon}x{campaign_horizons.count(horizon)}"
+        for horizon in sorted(set(campaign_horizons))
+    ) or "n/a"
     return (
         "survey-campaign=["
         f"choice:point{sum(' selected=point-search ' in line for line in campaigns)}"
         f"/indexed{len(indexed_campaigns)} "
         f"fund:{sum(' upgrade-available=true ' in line for line in campaigns)}/{len(campaigns)} "
         f"policy:{_span(policy_returns, unit='ppm')} "
-        f"h:1x{sum(value == 1 for value in campaign_horizons)}"
-        f"/2x{sum(value == 2 for value in campaign_horizons)}"
-        f"/3x{sum(value == 3 for value in campaign_horizons)} "
+        f"h:{horizon_counts} "
         f"barren:{_span(barren_sites, unit='')} "
         f"realized:{_signed_span(indexed_realized_deltas)}]"
     )
@@ -491,7 +493,7 @@ def _knowledge_leverage_summary(lines: list[str]) -> str:
             if stop == "short-claim":
                 short_claims.append(plan - extracted)
     return (
-        "knowledge=["
+        "knowledge=[scope:maintained-specialist-witness "
         f"frame=[n:{len(experiences)} defer:{sum(' overlapping:true selection:defer]' in line for line in experiences)}/{len(experiences)} "
         f"site:{sum(' changed:true]' in line for line in experiences)}/{len(experiences)} sep:{_span(gaps, unit='ppm')} "
         f"setup:{_span(frame_setup)} hammer:{_span(hammer_setup)}] "
