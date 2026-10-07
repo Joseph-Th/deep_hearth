@@ -23,7 +23,7 @@ use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId, validate_build_storage_enclosure};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
-    validate_allocate_player_ground_stockpile, validate_drop_to_ground,
+    assess_player_carrying, validate_allocate_player_ground_stockpile, validate_drop_to_ground,
     validate_initialize_player_logistics, validate_place_fluid_store,
 };
 use deep_hearth::material::{CommodityKey, MaterialComposition};
@@ -213,15 +213,58 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
 
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("wilderness survival admission failed: {error}"));
+
+    // Player carry capacity is still a world/bootstrap parameter rather than authored body
+    // equipment. Size this controlled episode to its actual peak carried mass instead of granting
+    // arbitrary headroom and accidentally hiding capacity pressure.
+    let forage_mass = Mass::from_milligrams(500_000);
+    let meal_mass = Mass::from_milligrams(250_000);
+    let board_craft = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("wilderness board shaping disappeared"));
+    let board_commodity = CommodityKey::new(MATERIAL_WOOD, deep_hearth::content::FORM_BOARD);
+    let board_output = board_craft
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == board_commodity)
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("wilderness board shaping lost its board output"));
+    let field_box_joinery = registries
+        .crafting()
+        .get_manual(PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("wilderness field-box joinery disappeared"));
+    let board_batches = field_box_joinery
+        .input_mass()
+        .milligrams()
+        .div_ceil(board_output.milligrams());
+    let field_box_raw_timber = Mass::from_milligrams(
+        board_craft
+            .input_mass()
+            .milligrams()
+            .checked_mul(board_batches)
+            .unwrap_or_else(|| panic!("wilderness field-box timber requirement overflowed")),
+    );
+    let carried_food_after_meal = forage_mass
+        .checked_sub(meal_mass)
+        .unwrap_or_else(|| unreachable!("opening meal is smaller than gathered forage"));
+    let opening_carried_capacity = field_box_raw_timber
+        .checked_add(carried_food_after_meal)
+        .unwrap_or_else(|| panic!("wilderness opening carried requirement overflowed"));
     let carried = validate_initialize_player_logistics(
         &state,
         STATIONARY_PLAYER_ORIGIN,
-        Mass::from_milligrams(10_000_000),
+        opening_carried_capacity,
     )
     .unwrap_or_else(|error| panic!("wilderness carrying admission failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("wilderness carrying commit failed: {error}"))
     .carried_stockpile();
+    assert_eq!(
+        assess_player_carrying(&state).map(|assessment| assessment.capacity()),
+        Some(opening_carried_capacity),
+        "controlled wilderness carrying should expose exactly the selected plan's peak mass requirement"
+    );
     assert_exact_local_runtime_ready(&registries, &state, "controlled wilderness opening");
     assert!(
         state.available_local_ground_stockpiles().next().is_none(),
@@ -251,7 +294,7 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         SURFACE_GATHERING_HAND_FORAGE_BERRIES,
         berries,
         carried,
-        Mass::from_milligrams(500_000),
+        forage_mass,
         "early berry forage",
     );
     let berry_commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
@@ -282,10 +325,7 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         &registries,
         &state,
         carried,
-        &[MaterialLotSelection::new(
-            meal_lot,
-            Mass::from_milligrams(250_000),
-        )],
+        &[MaterialLotSelection::new(meal_lot, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("wilderness early berry meal validation failed: {error}"))
     .commit(&mut state)
@@ -332,9 +372,13 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         SURFACE_GATHERING_HAND_COLLECT_TIMBER,
         timber,
         carried,
-        Mass::from_milligrams(2_000_000),
+        field_box_raw_timber,
         "field-box timber",
     );
+    let carrying_at_peak = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared at peak load"));
+    assert_eq!(carrying_at_peak.stored(), opening_carried_capacity);
+    assert_eq!(carrying_at_peak.available(), Mass::ZERO);
     assert_eq!(
         state
             .available_surface_resources()
@@ -363,19 +407,14 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         PROCESS_SHAPE_WOOD_BOARDS,
         carried,
         carried,
-        2,
+        board_batches,
         "bare-hand field-box boards",
     );
-    let board_commodity = CommodityKey::new(MATERIAL_WOOD, deep_hearth::content::FORM_BOARD);
     let boards_before_box = state
         .inventory()
         .get_stockpile(carried)
         .map(|stockpile| stockpile.get_mass(board_commodity))
         .unwrap_or_else(|| panic!("wilderness carried inventory disappeared before field box"));
-    let field_box_joinery = registries
-        .crafting()
-        .get_manual(PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX)
-        .unwrap_or_else(|| panic!("wilderness field-box joinery disappeared"));
     assert_eq!(boards_before_box, field_box_joinery.input_mass());
     craft_batches(
         &registries,
@@ -398,15 +437,17 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
             .unwrap_or_else(|| unreachable!("field-box input was checked above"))
     );
     assert_eq!(boards_after_box, Mass::ZERO);
-    let provisions =
-        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(10_000_000))
-            .unwrap_or_else(|error| {
-                panic!("wilderness provisions stockpile allocation failed: {error}")
-            })
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("wilderness provisions stockpile commit failed: {error}")
-            });
+    let field_box_storage = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("wilderness field-box storage definition disappeared"));
+    let provisions = validate_allocate_player_ground_stockpile(
+        &state,
+        field_box_storage.maximum_stockpile_capacity(),
+    )
+    .unwrap_or_else(|error| panic!("wilderness provisions stockpile allocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("wilderness provisions stockpile commit failed: {error}"));
     validate_build_storage_enclosure(
         &registries,
         &state,
@@ -432,12 +473,14 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         "local storage observation must rediscover the field box the actor just built"
     );
     assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(provisions)
-            .and_then(|record| record.enclosure())
-            .map(|enclosure| enclosure.definition()),
-        Some(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        state.inventory().get_stockpile(provisions).map(|record| (
+            record.capacity(),
+            record.enclosure().map(|enclosure| enclosure.definition())
+        )),
+        Some((
+            field_box_storage.maximum_stockpile_capacity(),
+            Some(STORAGE_ROUGH_TIMBER_FIELD_BOX),
+        ))
     );
     let surplus_berries = state
         .inventory()
@@ -454,7 +497,7 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
             .inventory()
             .get_lot(surplus_berries)
             .map(|record| record.mass()),
-        Some(Mass::from_milligrams(250_000)),
+        Some(carried_food_after_meal),
         "eating one serving should leave one carried serving for later storage"
     );
     validate_drop_to_ground(
@@ -463,7 +506,7 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         provisions,
         &[MaterialLotSelection::new(
             surplus_berries,
-            Mass::from_milligrams(250_000),
+            carried_food_after_meal,
         )],
     )
     .unwrap_or_else(|error| panic!("wilderness surplus berry storage failed: {error}"))
@@ -474,7 +517,7 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
             .inventory()
             .get_stockpile(provisions)
             .map(|record| record.get_mass(berry_commodity)),
-        Some(Mass::from_milligrams(250_000)),
+        Some(carried_food_after_meal),
         "the rediscovered field box must preserve the surplus serving rather than forcing an immediate retrieval just to prove storage access"
     );
 
