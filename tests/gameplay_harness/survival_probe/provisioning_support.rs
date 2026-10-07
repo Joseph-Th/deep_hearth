@@ -156,9 +156,8 @@ pub(super) fn execute_provisioning_actions(
     drink_first: bool,
 ) -> ProvisioningActionOutcome {
     let (meal, drank_volume, hydration_offered, elapsed_ticks, action_order) = if drink_first {
-        if let Some((drank, drink_ticks)) =
-            execute_recovery_drink(registries, state, prepared.drink_store)
-        {
+        let drink_store = observed_provisioning_drink(registries, state).store();
+        if let Some((drank, drink_ticks)) = execute_recovery_drink(registries, state, drink_store) {
             let (meal, meal_ticks) =
                 execute_planned_meal(registries, state, prepared.ambient_meal, selections);
             (
@@ -178,9 +177,8 @@ pub(super) fn execute_provisioning_actions(
     } else {
         let (meal, meal_ticks) =
             execute_planned_meal(registries, state, prepared.ambient_meal, selections);
-        if let Some((drank, drink_ticks)) =
-            execute_recovery_drink(registries, state, prepared.drink_store)
-        {
+        let drink_store = observed_provisioning_drink(registries, state).store();
+        if let Some((drank, drink_ticks)) = execute_recovery_drink(registries, state, drink_store) {
             (
                 meal,
                 drank.volume(),

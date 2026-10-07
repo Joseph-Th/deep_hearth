@@ -314,6 +314,19 @@ pub(super) fn observed_provisioning_foods(
         .collect()
 }
 
+pub(super) fn observed_provisioning_drink(
+    registries: &Registries,
+    state: &AppState,
+) -> LocalDrinkSource {
+    let sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
+    assert_eq!(
+        sources.len(),
+        1,
+        "survival actor requires exactly one locally observable usable drink source at the provisioning decision point"
+    );
+    sources[0]
+}
+
 pub(super) fn provisioning_plan(
     registries: &Registries,
     prepared: &PreparedProvisioningWorld,
@@ -366,7 +379,6 @@ pub(super) struct PreparedProvisioningWorld {
     pub(super) state: AppState,
     pub(super) ambient_meal: StockpileId,
     pub(super) preserved_witness: MaterialLotId,
-    pub(super) drink_store: FluidStoreId,
     pub(super) ambient_age: u64,
     pub(super) preserved_age: u64,
     pub(super) preservation_age_saved_ticks: u64,
@@ -504,6 +516,12 @@ pub(super) fn prepare_provisioning_world(
         &state,
         "survival provisioning",
     );
+    let observed_drink = observed_provisioning_drink(registries, &state);
+    assert_eq!(
+        observed_drink.fluid(),
+        world.drink.fluid(),
+        "survival actor must rediscover the fixture-authored drink through admitted runtime state"
+    );
 
     advance_idle_ticks(
         registries,
@@ -538,7 +556,6 @@ pub(super) fn prepare_provisioning_world(
         state,
         ambient_meal,
         preserved_witness,
-        drink_store,
         ambient_age,
         preserved_age,
         preservation_age_saved_ticks,

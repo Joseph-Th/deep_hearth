@@ -43,6 +43,130 @@ fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) 
 }
 
 #[test]
+fn local_drink_source_observation_exposes_only_currently_usable_colocated_fluid() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player_position = VoxelCoord::new(0, 0, 0);
+    let serving = minimum_drink_volume(&registries);
+    let local = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        serving,
+        FLUID_WATER,
+        serving,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("local drink-source fixture failed: {error}"));
+    let hot = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        serving,
+        FLUID_WATER,
+        serving,
+        Temperature::from_millikelvin(340_000),
+    )
+    .unwrap_or_else(|error| panic!("hot drink-source fixture failed: {error}"));
+    let remote = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        serving,
+        FLUID_WATER,
+        serving,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("remote drink-source fixture failed: {error}"));
+    validate_place_fluid_store(&state, local, player_position)
+        .unwrap_or_else(|error| panic!("local drink-source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("local drink-source placement commit failed: {error}"));
+    validate_place_fluid_store(&state, hot, player_position)
+        .unwrap_or_else(|error| panic!("hot drink-source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("hot drink-source placement commit failed: {error}"));
+    validate_place_fluid_store(&state, remote, VoxelCoord::new(1, 0, 0))
+        .unwrap_or_else(|error| panic!("remote drink-source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote drink-source placement commit failed: {error}"));
+
+    assert!(
+        available_local_drink_sources(&registries, &state)
+            .next()
+            .is_none()
+    );
+
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("drink-source actor admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("drink-source actor admission commit failed: {error}"));
+    assert_eq!(
+        available_local_drink_sources(&registries, &state)
+            .map(|source| (
+                source.store(),
+                source.fluid(),
+                source.available_volume(),
+                source.temperature(),
+            ))
+            .collect::<Vec<_>>(),
+        vec![(
+            local,
+            FLUID_WATER,
+            serving,
+            Temperature::from_millikelvin(293_150),
+        )]
+    );
+}
+
+#[test]
+fn local_drink_source_observation_keeps_visible_remainders_below_the_serving_floor() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("visible-remainder survival setup failed: {error}"));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("visible-remainder logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("visible-remainder logistics commit failed: {error}"));
+    let minimum = minimum_drink_volume(&registries);
+    let remainder = minimum
+        .checked_sub(Volume::from_microliters(1))
+        .unwrap_or_else(|| panic!("authored drink minimum must exceed one microliter"));
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        minimum,
+        FLUID_WATER,
+        remainder,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("visible-remainder water fixture failed: {error}"));
+    validate_place_fluid_store(&state, store, player_position)
+        .unwrap_or_else(|error| panic!("visible-remainder placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("visible-remainder placement commit failed: {error}"));
+
+    assert_eq!(
+        available_local_drink_sources(&registries, &state)
+            .map(|source| (source.store(), source.available_volume()))
+            .collect::<Vec<_>>(),
+        vec![(store, remainder)],
+        "observation must preserve a real local water remainder even when one direct serving is no longer legal"
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_drink(&registries, &state, store, remainder).err(),
+        Some(DrinkError::DrinkVolumeBelowIntakeMinimum {
+            volume: remainder,
+            minimum,
+        })
+    );
+    assert_eq!(
+        state, before,
+        "rejected small serving must not mutate state"
+    );
+}
+
+#[test]
 fn drinking_rejects_known_remote_fluid_store() {
     let registries = build_registries();
     let mut state = AppState::new();

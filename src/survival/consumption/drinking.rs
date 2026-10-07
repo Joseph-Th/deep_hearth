@@ -34,6 +34,68 @@ struct ResolvedDrinkSource {
     definition: DrinkDefinition,
 }
 
+/// Actor-visible finite drink source currently usable at the player's exact voxel.
+///
+/// This is observation only. Drinking still goes through [`validate_drink`] or one of the
+/// selected-store convenience validators, which recheck locality, temperature, finite volume,
+/// attention, and physiological constraints at admission time.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocalDrinkSource {
+    store: FluidStoreId,
+    fluid: FluidDefinitionId,
+    available_volume: Volume,
+    temperature: Temperature,
+}
+
+impl LocalDrinkSource {
+    #[must_use]
+    pub const fn store(self) -> FluidStoreId {
+        self.store
+    }
+
+    #[must_use]
+    pub const fn fluid(self) -> FluidDefinitionId {
+        self.fluid
+    }
+
+    #[must_use]
+    pub const fn available_volume(self) -> Volume {
+        self.available_volume
+    }
+
+    #[must_use]
+    pub const fn temperature(self) -> Temperature {
+        self.temperature
+    }
+}
+
+/// Iterates drinkable, consumption-temperature fluid sources at the admitted player's exact voxel.
+///
+/// Empty, remote, unlocated, non-drinkable, and temperature-incompatible stores are omitted. The
+/// iterator deliberately does not apply the authored serving floor: a small but visible water
+/// remainder remains observable even when the next canonical drink action would reject it.
+pub fn available_local_drink_sources<'a>(
+    registries: &'a Registries,
+    state: &'a AppState,
+) -> impl Iterator<Item = LocalDrinkSource> + 'a {
+    state
+        .available_local_fluid_stores()
+        .filter_map(move |store| {
+            let contents = store.contents()?;
+            let drink = registries.survival().get_drink(contents.fluid())?;
+            drink
+                .consumption_temperature()
+                .contains(contents.temperature())
+                .then_some(LocalDrinkSource {
+                    store: store.id(),
+                    fluid: contents.fluid(),
+                    available_volume: contents.volume(),
+                    temperature: contents.temperature(),
+                })
+        })
+}
+
 fn map_player_attention_error(error: PlayerAttentionError) -> DrinkError {
     match error {
         PlayerAttentionError::SurvivalNotInitialized => DrinkError::SurvivalNotInitialized,

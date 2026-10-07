@@ -15,15 +15,7 @@ pub(super) fn run_provisioning_case(
     let age_ticks = world.age_ticks;
     let provisioning_wait_ticks = world.provisioning_wait_ticks;
     let physiology = registries.survival().physiology();
-    let drink_fluid = prepared
-        .state
-        .fluid()
-        .get_store(prepared.drink_store)
-        .and_then(|store| store.contents())
-        .map(|contents| contents.fluid())
-        .unwrap_or_else(|| {
-            panic!("survival provisioning drink source disappeared before decision")
-        });
+    let drink_fluid = observed_provisioning_drink(registries, &prepared.state).fluid();
     let witness_record = prepared
         .state
         .inventory()

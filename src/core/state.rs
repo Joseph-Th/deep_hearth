@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::energy::EnergyState;
 use crate::equipment::EquipmentState;
-use crate::fluid::FluidState;
+use crate::fluid::{FluidState, FluidStoreRecord};
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
 use crate::inventory::InventoryState;
 use crate::labor::PlayerWorkState;
@@ -174,6 +174,24 @@ impl AppState {
     #[must_use]
     pub const fn fluid(&self) -> &FluidState {
         &self.systems.fluid
+    }
+
+    /// Iterates finite fluid stores explicitly located at the admitted player's exact voxel.
+    ///
+    /// No stores are observable before logistics admission. Callers cannot supply an arbitrary
+    /// voxel, so ordinary player policy can discover a nearby vessel without enumerating remote
+    /// fluid custody or already knowing a store identity.
+    pub fn available_local_fluid_stores(&self) -> impl Iterator<Item = &FluidStoreRecord> {
+        let player_position = self
+            .systems
+            .logistics
+            .player()
+            .map(|player| player.position());
+        self.systems
+            .logistics
+            .fluid_store_locations()
+            .filter(move |(_, position)| Some(*position) == player_position)
+            .filter_map(|(store, _)| self.systems.fluid.get_store(store))
     }
 
     pub(crate) fn fluid_state_mut(&mut self) -> &mut FluidState {

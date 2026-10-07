@@ -34,10 +34,11 @@ use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
     DrinkDefinition, DrinkOutcome, EatOutcome, FoodCategory, FoodDefinition, FoodFreshness,
-    SurvivalExertion, ValidatedDrink, assess_food_freshness, assess_survival,
-    initialize_player_survival, project_food_freshness_after_storage_transition,
-    project_survival_resource_budget, validate_drink, validate_drink_store_to_full,
-    validate_drink_store_to_hydration_target, validate_eat,
+    LocalDrinkSource, SurvivalExertion, ValidatedDrink, assess_food_freshness, assess_survival,
+    available_local_drink_sources, initialize_player_survival,
+    project_food_freshness_after_storage_transition, project_survival_resource_budget,
+    validate_drink, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
+    validate_eat,
 };
 
 use super::environment::ROOM_TEMPERATURE;
@@ -101,7 +102,8 @@ include_survival_probe_contract_tests!();
 pub(super) mod provisioning_world;
 use provisioning_world::{
     PreparedProvisioningWorld, ProvisioningPlan, maximum_direct_provisioning_ticks,
-    observed_provisioning_foods, prepare_provisioning_world, provisioning_plan,
+    observed_provisioning_drink, observed_provisioning_foods, prepare_provisioning_world,
+    provisioning_plan,
 };
 pub(super) use provisioning_world::{ProvisioningWorld, provisioning_world};
 
@@ -357,7 +359,6 @@ pub(super) fn selected_food_indices(
 struct DietRecoveryBranch<'a> {
     prepared: &'a AppState,
     food_store: StockpileId,
-    drink_store: FluidStoreId,
     matter_total: AggregateMass,
     fluid_total: AggregateVolume,
 }
@@ -471,10 +472,11 @@ fn provision_diet_recovery_branch(
         let current_hydration = assess_survival(registries, &state)
             .unwrap_or_else(|| panic!("diet-recovery player disappeared before drinking"))
             .hydration();
+        let drink_store = observed_provisioning_drink(registries, &state).store();
         let validated = match validate_drink_store_to_hydration_target(
             registries,
             &state,
-            branch.drink_store,
+            drink_store,
             hydration_target,
         ) {
             Ok(Some(drink)) => drink,
@@ -483,7 +485,7 @@ fn provision_diet_recovery_branch(
                 deep_hearth::survival::DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
                     maximum_drink_volume,
                 },
-            )) => validate_drink(registries, &state, branch.drink_store, maximum_drink_volume)
+            )) => validate_drink(registries, &state, drink_store, maximum_drink_volume)
                 .unwrap_or_else(|error| {
                     panic!("diet-recovery serving drink validation failed: {error}")
                 }),
@@ -660,7 +662,6 @@ pub(super) fn evaluate_diet_recovery_consequence(
     let branch = DietRecoveryBranch {
         prepared: &state,
         food_store,
-        drink_store,
         matter_total,
         fluid_total,
     };

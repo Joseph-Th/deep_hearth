@@ -17,8 +17,9 @@ use deep_hearth::registry::Registries;
 use deep_hearth::survival::{
     DrinkHydrationProjectionError, DrinkStoreToTargetError, FoodFreshness,
     MealMetabolicProjectionError, SurvivalExertion, assess_food_freshness, assess_survival,
-    project_minimum_meal_to_metabolic_target, project_survival_resource_budget, validate_drink,
-    validate_drink_store_to_hydration_target, validate_eat, validate_eat_lot_to_metabolic_target,
+    available_local_drink_sources, project_minimum_meal_to_metabolic_target,
+    project_survival_resource_budget, validate_drink, validate_drink_store_to_hydration_target,
+    validate_eat, validate_eat_lot_to_metabolic_target,
 };
 
 use super::super::direct_consumption_timing::finish_direct_consumption_work;
@@ -28,7 +29,7 @@ use super::super::environment::ROOM_TEMPERATURE;
 pub(super) struct PowerProjectProvisions {
     pub(super) food: StockpileId,
     pub(super) enclosure_material: StockpileId,
-    pub(super) water: FluidStoreId,
+    fixture_water: FluidStoreId,
     #[cfg_attr(
         test,
         allow(dead_code, reason = "exploratory power-provider report telemetry")
@@ -44,6 +45,14 @@ pub(super) struct PowerProjectProvisions {
         allow(dead_code, reason = "exploratory power-provider report telemetry")
     )]
     pub(super) water_supply_ul: u64,
+}
+
+impl PowerProjectProvisions {
+    /// Setup-only identity used to place the finite water reserve before actor admission.
+    /// Runtime provisioning must rediscover the source from admitted exact-local state.
+    pub(super) const fn fixture_water(self) -> FluidStoreId {
+        self.fixture_water
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -173,11 +182,21 @@ pub(super) fn seed_power_project_provisions(
     PowerProjectProvisions {
         food,
         enclosure_material,
-        water,
+        fixture_water: water,
         food_supply_mg,
         food_preservation_ppm: cache.storage_profile().preservation_multiplier_ppm(),
         water_supply_ul,
     }
+}
+
+fn observed_power_project_water(registries: &Registries, state: &AppState) -> FluidStoreId {
+    let sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
+    assert_eq!(
+        sources.len(),
+        1,
+        "power project actor requires exactly one locally observable usable drink source"
+    );
+    sources[0].store()
 }
 
 #[derive(Clone, Copy, Default)]
@@ -270,7 +289,6 @@ fn grain_lot(registries: &Registries, state: &AppState, stockpile: StockpileId) 
 fn drink_to_target(
     registries: &Registries,
     state: &mut AppState,
-    provisions: PowerProjectProvisions,
     target: Volume,
     context: &'static str,
     outcome: &mut ProvisioningOutcome,
@@ -283,22 +301,18 @@ fn drink_to_target(
         let current_hydration = assess_survival(registries, state)
             .unwrap_or_else(|| panic!("power project {context} lost player before drinking"))
             .hydration();
-        let drink = match validate_drink_store_to_hydration_target(
-            registries,
-            state,
-            provisions.water,
-            target,
-        ) {
+        let water = observed_power_project_water(registries, state);
+        let drink = match validate_drink_store_to_hydration_target(registries, state, water, target)
+        {
             Ok(Some(drink)) => drink,
             Ok(None) => break,
             Err(DrinkStoreToTargetError::Projection(
                 DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
                     maximum_drink_volume,
                 },
-            )) => validate_drink(registries, state, provisions.water, maximum_drink_volume)
-                .unwrap_or_else(|error| {
-                    panic!("power project {context} maximum legal drink failed: {error}")
-                }),
+            )) => validate_drink(registries, state, water, maximum_drink_volume).unwrap_or_else(
+                |error| panic!("power project {context} maximum legal drink failed: {error}"),
+            ),
             Err(error) => panic!(
                 "power project {context} drink-to-target failed at tick {}: {error}; target={}uL current={}uL",
                 state.tick().value(),
@@ -401,14 +415,7 @@ pub(super) fn provision_for_project_leg(
         stops: 1,
         ..ProvisioningOutcome::default()
     };
-    drink_to_target(
-        registries,
-        state,
-        provisions,
-        hydration_target,
-        context,
-        &mut outcome,
-    );
+    drink_to_target(registries, state, hydration_target, context, &mut outcome);
 
     while assess_survival(registries, state)
         .unwrap_or_else(|| panic!("power project {context} lost player while eating"))
@@ -433,7 +440,6 @@ pub(super) fn provision_for_project_leg(
             drink_to_target(
                 registries,
                 state,
-                provisions,
                 pre_meal_hydration_target,
                 context,
                 &mut outcome,
@@ -509,14 +515,7 @@ pub(super) fn provision_for_project_leg(
             );
         }
     }
-    drink_to_target(
-        registries,
-        state,
-        provisions,
-        hydration_target,
-        context,
-        &mut outcome,
-    );
+    drink_to_target(registries, state, hydration_target, context, &mut outcome);
     let after = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("power project {context} lost player during provisioning"));
     assert!(

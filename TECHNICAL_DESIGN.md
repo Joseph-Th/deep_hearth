@@ -154,7 +154,7 @@ synchronized indexes.
 | Root owner | Root read boundary | Caller visibility | Authoritative state |
 | --- | --- | --- | --- |
 | `EnergyState` | `AppState::energy()` | public read | Finite energy stores and embodied construction traces |
-| `FluidState` | `AppState::fluid()` | public read | Finite homogeneous fluid stores and support assignments |
+| `FluidState` | `AppState::fluid()` plus `AppState::available_local_fluid_stores()` | public read plus exact-player-local observation | Finite homogeneous fluid stores and support assignments; actor-safe local observation does not imply hydrology or source generation |
 | `EquipmentState` | `AppState::equipment()` | public read | Equipment instances, condition, embodied traces, support assignments |
 | `StructureState` | `AppState::structures()` | public read | Members, topology, embodied matter, source-separated loads, damage |
 | `SurfaceResourceState` | `AppState::available_surface_resources()` | public exact-player-local observation only | Finite loose world-space matter, source lifecycle, and depletion; complete owner access, arbitrary-voxel queries, and persistence remain privileged |
@@ -189,7 +189,7 @@ finite loose surface matter -> timed same-voxel gathering -> inventory lot
 ground inventory lot <-> same-voxel player-carried inventory lot
 inventory traces -> equipment @ player voxel -> optional structural support
 inventory traces -> finite energy store @ player voxel
-finite fluid store @ world voxel -> local drinking / structurally supported vessel
+finite fluid store @ world voxel -> exact-local observation -> survival-filtered drinking / structurally supported vessel
 embodiment -> authored maintenance, disassembly, dismantling, or salvage -> inventory traces
 finite energy store -> reserved/consumed process energy -> modeled work/heat or explicit loss sink
 hidden geology -> bounded prospecting observation -> geological knowledge -> mining authorization
@@ -218,6 +218,7 @@ semantic entry point; inspect its implementation and adjacent tests before readi
 | Ground inventory <-> player-carried inventory | `validate_pickup_from_ground` / `validate_drop_to_ground` | Logistics proves same-voxel access; inventory owns exact selected-lot relocation and resulting lot/storage semantics. |
 | Inventory + providers -> production work | resolver-specific `Resolved*` / `ProcessResolution` -> `validate_start_process*` | Start moves exact input into production work-in-process and binds output reservations, provider occupancy, finite-energy consequences, and site coherence in the durable job. |
 | Loose surface matter -> inventory | `AppState::available_surface_resources` -> `validate_start_surface_gathering` -> tick | Public discovery is exhaustive only for the admitted player's current voxel; callers cannot scan arbitrary coordinates. Admission requires player/source/destination locality, reserves exact destination capacity, and records timed player work. Completion transfers the admitted mass into ordinary inventory and decrements the finite source; interrupted work releases its reservation without creating matter. Fixture-only source generation is not ordinary world-source reachability. |
+| Finite local fluid -> survival hydration | `AppState::available_local_fluid_stores` -> `available_local_drink_sources` -> `validate_drink*` -> tick | The local state query exposes only stores at the admitted player's exact voxel. Survival then filters current contents by authored drinkability and consumption temperature without authorizing use. Drink admission rechecks locality, finite volume, serving limits, physiology, and attention; timed completion transfers the admitted fluid into terminal survival custody. Fixture-seeded water proves local discovery and consumption, not hydrology or ordinary water-source generation. |
 | Production work -> inventory / equipment / energy | `advance_tick` completion | Completion routes exact outputs, applies equipment/energy consequences, releases occupancy/reservations, and emits `ProcessCompletion` with inventory landing identities. |
 | Fatal survival -> active player work | `advance_tick` fatal-work planning | Work due on the fatal tick completes first. Otherwise each work owner applies its declared suspend/cancel/release semantics, settles physical equipment consequences for elapsed active ticks, and preserves represented custody plus trusted-load validity. |
 | Inventory -> equipment embodiment | `validate_assemble_equipment` / `validate_upgrade_equipment` | Exact material traces become equipment embodiment; assembly establishes world custody when logistics exists, while upgrade preserves equipment identity/location and adds the authored trace. |

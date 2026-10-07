@@ -6,16 +6,16 @@
 
 use std::num::NonZeroU64;
 
-use deep_hearth::content::gameplay_fixture::seed_surface_resource;
+use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_surface_resource};
 use deep_hearth::content::{
     EQUIPMENT_STONE_DIGGING_SHOVEL, EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_WOODWORKING_ADZE,
-    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
     PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_TIMBER,
     SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
-use deep_hearth::core::quantity::{Mass, Temperature};
+use deep_hearth::core::quantity::{Mass, Temperature, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::SimulationTick;
 use deep_hearth::crafting::{
@@ -23,10 +23,12 @@ use deep_hearth::crafting::{
     validate_start_manual_craft,
 };
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
+use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId, validate_build_storage_enclosure};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
     validate_allocate_ground_stockpile, validate_initialize_player_logistics,
+    validate_place_fluid_store,
 };
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
@@ -36,7 +38,10 @@ use deep_hearth::simulation::advance_tick;
 use deep_hearth::surface::{
     SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
 };
-use deep_hearth::survival::{assess_survival, initialize_player_survival, validate_eat};
+use deep_hearth::survival::{
+    assess_survival, available_local_drink_sources, initialize_player_survival,
+    validate_drink_store_to_full, validate_eat,
+};
 
 use super::exact_local_runtime::{STATIONARY_PLAYER_ORIGIN, assert_exact_local_runtime_ready};
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
@@ -68,6 +73,21 @@ fn local_surface_resource(state: &AppState, commodity: CommodityKey) -> SurfaceR
         1,
         "controlled wilderness opening requires exactly one visible local source for commodity {}",
         commodity.value()
+    );
+    matches[0]
+}
+
+fn local_drinkable_store(
+    registries: &Registries,
+    state: &AppState,
+) -> deep_hearth::fluid::FluidStoreId {
+    let matches = available_local_drink_sources(registries, state)
+        .map(|source| source.store())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "controlled wilderness opening requires exactly one locally observable drinkable fluid store"
     );
     matches[0]
 }
@@ -178,7 +198,7 @@ fn assemble_tool(
 }
 
 #[test]
-fn controlled_wilderness_opening_executes_gather_tools_storage_and_foraged_meal_before_copper() {
+fn controlled_wilderness_opening_executes_gather_tools_storage_food_and_water_before_copper() {
     let registries = build_registries();
     let mut state = AppState::new();
     for (commodity, mass, material) in [
@@ -208,6 +228,23 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_and_foraged_meal_
             MaterialComposition::pure(material),
         );
     }
+    {
+        // The controlled fixture supplies only the still-missing hydrology/world-source edge. Its
+        // store identity stays inside setup; ordinary play must rediscover the local finite water
+        // through the actor-safe exact-voxel observation surface below.
+        let fixture_water = seed_fluid_store(
+            &registries,
+            &mut state,
+            Volume::from_microliters(2_000_000),
+            FLUID_WATER,
+            Volume::from_microliters(1_500_000),
+            ROOM_TEMPERATURE,
+        );
+        validate_place_fluid_store(&state, fixture_water, STATIONARY_PLAYER_ORIGIN)
+            .unwrap_or_else(|error| panic!("wilderness water placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("wilderness water placement commit failed: {error}"));
+    }
 
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("wilderness survival admission failed: {error}"));
@@ -231,6 +268,9 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_and_foraged_meal_
     assert_exact_local_runtime_ready(&registries, &state, "controlled wilderness opening");
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("wilderness initial matter audit failed: {error}"))
+        .total();
+    let fluid_before = calculate_fluid_volume_accounting(&state)
+        .unwrap_or_else(|error| panic!("wilderness initial fluid audit failed: {error}"))
         .total();
     let started_at = state.tick();
 
@@ -458,6 +498,56 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_and_foraged_meal_
         "foraged opening food must replenish some of the energy spent establishing camp"
     );
 
+    let water = local_drinkable_store(&registries, &state);
+    let water_before = state
+        .fluid()
+        .get_store(water)
+        .map(|store| store.stored_volume())
+        .unwrap_or_else(|| panic!("locally observed wilderness water disappeared"));
+    let before_drink = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("wilderness player disappeared before drinking"));
+    assert!(
+        before_drink.hydration() < registries.survival().physiology().maximum_hydration(),
+        "establishing camp must create some ordinary hydration deficit before the water action"
+    );
+    let drink = validate_drink_store_to_full(&registries, &state, water)
+        .unwrap_or_else(|error| panic!("wilderness local water validation failed: {error}"))
+        .unwrap_or_else(|| panic!("wilderness camp work should require a drink"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("wilderness local water commit failed: {error}"));
+    advance_to(
+        &registries,
+        &mut state,
+        drink.completes_at(),
+        TickEventAllowance::default(),
+        "water drink",
+    );
+    let after_drink = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("wilderness player disappeared after drinking"));
+    assert!(
+        after_drink.hydration() > before_drink.hydration(),
+        "locally discovered wilderness water must replenish hydration spent establishing camp"
+    );
+    assert_eq!(
+        state
+            .fluid()
+            .get_store(water)
+            .map(|store| store.stored_volume()),
+        Some(
+            water_before
+                .checked_sub(drink.volume())
+                .unwrap_or_else(|| unreachable!("validated drink cannot exceed source volume"))
+        ),
+        "direct drinking must deplete the exact finite local water source"
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state)
+            .unwrap_or_else(|error| panic!("wilderness final fluid audit failed: {error}"))
+            .total(),
+        fluid_before,
+        "drinking must transfer finite water into terminal survival custody without losing volume"
+    );
+
     let elapsed_ticks = state
         .tick()
         .checked_duration_since(started_at)
@@ -471,14 +561,14 @@ fn controlled_wilderness_opening_executes_gather_tools_storage_and_foraged_meal_
     let minute = 60_u128 * 1_000_000;
     assert!(
         (25 * minute..=50 * minute).contains(&elapsed_microseconds),
-        "controlled gather/tool/storage/forage opening should occupy a substantial pre-copper session before missing fire, shelter, water, travel, or world-source discovery are counted"
+        "controlled gather/tool/storage/food/water opening should occupy a substantial pre-copper session before missing fire, shelter, travel, or ordinary world-source discovery are counted"
     );
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("wilderness final matter audit failed: {error}"))
             .total(),
         matter_before,
-        "wilderness opening must conserve represented matter across gathering, crafting, equipment, storage, and eating"
+        "wilderness opening must conserve represented matter across gathering, crafting, equipment, storage, eating, and drinking"
     );
     assert_exact_local_runtime_ready(
         &registries,

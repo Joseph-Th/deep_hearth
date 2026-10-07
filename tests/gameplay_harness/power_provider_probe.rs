@@ -633,7 +633,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             primitive_provisions.enclosure_material,
             shaped,
         ],
-        &[primitive_provisions.water],
+        &[primitive_provisions.fixture_water()],
         primitive_survival_start,
         "primitive power-provider",
     );
@@ -754,7 +754,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             settlement_provisions.food,
             settlement_provisions.enclosure_material,
         ],
-        &[settlement_provisions.water],
+        &[settlement_provisions.fixture_water()],
         settlement_survival_start,
         "settlement power-provider",
     );

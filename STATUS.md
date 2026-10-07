@@ -50,7 +50,7 @@ incomplete.
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
 | Logistics | Persistent player/carried custody and world locations for stockpiles, equipment, energy stores, and fluid stores; local pickup/drop and access checks. |
 | Loose surface matter | Persistent finite world-space resource records, exact-local actor observation, commodity-bound timed same-voxel gathering, destination reservation, survival cost, depletion, interruption cleanup, persistence, and conservation. Built-in methods distinguish loose stone, fallen timber, berry foraging, and clay-rich earth. Source generation remains controlled-fixture-only rather than ordinary world generation. |
-| Energy and fluids | Finite typed energy stores with power/loss limits and finite homogeneous fluid stores with exact withdrawal. |
+| Energy and fluids | Finite typed energy stores with power/loss limits; finite homogeneous fluid stores with exact withdrawal, exact-player-local observation, and survival-filtered local drink-source discovery. Hydrology and ordinary fluid-source generation remain absent. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Material-backed members, support topology, loads, damage, and failure cascades. |
 | Spatial and presentation | Checked voxel coordinates plus deterministic renderer-neutral texture and shader assembly. |
