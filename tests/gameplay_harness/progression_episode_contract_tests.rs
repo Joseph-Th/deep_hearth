@@ -1,17 +1,13 @@
 //! Episode-level primitive-progression regressions that require the full play-like evaluator.
 
-use std::collections::BTreeSet;
-
 use deep_hearth::content::build_registries;
 
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::PROGRESSION_MAINTAINED_ANCHOR_SEED;
+use super::progression_generation::{SHALLOW_OPPORTUNITY_MAX_BATCHES, ore_opportunity};
 use super::progression_probe::{
-    DEEP_OPPORTUNITY_MIN_BATCHES, MARGINAL_OPPORTUNITY_MAX_BATCHES,
-    MARGINAL_OPPORTUNITY_MIN_BATCHES, PrimitivePriority, PrimitiveReinvestmentOutcome,
-    PrimitiveSteadyStop, SHALLOW_OPPORTUNITY_MAX_BATCHES,
-    manual_processing::manual_processing_setup, ore_opportunity,
-    review::evaluate_primitive_progression_probe, varied_four_way_order,
+    PrimitivePriority, PrimitiveReinvestmentOutcome, PrimitiveSteadyStop,
+    review::evaluate_primitive_progression_probe,
 };
 use super::seed::mix64;
 
@@ -148,77 +144,5 @@ fn bounded_stockpiling_preserves_shallow_supply_until_reinvestment() {
     assert_eq!(
         review.stockpiling_reinvestment,
         PrimitiveReinvestmentOutcome::TargetSupplyLimited
-    );
-}
-
-#[test]
-fn progression_generators_cover_distinct_search_and_economic_pressures() {
-    let clue_orders = (1_u64..=12)
-        .map(varied_four_way_order)
-        .collect::<BTreeSet<_>>();
-    assert!(
-        clue_orders.len() > 1,
-        "progression clue ordering collapsed to one permutation"
-    );
-    assert!(clue_orders.iter().all(|order| {
-        let mut sorted = *order;
-        sorted.sort_unstable();
-        sorted == [0, 1, 2, 3]
-    }));
-
-    let opportunities = (1_u64..=32)
-        .map(|seed| ore_opportunity(seed, false))
-        .collect::<Vec<_>>();
-    assert!(
-        opportunities
-            .iter()
-            .any(|opportunity| opportunity.batch_budget() <= SHALLOW_OPPORTUNITY_MAX_BATCHES),
-        "organic progression generated no shallow finite opportunity"
-    );
-    assert!(
-        opportunities.iter().any(|opportunity| {
-            (MARGINAL_OPPORTUNITY_MIN_BATCHES..=MARGINAL_OPPORTUNITY_MAX_BATCHES)
-                .contains(&opportunity.batch_budget())
-        }),
-        "organic progression generated no marginal finite opportunity"
-    );
-    assert!(
-        opportunities
-            .iter()
-            .any(|opportunity| opportunity.batch_budget() >= DEEP_OPPORTUNITY_MIN_BATCHES),
-        "organic progression generated no deep finite opportunity"
-    );
-    assert!(
-        ore_opportunity(1, true).batch_budget() >= DEEP_OPPORTUNITY_MIN_BATCHES,
-        "maintained progression must keep a deep reinvestment opportunity"
-    );
-
-    let registries = build_registries();
-    let manual_setups = (1_u64..=16)
-        .map(|seed| manual_processing_setup(&registries, seed))
-        .collect::<Vec<_>>();
-    assert!(
-        manual_setups
-            .iter()
-            .map(|setup| setup.ore_mass.milligrams())
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1
-    );
-    assert!(
-        manual_setups
-            .iter()
-            .map(|setup| setup.copper_ppm)
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1
-    );
-    assert!(
-        manual_setups
-            .iter()
-            .map(|setup| setup.clay_share_ppm)
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1
     );
 }

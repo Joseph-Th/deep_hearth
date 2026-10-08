@@ -54,8 +54,14 @@ mod primitive_workload;
 mod production_timing;
 #[path = "gameplay_harness/progression_episode_contract_tests.rs"]
 mod progression_episode_contract_tests;
+#[path = "gameplay_harness/progression_generation.rs"]
+mod progression_generation;
+#[path = "gameplay_harness/progression_manual_processing_generation.rs"]
+mod progression_manual_processing_generation;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
+#[path = "gameplay_harness/progression_upgrade_planning.rs"]
+mod progression_upgrade_planning;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
 #[path = "gameplay_harness/seed.rs"]

@@ -19,6 +19,10 @@ use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::production_timing::finish_uninterrupted_production_job;
+use super::progression_generation::{
+    SHALLOW_OPPORTUNITY_MIN_BATCHES, ore_opportunity, varied_four_way_order,
+};
+use super::progression_upgrade_planning::{equipment_upgrade_additions, native_input_for_upgrade};
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::content::gameplay_fixture::{
@@ -82,12 +86,6 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
-pub(super) const SHALLOW_OPPORTUNITY_MIN_BATCHES: u64 = 6;
-pub(super) const SHALLOW_OPPORTUNITY_MAX_BATCHES: u64 = 40;
-pub(super) const MARGINAL_OPPORTUNITY_MIN_BATCHES: u64 = 48;
-pub(super) const MARGINAL_OPPORTUNITY_MAX_BATCHES: u64 = 192;
-pub(super) const DEEP_OPPORTUNITY_MIN_BATCHES: u64 = 384;
-pub(super) const DEEP_OPPORTUNITY_MAX_BATCHES: u64 = 512;
 
 fn project_manual_stockpile_breaking_attention(registries: &Registries, cycle_mass: Mass) -> u64 {
     let definition = registries
@@ -119,17 +117,6 @@ fn project_manual_stockpile_breaking_attention(registries: &Registries, cycle_ma
     ticks
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct OreOpportunity {
-    batch_budget: u64,
-}
-
-impl OreOpportunity {
-    pub(super) const fn batch_budget(self) -> u64 {
-        self.batch_budget
-    }
-}
-
 fn autonomous_target_resolution_stop(error: MiningTargetResolutionError) -> AutonomousWorkStop {
     match error {
         MiningTargetResolutionError::EvidenceInsufficientToResolveTarget { .. } => {
@@ -148,34 +135,6 @@ fn autonomous_target_resolution_stop(error: MiningTargetResolutionError) -> Auto
     }
 }
 
-pub(super) fn ore_opportunity(seed: u64, maintained_reinvestment_required: bool) -> OreOpportunity {
-    if maintained_reinvestment_required {
-        return OreOpportunity {
-            batch_budget: DEEP_OPPORTUNITY_MAX_BATCHES,
-        };
-    }
-    let opportunity_roll = mix64(seed ^ 0x4F50_504F_5254_554E);
-    let magnitude_roll = opportunity_roll / 3;
-    match opportunity_roll % 3 {
-        0 => OreOpportunity {
-            batch_budget: SHALLOW_OPPORTUNITY_MIN_BATCHES
-                + magnitude_roll
-                    % (SHALLOW_OPPORTUNITY_MAX_BATCHES - SHALLOW_OPPORTUNITY_MIN_BATCHES + 1),
-        },
-        1 => OreOpportunity {
-            batch_budget: MARGINAL_OPPORTUNITY_MIN_BATCHES
-                + magnitude_roll
-                    % (MARGINAL_OPPORTUNITY_MAX_BATCHES - MARGINAL_OPPORTUNITY_MIN_BATCHES + 1),
-        },
-        2 => OreOpportunity {
-            batch_budget: DEEP_OPPORTUNITY_MIN_BATCHES
-                + magnitude_roll
-                    % (DEEP_OPPORTUNITY_MAX_BATCHES - DEEP_OPPORTUNITY_MIN_BATCHES + 1),
-        },
-        _ => unreachable!("modulo-three opportunity class is bounded"),
-    }
-}
-
 fn reinforced_pick_mining_batch_limit(registries: &Registries) -> Mass {
     let method = registries
         .mining()
@@ -186,18 +145,6 @@ fn reinforced_pick_mining_batch_limit(registries: &Registries) -> Mass {
         EQUIPMENT_COPPER_REINFORCED_PICK,
         method.max_batch_mass_capability(),
     )
-}
-
-pub(super) fn varied_four_way_order(seed: u64) -> [usize; 4] {
-    let mut order = [0, 1, 2, 3];
-    let mut random = seed;
-    for upper in (1..order.len()).rev() {
-        random = mix64(random ^ upper as u64);
-        let selected = usize::try_from(random % (upper as u64 + 1))
-            .unwrap_or_else(|_| unreachable!("four-way shuffle index fits usize"));
-        order.swap(upper, selected);
-    }
-    order
 }
 
 fn progression_regional_bounds(zone: usize) -> VoxelBounds {

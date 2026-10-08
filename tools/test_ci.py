@@ -4289,7 +4289,8 @@ class ExactTestCommandTests(unittest.TestCase):
             "organic_liberation_generation_varies_live_feed_and_campaign": gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
             "organic_settlement_generation_varies_visible_demand_without_using_investment_outcomes": gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
             "primitive_recovery_and_reinforcement_routes_remain_connected": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
-            "progression_generators_cover_distinct_search_and_economic_pressures": gameplay_targets.GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
+            "progression_opportunity_generation_covers_distinct_search_and_reserve_pressure": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
+            "manual_processing_generation_varies_feed_and_composition_pressure": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
         }
         for selector, expected_target in cases.items():

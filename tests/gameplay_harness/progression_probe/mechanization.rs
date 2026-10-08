@@ -130,31 +130,6 @@ pub(super) fn service_reinforced_pick(
     }
 }
 
-pub(super) fn native_input_for_upgrade(
-    registries: &Registries,
-    equipment: deep_hearth::equipment::EquipmentDefinitionId,
-) -> Mass {
-    let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
-    equipment_upgrade_additions(registries, equipment)
-        .inputs()
-        .iter()
-        .try_fold(Mass::ZERO, |total, input| {
-            let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
-                registries,
-                input.commodity(),
-                input.mass(),
-                &[native],
-                "primitive copper upgrade planning",
-            );
-            total.checked_add(multiply_mass(
-                craft.input_mass(),
-                batches,
-                "upgrade native-copper input",
-            ))
-        })
-        .unwrap_or_else(|| panic!("primitive upgrade native-copper requirement overflowed"))
-}
-
 pub(super) fn reinforce_pick(
     registries: &Registries,
     state: &mut AppState,

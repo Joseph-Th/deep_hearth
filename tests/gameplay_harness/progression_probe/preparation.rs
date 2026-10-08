@@ -300,23 +300,6 @@ pub(super) fn equipment_assembly_profile(
         })
 }
 
-pub(super) fn equipment_upgrade_additions(
-    registries: &Registries,
-    equipment: deep_hearth::equipment::EquipmentDefinitionId,
-) -> &MaterialAssemblyProfile {
-    registries
-        .equipment()
-        .get_equipment(equipment)
-        .and_then(|definition| definition.upgrade_profile())
-        .map(|profile| profile.additions())
-        .unwrap_or_else(|| {
-            panic!(
-                "primitive progression equipment {} is not runtime-upgradeable",
-                equipment.value()
-            )
-        })
-}
-
 pub(super) fn stone_pick_mining_batch_limit(registries: &Registries) -> Mass {
     let method = registries
         .mining()

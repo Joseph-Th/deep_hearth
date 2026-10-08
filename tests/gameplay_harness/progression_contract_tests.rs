@@ -29,6 +29,87 @@ use super::environment::ROOM_TEMPERATURE;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
+use super::progression_generation::{
+    DEEP_OPPORTUNITY_MIN_BATCHES, MARGINAL_OPPORTUNITY_MAX_BATCHES,
+    MARGINAL_OPPORTUNITY_MIN_BATCHES, SHALLOW_OPPORTUNITY_MAX_BATCHES, ore_opportunity,
+    varied_four_way_order,
+};
+use super::progression_manual_processing_generation::manual_processing_setup;
+
+#[test]
+fn progression_opportunity_generation_covers_distinct_search_and_reserve_pressure() {
+    let clue_orders = (1_u64..=12)
+        .map(varied_four_way_order)
+        .collect::<BTreeSet<_>>();
+    assert!(
+        clue_orders.len() > 1,
+        "progression clue ordering collapsed to one permutation"
+    );
+    assert!(clue_orders.iter().all(|order| {
+        let mut sorted = *order;
+        sorted.sort_unstable();
+        sorted == [0, 1, 2, 3]
+    }));
+
+    let opportunities = (1_u64..=32)
+        .map(|seed| ore_opportunity(seed, false))
+        .collect::<Vec<_>>();
+    assert!(
+        opportunities
+            .iter()
+            .any(|opportunity| opportunity.batch_budget() <= SHALLOW_OPPORTUNITY_MAX_BATCHES),
+        "organic progression generated no shallow finite opportunity"
+    );
+    assert!(
+        opportunities.iter().any(|opportunity| {
+            (MARGINAL_OPPORTUNITY_MIN_BATCHES..=MARGINAL_OPPORTUNITY_MAX_BATCHES)
+                .contains(&opportunity.batch_budget())
+        }),
+        "organic progression generated no marginal finite opportunity"
+    );
+    assert!(
+        opportunities
+            .iter()
+            .any(|opportunity| opportunity.batch_budget() >= DEEP_OPPORTUNITY_MIN_BATCHES),
+        "organic progression generated no deep finite opportunity"
+    );
+    assert!(
+        ore_opportunity(1, true).batch_budget() >= DEEP_OPPORTUNITY_MIN_BATCHES,
+        "maintained progression must keep a deep reinvestment opportunity"
+    );
+}
+
+#[test]
+fn manual_processing_generation_varies_feed_and_composition_pressure() {
+    let registries = build_registries();
+    let manual_setups = (1_u64..=16)
+        .map(|seed| manual_processing_setup(&registries, seed))
+        .collect::<Vec<_>>();
+    assert!(
+        manual_setups
+            .iter()
+            .map(|setup| setup.ore_mass.milligrams())
+            .collect::<BTreeSet<_>>()
+            .len()
+            > 1
+    );
+    assert!(
+        manual_setups
+            .iter()
+            .map(|setup| setup.copper_ppm)
+            .collect::<BTreeSet<_>>()
+            .len()
+            > 1
+    );
+    assert!(
+        manual_setups
+            .iter()
+            .map(|setup| setup.clay_share_ppm)
+            .collect::<BTreeSet<_>>()
+            .len()
+            > 1
+    );
+}
 
 fn authored_manual_output_mass(
     registries: &Registries,
