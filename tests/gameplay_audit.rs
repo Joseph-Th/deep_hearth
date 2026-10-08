@@ -229,6 +229,8 @@ mod fixture_boundary_tests;
 mod foundry_bootstrap_contract_tests;
 #[path = "gameplay_harness/foundry_contract_tests.rs"]
 mod foundry_contract_tests;
+#[path = "gameplay_harness/foundry_generation_contract_tests.rs"]
+mod foundry_generation_contract_tests;
 #[path = "gameplay_harness/foundry_probe.rs"]
 mod foundry_probe;
 #[path = "gameplay_harness/foundry_probe_generation.rs"]

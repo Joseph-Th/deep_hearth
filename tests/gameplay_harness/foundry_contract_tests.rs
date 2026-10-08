@@ -1,6 +1,6 @@
-//! Cheap foundry generator contracts kept beside the focused foundry executable.
+//! Canonical foundry execution contracts kept beside the focused foundry executable.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
@@ -28,7 +28,6 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::foundry_probe_generation::probe_setup;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::production_timing::finish_uninterrupted_production_job;
@@ -370,62 +369,5 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
             .total(),
         matter_before,
         "settlement batch foundry must conserve matter across assembly, upgrades, melt, and cast"
-    );
-}
-
-#[test]
-fn foundry_generation_covers_authored_feed_forms_and_varies_conditions() {
-    let registries = build_registries();
-    let authored_feed_forms = registries
-        .thermal()
-        .get_melting(PROCESS_MELT_PURE_COPPER)
-        .unwrap_or_else(|| panic!("canonical copper melting definition disappeared"))
-        .solid_forms()
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>();
-    assert!(
-        !authored_feed_forms.is_empty(),
-        "canonical copper melting must retain at least one solid recovery feed form"
-    );
-
-    let sample_count = authored_feed_forms.len().max(8);
-    let setups = (1_u64
-        ..=u64::try_from(sample_count)
-            .unwrap_or_else(|_| unreachable!("bounded foundry sample count fits u64")))
-        .map(|seed| probe_setup(&registries, seed))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        setups
-            .iter()
-            .map(|setup| setup.feed_form)
-            .collect::<BTreeSet<_>>(),
-        authored_feed_forms,
-        "bounded foundry generation must exercise every authored pure-copper recovery feed form"
-    );
-    assert!(
-        setups
-            .iter()
-            .map(|setup| (setup.mass.milligrams(), setup.preheat_target.millikelvin()))
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1,
-        "foundry generation collapsed to one thermal batch"
-    );
-    assert!(
-        setups
-            .iter()
-            .map(|setup| {
-                (
-                    setup.furnace_condition.parts_per_million(),
-                    setup.mold_condition.parts_per_million(),
-                    setup.electrical_energy.nanojoules(),
-                    setup.thermal_sink_energy.nanojoules(),
-                )
-            })
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1,
-        "foundry generation collapsed to one operating state"
     );
 }

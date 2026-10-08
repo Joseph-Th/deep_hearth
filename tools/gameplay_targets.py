@@ -107,11 +107,13 @@ GAMEPLAY_SURVIVAL_GENERATION_CONTRACT_TARGET = "gameplay_survival_generation_con
 GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET = "gameplay_progression_episode_contracts"
 GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET = "gameplay_settlement_generation_contracts"
 GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET = "gameplay_liberation_generation_contracts"
+GAMEPLAY_FOUNDRY_GENERATION_CONTRACT_TARGET = "gameplay_foundry_generation_contracts"
 GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
     sorted(
         (
             *GAMEPLAY_SCOPE_CONTRACT_TARGETS.values(),
             GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
+            GAMEPLAY_FOUNDRY_GENERATION_CONTRACT_TARGET,
             GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
             GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
             GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
@@ -147,6 +149,7 @@ GAMEPLAY_TEST_PREFIX_TARGETS = {
         "foundry-bootstrap"
     ],
     "foundry_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],
+    "foundry_generation_contract_tests::": GAMEPLAY_FOUNDRY_GENERATION_CONTRACT_TARGET,
     "primitive_liberation_investment::investment_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS[
         "liberation"
     ],

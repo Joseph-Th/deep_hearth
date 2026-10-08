@@ -1688,6 +1688,11 @@ class TestTopologyContractTests(unittest.TestCase):
                 "tests/gameplay_harness/first_foundry_fabrication.rs",
                 "tests/gameplay_harness/first_foundry_probe/recovery.rs",
             },
+            gameplay_targets.GAMEPLAY_FOUNDRY_GENERATION_CONTRACT_TARGET: {
+                "tests/gameplay_harness/foundry_contract_tests.rs",
+                "tests/gameplay_harness/foundry_probe.rs",
+                "tests/gameplay_harness/foundry_probe/execution.rs",
+            },
             gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET: {
                 "tests/gameplay_harness/primitive_liberation.rs",
                 "tests/gameplay_harness/primitive_liberation/acquisition.rs",
@@ -4293,6 +4298,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "organic_power_workload_sampling_varies_each_disclosed_demand_stratum": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["power-provider"],
             "ore_probe_generation_varies_feed_and_operating_state": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
             "organic_foundry_worlds_follow_prior_progression_scales_and_vary": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry-bootstrap"],
+            "foundry_generation_covers_authored_feed_forms_and_varies_conditions": gameplay_targets.GAMEPLAY_FOUNDRY_GENERATION_CONTRACT_TARGET,
             "organic_liberation_generation_varies_live_feed_and_campaign": gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
             "maintained_liberation_witnesses_pin_both_investment_routes": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["liberation"],
             "organic_settlement_generation_varies_visible_demand_without_using_investment_outcomes": gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
@@ -4349,6 +4355,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "progression_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "primitive_liberation_investment::investment_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["liberation"],
             "primitive_liberation_generation_contract_tests": gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
+            "foundry_generation_contract_tests": gameplay_targets.GAMEPLAY_FOUNDRY_GENERATION_CONTRACT_TARGET,
             "first_foundry_generation_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry-bootstrap"],
             "power_provider_generation_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["power-provider"],
             "ore_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
