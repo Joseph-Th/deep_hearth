@@ -102,6 +102,7 @@ GAMEPLAY_SCOPE_CONTRACT_TARGETS = {
     "foundry": "gameplay_foundry_contracts",
 }
 GAMEPLAY_PROSPECTING_CONTRACT_TARGET = "gameplay_prospecting_contracts"
+GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET = "gameplay_fieldwork_policy_contracts"
 GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET = "gameplay_progression_episode_contracts"
 GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET = "gameplay_settlement_generation_contracts"
 GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET = "gameplay_liberation_generation_contracts"
@@ -109,6 +110,7 @@ GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
     sorted(
         (
             *GAMEPLAY_SCOPE_CONTRACT_TARGETS.values(),
+            GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
             GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
             GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
             GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
@@ -129,9 +131,7 @@ GAMEPLAY_TEST_PREFIX_TARGETS = {
     "seed_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "wilderness_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "fieldwork_probe::campaign::tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
-    "fieldwork_probe::fieldwork_shortfall_policy_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS[
-        "fieldwork"
-    ],
+    "fieldwork_probe::fieldwork_shortfall_policy_tests::": GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
     "fieldwork_probe::planning_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
     "fieldwork_probe::retooling_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
     "fieldwork_probe::supply_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],

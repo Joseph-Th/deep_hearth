@@ -1708,6 +1708,11 @@ class TestTopologyContractTests(unittest.TestCase):
                 "tests/gameplay_harness/settlement_workshop_investment.rs",
                 "tests/gameplay_harness/settlement_machine_contract_tests.rs",
             },
+            gameplay_targets.GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET: {
+                "tests/gameplay_harness/fieldwork_probe.rs",
+                "tests/gameplay_harness/fieldwork_probe/planning.rs",
+                "tests/gameplay_harness/fieldwork_probe/campaign.rs",
+            },
         }
         for target, excluded in exclusions.items():
             sources = {
@@ -4221,7 +4226,7 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
             "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
-            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": gameplay_targets.GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
             "four_world_woodworking_sample_spans_workload_without_encoding_copper_decisions": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
@@ -4277,6 +4282,7 @@ class ExactTestCommandTests(unittest.TestCase):
         )
         for selector, expected in {
             "workshop_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
+            "fieldwork_probe::fieldwork_shortfall_policy_tests": gameplay_targets.GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
             "prospecting_instrument_contract_tests": gameplay_targets.GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             "settlement_wire_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
             "settlement_generation_contract_tests": gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
@@ -4504,9 +4510,17 @@ class ExactTestCommandTests(unittest.TestCase):
             gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
             None,
         )
+        shortfall_name = (
+            "fieldwork_probe::fieldwork_shortfall_policy_tests::"
+            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion"
+        )
+        self.assertNotIn(shortfall_name, fieldwork_contracts)
         self.assertIn(
-            "fieldwork_probe::fieldwork_shortfall_policy_tests::shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion",
-            fieldwork_contracts,
+            shortfall_name,
+            run_test.source_test_catalog(
+                gameplay_targets.GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
+                None,
+            ),
         )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
         self.assertNotIn("gameplay_agency_counterfactuals", workshop)
