@@ -38,6 +38,10 @@ from tools.gameplay_targets import (
 )
 from tools.gameplay_report_summary import concise_gameplay_report
 from tools.replay_seed import parse_replay_seed
+from tools.run_test import (
+    smallest_test_target_for_source,
+    smallest_test_target_requiring_feature,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -198,6 +202,10 @@ def configure_gameplay_verification_environment(
 REPORT_SCOPES = ("all", *GAMEPLAY_SCOPE_SPECS, "agency")
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
+RUST_SOURCE_DIAGNOSTIC = re.compile(
+    r"^\s*-->\s+(?P<path>.+?\.rs):\d+:\d+\s*$",
+    re.MULTILINE,
+)
 GAMEPLAY_REPLAY_ROOTS = re.compile(
     r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
 )
@@ -332,6 +340,8 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
         failed = FAILED_TEST.findall(combined)
         if failed:
             return f"python tools/run_test.py {failed[-1]}"
+        if hint := compile_repair_hint(command, combined):
+            return hint
     gameplay_targets = (
         GAMEPLAY_CONTRACTS_TARGET,
         GAMEPLAY_AUDIT_TARGET,
@@ -356,6 +366,8 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
             return command_with_gameplay_replay(
                 ["python", "ci.py", "audit", "--gameplay"], combined
             )
+        if hint := compile_repair_hint(command, combined):
+            return hint
         for scope, target in GAMEPLAY_TARGETS.items():
             if target in command:
                 return command_with_gameplay_replay(
@@ -366,6 +378,50 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
                 ["python", "ci.py", "audit", "--gameplay"], combined
             )
     return None
+
+
+def compile_repair_hint(command: list[str], output: str) -> str | None:
+    """Route rustc source failures to a build-only target without widening semantic proof.
+
+    Focused targets keep their current crate shape. The consolidated gameplay audit is the one
+    intentionally widened artifact, so source diagnostics from it may route to the smallest
+    purpose-built target that includes the failing harness file. After compilation is repaired,
+    callers still rerun the original proof.
+    """
+
+    matches = RUST_SOURCE_DIAGNOSTIC.findall(output)
+    if not matches:
+        return None
+
+    if command == cargo("test-core"):
+        return "python tools/run_test.py --build --target lib"
+
+    current_target = None
+    if "--test" in command:
+        index = command.index("--test")
+        if index + 1 < len(command):
+            current_target = command[index + 1]
+    if current_target is None:
+        return None
+    if current_target != GAMEPLAY_AUDIT_TARGET:
+        return f"python tools/run_test.py --build --target {current_target}"
+
+    for raw_path in reversed(matches):
+        source = Path(raw_path.replace("\\", "/"))
+        if not source.is_absolute():
+            source = ROOT / source
+        resolved = source.resolve()
+        if resolved.is_relative_to(ROOT / "src"):
+            target = smallest_test_target_requiring_feature(GAMEPLAY_FEATURE)
+            if target is not None:
+                return f"python tools/run_test.py --build --target {target}"
+        try:
+            target = smallest_test_target_for_source(resolved)
+        except (OSError, ValueError):
+            continue
+        if target is not None:
+            return f"python tools/run_test.py --build --target {target}"
+    return "python tools/run_test.py --build --target gameplay_audit"
 
 
 def command_with_gameplay_replay(

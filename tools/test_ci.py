@@ -1605,12 +1605,12 @@ class TestTopologyContractTests(unittest.TestCase):
             "workshop": "workshop_contract_tests::",
             "survival": "survival_contract_tests::",
             "progression": "progression_contract_tests::",
-            "liberation": "primitive_liberation::generation_tests::",
+            "liberation": "primitive_liberation::investment_tests::",
             "settlement": "settlement_wire_contract_tests::",
-            "foundry-bootstrap": "first_foundry_probe::generation_tests::",
+            "foundry-bootstrap": "first_foundry_generation_contract_tests::",
             "woodworking": "woodworking_contract_tests::",
             "fieldwork": "fieldwork_probe::planning_tests::",
-            "power-provider": "power_provider_probe::generation_tests::",
+            "power-provider": "power_provider_generation_contract_tests::",
             "ore": "ore_contract_tests::",
             "foundry": "foundry_contract_tests::",
         }
@@ -1630,12 +1630,18 @@ class TestTopologyContractTests(unittest.TestCase):
                 f"gameplay contract target {scope} lost owner contracts {prefix}",
             )
 
-    def test_progression_episode_regressions_use_the_progression_contract_target(self) -> None:
+    def test_progression_episode_regressions_use_the_episode_contract_target(self) -> None:
         contracts = run_test.source_test_catalog(
-            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"], None
+            gameplay_targets.GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET, None
         )
         self.assertTrue(
             any(name.startswith("progression_episode_contract_tests::") for name in contracts)
+        )
+        self.assertEqual(
+            run_test.resolve_automatic_suite_target(
+                "progression_episode_contract_tests", None
+            ),
+            gameplay_targets.GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
         )
 
     def test_settlement_contract_target_keeps_all_machine_contract_families(self) -> None:
@@ -1653,6 +1659,80 @@ class TestTopologyContractTests(unittest.TestCase):
                 any(name.startswith(prefix) for name in catalog),
                 f"settlement contract target lost owner {prefix.removesuffix('::')}",
             )
+
+    def test_liberation_generation_contracts_use_the_lightweight_owner_target(self) -> None:
+        target = gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET
+        catalog = run_test.source_test_catalog(target, None)
+        self.assertTrue(catalog)
+        self.assertTrue(
+            all(
+                name.startswith("primitive_liberation_generation_contract_tests::")
+                for name in catalog
+            )
+        )
+
+    def test_lightweight_gameplay_contract_targets_exclude_lived_execution(self) -> None:
+        exclusions = {
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["power-provider"]: {
+                "tests/gameplay_harness/power_provider_probe.rs",
+                "tests/gameplay_harness/power_provider_execution.rs",
+                "tests/gameplay_harness/power_provider_planning.rs",
+            },
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"]: {
+                "tests/gameplay_harness/ore_probe.rs",
+                "tests/gameplay_harness/ore_probe_stages.rs",
+                "tests/gameplay_harness/ore_setup.rs",
+            },
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry-bootstrap"]: {
+                "tests/gameplay_harness/first_foundry_probe.rs",
+                "tests/gameplay_harness/first_foundry_fabrication.rs",
+                "tests/gameplay_harness/first_foundry_probe/recovery.rs",
+            },
+            gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET: {
+                "tests/gameplay_harness/primitive_liberation.rs",
+                "tests/gameplay_harness/primitive_liberation/acquisition.rs",
+                "tests/gameplay_harness/manual_ore_recovery.rs",
+            },
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"]: {
+                "tests/gameplay_harness/woodworking_probe.rs",
+                "tests/gameplay_harness/woodworking_probe/evaluation.rs",
+                "tests/gameplay_harness/woodworking_probe/execution.rs",
+            },
+            gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"]: {
+                "tests/gameplay_harness/progression_probe.rs",
+                "tests/gameplay_harness/progression_episode_contract_tests.rs",
+                "tests/gameplay_harness/progression_probe/steady_state.rs",
+            },
+            gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET: {
+                "tests/gameplay_harness/settlement_fixture.rs",
+                "tests/gameplay_harness/settlement_workshop_investment.rs",
+                "tests/gameplay_harness/settlement_machine_contract_tests.rs",
+            },
+        }
+        for target, excluded in exclusions.items():
+            sources = {
+                path.relative_to(ROOT).as_posix()
+                for path in run_test.target_source_paths(target, None)
+            }
+            with self.subTest(target=target):
+                self.assertTrue(
+                    excluded.isdisjoint(sources),
+                    f"lightweight contract target {target} pulled lived execution modules "
+                    f"{sorted(excluded & sources)}",
+                )
+
+    def test_gameplay_audit_subsumes_shared_and_owner_contract_targets(self) -> None:
+        audit = set(run_test.source_test_catalog(gameplay_targets.GAMEPLAY_AUDIT_TARGET, None))
+        required = set(
+            run_test.source_test_catalog(gameplay_targets.GAMEPLAY_CONTRACTS_TARGET, None)
+        )
+        for target in gameplay_targets.GAMEPLAY_OWNER_CONTRACT_TARGETS:
+            required.update(run_test.source_test_catalog(target, None))
+        self.assertTrue(required)
+        self.assertTrue(
+            required <= audit,
+            f"gameplay audit omitted contract tests {sorted(required - audit)}",
+        )
 
     def test_settlement_report_keeps_specialists_off_the_frequent_probe_target(self) -> None:
         focused_root = run_test.cargo_test_target_path(ci.GAMEPLAY_TARGETS["settlement"])
@@ -1931,6 +2011,42 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertEqual(
             ci.repair_hint(["cargo", "test-core"], output, ""),
             "python tools/run_test.py mining::execution::tests::missing_capability",
+        )
+
+    def test_broad_core_compile_failure_points_to_build_only_library_repair(self) -> None:
+        error = "error[E0425]: missing symbol\n --> src\\core\\time.rs:12:4\n"
+        self.assertEqual(
+            ci.repair_hint(["cargo", "test-core"], "", error),
+            "python tools/run_test.py --build --target lib",
+        )
+
+    def test_broad_gameplay_compile_failure_routes_to_smallest_source_target(self) -> None:
+        error = (
+            "error[E0432]: unresolved import\n"
+            "  --> tests\\gameplay_harness\\settlement_generation_contract_tests.rs:11:71\n"
+        )
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), "", error),
+            "python tools/run_test.py --build --target gameplay_settlement_generation_contracts",
+        )
+
+    def test_broad_gameplay_library_compile_failure_uses_lightest_feature_carrier(self) -> None:
+        error = "error[E0425]: missing symbol\n --> src\\inventory\\storage.rs:10:2\n"
+        target = run_test.smallest_test_target_requiring_feature(ci.GAMEPLAY_FEATURE)
+        self.assertIsNotNone(target)
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), "", error),
+            f"python tools/run_test.py --build --target {target}",
+        )
+
+    def test_focused_gameplay_compile_failure_keeps_its_existing_target_shape(self) -> None:
+        error = (
+            "error[E0425]: missing symbol\n"
+            " --> tests\\gameplay_harness\\settlement_demand.rs:10:2\n"
+        )
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("settlement"), "", error),
+            "python tools/run_test.py --build --target gameplay_settlement",
         )
 
     def test_gameplay_contract_failure_reuses_the_already_built_contract_target(self) -> None:
@@ -4055,6 +4171,13 @@ class ExactTestCommandTests(unittest.TestCase):
             ci.GAMEPLAY_AUDIT_TARGET,
         )
 
+    def test_compile_repair_source_routing_prefers_smallest_purpose_built_target(self) -> None:
+        source = ROOT / "tests" / "gameplay_harness" / "settlement_generation_contract_tests.rs"
+        self.assertEqual(
+            run_test.smallest_test_target_for_source(source),
+            gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
+        )
+
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
             "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
@@ -4066,9 +4189,13 @@ class ExactTestCommandTests(unittest.TestCase):
             "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
             "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
+            "organic_power_workload_sampling_varies_each_disclosed_demand_stratum": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["power-provider"],
             "ore_probe_generation_varies_feed_and_operating_state": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
+            "organic_foundry_worlds_follow_prior_progression_scales_and_vary": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry-bootstrap"],
+            "organic_liberation_generation_varies_live_feed_and_campaign": gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
+            "organic_settlement_generation_varies_visible_demand_without_using_investment_outcomes": gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
             "primitive_recovery_and_reinforcement_routes_remain_connected": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
-            "progression_generators_cover_distinct_search_and_economic_pressures": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
+            "progression_generators_cover_distinct_search_and_economic_pressures": gameplay_targets.GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
             "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
         }
         for selector, expected_target in cases.items():
@@ -4112,8 +4239,12 @@ class ExactTestCommandTests(unittest.TestCase):
             "workshop_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
             "prospecting_instrument_contract_tests": gameplay_targets.GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             "settlement_wire_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
+            "settlement_generation_contract_tests": gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
             "survival_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
             "progression_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
+            "primitive_liberation_generation_contract_tests": gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
+            "first_foundry_generation_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry-bootstrap"],
+            "power_provider_generation_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["power-provider"],
             "ore_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
             "foundry_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],
         }.items():

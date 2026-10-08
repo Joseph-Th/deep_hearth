@@ -308,21 +308,12 @@ fn raw_timber_in_carried_custody_becomes_a_placed_field_box_at_player_voxel() {
         Some(Mass::from_milligrams(1_600_000))
     );
 
-    let target =
-        validate_allocate_ground_stockpile(&state, position, Mass::from_milligrams(10_000_000))
-            .unwrap_or_else(|error| panic!("field-box ground target allocation failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("field-box ground target commit failed: {error}"));
-    validate_build_storage_enclosure(
-        &registries,
-        &state,
-        STORAGE_ROUGH_TIMBER_FIELD_BOX,
-        target,
-        carried,
-    )
-    .unwrap_or_else(|error| panic!("field-box enclosure validation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("field-box enclosure commit failed: {error}"));
+    let placement =
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap_or_else(|error| panic!("field-box placement validation failed: {error}"));
+    let target = placement
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("field-box placement commit failed: {error}"));
 
     let target_record = state
         .inventory()
@@ -333,6 +324,14 @@ fn raw_timber_in_carried_custody_becomes_a_placed_field_box_at_player_voxel() {
             .enclosure()
             .map(|enclosure| enclosure.definition()),
         Some(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+    );
+    assert_eq!(
+        target_record.capacity(),
+        registries
+            .storage()
+            .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .map(|definition| definition.maximum_stockpile_capacity())
+            .unwrap_or_else(|| panic!("field-box definition disappeared"))
     );
     assert_eq!(
         state.logistics().stationary_stockpile_position(target),

@@ -47,22 +47,18 @@ use super::production_timing::finish_uninterrupted_production_job;
 use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 #[path = "first_foundry_probe/casting.rs"]
 mod casting;
-#[cfg(test)]
-include_first_foundry_generation_contract_tests!();
-#[path = "first_foundry_probe/planning.rs"]
-mod planning;
 #[path = "first_foundry_probe/recovery.rs"]
 mod recovery;
 
 use self::casting::resolve_full_cast_after_cooldown;
-use self::planning::{
-    craft_foundry_components, foundry_bootstrap_route_plan, foundry_resource_opportunity,
-    inherited_equipment_condition, select_commodity_mass, settlement_mold_ingot_requirement,
-    settlement_mold_stone_requirement,
-};
 use self::recovery::{
     InheritedProcessingLine, PoweredOreRecoveryPlan, current_processing_batch_limit,
     execute_powered_ore_recovery, minimum_current_powered_ore_feed_for_target_recovery,
+};
+use super::first_foundry_fabrication::{craft_foundry_components, select_commodity_mass};
+use super::first_foundry_planning::{
+    foundry_bootstrap_route_plan, foundry_resource_opportunity, inherited_equipment_condition,
+    settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
 };
 
 #[derive(Clone, Copy)]
@@ -255,6 +251,10 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         &route_plan,
         settlement_ingots,
         settlement_cast_mass,
+        matches!(
+            case.role(),
+            super::focused_case::FocusedProbeRole::MaintainedCoverage
+        ) && case.seed() == super::focused_witnesses::FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED,
     );
     let native_opportunity = resource_opportunity.native;
     let inherited_ore = resource_opportunity.owned_ore;

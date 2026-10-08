@@ -9,6 +9,9 @@ use crate::inventory::{
     StockpileStructuralLoadError, StorageDefinitionId,
 };
 use crate::logistics::PlayerStockpileAccessError;
+use crate::logistics::{
+    GroundStockpileAllocationCommitError, PlayerGroundStockpileAllocationError,
+};
 use crate::material::CommodityKey;
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralCommitError, StructuralElementId};
@@ -81,6 +84,60 @@ pub enum StorageEnclosureConstructionError {
     },
     InventoryRevisionExhausted,
     StructuralLoad(StockpileStructuralLoadError),
+}
+
+/// Failure while validating one ordinary player action that places authored ground storage from
+/// carried construction matter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlayerStoragePlacementError {
+    Allocation(PlayerGroundStockpileAllocationError),
+    Construction(StorageEnclosureConstructionError),
+}
+
+impl Display for PlayerStoragePlacementError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Allocation(error) => {
+                write!(formatter, "storage placement allocation failed: {error}")
+            }
+            Self::Construction(error) => {
+                write!(formatter, "storage placement construction failed: {error}")
+            }
+        }
+    }
+}
+
+impl Error for PlayerStoragePlacementError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Allocation(error) => Some(error),
+            Self::Construction(error) => Some(error),
+        }
+    }
+}
+
+/// Failure when a prevalidated player storage placement no longer matches owner revisions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlayerStoragePlacementCommitError {
+    Allocation(GroundStockpileAllocationCommitError),
+}
+
+impl Display for PlayerStoragePlacementCommitError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Allocation(error) => {
+                write!(formatter, "storage placement commit failed: {error}")
+            }
+        }
+    }
+}
+
+impl Error for PlayerStoragePlacementCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Allocation(error) => Some(error),
+        }
+    }
 }
 
 impl Display for StorageEnclosureConstructionError {

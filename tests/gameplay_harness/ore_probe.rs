@@ -1,18 +1,14 @@
 //! Focused ore-preparation capability probe.
 
-use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::ORE_FINITE_ENERGY_COVERAGE_SEED;
 use super::material_selection::select_stockpile_mass;
-use super::ore_setup::{OrePreparationProbeIds, OrePreparationSetup, setup_ore_preparation_probe};
-use super::production_support::varied_healthy_condition;
+use super::ore_setup::{OrePreparationProbeIds, setup_ore_preparation_probe};
 use super::production_timing::finish_uninterrupted_production_job;
-use super::seed::mix64;
 use deep_hearth::content::{
-    ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_CONCENTRATE, FORM_TAILINGS, MATERIAL_CLAY,
-    MATERIAL_COPPER, MATERIAL_STONE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
+    FORM_CONCENTRATE, FORM_TAILINGS, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE,
+    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::{AggregateMass, Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -28,8 +24,7 @@ use deep_hearth::ore_processing::{
     ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
     ConstituentSeparationResolutionError, ScreeningBatchError, ScreeningProcessDefinition,
     ScreeningRequest, ScreeningResolutionError, resolve_comminution_process,
-    resolve_constituent_separation_process, resolve_representable_screening_mass,
-    resolve_screening_process,
+    resolve_constituent_separation_process, resolve_screening_process,
 };
 use deep_hearth::production::{
     ProcessId, ProcessOutputRoute, validate_start_process, validate_start_process_routed,

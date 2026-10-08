@@ -5,7 +5,7 @@
 mod output;
 
 #[cfg(test)]
-macro_rules! include_primitive_liberation_generation_contract_tests {
+macro_rules! include_primitive_liberation_investment_contract_tests {
     () => {};
 }
 
@@ -51,6 +51,8 @@ mod ore_fixture;
 mod physical_time;
 #[path = "gameplay_harness/primitive_liberation.rs"]
 mod primitive_liberation;
+#[path = "gameplay_harness/primitive_liberation_generation.rs"]
+mod primitive_liberation_generation;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]

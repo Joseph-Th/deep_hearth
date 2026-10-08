@@ -4,11 +4,6 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-#[cfg(test)]
-macro_rules! include_first_foundry_generation_contract_tests {
-    () => {};
-}
-
 #[path = "gameplay_harness/copper_progression_world.rs"]
 mod copper_progression_world;
 #[path = "gameplay_harness/environment.rs"]
@@ -17,8 +12,14 @@ mod environment;
 mod equipment_support;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
 mod exact_local_runtime;
+#[path = "gameplay_harness/first_foundry_fabrication.rs"]
+mod first_foundry_fabrication;
+#[path = "gameplay_harness/first_foundry_probe/planning.rs"]
+mod first_foundry_planning;
 #[path = "gameplay_harness/first_foundry_probe.rs"]
 mod first_foundry_probe;
+#[path = "gameplay_harness/first_foundry_recovery_planning.rs"]
+mod first_foundry_recovery_planning;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
 #[path = "gameplay_harness/focused_runner.rs"]

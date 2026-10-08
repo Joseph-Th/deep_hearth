@@ -5,11 +5,11 @@ use std::collections::BTreeSet;
 use deep_hearth::content::EQUIPMENT_TIMBER_FRAME_SAW_BENCH;
 use deep_hearth::maintenance::Condition;
 
-use super::capital_investment_policy::CapitalInvestmentPolicy;
+use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
+use super::settlement_demand::{organic_lumber_batch_limits, organic_lumber_batches};
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
-    organic_inherited_equipment_condition, organic_investment_policy, organic_lumber_batch_limits,
-    organic_lumber_batches,
+    organic_inherited_equipment_condition, organic_investment_policy,
 };
 
 #[test]
@@ -61,6 +61,20 @@ fn crossover_workloads_stay_on_their_live_economic_sides_and_vary_with_entropy()
 
 #[test]
 fn organic_settlement_generation_varies_visible_demand_without_using_investment_outcomes() {
+    let baseline = CapitalInvestmentPolicy::baseline();
+    let return_floor = baseline.minimum_attention_return(100, 600);
+    assert!(return_floor > 0);
+    assert!(clears_attention_return(
+        10_000,
+        10_000 - return_floor,
+        return_floor
+    ));
+    assert!(!clears_attention_return(
+        10_000,
+        10_001 - return_floor,
+        return_floor,
+    ));
+
     let opportunity_batches = SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES;
     let (minimum_batches, maximum_batches) = organic_lumber_batch_limits(opportunity_batches);
     let demands = (0_u64..=127)

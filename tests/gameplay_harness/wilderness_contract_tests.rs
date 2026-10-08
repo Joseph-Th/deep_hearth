@@ -20,11 +20,11 @@ use deep_hearth::crafting::{
     ManualCraftStartRequest, plan_manual_craft_from_stockpile, validate_start_manual_craft,
 };
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
-use deep_hearth::inventory::{MaterialLotSelection, StockpileId, validate_build_storage_enclosure};
+use deep_hearth::inventory::{MaterialLotSelection, StockpileId, validate_place_player_storage};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
-    assess_player_carrying, validate_allocate_player_ground_stockpile, validate_drop_to_ground,
-    validate_initialize_player_logistics, validate_place_fluid_store,
+    assess_player_carrying, validate_drop_to_ground, validate_initialize_player_logistics,
+    validate_place_fluid_store,
 };
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
@@ -441,23 +441,13 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         .storage()
         .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
         .unwrap_or_else(|| panic!("wilderness field-box storage definition disappeared"));
-    let provisions = validate_allocate_player_ground_stockpile(
-        &state,
-        field_box_storage.maximum_stockpile_capacity(),
-    )
-    .unwrap_or_else(|error| panic!("wilderness provisions stockpile allocation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("wilderness provisions stockpile commit failed: {error}"));
-    validate_build_storage_enclosure(
-        &registries,
-        &state,
-        STORAGE_ROUGH_TIMBER_FIELD_BOX,
-        provisions,
-        carried,
-    )
-    .unwrap_or_else(|error| panic!("wilderness field-box construction failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("wilderness field-box construction commit failed: {error}"));
+    let provisions =
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap_or_else(|error| panic!("wilderness field-box placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness field-box placement commit failed: {error}")
+            });
     let built_provisions = provisions;
     let provisions = state
         .available_local_ground_stockpiles()

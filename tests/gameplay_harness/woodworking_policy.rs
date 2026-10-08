@@ -28,12 +28,15 @@ impl WoodworkingInvestmentPreference {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WoodworkingInvestmentReason {
+    #[allow(dead_code, reason = "assigned by the lived woodworking evaluator")]
     BareHandsAvoidsInvestmentCost,
     CopperSupplyLimited,
     CopperReserveProtected,
     SetupAttentionBudgetExceeded,
     SurplusCopperWithinSetupBudget,
+    #[allow(dead_code, reason = "assigned by the lived woodworking evaluator")]
     ReinforcedAdzePreservesCopper,
+    #[allow(dead_code, reason = "assigned by the lived woodworking evaluator")]
     ReinforcedAdzeRepaysAttention,
     PipelineTimberCostNotRecovered,
     PipelineTimberNeutralOutsideSetupBudget,

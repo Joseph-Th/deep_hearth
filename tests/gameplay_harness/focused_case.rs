@@ -9,6 +9,10 @@ pub(crate) enum FocusedProbeRole {
 }
 
 impl FocusedProbeRole {
+    #[allow(
+        dead_code,
+        reason = "lightweight contract targets may consume role identity without report labels"
+    )]
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::MaintainedAnchor => "anchor",
@@ -44,6 +48,10 @@ impl FocusedProbeCase {
         self.world_seed
     }
 
+    #[allow(
+        dead_code,
+        reason = "lightweight contract targets may consume world identity without actor-policy entropy"
+    )]
     pub(crate) const fn behavior_seed(self) -> Option<u64> {
         self.behavior_seed
     }

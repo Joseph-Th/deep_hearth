@@ -1,5 +1,9 @@
 //! Deterministic seed mixing shared by gameplay harnesses.
 
+#[allow(
+    dead_code,
+    reason = "lightweight contract targets may consume only deterministic seed mixing"
+)]
 pub(super) const MAINTAINED_VARIATION_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
 
 pub(super) fn mix64(mut value: u64) -> u64 {
@@ -14,6 +18,10 @@ pub(super) fn mix64(mut value: u64) -> u64 {
 /// The collision search is deliberately bounded. Generated gameplay samples are tiny, so needing
 /// more probes than the number of already reserved seeds indicates a broken seed-generation
 /// assumption and should fail the evaluator instead of allowing an accidental infinite search.
+#[allow(
+    dead_code,
+    reason = "lightweight contract targets may consume only deterministic seed mixing"
+)]
 pub(super) fn unique_mixed_seed(mut candidate: u64, reserved: &[u64]) -> u64 {
     let attempt_budget = reserved
         .len()

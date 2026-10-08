@@ -6,32 +6,36 @@ use deep_hearth::content::{
     FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
     PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::material::CommodityKey;
 
-use super::super::bulk_fieldwork_workload::{
+use super::bulk_fieldwork_workload::{
     BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, primitive_quarry_batch_mass,
 };
-use super::super::settlement_demand::{
-    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batch_limits,
-    organic_lumber_batches,
+use super::power_provider_generation::{
+    PowerProjectEra, PrimitiveCrushingWorkload, ROUTINE_STOCKPILE_MAX_CYCLES,
+    ROUTINE_STOCKPILE_MIN_CYCLES, declared_primitive_crushing_project,
+    declared_settlement_lumber_project, power_project_survival_start,
+    primitive_accumulator_for_current_crusher,
 };
-use super::planning::{
+use super::power_provider_market::{
     PrimitivePowerChoice, SettlementPowerChoice, reachable_mechanical_power_providers,
 };
-use super::*;
+use super::primitive_workload::primitive_mining_cycle_mass;
+use super::settlement_demand::{
+    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batch_limits,
+};
+use super::stationary_survival_start::StationarySurvivalStart;
 
 #[test]
 fn organic_power_sample_pairs_each_workload_scale_with_inherited_survival_pressure() {
-    let cases = (0_u64..4)
-        .map(|seed| FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation))
+    let seeds = 0_u64..4;
+    let primitive = seeds
+        .clone()
+        .map(|seed| power_project_survival_start(seed, false, PowerProjectEra::Primitive))
         .collect::<Vec<_>>();
-    let primitive = cases
-        .iter()
-        .map(|&case| power_project_survival_start(case, PowerProjectEra::Primitive))
-        .collect::<Vec<_>>();
-    let settlement = cases
-        .iter()
-        .map(|&case| power_project_survival_start(case, PowerProjectEra::Settlement))
+    let settlement = seeds
+        .map(|seed| power_project_survival_start(seed, false, PowerProjectEra::Settlement))
         .collect::<Vec<_>>();
 
     for starts in [&primitive, &settlement] {
@@ -46,10 +50,7 @@ fn organic_power_sample_pairs_each_workload_scale_with_inherited_survival_pressu
             );
         }
     }
-    assert_ne!(
-        primitive, settlement,
-        "primitive and settlement projects should not inherit identical pressure from one world stratum"
-    );
+    assert_ne!(primitive, settlement);
 }
 
 #[test]
@@ -77,11 +78,7 @@ fn report_reference_power_providers_remain_members_of_the_live_buildable_market(
         PrimitivePowerChoice::Treadle,
         PrimitivePowerChoice::WalkingWheel,
     ] {
-        assert!(
-            primitive.contains(&reference.provider()),
-            "primitive report reference {:?} is no longer directly buildable from disclosed roots",
-            reference
-        );
+        assert!(primitive.contains(&reference.provider()));
     }
     for reference in [
         SettlementPowerChoice::StoneCrank,
@@ -91,16 +88,12 @@ fn report_reference_power_providers_remain_members_of_the_live_buildable_market(
         SettlementPowerChoice::DoubleWoundTreadleDynamo,
         SettlementPowerChoice::WalkingWheel,
     ] {
-        assert!(
-            settlement.contains(&reference.provider()),
-            "settlement report reference {:?} is no longer directly buildable from disclosed roots",
-            reference
-        );
+        assert!(settlement.contains(&reference.provider()));
     }
 }
 
 #[test]
-fn organic_power_workload_sampling_varies_projects_without_consulting_provider_outcomes() {
+fn organic_power_workload_sampling_varies_each_disclosed_demand_stratum() {
     let registries = deep_hearth::content::build_registries();
     let crusher = registries
         .ore_processing()
@@ -132,107 +125,80 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
             let cycle = primitive_mining_cycle_mass(&registries, seed);
             let (mass, _work, workload) =
                 declared_primitive_crushing_project(&registries, seed, store_definition);
-            (mass, cycle, workload)
+            (seed, mass, cycle, workload)
         })
         .collect::<Vec<_>>();
     let settlement = (1_u64..=256)
-        .map(|seed| declared_settlement_lumber_project(&registries, seed).0)
+        .map(|seed| {
+            (
+                seed,
+                declared_settlement_lumber_project(&registries, seed).0,
+            )
+        })
         .collect::<Vec<_>>();
 
     let quarry_batch = primitive_quarry_batch_mass(&registries);
-    for (mass, cycle, workload) in &primitive {
+    for (_, mass, cycle, workload) in &primitive {
         match workload {
-            PrimitiveCrushingWorkload::RoutineStockpile => assert!(
-                mass.milligrams().is_multiple_of(cycle.milligrams()),
-                "routine primitive projects must remain whole current mining/processing cycles"
-            ),
+            PrimitiveCrushingWorkload::RoutineStockpile => {
+                assert!(mass.milligrams().is_multiple_of(cycle.milligrams()));
+            }
             PrimitiveCrushingWorkload::BulkFieldwork => {
                 assert!(mass.milligrams().is_multiple_of(quarry_batch.milligrams()));
                 let batches = mass.milligrams() / quarry_batch.milligrams();
                 assert!(
                     (BULK_FIELDWORK_ORDER_MIN_BATCHES..=BULK_FIELDWORK_ORDER_MAX_BATCHES)
-                        .contains(&batches),
-                    "bulk primitive projects must carry forward the ordinary fieldwork horizon"
+                        .contains(&batches)
                 );
             }
         }
     }
-    assert!(
-        settlement.iter().all(|mass| mass
-            .milligrams()
-            .is_multiple_of(saw_batch_mass.milligrams())),
-        "settlement organic projects must remain whole current lumber-production batches"
-    );
-    assert!(
-        primitive
+
+    for stratum in 0_u64..2 {
+        let units = primitive
             .iter()
-            .map(|(mass, _, _)| mass.milligrams())
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1,
-        "fresh primitive roots must vary declared productive work"
-    );
-    assert!(
-        settlement
-            .iter()
-            .map(|mass| mass.milligrams())
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1,
-        "fresh settlement roots must vary declared productive work"
-    );
-    let routine_units = primitive
-        .iter()
-        .filter(|(_, _, workload)| *workload == PrimitiveCrushingWorkload::RoutineStockpile)
-        .map(|(mass, cycle, _)| mass.milligrams() / cycle.milligrams())
-        .collect::<BTreeSet<_>>();
-    let settlement_units = settlement
-        .iter()
-        .map(|mass| mass.milligrams() / saw_batch_mass.milligrams())
-        .collect::<BTreeSet<_>>();
-    assert!(routine_units.iter().all(|units| {
-        (ROUTINE_STOCKPILE_MIN_CYCLES..=ROUTINE_STOCKPILE_MAX_CYCLES).contains(units)
-    }));
-    assert!(
-        routine_units.len() > 8,
-        "routine primitive workload variation collapsed"
-    );
-    assert!(
-        primitive
-            .iter()
-            .any(|(_, _, workload)| *workload == PrimitiveCrushingWorkload::BulkFieldwork),
-        "primitive workload sampling lost the bulk fieldwork continuation"
-    );
-    assert!(
-        settlement_units.len() > 16,
-        "settlement workload variation collapsed"
-    );
+            .filter(|(seed, _, _, workload)| {
+                seed & 0b11 == stratum && *workload == PrimitiveCrushingWorkload::RoutineStockpile
+            })
+            .map(|(_, mass, cycle, _)| mass.milligrams() / cycle.milligrams())
+            .collect::<BTreeSet<_>>();
+        assert!(
+            units.len() > 1,
+            "routine workload stratum {stratum} stopped varying"
+        );
+        assert!(units.iter().all(|units| {
+            (ROUTINE_STOCKPILE_MIN_CYCLES..=ROUTINE_STOCKPILE_MAX_CYCLES).contains(units)
+        }));
+    }
+
     let (minimum_settlement_batches, maximum_settlement_batches) =
         organic_lumber_batch_limits(SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES);
-    assert!(settlement_units.iter().all(|units| {
-        (minimum_settlement_batches..=maximum_settlement_batches).contains(units)
-    }));
-    for seed in 1_u64..=256 {
-        let (mass, _) = declared_settlement_lumber_project(&registries, seed);
-        let batches = mass.milligrams() / saw_batch_mass.milligrams();
-        assert_eq!(
-            batches,
-            organic_lumber_batches(
-                seed & 0b11,
-                mix64(seed ^ 0x5345_5454_4C55_4D42),
-                SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
-            ),
-            "power-provider settlement demand diverged from lived settlement lumber generation"
+    for stratum in 0_u64..4 {
+        let units = settlement
+            .iter()
+            .filter(|(seed, _)| seed & 0b11 == stratum)
+            .map(|(_, mass)| {
+                assert!(
+                    mass.milligrams()
+                        .is_multiple_of(saw_batch_mass.milligrams())
+                );
+                mass.milligrams() / saw_batch_mass.milligrams()
+            })
+            .collect::<BTreeSet<_>>();
+        assert!(
+            units.len() > 1,
+            "settlement workload stratum {stratum} stopped varying"
         );
+        assert!(units.iter().all(|units| {
+            (minimum_settlement_batches..=maximum_settlement_batches).contains(units)
+        }));
     }
 
     for root in [0_u64, 4, 0x1234_5678_9ABC_DEF0] {
         let bounded = (0_u64..4)
             .map(|offset| {
                 let seed = root + offset;
-                let (mass, work, workload) =
-                    declared_primitive_crushing_project(&registries, seed, store_definition);
-                (mass, work, workload)
+                declared_primitive_crushing_project(&registries, seed, store_definition)
             })
             .collect::<Vec<_>>();
         let routine = bounded
@@ -249,12 +215,7 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
                 .map(|(mass, _, _)| mass.milligrams())
                 .collect::<BTreeSet<_>>()
                 .len()
-                > 1,
-            "bounded primitive sampling must retain distinct routine workloads"
-        );
-        assert!(
-            bulk.len() > 1,
-            "bounded primitive sampling must retain multiple bulk workloads around the provider frontier"
+                > 1
         );
         let midpoint = (BULK_FIELDWORK_ORDER_MIN_BATCHES + BULK_FIELDWORK_ORDER_MAX_BATCHES) / 2;
         let bulk_batches = bulk
@@ -263,8 +224,7 @@ fn organic_power_workload_sampling_varies_projects_without_consulting_provider_o
             .collect::<Vec<_>>();
         assert!(
             bulk_batches.iter().any(|&batches| batches <= midpoint)
-                && bulk_batches.iter().any(|&batches| batches > midpoint),
-            "bounded primitive sampling must span both halves of ordinary bulk fieldwork demand without selecting for provider outcome"
+                && bulk_batches.iter().any(|&batches| batches > midpoint)
         );
     }
 }

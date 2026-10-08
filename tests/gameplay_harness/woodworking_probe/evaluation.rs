@@ -6,13 +6,15 @@ use super::super::focused_witnesses::{
     WOODWORKING_REINFORCED_RESERVE_COVERAGE_SEED, WOODWORKING_SAW_SERVICE_COVERAGE_SEED,
     WOODWORKING_SHORT_QUEUE_COVERAGE_SEED, WOODWORKING_TIMBER_NEUTRAL_COVERAGE_SEED,
 };
-use super::super::primitive_workload::primitive_mining_cycle_mass;
 use super::execution::{
     AdzePipelinePlan, SawPipelinePlan, SawSetup, WoodworkingRouteOutcome, assemble_adze,
     assemble_saw, authored_output_mass, checked_mass_times, execute_adze_pipeline,
     execute_bare_pipeline, execute_saw_pipeline, project_saw_setup_budget, projected_board_mass,
 };
 use super::*;
+use crate::woodworking_generation::{
+    WoodworkingDemandPlan, organic_woodworking_native_copper, plan_woodworking_demand,
+};
 
 #[cfg(not(test))]
 #[path = "evaluation/report.rs"]
@@ -20,119 +22,6 @@ mod report;
 
 pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeCase) {
     evaluate_woodworking_probe(registries, case);
-}
-
-fn organic_woodworking_native_copper(registries: &Registries, seed: u64) -> Mass {
-    // Woodworking inherits already-won copper from primitive progression. Size that physical
-    // opportunity from the played primitive mining-cycle scale, not from the saw-blade requirement
-    // or the actor's protected future reserve. Route affordability must emerge after admission.
-    let prior_cycle = primitive_mining_cycle_mass(registries, seed);
-    let scale_ppm = 50_000_u64 + mix64(seed ^ 0x574F_4F44_434F_5050) % 2_450_001;
-    let milligrams = prior_cycle
-        .milligrams()
-        .checked_mul(scale_ppm)
-        .map(|scaled| scaled / 1_000_000)
-        .unwrap_or_else(|| panic!("woodworking inherited copper opportunity overflowed"));
-    Mass::from_milligrams(milligrams)
-}
-
-#[derive(Clone, Copy)]
-struct WoodworkingDemandPlan {
-    #[cfg_attr(test, allow(dead_code, reason = "exploratory report label"))]
-    horizon: &'static str,
-    immediate_scale: u64,
-    immediate_boards: Mass,
-    pipeline_boards: Mass,
-    adze_batches: u64,
-    saw_batches: u64,
-    adze_input_mass: Mass,
-    saw_input_mass: Mass,
-}
-
-fn plan_woodworking_demand(
-    registries: &Registries,
-    seed: u64,
-    stratified: bool,
-) -> WoodworkingDemandPlan {
-    let adze_board_definition = registries
-        .crafting()
-        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
-        .unwrap_or_else(|| panic!("woodworking adze board process disappeared"));
-    let saw_board_definition = registries
-        .crafting()
-        .get_manual(PROCESS_SAW_WOOD_BOARDS)
-        .unwrap_or_else(|| panic!("woodworking saw board process disappeared"));
-    let board_commodity = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
-    let adze_board_mass_per_batch = authored_output_mass(adze_board_definition, board_commodity);
-    let saw_board_mass_per_batch = authored_output_mass(saw_board_definition, board_commodity);
-    let immediate_roll = mix64(seed ^ 0x574F_4F44_5052_4F4A);
-    let queued_roll = mix64(seed ^ 0x574F_4F44_5155_4555);
-    let (horizon, immediate_scale, queued_scale) = if stratified {
-        // Low world-seed bits are a disclosed workload stratum, not an expected route. A four-case
-        // exploratory sample therefore spans genuinely small work, a short queue, and two project
-        // scales while the remaining seed entropy still varies the exact order inside each band.
-        match seed & 0b11 {
-            0 => ("immediate-only", 1 + immediate_roll % 3, 0),
-            1 => (
-                "short-queue",
-                2 + immediate_roll % 4,
-                1 + (queued_roll >> 8) % 6,
-            ),
-            2 => (
-                "project",
-                3 + immediate_roll % 5,
-                16 + (queued_roll >> 8) % 18,
-            ),
-            _ => (
-                "project",
-                8 + immediate_roll % 5,
-                34 + (queued_roll >> 8) % 17,
-            ),
-        }
-    } else {
-        let project_queue = queued_roll % 51;
-        match project_queue {
-            0..=5 => ("immediate-only", 1 + immediate_roll % 3, 0),
-            6..=15 => (
-                "short-queue",
-                2 + immediate_roll % 4,
-                1 + (queued_roll >> 8) % 6,
-            ),
-            _ => ("project", 3 + immediate_roll % 10, project_queue),
-        }
-    };
-    let pipeline_scale = immediate_scale
-        .checked_add(queued_scale)
-        .unwrap_or_else(|| panic!("woodworking demand horizon overflowed"));
-    let immediate_boards = Mass::from_milligrams(
-        adze_board_mass_per_batch
-            .milligrams()
-            .checked_mul(immediate_scale)
-            .unwrap_or_else(|| panic!("woodworking board demand overflowed")),
-    );
-    let pipeline_boards = Mass::from_milligrams(
-        adze_board_mass_per_batch
-            .milligrams()
-            .checked_mul(pipeline_scale)
-            .unwrap_or_else(|| panic!("woodworking pipeline board demand overflowed")),
-    );
-    let adze_batches = pipeline_boards
-        .milligrams()
-        .div_ceil(adze_board_mass_per_batch.milligrams());
-    let saw_batches = pipeline_boards
-        .milligrams()
-        .div_ceil(saw_board_mass_per_batch.milligrams());
-    assert_eq!(adze_batches, pipeline_scale);
-    WoodworkingDemandPlan {
-        horizon,
-        immediate_scale,
-        immediate_boards,
-        pipeline_boards,
-        adze_batches,
-        saw_batches,
-        adze_input_mass: adze_board_definition.input_mass(),
-        saw_input_mass: saw_board_definition.input_mass(),
-    }
 }
 
 struct WoodworkingWorld {
@@ -1357,6 +1246,3 @@ fn evaluate_woodworking_probe(
         metrics.saw_total_attention,
     )
 }
-
-#[cfg(test)]
-include_woodworking_evaluation_contract_tests!();

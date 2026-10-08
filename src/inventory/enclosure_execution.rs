@@ -1,7 +1,10 @@
 //! Material-backed construction of preservation enclosures around existing stockpiles.
 
 use crate::core::state::AppState;
-use crate::logistics::validate_player_stockpile_access;
+use crate::logistics::{
+    ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile,
+    validate_player_stockpile_access,
+};
 use crate::registry::Registries;
 
 use super::storage_validation::validate_stockpile_storage_profile;
@@ -16,7 +19,10 @@ use super::{
 
 mod errors;
 
-pub use errors::{StorageEnclosureCommitError, StorageEnclosureConstructionError};
+pub use errors::{
+    PlayerStoragePlacementCommitError, PlayerStoragePlacementError, StorageEnclosureCommitError,
+    StorageEnclosureConstructionError,
+};
 
 /// Revision-bound proof that exact construction matter can become one stockpile enclosure.
 #[must_use]
@@ -32,10 +38,132 @@ pub struct ValidatedStorageEnclosureConstruction {
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
+/// Revision-bound ordinary player placement of one authored storage enclosure from carried matter.
+///
+/// The token composes the implementation-only empty target allocation with exact enclosure-body
+/// egress so the player action creates a finished local store rather than exposing an intermediate
+/// ambient stockpile.
+#[must_use]
+pub struct ValidatedPlayerStoragePlacement {
+    allocation: ValidatedGroundStockpileAllocation,
+    next_inventory_revision: u64,
+    next_profile: StockpileStorageProfile,
+    enclosure: StockpileEnclosureRecord,
+    egress: ValidatedMaterialEgress,
+}
+
 struct EnclosureMaterialPlan {
     embodied_material: Vec<ConsumedMaterialTrace>,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
+}
+
+impl ValidatedPlayerStoragePlacement {
+    #[must_use]
+    pub const fn stockpile(&self) -> StockpileId {
+        self.allocation.stockpile()
+    }
+
+    /// Creates the local target, transfers its carried construction matter, and applies the
+    /// authored storage profile. Typed failure can only occur before target allocation mutates
+    /// state; the remaining steps are consequences of the same prevalidated snapshot.
+    pub fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<StockpileId, PlayerStoragePlacementCommitError> {
+        let target = self
+            .allocation
+            .commit(state)
+            .map_err(PlayerStoragePlacementCommitError::Allocation)?;
+        self.egress.assert_matches_state(state.inventory());
+        apply_material_egress(state.inventory_state_mut(), self.egress);
+        let at = self.enclosure.created_at();
+        state.inventory_state_mut().apply_storage_enclosure(
+            target,
+            StockpileStorageProfile::unbounded_solid_only(),
+            self.next_profile,
+            self.enclosure,
+            at,
+            self.next_inventory_revision,
+        );
+        Ok(target)
+    }
+}
+
+/// Validates placing one authored storage enclosure from the player's carried inventory at the
+/// player's exact current voxel.
+///
+/// This is the ordinary direct-manipulation boundary. Capacity comes from the authored storage
+/// definition, the exact enclosure body comes from carried custody, and the implementation-only
+/// empty stockpile allocation never becomes a separate player decision. Lower-level allocation and
+/// enclosure APIs remain available for world/bootstrap setup and improving existing stockpiles.
+pub fn validate_place_player_storage(
+    registries: &Registries,
+    state: &AppState,
+    definition: StorageDefinitionId,
+) -> Result<ValidatedPlayerStoragePlacement, PlayerStoragePlacementError> {
+    let definition_record =
+        registries
+            .storage()
+            .get(definition)
+            .ok_or(PlayerStoragePlacementError::Construction(
+                StorageEnclosureConstructionError::UnknownDefinition { definition },
+            ))?;
+    let source = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .ok_or(PlayerStoragePlacementError::Allocation(
+            crate::logistics::PlayerGroundStockpileAllocationError::PlayerNotInitialized,
+        ))?;
+    validate_player_stockpile_access(state, source)
+        .map_err(StorageEnclosureConstructionError::SourceAccess)
+        .map_err(PlayerStoragePlacementError::Construction)?;
+    let selection = select_enclosure_material(state, definition_record, source)
+        .map_err(PlayerStoragePlacementError::Construction)?;
+    let material_plan = plan_enclosure_materials(registries, state, source, selection)
+        .map_err(PlayerStoragePlacementError::Construction)?;
+    assert!(
+        material_plan.structural_load.is_none(),
+        "player-carried construction custody cannot own a structural stored-matter load"
+    );
+    if !state.can_spend_inventory_revisions(3) {
+        return Err(PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::InventoryRevisionExhausted,
+        ));
+    }
+    let egress = material_plan
+        .egress
+        .after_empty_stockpile_allocation()
+        .map_err(|error| match error {
+            MaterialEgressError::RevisionExhausted => PlayerStoragePlacementError::Construction(
+                StorageEnclosureConstructionError::InventoryRevisionExhausted,
+            ),
+            MaterialEgressError::StaleSelection { .. } => {
+                unreachable!("current enclosure selection cannot be stale before placement")
+            }
+        })?;
+    let allocation = validate_allocate_player_ground_stockpile(
+        state,
+        definition_record.maximum_stockpile_capacity(),
+    )
+    .map_err(PlayerStoragePlacementError::Allocation)?;
+    let next_inventory_revision = state
+        .inventory()
+        .revision()
+        .checked_add(3)
+        .unwrap_or_else(|| unreachable!("placement headroom includes all inventory mutations"));
+    Ok(ValidatedPlayerStoragePlacement {
+        allocation,
+        next_inventory_revision,
+        next_profile: definition_record.storage_profile(),
+        enclosure: StockpileEnclosureRecord::new(
+            definition,
+            material_plan.embodied_material,
+            state.tick(),
+        ),
+        egress,
+    })
 }
 
 impl ValidatedStorageEnclosureConstruction {

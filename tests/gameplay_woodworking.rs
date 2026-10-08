@@ -10,11 +10,6 @@ macro_rules! include_woodworking_policy_contract_tests {
     () => {};
 }
 
-#[cfg(test)]
-macro_rules! include_woodworking_evaluation_contract_tests {
-    () => {};
-}
-
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[allow(
@@ -61,6 +56,8 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[path = "gameplay_harness/woodworking_generation.rs"]
+mod woodworking_generation;
 #[path = "gameplay_harness/woodworking_policy.rs"]
 mod woodworking_policy;
 #[path = "gameplay_harness/woodworking_probe.rs"]

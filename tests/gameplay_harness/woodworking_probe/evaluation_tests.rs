@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::*;
+use super::woodworking_generation::{organic_woodworking_native_copper, plan_woodworking_demand};
 
 #[test]
 fn organic_woodworking_generation_varies_demand_and_disclosed_copper_pressure() {
@@ -10,6 +10,14 @@ fn organic_woodworking_generation_varies_demand_and_disclosed_copper_pressure() 
     let demands = (1_u64..=64)
         .map(|seed| plan_woodworking_demand(&registries, seed, true))
         .collect::<Vec<_>>();
+    for demand in &demands {
+        assert!(!demand.immediate_boards.is_zero());
+        assert!(demand.pipeline_boards >= demand.immediate_boards);
+        assert!(demand.adze_batches >= demand.immediate_scale);
+        assert!(demand.saw_batches > 0);
+        assert!(!demand.adze_input_mass.is_zero());
+        assert!(!demand.saw_input_mass.is_zero());
+    }
     assert!(
         demands
             .iter()
@@ -29,13 +37,13 @@ fn organic_woodworking_generation_varies_demand_and_disclosed_copper_pressure() 
         "organic woodworking generation collapsed to one disclosed workload"
     );
 
-    let worlds = (1_u64..=32)
-        .map(|seed| build_woodworking_world(&registries, seed, true))
+    let copper = (1_u64..=32)
+        .map(|seed| organic_woodworking_native_copper(&registries, seed))
         .collect::<Vec<_>>();
     assert!(
-        worlds
+        copper
             .iter()
-            .map(|world| visible_native_copper(world).milligrams())
+            .map(|mass| mass.milligrams())
             .collect::<BTreeSet<_>>()
             .len()
             > 16,

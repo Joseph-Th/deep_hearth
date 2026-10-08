@@ -17,7 +17,7 @@ use deep_hearth::thermal::{
 };
 
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
-use super::planning::select_commodity_mass;
+use crate::first_foundry_fabrication::select_commodity_mass;
 
 fn advance_passive_cooldown_tick(registries: &Registries, state: &mut AppState) {
     assert_eq!(

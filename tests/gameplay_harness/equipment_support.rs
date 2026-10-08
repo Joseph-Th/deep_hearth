@@ -24,6 +24,10 @@ pub(super) fn pristine_equipment_capability(
     })
 }
 
+#[allow(
+    dead_code,
+    reason = "lightweight harness targets may consume only pristine generic capabilities"
+)]
 pub(super) fn nominal_equipment_mass_capability(
     registries: &Registries,
     equipment: EquipmentDefinitionId,

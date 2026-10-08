@@ -5,11 +5,6 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-#[cfg(test)]
-macro_rules! include_power_provider_generation_contract_tests {
-    () => {};
-}
-
 #[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
 mod bulk_fieldwork_workload;
 #[path = "gameplay_harness/capital_investment_policy.rs"]
@@ -62,6 +57,10 @@ mod ore_fixture;
 #[cfg(not(test))]
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
+#[path = "gameplay_harness/power_provider_generation.rs"]
+mod power_provider_generation;
+#[path = "gameplay_harness/power_provider_market.rs"]
+mod power_provider_market;
 #[path = "gameplay_harness/power_provider_probe.rs"]
 mod power_provider_probe;
 #[path = "gameplay_harness/primitive_workload.rs"]
@@ -76,6 +75,8 @@ mod seed_input;
 mod settlement_demand;
 #[path = "gameplay_harness/stationary_survival.rs"]
 mod stationary_survival;
+#[path = "gameplay_harness/stationary_survival_start.rs"]
+mod stationary_survival_start;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 

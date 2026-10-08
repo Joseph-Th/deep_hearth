@@ -32,8 +32,10 @@ pub use enclosure_dismantling::{
     ValidatedStorageEnclosureDismantlingStart, validate_start_storage_enclosure_dismantling,
 };
 pub use enclosure_execution::{
-    StorageEnclosureCommitError, StorageEnclosureConstructionError,
+    PlayerStoragePlacementCommitError, PlayerStoragePlacementError, StorageEnclosureCommitError,
+    StorageEnclosureConstructionError, ValidatedPlayerStoragePlacement,
     ValidatedStorageEnclosureConstruction, validate_build_storage_enclosure,
+    validate_place_player_storage,
 };
 pub use enclosure_validation::StorageEnclosureValidationError;
 pub(crate) use enclosure_validation::validate_loaded_storage_enclosures;

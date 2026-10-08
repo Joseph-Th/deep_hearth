@@ -17,24 +17,7 @@ use super::exact_local_runtime::{
     assert_exact_local_runtime_ready, initialize_stationary_player_logistics,
     locate_stationary_endpoints,
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum StationarySurvivalStart {
-    FullReserve,
-    HungerWarningBoundary,
-    HydrationWarningBoundary,
-}
-
-impl StationarySurvivalStart {
-    #[cfg(not(test))]
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::FullReserve => "full-reserve",
-            Self::HungerWarningBoundary => "hunger-warning-boundary",
-            Self::HydrationWarningBoundary => "hydration-warning-boundary",
-        }
-    }
-}
+use super::stationary_survival_start::StationarySurvivalStart;
 
 /// Admits one stationary episode with an explicit, disclosed inherited survival state.
 ///

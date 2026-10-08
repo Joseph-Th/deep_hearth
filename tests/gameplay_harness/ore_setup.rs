@@ -7,17 +7,16 @@ use super::environment::ROOM_TEMPERATURE;
 use super::industrial_support::install_equipment_on_grounded_support;
 use super::inventory_support::add_solid_stockpile;
 use super::ore_fixture::copper_ore_composition;
+use super::ore_probe_parameters::OrePreparationSetup;
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,
     EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_ORE, MATERIAL_COPPER,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreId;
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
-use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 
@@ -36,18 +35,6 @@ pub(super) struct OrePreparationProbeIds {
     pub(super) screen: EquipmentId,
     pub(super) separator: EquipmentId,
     pub(super) drive: EnergyStoreId,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct OrePreparationSetup {
-    pub(super) batch_mass: Mass,
-    pub(super) copper_ppm: u32,
-    pub(super) clay_share_ppm: u32,
-    pub(super) crusher_condition: Condition,
-    pub(super) grinder_condition: Condition,
-    pub(super) screen_condition: Condition,
-    pub(super) separator_condition: Condition,
-    pub(super) drive_energy: Energy,
 }
 
 pub(super) fn setup_ore_preparation_probe(

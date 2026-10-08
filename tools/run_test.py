@@ -214,6 +214,50 @@ def target_source_paths(target: str, raw_features: str | None) -> frozenset[Path
     )
 
 
+def smallest_test_target_for_source(
+    source: Path,
+    raw_features: str | None = None,
+) -> str | None:
+    """Return the smallest explicit test target that directly includes one Rust source file.
+
+    This is compile-repair routing, not semantic test selection. Broad aggregate targets often
+    include the same harness source as a much smaller purpose-built target. Prefer that smaller
+    target so a syntax/type/import repair does not repeatedly rebuild the aggregate harness.
+    """
+
+    resolved = source.resolve()
+    candidates = {
+        target
+        for target in test_targets()
+        if resolved in target_source_paths(target, raw_features)
+    }
+    if not candidates:
+        return None
+    audit = gameplay_targets.GAMEPLAY_AUDIT_TARGET
+    purpose_built = candidates - {audit}
+    pool = purpose_built or candidates
+    return min(pool, key=lambda target: (len(target_source_paths(target, raw_features)), target))
+
+
+def smallest_test_target_requiring_feature(
+    feature: str,
+    raw_features: str | None = None,
+) -> str | None:
+    """Return the lightest explicit test crate that enables one required Cargo feature."""
+
+    candidates = [
+        definition["name"]
+        for definition in cargo_manifest().get("test", [])
+        if feature in definition.get("required-features", [])
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda target: (len(target_source_paths(target, raw_features)), target),
+    )
+
+
 def preferred_target(targets: set[str]) -> str:
     """Select the unique purpose-built owner; use the consolidated audit only as fallback."""
 

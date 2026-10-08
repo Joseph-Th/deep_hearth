@@ -22,31 +22,10 @@ macro_rules! include_woodworking_policy_contract_tests {
     };
 }
 
-macro_rules! include_first_foundry_generation_contract_tests {
+macro_rules! include_primitive_liberation_investment_contract_tests {
     () => {
-        #[path = "first_foundry_probe/generation_tests.rs"]
-        mod generation_tests;
-    };
-}
-
-macro_rules! include_primitive_liberation_generation_contract_tests {
-    () => {
-        #[path = "primitive_liberation/generation_tests.rs"]
-        mod generation_tests;
-    };
-}
-
-macro_rules! include_power_provider_generation_contract_tests {
-    () => {
-        #[path = "power_provider_probe/generation_tests.rs"]
-        mod generation_tests;
-    };
-}
-
-macro_rules! include_woodworking_evaluation_contract_tests {
-    () => {
-        #[path = "evaluation_tests.rs"]
-        mod tests;
+        #[path = "primitive_liberation/investment_tests.rs"]
+        mod investment_tests;
     };
 }
 
@@ -115,8 +94,16 @@ mod environment;
 mod equipment_support;
 #[path = "gameplay_harness/fieldwork_probe.rs"]
 mod fieldwork_probe;
+#[path = "gameplay_harness/first_foundry_fabrication.rs"]
+mod first_foundry_fabrication;
+#[path = "gameplay_harness/first_foundry_generation_contract_tests.rs"]
+mod first_foundry_generation_contract_tests;
+#[path = "gameplay_harness/first_foundry_probe/planning.rs"]
+mod first_foundry_planning;
 #[path = "gameplay_harness/first_foundry_probe.rs"]
 mod first_foundry_probe;
+#[path = "gameplay_harness/first_foundry_recovery_planning.rs"]
+mod first_foundry_recovery_planning;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
 #[path = "gameplay_harness/focused_runner.rs"]
@@ -169,6 +156,12 @@ mod ore_setup;
 mod persistence_timing;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
+#[path = "gameplay_harness/power_provider_generation.rs"]
+mod power_provider_generation;
+#[path = "gameplay_harness/power_provider_generation_contract_tests.rs"]
+mod power_provider_generation_contract_tests;
+#[path = "gameplay_harness/power_provider_market.rs"]
+mod power_provider_market;
 #[path = "gameplay_harness/power_provider_probe.rs"]
 mod power_provider_probe;
 #[path = "gameplay_harness/powered_craft_planning.rs"]
@@ -177,6 +170,8 @@ mod powered_craft_planning;
 mod preservation_route;
 #[path = "gameplay_harness/primitive_liberation.rs"]
 mod primitive_liberation;
+#[path = "gameplay_harness/primitive_liberation_generation.rs"]
+mod primitive_liberation_generation;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
 #[path = "gameplay_harness/production_timing.rs"]
@@ -201,6 +196,8 @@ mod settlement_probe;
 mod settlement_workshop_investment;
 #[path = "gameplay_harness/stationary_survival.rs"]
 mod stationary_survival;
+#[path = "gameplay_harness/stationary_survival_start.rs"]
+mod stationary_survival_start;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/temporal.rs"]
@@ -232,8 +229,12 @@ mod manual_craft_selection_tests;
 mod ore_contract_tests;
 #[path = "gameplay_harness/ore_probe.rs"]
 mod ore_probe;
+#[path = "gameplay_harness/ore_probe_parameters.rs"]
+mod ore_probe_parameters;
 #[path = "gameplay_harness/primitive_liberation_contract_tests.rs"]
 mod primitive_liberation_contract_tests;
+#[path = "gameplay_harness/primitive_liberation_generation_contract_tests.rs"]
+mod primitive_liberation_generation_contract_tests;
 #[path = "gameplay_harness/primitive_workload.rs"]
 mod primitive_workload;
 #[path = "gameplay_harness/process_catalog_contract_tests.rs"]
@@ -272,8 +273,14 @@ mod survival_contract_tests;
 mod survival_explanation;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
+#[path = "gameplay_harness/wilderness_contract_tests.rs"]
+mod wilderness_contract_tests;
 #[path = "gameplay_harness/woodworking_contract_tests.rs"]
 mod woodworking_contract_tests;
+#[path = "gameplay_harness/woodworking_generation.rs"]
+mod woodworking_generation;
+#[path = "gameplay_harness/woodworking_probe/evaluation_tests.rs"]
+mod woodworking_generation_contract_tests;
 #[path = "gameplay_harness/woodworking_policy.rs"]
 mod woodworking_policy;
 #[path = "gameplay_harness/woodworking_probe.rs"]

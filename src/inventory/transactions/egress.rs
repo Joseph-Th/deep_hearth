@@ -39,6 +39,24 @@ impl ValidatedMaterialEgress {
         self.expected_revision
     }
 
+    /// Rebinds this exact material selection across one empty-stockpile allocation.
+    ///
+    /// Empty allocation advances only the inventory revision and stockpile identity cursor; it
+    /// cannot change existing lots or their source custody. Player storage placement uses this to
+    /// prevalidate the carried enclosure body before allocating its new ground target while still
+    /// applying the exact same lot slices afterward.
+    pub(crate) fn after_empty_stockpile_allocation(mut self) -> Result<Self, MaterialEgressError> {
+        self.expected_revision = self
+            .expected_revision
+            .checked_add(1)
+            .ok_or(MaterialEgressError::RevisionExhausted)?;
+        self.next_revision = self
+            .next_revision
+            .checked_add(1)
+            .ok_or(MaterialEgressError::RevisionExhausted)?;
+        Ok(self)
+    }
+
     pub(in crate::inventory) const fn next_revision(&self) -> u64 {
         self.next_revision
     }

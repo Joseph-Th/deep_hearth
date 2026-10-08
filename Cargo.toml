@@ -109,6 +109,11 @@ path = "tests/gameplay_progression_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_progression_episode_contracts"
+path = "tests/gameplay_progression_episode_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_liberation"
 path = "tests/gameplay_liberation.rs"
 required-features = ["test-gameplay"]
@@ -119,6 +124,11 @@ path = "tests/gameplay_liberation_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_liberation_generation_contracts"
+path = "tests/gameplay_liberation_generation_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_settlement"
 path = "tests/gameplay_settlement.rs"
 required-features = ["test-gameplay"]
@@ -126,6 +136,11 @@ required-features = ["test-gameplay"]
 [[test]]
 name = "gameplay_settlement_contracts"
 path = "tests/gameplay_settlement_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_settlement_generation_contracts"
+path = "tests/gameplay_settlement_generation_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]

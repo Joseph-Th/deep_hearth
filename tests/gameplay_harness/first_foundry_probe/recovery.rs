@@ -1,20 +1,16 @@
 //! Powered owned-ore recovery through the processing line earned before first-foundry work.
 
-use deep_hearth::content::{
-    ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, PROCESS_CRUSH_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
-};
+use deep_hearth::content::{PROCESS_CRUSH_ORE, PROCESS_SEPARATE_NATIVE_COPPER};
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::{EnergyStoreId, calculate_mass_specific_energy};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{ManualPowerMethodId, ManualPowerRequest, validate_start_manual_power};
-use deep_hearth::maintenance::Condition;
 use deep_hearth::ore_processing::{
     ComminutionRequest, ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
-    assess_powered_ore_mass_envelope, project_powered_ore_replenished_batch_capacity,
-    resolve_comminution_process, resolve_constituent_separation_process,
+    assess_powered_ore_mass_envelope, resolve_comminution_process,
+    resolve_constituent_separation_process,
 };
 use deep_hearth::production::{
     ProcessOutputRoute, validate_start_player_process, validate_start_player_process_routed,
@@ -24,6 +20,7 @@ use deep_hearth::registry::Registries;
 use super::super::manual_power_timing::finish_manual_power_work;
 use super::super::material_selection::select_stockpile_mass;
 use super::super::production_timing::finish_uninterrupted_production_job;
+use crate::first_foundry_recovery_planning::minimum_powered_ore_feed_for_target_recovery;
 
 #[derive(Clone, Copy)]
 pub(super) struct InheritedProcessingLine {
@@ -65,30 +62,6 @@ pub(super) struct PoweredOreRecoveryExecution {
     pub(super) stop: PoweredOreRecoveryStop,
 }
 
-pub(super) fn projected_inherited_processing_batch_limit(
-    registries: &Registries,
-    crusher_condition: Condition,
-    separator_condition: Condition,
-) -> Option<Mass> {
-    let crusher = project_powered_ore_replenished_batch_capacity(
-        registries,
-        PROCESS_CRUSH_ORE,
-        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-        crusher_condition,
-        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
-    )
-    .ok()?;
-    let separator = project_powered_ore_replenished_batch_capacity(
-        registries,
-        PROCESS_SEPARATE_NATIVE_COPPER,
-        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-        separator_condition,
-        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
-    )
-    .ok()?;
-    Some(crusher.min(separator))
-}
-
 pub(super) fn current_processing_batch_limit(
     registries: &Registries,
     state: &AppState,
@@ -114,22 +87,6 @@ pub(super) fn current_processing_batch_limit(
         crusher
             .maximum_mass_with_replenished_energy()
             .min(separator.maximum_mass_with_replenished_energy()),
-    )
-}
-
-pub(super) fn minimum_powered_ore_feed_for_target_recovery(
-    registries: &Registries,
-    target: Mass,
-    copper_ppm: u32,
-    processing_batch_limit: Mass,
-) -> Option<Mass> {
-    let separator = registries
-        .ore_processing()
-        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)?;
-    separator.minimum_batched_homogeneous_feed_mass_for_target_recovery(
-        target,
-        copper_ppm,
-        processing_batch_limit,
     )
 }
 

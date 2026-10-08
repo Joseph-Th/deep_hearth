@@ -12,28 +12,22 @@ use deep_hearth::content::{
     MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
-use deep_hearth::core::state::AppState;
 use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
-use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
-use deep_hearth::inventory::StockpileId;
+use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::{CommoditySource, Registries};
 use deep_hearth::survival::project_survival_resource_budget;
 
-use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
-use super::super::focused_witnesses::FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED;
-use super::super::inherited_condition::healthy_used_equipment_condition;
-use super::super::manual_craft_execution::execute_manual_craft;
-use super::super::material_selection::select_stockpile_commodity_mass;
-use super::super::primitive_workload::primitive_mining_cycle_mass;
-use super::super::seed::mix64;
-use super::super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
-use super::recovery::{
+use crate::copper_progression_world::progression_ore_grades;
+use crate::first_foundry_recovery_planning::{
     minimum_powered_ore_feed_for_target_recovery, projected_inherited_processing_batch_limit,
 };
-use crate::copper_progression_world::progression_ore_grades;
+use crate::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use crate::inherited_condition::healthy_used_equipment_condition;
+use crate::primitive_workload::primitive_mining_cycle_mass;
+use crate::seed::mix64;
 
 const FOUNDRY_RAW_INPUTS: [CommodityKey; 3] = [
     CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
@@ -89,6 +83,10 @@ impl FoundryBootstrapRoutePlan {
             .unwrap_or(Mass::ZERO)
     }
 
+    #[allow(
+        dead_code,
+        reason = "lived first-foundry execution consumes aggregate capital mass; lightweight generation contracts do not"
+    )]
     pub(super) fn capital_raw_mass(&self) -> Mass {
         self.capital_raw
             .values()
@@ -111,17 +109,6 @@ pub(super) struct FoundryResourceOpportunity {
     pub(super) immediate_native_input: Mass,
     pub(super) required_after_current: Mass,
     pub(super) recovery_batch_limit: Mass,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(super) struct FoundryFabrication {
-    pub(super) total_ticks: u64,
-    pub(super) stone_ticks: u64,
-    pub(super) wood_ticks: u64,
-    pub(super) copper_ticks: u64,
-    pub(super) hand_ticks: u64,
-    pub(super) frame_saw_ticks: u64,
-    pub(super) treadle_hammer_ticks: u64,
 }
 
 fn scaled_mass(mass: Mass, ppm: u32, context: &'static str) -> Mass {
@@ -383,6 +370,7 @@ pub(super) fn foundry_resource_opportunity(
     route_plan: &FoundryBootstrapRoutePlan,
     settlement_ingots: Mass,
     settlement_cast_mass: Mass,
+    recovery_coverage: bool,
 ) -> FoundryResourceOpportunity {
     let immediate_native_input = route_plan.immediate.input_mass;
     let required_after_current = route_plan
@@ -427,7 +415,7 @@ pub(super) fn foundry_resource_opportunity(
             }
         }
         FocusedProbeRole::MaintainedCoverage => {
-            if case.seed() == FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED {
+            if recovery_coverage {
                 let shortfall = scaled_mass(
                     required_after_current,
                     250_000,
@@ -531,17 +519,9 @@ pub(super) fn foundry_resource_opportunity(
     opportunity
 }
 
-pub(super) fn select_commodity_mass(
-    state: &AppState,
-    stockpile: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-    context: &'static str,
-) -> Vec<deep_hearth::inventory::MaterialLotSelection> {
-    select_stockpile_commodity_mass(state, stockpile, commodity, mass, context)
-}
-
-fn foundry_component_requirements(registries: &Registries) -> BTreeMap<CommodityKey, Mass> {
+pub(super) fn foundry_component_requirements(
+    registries: &Registries,
+) -> BTreeMap<CommodityKey, Mass> {
     let mut requirements = BTreeMap::<CommodityKey, Mass>::new();
     // The first electrical prime mover is not inherited. The foundry bootstrap must pay for the
     // complete timber treadle and then its additive dynamo conversion, so crossing into electrical
@@ -600,106 +580,6 @@ fn foundry_component_requirements(registries: &Registries) -> BTreeMap<Commodity
     requirements
 }
 
-pub(super) fn craft_foundry_components(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    parts: StockpileId,
-    workshop_tools: &[EquipmentId],
-) -> FoundryFabrication {
-    let mut fabrication = FoundryFabrication::default();
-    for (commodity, required) in foundry_component_requirements(registries) {
-        let available = state
-            .inventory()
-            .get_stockpile(parts)
-            .map(|stockpile| stockpile.get_mass(commodity))
-            .unwrap_or_else(|| panic!("first foundry parts stockpile disappeared"));
-        if available >= required {
-            continue;
-        }
-        let missing = required
-            .checked_sub(available)
-            .unwrap_or_else(|| unreachable!("component shortfall was established"));
-        let (request, _batches) = manual_craft_plan_with_available_equipment(
-            registries,
-            state,
-            &[raw],
-            workshop_tools,
-            commodity,
-            missing,
-            "first foundry component shaping",
-        );
-        let equipment = request.equipment();
-        let ticks = execute_manual_craft(
-            registries,
-            state,
-            request,
-            parts,
-            "first foundry component shaping",
-        )
-        .value();
-        fabrication.total_ticks = fabrication
-            .total_ticks
-            .checked_add(ticks)
-            .unwrap_or_else(|| panic!("first foundry fabrication attention overflowed"));
-        let material_ticks = match commodity.material() {
-            MATERIAL_STONE => &mut fabrication.stone_ticks,
-            MATERIAL_WOOD => &mut fabrication.wood_ticks,
-            MATERIAL_COPPER => &mut fabrication.copper_ticks,
-            other => panic!(
-                "first foundry component fabrication unexpectedly targets material {}",
-                other.value()
-            ),
-        };
-        *material_ticks = material_ticks
-            .checked_add(ticks)
-            .unwrap_or_else(|| panic!("first foundry material fabrication attention overflowed"));
-        match equipment.and_then(|equipment| {
-            state
-                .equipment()
-                .get_equipment(equipment)
-                .map(|record| record.definition())
-        }) {
-            Some(EQUIPMENT_TIMBER_FRAME_SAW_BENCH) => {
-                fabrication.frame_saw_ticks = fabrication
-                    .frame_saw_ticks
-                    .checked_add(ticks)
-                    .unwrap_or_else(|| panic!("first foundry frame-saw attention overflowed"));
-            }
-            Some(EQUIPMENT_TIMBER_TREADLE_HAMMER) => {
-                fabrication.treadle_hammer_ticks = fabrication
-                    .treadle_hammer_ticks
-                    .checked_add(ticks)
-                    .unwrap_or_else(|| panic!("first foundry treadle-hammer attention overflowed"));
-            }
-            Some(other) => panic!(
-                "first foundry component planner selected undisclosed workshop equipment {}",
-                other.value()
-            ),
-            None => {
-                fabrication.hand_ticks =
-                    fabrication
-                        .hand_ticks
-                        .checked_add(ticks)
-                        .unwrap_or_else(|| {
-                            panic!("first foundry hand fabrication attention overflowed")
-                        });
-            }
-        }
-    }
-    assert_eq!(
-        fabrication.stone_ticks + fabrication.wood_ticks + fabrication.copper_ticks,
-        fabrication.total_ticks,
-        "first foundry material-family fabrication accounting must cover every component job"
-    );
-    assert_eq!(
-        fabrication.hand_ticks + fabrication.frame_saw_ticks + fabrication.treadle_hammer_ticks,
-        fabrication.total_ticks,
-        "first foundry tool-route fabrication accounting must cover every component job"
-    );
-    fabrication
-}
-
 fn settlement_mold_addition_mass(
     registries: &Registries,
     commodity: CommodityKey,
@@ -728,6 +608,10 @@ pub(super) fn settlement_mold_ingot_requirement(registries: &Registries) -> Mass
     )
 }
 
+#[allow(
+    dead_code,
+    reason = "lived first-foundry provisioning consumes settlement mold stone; lightweight generation contracts do not"
+)]
 pub(super) fn settlement_mold_stone_requirement(registries: &Registries) -> Mass {
     settlement_mold_addition_mass(
         registries,

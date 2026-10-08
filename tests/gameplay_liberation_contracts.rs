@@ -11,10 +11,10 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-macro_rules! include_primitive_liberation_generation_contract_tests {
+macro_rules! include_primitive_liberation_investment_contract_tests {
     () => {
-        #[path = "primitive_liberation/generation_tests.rs"]
-        mod generation_tests;
+        #[path = "primitive_liberation/investment_tests.rs"]
+        mod investment_tests;
     };
 }
 
@@ -56,6 +56,8 @@ mod ore_fixture;
 mod physical_time;
 #[path = "gameplay_harness/primitive_liberation.rs"]
 mod primitive_liberation;
+#[path = "gameplay_harness/primitive_liberation_generation.rs"]
+mod primitive_liberation_generation;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]

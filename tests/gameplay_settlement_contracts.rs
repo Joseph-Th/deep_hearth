@@ -41,8 +41,6 @@ mod settlement_drill_contract_tests;
 mod settlement_fixture;
 #[path = "gameplay_harness/settlement_generation.rs"]
 mod settlement_generation;
-#[path = "gameplay_harness/settlement_generation_contract_tests.rs"]
-mod settlement_generation_contract_tests;
 #[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
 mod settlement_helve_contract_tests;
 #[path = "gameplay_harness/settlement_machine_contract_tests.rs"]

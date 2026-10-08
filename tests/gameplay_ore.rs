@@ -28,6 +28,8 @@ mod material_selection;
 mod ore_fixture;
 #[path = "gameplay_harness/ore_probe.rs"]
 mod ore_probe;
+#[path = "gameplay_harness/ore_probe_parameters.rs"]
+mod ore_probe_parameters;
 #[path = "gameplay_harness/ore_setup.rs"]
 mod ore_setup;
 #[path = "gameplay_harness/production_support.rs"]

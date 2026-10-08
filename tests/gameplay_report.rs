@@ -33,8 +33,14 @@ mod equipment_support;
 mod exact_local_runtime;
 #[path = "gameplay_harness/fieldwork_probe.rs"]
 mod fieldwork_probe;
+#[path = "gameplay_harness/first_foundry_fabrication.rs"]
+mod first_foundry_fabrication;
+#[path = "gameplay_harness/first_foundry_probe/planning.rs"]
+mod first_foundry_planning;
 #[path = "gameplay_harness/first_foundry_probe.rs"]
 mod first_foundry_probe;
+#[path = "gameplay_harness/first_foundry_recovery_planning.rs"]
+mod first_foundry_recovery_planning;
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
 #[path = "gameplay_harness/focused_runner.rs"]
@@ -89,10 +95,16 @@ mod material_selection;
 mod ore_fixture;
 #[path = "gameplay_harness/ore_probe.rs"]
 mod ore_probe;
+#[path = "gameplay_harness/ore_probe_parameters.rs"]
+mod ore_probe_parameters;
 #[path = "gameplay_harness/ore_setup.rs"]
 mod ore_setup;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
+#[path = "gameplay_harness/power_provider_generation.rs"]
+mod power_provider_generation;
+#[path = "gameplay_harness/power_provider_market.rs"]
+mod power_provider_market;
 #[path = "gameplay_harness/power_provider_probe.rs"]
 mod power_provider_probe;
 #[path = "gameplay_harness/powered_craft_planning.rs"]
@@ -101,6 +113,8 @@ mod powered_craft_planning;
 mod preservation_route;
 #[path = "gameplay_harness/primitive_liberation.rs"]
 mod primitive_liberation;
+#[path = "gameplay_harness/primitive_liberation_generation.rs"]
+mod primitive_liberation_generation;
 #[path = "gameplay_harness/primitive_workload.rs"]
 mod primitive_workload;
 #[path = "gameplay_harness/production_support.rs"]
@@ -141,6 +155,8 @@ mod settlement_wire_contract_tests;
 mod settlement_workshop_investment;
 #[path = "gameplay_harness/stationary_survival.rs"]
 mod stationary_survival;
+#[path = "gameplay_harness/stationary_survival_start.rs"]
+mod stationary_survival_start;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/survival_probe.rs"]
@@ -149,6 +165,8 @@ mod survival_probe;
 mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[path = "gameplay_harness/woodworking_generation.rs"]
+mod woodworking_generation;
 #[path = "gameplay_harness/woodworking_policy.rs"]
 mod woodworking_policy;
 #[path = "gameplay_harness/woodworking_probe.rs"]

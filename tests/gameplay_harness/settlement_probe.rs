@@ -38,10 +38,10 @@ use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output
 use super::physical_time::format_physical_duration;
 use super::powered_craft_planning::authored_batch;
 use super::seed::mix64;
+use super::settlement_demand::organic_lumber_batches;
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES as SETTLEMENT_OPPORTUNITY_BATCHES,
     crossover_workloads, organic_inherited_equipment_condition, organic_investment_policy,
-    organic_lumber_batches,
 };
 use super::settlement_power_planning::project_manual_power_workload;
 

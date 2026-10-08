@@ -4,17 +4,15 @@ use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK,
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-    EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_ROTARY_QUERN,
-    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER,
-    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_ELECTRIC_FURNACE,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
+    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_REGRIND_COPPER_TAILINGS,
+    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
 };
-use deep_hearth::core::quantity::{Mass, Power};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::energy::{EnergyCarrier, EnergyStoreId};
+use deep_hearth::energy::EnergyStoreId;
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
 use deep_hearth::labor::ManualPowerMethodId;
@@ -22,9 +20,6 @@ use deep_hearth::logistics::validate_allocate_ground_stockpile;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::ore_processing::{
-    project_powered_ore_replenished_batch_capacity, resolve_representable_screening_mass,
-};
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::assess_survival;
@@ -33,40 +28,55 @@ use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::LIBERATION_MANUAL_FALLBACK_COVERAGE_SEED;
-use super::inherited_condition::healthy_used_equipment_condition;
 use super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
 use super::manual_ore_recovery_evaluation::{
     evaluate_manual_ore_recovery, project_manual_ore_recovery_attention,
 };
 use super::ore_fixture::copper_ore_composition;
-use super::seed::mix64;
+use super::primitive_liberation_generation::{
+    LiberationGenerationRole, PrimitiveLiberationWorldParameters,
+    inherited_progression_condition as generated_inherited_progression_condition,
+    ordinary_manual_electrical_power_providers,
+    primitive_liberation_world_parameters as generated_liberation_world_parameters,
+};
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
-fn ordinary_manual_electrical_power_providers(
+fn liberation_generation_role(case: FocusedProbeCase) -> LiberationGenerationRole {
+    match case.role() {
+        FocusedProbeRole::MaintainedAnchor => LiberationGenerationRole::MaintainedAnchor,
+        FocusedProbeRole::MaintainedCoverage => LiberationGenerationRole::MaintainedCoverage,
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            LiberationGenerationRole::Organic
+        }
+    }
+}
+
+fn inherited_progression_condition(
     registries: &Registries,
-) -> Vec<(ManualPowerMethodId, EquipmentDefinitionId, Power)> {
-    registries
-        .labor()
-        .manual_power_definitions()
-        .filter(|method| method.carrier() == EnergyCarrier::Electrical)
-        .flat_map(|method| {
-            registries
-                .equipment()
-                .definitions()
-                .filter(|equipment| equipment.has_authored_acquisition_edge())
-                .filter_map(move |equipment| {
-                    match equipment
-                        .capabilities()
-                        .get_capability(method.power_capability())
-                    {
-                        Some(CapabilityValue::Power(power)) if !power.is_zero() => {
-                            Some((method.id(), equipment.id(), power))
-                        }
-                        Some(_) | None => None,
-                    }
-                })
-        })
-        .collect()
+    definition: EquipmentDefinitionId,
+    case: FocusedProbeCase,
+    salt: u64,
+) -> Condition {
+    generated_inherited_progression_condition(
+        registries,
+        definition,
+        case.seed(),
+        liberation_generation_role(case),
+        salt,
+    )
+}
+
+fn primitive_liberation_world_parameters(
+    registries: &Registries,
+    case: FocusedProbeCase,
+) -> PrimitiveLiberationWorldParameters {
+    generated_liberation_world_parameters(
+        registries,
+        case.seed(),
+        liberation_generation_role(case),
+        matches!(case.role(), FocusedProbeRole::MaintainedCoverage)
+            && case.seed() == LIBERATION_MANUAL_FALLBACK_COVERAGE_SEED,
+    )
 }
 
 #[path = "primitive_liberation/acquisition.rs"]
@@ -76,7 +86,7 @@ mod cleanup;
 #[path = "primitive_liberation/comparison.rs"]
 mod comparison;
 #[cfg(test)]
-include_primitive_liberation_generation_contract_tests!();
+include_primitive_liberation_investment_contract_tests!();
 #[path = "primitive_liberation/primary.rs"]
 mod primary;
 #[path = "primitive_liberation/scavenging.rs"]
@@ -84,7 +94,6 @@ mod scavenging;
 #[path = "primitive_liberation/support.rs"]
 mod support;
 
-const PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES: u64 = 8;
 const PRIMITIVE_LIBERATION_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
 const LIBERATION_POWERED_ROUTE_STAGES: [deep_hearth::production::ProcessId; 8] = [
     PROCESS_CRUSH_ORE,
@@ -96,25 +105,6 @@ const LIBERATION_POWERED_ROUTE_STAGES: [deep_hearth::production::ProcessId; 8] =
     PROCESS_SCAVENGE_COPPER_TAILINGS,
     PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
 ];
-
-fn inherited_progression_condition(
-    registries: &Registries,
-    definition: EquipmentDefinitionId,
-    case: FocusedProbeCase,
-    salt: u64,
-) -> Condition {
-    if matches!(
-        case.role(),
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
-    ) {
-        return Condition::PRISTINE;
-    }
-    healthy_used_equipment_condition(
-        registries,
-        definition,
-        mix64(case.seed() ^ 0x4C49_4245_494E_4845 ^ salt),
-    )
-}
 
 #[derive(Clone, Copy)]
 struct PrimitiveLiberationBootstrap {
@@ -527,139 +517,6 @@ fn plan_liberation_extension(
         powered_attention_upper,
         minimum_return_ppm,
         minimum_attention_return,
-    }
-}
-
-fn disclosed_campaign_batches(case: FocusedProbeCase) -> u64 {
-    match case.role() {
-        FocusedProbeRole::MaintainedAnchor => PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
-        FocusedProbeRole::MaintainedCoverage
-            if case.seed() == LIBERATION_MANUAL_FALLBACK_COVERAGE_SEED =>
-        {
-            1
-        }
-        FocusedProbeRole::MaintainedCoverage => PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            // Campaign horizon is player-visible demand. Generate it independently of the live
-            // extension payback threshold so the investment outcome is observed rather than baked
-            // into the fixture. Low-bit strata spread small reports across the current campaign
-            // envelope while mixed entropy varies the exact horizon.
-            let stratum = case.seed() & 0b11;
-            let width = PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES.div_ceil(4);
-            let lower = 1 + stratum * width;
-            let upper = lower
-                .saturating_add(width.saturating_sub(1))
-                .min(PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES);
-            lower + mix64(case.seed() ^ 0x4C49_4245_5248_4F52) % (upper - lower + 1)
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PrimitiveLiberationWorldParameters {
-    planned_batches: u64,
-    batch_mass: Mass,
-    copper_ppm: u32,
-    clay_share_ppm: u32,
-}
-
-fn primitive_liberation_batch_ceiling(registries: &Registries, case: FocusedProbeCase) -> Mass {
-    [
-        (
-            PROCESS_CRUSH_ORE,
-            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-            inherited_progression_condition(
-                registries,
-                EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-                case,
-                0x4352_5553_4800_0001,
-            ),
-        ),
-        (
-            PROCESS_GRIND_CRUSHED_ORE,
-            EQUIPMENT_STONE_ROTARY_QUERN,
-            Condition::PRISTINE,
-        ),
-        (
-            PROCESS_SCREEN_CRUSHED_ORE,
-            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
-            Condition::PRISTINE,
-        ),
-        (
-            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-            EQUIPMENT_STONE_ROTARY_QUERN,
-            Condition::PRISTINE,
-        ),
-        (
-            PROCESS_CONCENTRATE_COPPER,
-            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-            inherited_progression_condition(
-                registries,
-                EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-                case,
-                0x5345_5041_5241_544F,
-            ),
-        ),
-    ]
-    .into_iter()
-    .map(|(process, equipment, condition)| {
-        project_powered_ore_replenished_batch_capacity(
-            registries,
-            process,
-            equipment,
-            condition,
-            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
-        )
-        .unwrap_or_else(|error| {
-            panic!("primitive liberation authored batch projection failed: {error}")
-        })
-    })
-    .min()
-    .unwrap_or_else(|| unreachable!("primitive liberation has a nonempty processing route"))
-}
-
-fn primitive_liberation_world_parameters(
-    registries: &Registries,
-    case: FocusedProbeCase,
-) -> PrimitiveLiberationWorldParameters {
-    let seed = case.seed();
-    let route_ceiling = primitive_liberation_batch_ceiling(registries, case).milligrams();
-    // Exercise meaningful utilization of the complete inherited route without pinning a copied
-    // authored mass. Workload horizon, rather than tiny feed parcels, owns the build/manual capital
-    // crossover; exact batch mass still moves materially across the current production bottleneck.
-    let minimum_batch = (route_ceiling / 2).max(1);
-    let maximum_batch = route_ceiling
-        .checked_mul(4)
-        .unwrap_or_else(|| panic!("primitive liberation route ceiling scaling overflowed"))
-        / 5;
-    let maximum_batch = maximum_batch.max(minimum_batch);
-    let requested_batch_mass = Mass::from_milligrams(
-        minimum_batch + mix64(seed ^ 0x4C49_4245_5241_5445) % (maximum_batch - minimum_batch + 1),
-    );
-    let grinding = registries
-        .ore_processing()
-        .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
-        .unwrap_or_else(|| panic!("primitive liberation grinding definition disappeared"));
-    let screening = registries
-        .ore_processing()
-        .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
-        .unwrap_or_else(|| panic!("primitive liberation screening definition disappeared"));
-    let batch_mass = resolve_representable_screening_mass(
-        screening,
-        grinding.output_particle_size_distribution(),
-        requested_batch_mass,
-    )
-    .unwrap_or_else(|error| panic!("primitive liberation batch planning failed: {error}"));
-    assert!(
-        !batch_mass.is_zero(),
-        "primitive liberation generated no representable batch"
-    );
-    let planned_batches = disclosed_campaign_batches(case);
-    PrimitiveLiberationWorldParameters {
-        planned_batches,
-        batch_mass,
-        copper_ppm: 300_000 + (mix64(seed ^ 0x4C49_4245_5243_5550) % 300_001) as u32,
-        clay_share_ppm: (mix64(seed ^ 0x4C49_4245_5243_4C41) % 650_001) as u32,
     }
 }
 

@@ -6,9 +6,9 @@ use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_TIMBER_SASH_SAWMILL,
     FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
+    MATERIAL_WOOD, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreDefinitionId;
 use deep_hearth::equipment::EquipmentDefinitionId;
@@ -17,29 +17,28 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 
-use super::bulk_fieldwork_workload::{
-    BULK_FIELDWORK_ORDER_MAX_BATCHES, BULK_FIELDWORK_ORDER_MIN_BATCHES, bulk_fieldwork_order_mass,
-    primitive_quarry_batch_mass,
-};
 use super::capital_investment_policy::CapitalInvestmentPolicy;
 #[cfg(not(test))]
 use super::capital_investment_policy::clears_attention_return;
 use super::environment::ROOM_TEMPERATURE;
-use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::manual_construction_planning::manual_construction_route_from_roots;
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
-use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
+use super::power_provider_generation::{
+    PowerProjectEra, declared_primitive_crushing_project, declared_settlement_lumber_project,
+    power_project_survival_start, primitive_accumulator_for_current_crusher,
+};
+use super::power_provider_market::reachable_mechanical_power_providers;
+#[cfg(not(test))]
+use super::power_provider_market::{
+    PowerProviderChoice, PrimitivePowerChoice, SettlementPowerChoice,
+};
 use super::seed::mix64;
-use super::settlement_demand::{
-    SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, organic_lumber_batches,
-};
-use super::stationary_survival::{
-    StationarySurvivalStart, admit_stationary_player_with_survival_start,
-};
+use super::settlement_demand::SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES;
+use super::stationary_survival::admit_stationary_player_with_survival_start;
 
 #[path = "power_provider_build.rs"]
 mod build;
@@ -58,11 +57,8 @@ use execution::{
     execute_primitive_comparison, execute_selected_primitive_project,
     execute_selected_settlement_project, execute_settlement_comparison,
 };
-#[cfg(not(test))]
-use planning::{PowerProviderChoice, PrimitivePowerChoice, SettlementPowerChoice};
 use planning::{
-    PrimitivePowerProject, SettlementCopperPolicy, primitive_power_plan,
-    reachable_mechanical_power_providers, settlement_power_plan,
+    PrimitivePowerProject, SettlementCopperPolicy, primitive_power_plan, settlement_power_plan,
 };
 use provisioning::seed_power_project_provisions;
 
@@ -76,47 +72,6 @@ fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
                 case.required_behavior_seed("power-provider investment policy"),
             )
         }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum PowerProjectEra {
-    Primitive,
-    Settlement,
-}
-
-fn power_project_survival_start(
-    case: FocusedProbeCase,
-    era: PowerProjectEra,
-) -> StationarySurvivalStart {
-    if matches!(
-        case.role(),
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
-    ) {
-        return StationarySurvivalStart::FullReserve;
-    }
-
-    // The four-case exploratory sample already stratifies these low world bits. Pair each ordinary
-    // workload scale with one rested and one pressured start so survival is a recurring part of
-    // power planning instead of a maintained-only edge case. Settlement rotates the same disclosed
-    // physical stratum so its pressure is not mechanically identical to the primitive subepisode.
-    let stratum = usize::try_from(case.seed() & 0b11)
-        .unwrap_or_else(|_| unreachable!("two-bit power stratum fits usize"));
-    let primitive = [
-        StationarySurvivalStart::FullReserve,
-        StationarySurvivalStart::HungerWarningBoundary,
-        StationarySurvivalStart::FullReserve,
-        StationarySurvivalStart::HydrationWarningBoundary,
-    ];
-    let settlement = [
-        StationarySurvivalStart::HydrationWarningBoundary,
-        StationarySurvivalStart::FullReserve,
-        StationarySurvivalStart::HungerWarningBoundary,
-        StationarySurvivalStart::FullReserve,
-    ];
-    match era {
-        PowerProjectEra::Primitive => primitive[stratum],
-        PowerProjectEra::Settlement => settlement[stratum],
     }
 }
 
@@ -358,213 +313,17 @@ fn seed_raw_opportunity(
     (raw, capacity)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PrimitiveCrushingWorkload {
-    RoutineStockpile,
-    BulkFieldwork,
-}
-
-const ROUTINE_STOCKPILE_MIN_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2 / 3;
-const ROUTINE_STOCKPILE_MAX_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2;
-
-impl PrimitiveCrushingWorkload {
-    #[cfg(not(test))]
-    const fn label(self) -> &'static str {
-        match self {
-            Self::RoutineStockpile => "routine-stockpile",
-            Self::BulkFieldwork => "bulk-fieldwork-ore",
-        }
-    }
-}
-
-fn declared_primitive_crushing_project(
-    registries: &Registries,
-    seed: u64,
-    store_definition: EnergyStoreDefinitionId,
-) -> (Mass, Energy, PrimitiveCrushingWorkload) {
-    // Early powered processing sees two ordinary disclosed workload scales. Routine stockpiling
-    // follows the progression loop; bulk work carries forward the same large extraction order used
-    // by fieldwork. This lets better power equipment emerge from a real upstream opportunity rather
-    // than from a synthetic provider-crossover benchmark.
-    let definition = registries
-        .ore_processing()
-        .get_comminution(PROCESS_CRUSH_ORE)
-        .unwrap_or_else(|| panic!("primitive power project crusher process disappeared"));
-    let store = registries
-        .energy()
-        .get_store(store_definition)
-        .unwrap_or_else(|| panic!("primitive power project accumulator disappeared"));
-    let cycle_mass = primitive_mining_cycle_mass(registries, seed);
-    let cycle_work = deep_hearth::energy::calculate_mass_specific_energy(
-        cycle_mass,
-        definition.specific_energy(),
-    );
-    assert!(
-        !cycle_work.is_zero() && cycle_work <= store.capacity(),
-        "ordinary primitive mining cycle must fit the current baseline accumulator"
-    );
-    // Low world-seed bits are a sampling stratum, not actor policy. They keep a tiny bounded report
-    // spread across ordinary upstream workload scales while mixed high entropy still varies the
-    // exact demand inside each scale.
-    let stratum = seed & 0b11;
-    let workload = if stratum >= 2 {
-        PrimitiveCrushingWorkload::BulkFieldwork
-    } else {
-        PrimitiveCrushingWorkload::RoutineStockpile
-    };
-    let mass = match workload {
-        PrimitiveCrushingWorkload::RoutineStockpile => {
-            let midpoint = (ROUTINE_STOCKPILE_MIN_CYCLES + ROUTINE_STOCKPILE_MAX_CYCLES) / 2;
-            let (minimum, maximum) = if stratum == 0 {
-                (ROUTINE_STOCKPILE_MIN_CYCLES, midpoint)
-            } else {
-                (midpoint + 1, ROUTINE_STOCKPILE_MAX_CYCLES)
-            };
-            let cycles = minimum + mix64(seed ^ 0x5052_494D_5F4F_5245) % (maximum - minimum + 1);
-            Mass::from_milligrams(
-                cycle_mass
-                    .milligrams()
-                    .checked_mul(cycles)
-                    .unwrap_or_else(|| panic!("primitive power project mass overflowed")),
-            )
-        }
-        PrimitiveCrushingWorkload::BulkFieldwork => {
-            let quarry_batch = primitive_quarry_batch_mass(registries);
-            let ordinary = bulk_fieldwork_order_mass(registries, seed);
-            let ordinary_batches = ordinary.milligrams() / quarry_batch.milligrams();
-            let ordinal = ordinary_batches - BULK_FIELDWORK_ORDER_MIN_BATCHES;
-            // Keep the two bulk strata on opposite halves of the ordinary fieldwork envelope, but
-            // never search for a workload that forces a provider identity. The chosen provider is
-            // an observed result of live economics and actor policy.
-            let midpoint =
-                (BULK_FIELDWORK_ORDER_MIN_BATCHES + BULK_FIELDWORK_ORDER_MAX_BATCHES) / 2;
-            let (minimum, maximum) = if stratum == 2 {
-                (BULK_FIELDWORK_ORDER_MIN_BATCHES, midpoint)
-            } else {
-                (midpoint + 1, BULK_FIELDWORK_ORDER_MAX_BATCHES)
-            };
-            let batches = minimum + ordinal % (maximum - minimum + 1);
-            Mass::from_milligrams(
-                quarry_batch
-                    .milligrams()
-                    .checked_mul(batches)
-                    .unwrap_or_else(|| panic!("primitive power bulk project mass overflowed")),
-            )
-        }
-    };
-    (
-        mass,
-        deep_hearth::energy::calculate_mass_specific_energy(mass, definition.specific_energy()),
-        workload,
-    )
-}
-
-pub(super) fn declared_settlement_lumber_project(
-    registries: &Registries,
-    seed: u64,
-) -> (Mass, Energy) {
-    // Reuse the same disclosed lumber-demand generator as lived settlement play. Power-provider
-    // evaluation observes how the current provider market serves that upstream demand; it must not
-    // define the physical workload from its own crossover-search horizon.
-    let definition = registries
-        .crafting()
-        .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
-        .unwrap_or_else(|| panic!("settlement power project saw process disappeared"));
-    let batch_mass = registries
-        .crafting()
-        .get_manual(definition.transform())
-        .map(|transform| transform.input_mass())
-        .unwrap_or_else(|| panic!("settlement power project manual saw transform disappeared"));
-    let batches = organic_lumber_batches(
-        seed & 0b11,
-        mix64(seed ^ 0x5345_5454_4C55_4D42),
-        SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES,
-    );
-    let mass = Mass::from_milligrams(
-        batch_mass
-            .milligrams()
-            .checked_mul(batches)
-            .unwrap_or_else(|| panic!("settlement power project mass overflowed")),
-    );
-    (
-        mass,
-        deep_hearth::energy::calculate_mass_specific_energy(mass, definition.specific_energy()),
-    )
-}
-
-#[cfg(test)]
-include_power_provider_generation_contract_tests!();
-
-fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyStoreDefinitionId {
-    let process = registries
-        .ore_processing()
-        .get_comminution(PROCESS_CRUSH_ORE)
-        .unwrap_or_else(|| panic!("primitive power project crusher process disappeared"));
-    let maximum_batch = nominal_equipment_mass_capability(
-        registries,
-        EQUIPMENT_STONE_CRUSHER,
-        process.max_batch_mass_capability(),
-    );
-    let required = deep_hearth::energy::calculate_mass_specific_energy(
-        maximum_batch,
-        process.specific_energy(),
-    );
-
-    let candidates = registries
-        .energy()
-        .definitions()
-        .filter(|definition| {
-            definition.carrier() == process.energy_carrier()
-                && definition.capacity() >= required
-                && !definition.max_input_power().is_zero()
-                && !definition.max_output_power().is_zero()
-                && definition.assembly_profile().is_some_and(|assembly| {
-                    assembly.inputs().iter().all(|input| {
-                        matches!(input.commodity().material(), MATERIAL_STONE | MATERIAL_WOOD)
-                    })
-                })
-        })
-        .map(|definition| {
-            let key = (
-                definition.capacity().nanojoules(),
-                definition
-                    .assembly_profile()
-                    .map(|assembly| assembly.input_mass().milligrams())
-                    .unwrap_or(u64::MAX),
-            );
-            (definition.id(), key)
-        })
-        .collect::<Vec<_>>();
-    let best_key = candidates
-        .iter()
-        .map(|(_, key)| *key)
-        .min()
-        .unwrap_or_else(|| {
-            panic!(
-                "no ordinary copper-free mechanical accumulator can fund one pristine crusher batch of {}mg requiring {}nJ",
-                maximum_batch.milligrams(),
-                required.nanojoules(),
-            )
-        });
-    let mut best = candidates
-        .into_iter()
-        .filter(|(_, key)| *key == best_key)
-        .map(|(definition, _)| definition);
-    let selected = best
-        .next()
-        .unwrap_or_else(|| unreachable!("best accumulator key came from one candidate"));
-    assert!(
-        best.next().is_none(),
-        "ordinary copper-free accumulators are physically tied at the actor's minimum capacity/material key; author an observable preference instead of using definition identity"
-    );
-    selected
-}
-
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
     let investment_policy = investment_policy(case);
-    let primitive_survival_start = power_project_survival_start(case, PowerProjectEra::Primitive);
-    let settlement_survival_start = power_project_survival_start(case, PowerProjectEra::Settlement);
+    let maintained = matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    );
+    let primitive_survival_start =
+        power_project_survival_start(seed, maintained, PowerProjectEra::Primitive);
+    let settlement_survival_start =
+        power_project_survival_start(seed, maintained, PowerProjectEra::Settlement);
     // Derive the smallest ordinary copper-free accumulator that funds one complete pristine
     // crusher batch from the current content graph. This keeps the player policy stable when
     // crusher energy, batch capacity, or authored storage definitions are retuned.

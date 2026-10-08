@@ -48,6 +48,7 @@ A local test does not establish a cross-owner or player-level claim. Projection 
 
 | Failure | Start with |
 | --- | --- |
+| Rust compile error in a broad lane | Follow the emitted build-only repair target; once it compiles, rerun the original semantic proof. |
 | Unexpected rejection/stale commit | Resolver, typed error, bound revisions/preconditions. |
 | Rejection changed state | Commit boundary, IDs, indexes, reservations, schedules. |
 | Conservation mismatch | First crossed custody edge and accounting projection. |
@@ -83,8 +84,8 @@ Each gameplay scope owns a focused probe artifact. The workshop agency counterfa
 is an evaluator, not part of the ordinary workshop probe. Generator, policy, and owner tests live in purpose-built
 `<scope>_contracts` targets, so assertion edits do not rebuild the lived probe. `run_test.py` resolves exact and suite
 selectors to owner targets build-free; `tools/gameplay_targets.py` owns routing. All targets share `test-gameplay` and one
-Cargo cache. Report-only formatting stays out of frequent gate builds. `gate --gameplay contracts` remains the small
-cross-scope contract target.
+Cargo cache. Reports stay out of gates. `gate --gameplay contracts` is the cross-scope target; `audit --gameplay`
+already includes it and every owner contract, so do not stack them.
 
 Focused gates and exact focused probes add one fresh organic case; broad audits rotate one through one scope. Reports own broader exploration; failures print a narrow reproduction command with replay roots. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
