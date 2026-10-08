@@ -116,6 +116,68 @@ GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
         )
     )
 )
+
+# Fully-qualified owner prefixes are stable routing vocabulary for build-free exact/suite repair.
+# Bare substrings still use the global catalog so ambiguity is detected across every test target.
+GAMEPLAY_TEST_PREFIX_TARGETS = {
+    "capital_investment_policy_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "configuration_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "fixture_boundary_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "manual_craft_selection_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "primitive_liberation_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "process_catalog_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "seed_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "wilderness_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "fieldwork_probe::campaign::tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+    "fieldwork_probe::fieldwork_shortfall_policy_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS[
+        "fieldwork"
+    ],
+    "fieldwork_probe::planning_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+    "fieldwork_probe::retooling_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+    "fieldwork_probe::supply_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
+    "first_foundry_generation_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS[
+        "foundry-bootstrap"
+    ],
+    "foundry_bootstrap_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS[
+        "foundry-bootstrap"
+    ],
+    "foundry_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],
+    "primitive_liberation::investment_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["liberation"],
+    "primitive_liberation_generation_contract_tests::": GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
+    "ore_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
+    "power_provider_generation_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS[
+        "power-provider"
+    ],
+    "progression_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
+    "progression_episode_contract_tests::": GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
+    "progression_probe::steady_state_tests::": GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
+    "prospecting_instrument_contract_tests::": GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
+    "settlement_drill_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
+    "settlement_helve_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
+    "settlement_machine_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
+    "settlement_wire_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
+    "settlement_workshop_investment::lathe::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
+    "settlement_workshop_investment::toolroom::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
+    "settlement_generation_contract_tests::": GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
+    "survival_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
+    "survival_probe::provisioning_support_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
+    "saw_bench_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
+    "woodworking_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
+    "woodworking_generation_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
+    "woodworking_policy::tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
+    "agency::contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
+    "scenario_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
+    "workshop_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
+}
+
+
+def gameplay_test_prefix_target(selector: str) -> str | None:
+    """Return the owner target for one fully-qualified gameplay test family."""
+
+    for prefix, target in GAMEPLAY_TEST_PREFIX_TARGETS.items():
+        if selector == prefix.removesuffix("::") or selector.startswith(prefix):
+            return target
+    return None
 GAMEPLAY_CARGO_TEST_TARGETS = tuple(
     sorted(
         {

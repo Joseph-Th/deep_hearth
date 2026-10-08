@@ -141,6 +141,17 @@ def source_test_catalog(target: str, raw_features: str | None) -> list[str]:
     return list(_source_test_catalog(target, raw_features))
 
 
+def gameplay_owner_test_catalog(
+    selector: str, raw_features: str | None
+) -> tuple[str, list[str]] | None:
+    """Return one known gameplay owner catalog without scanning unrelated targets."""
+
+    target = gameplay_targets.gameplay_test_prefix_target(selector)
+    if target is None:
+        return None
+    return target, source_test_catalog(target, raw_features)
+
+
 @lru_cache(maxsize=None)
 def _library_root_modules(raw_features: str | None) -> tuple[tuple[str, Path], ...]:
     """Return enabled top-level library modules without walking their descendants."""
@@ -290,6 +301,18 @@ def resolve_automatic_exact_selection(
             )
         raise ValueError(f"test selector not found: {selector}")
 
+    gameplay_owner = gameplay_owner_test_catalog(selector, raw_features)
+    if gameplay_owner is not None:
+        target, catalog = gameplay_owner
+        owner_matches = source_test_matches(selector, catalog)
+        if len(owner_matches) == 1:
+            return target, owner_matches[0]
+        if owner_matches:
+            raise ValueError(
+                f"test selector is ambiguous: {selector} ({len(owner_matches)} matches)"
+            )
+        raise ValueError(f"test selector not found: {selector}")
+
     locations = all_source_test_locations(raw_features)
     exact = [(target, name) for target, name in locations if name == selector]
     matches = exact or [(target, name) for target, name in locations if selector in name]
@@ -311,6 +334,13 @@ def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> s
         library_matches = source_test_matches(selector, library_catalog)
         if library_matches:
             return "lib"
+        raise ValueError(f"test suite selector not found: {selector}")
+
+    gameplay_owner = gameplay_owner_test_catalog(selector, raw_features)
+    if gameplay_owner is not None:
+        target, catalog = gameplay_owner
+        if source_test_matches(selector, catalog):
+            return target
         raise ValueError(f"test suite selector not found: {selector}")
 
     matches_by_target = {
@@ -344,6 +374,10 @@ def selection_error_catalog(selector: str, raw_features: str | None) -> list[str
     library_catalog = library_owner_test_catalog(selector, raw_features)
     if library_catalog is not None:
         return library_catalog
+    gameplay_owner = gameplay_owner_test_catalog(selector, raw_features)
+    if gameplay_owner is not None:
+        _target, catalog = gameplay_owner
+        return catalog
     return all_source_test_names(raw_features)
 
 
@@ -802,6 +836,10 @@ def main() -> int:
                     if args.name is not None
                     else None
                 )
+                if catalog is None and args.name is not None:
+                    gameplay_owner = gameplay_owner_test_catalog(args.name, args.features)
+                    if gameplay_owner is not None:
+                        _target, catalog = gameplay_owner
                 if catalog is None:
                     catalog = all_source_test_names(args.features)
             except (OSError, ValueError, tomllib.TOMLDecodeError) as error:

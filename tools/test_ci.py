@@ -4109,6 +4109,46 @@ class ExactTestCommandTests(unittest.TestCase):
                 (ci.GAMEPLAY_TARGETS["survival"], selector),
             )
 
+    def test_qualified_gameplay_owner_exact_avoids_the_global_catalog(self) -> None:
+        selector = (
+            "settlement_generation_contract_tests::"
+            "organic_settlement_generation_varies_visible_demand_without_using_investment_outcomes"
+        )
+        with mock.patch.object(
+            run_test,
+            "all_source_test_locations",
+            side_effect=AssertionError("qualified gameplay owner must not scan every target"),
+        ):
+            self.assertEqual(
+                run_test.resolve_automatic_exact_selection(selector, None),
+                (gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET, selector),
+            )
+
+    def test_qualified_gameplay_owner_suite_avoids_target_enumeration(self) -> None:
+        selector = "progression_episode_contract_tests::"
+        with mock.patch.object(
+            run_test,
+            "test_targets",
+            side_effect=AssertionError("qualified gameplay suite must not enumerate every target"),
+        ):
+            self.assertEqual(
+                run_test.resolve_automatic_suite_target(selector, None),
+                gameplay_targets.GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
+            )
+
+    def test_gameplay_owner_prefix_map_covers_every_contract_test(self) -> None:
+        targets = (
+            ci.GAMEPLAY_CONTRACTS_TARGET,
+            *gameplay_targets.GAMEPLAY_OWNER_CONTRACT_TARGETS,
+        )
+        for target in targets:
+            for name in run_test.source_test_catalog(target, None):
+                with self.subTest(target=target, name=name):
+                    self.assertEqual(
+                        gameplay_targets.gameplay_test_prefix_target(name),
+                        target,
+                    )
+
     def test_automatic_selection_prefers_the_purpose_built_duplicate_test_target(self) -> None:
         target, name = run_test.resolve_automatic_exact_selection(
             "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
