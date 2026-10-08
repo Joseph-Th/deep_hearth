@@ -103,6 +103,7 @@ GAMEPLAY_SCOPE_CONTRACT_TARGETS = {
 }
 GAMEPLAY_PROSPECTING_CONTRACT_TARGET = "gameplay_prospecting_contracts"
 GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET = "gameplay_fieldwork_policy_contracts"
+GAMEPLAY_SURVIVAL_GENERATION_CONTRACT_TARGET = "gameplay_survival_generation_contracts"
 GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET = "gameplay_progression_episode_contracts"
 GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET = "gameplay_settlement_generation_contracts"
 GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET = "gameplay_liberation_generation_contracts"
@@ -115,6 +116,7 @@ GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
             GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET,
             GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
+            GAMEPLAY_SURVIVAL_GENERATION_CONTRACT_TARGET,
         )
     )
 )
@@ -162,6 +164,7 @@ GAMEPLAY_TEST_PREFIX_TARGETS = {
     "settlement_workshop_investment::lathe::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
     "settlement_workshop_investment::toolroom::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
     "settlement_generation_contract_tests::": GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
+    "survival_generation_contract_tests::": GAMEPLAY_SURVIVAL_GENERATION_CONTRACT_TARGET,
     "survival_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
     "survival_probe::provisioning_support_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
     "saw_bench_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],

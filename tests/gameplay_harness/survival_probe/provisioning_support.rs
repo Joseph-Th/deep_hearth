@@ -3,11 +3,6 @@
 use super::super::direct_consumption_timing::finish_direct_consumption_work;
 use super::*;
 
-pub(super) fn mass_for_target_energy(food: FoodDefinition, target: Energy) -> Mass {
-    food.minimum_mass_for_dietary_energy(target)
-        .unwrap_or_else(|| panic!("survival probe meal mass exceeds authoritative range"))
-}
-
 /// Plans one policy-selected meal against authoritative eating-time metabolism.
 ///
 /// A single-food policy delegates directly to the production target planner. Multi-food policy
@@ -287,14 +282,6 @@ pub(super) fn food_option_summary(registries: &Registries, foods: &[FoodDefiniti
         })
         .collect::<Vec<_>>()
         .join(",")
-}
-
-pub(super) const fn category_salt(category: FoodCategory) -> u64 {
-    match category {
-        FoodCategory::Grain => 0x4752_4149_4E00_0001,
-        FoodCategory::Fruit => 0x4652_5549_5400_0002,
-        FoodCategory::Protein => 0x5052_4F54_4549_4E03,
-    }
 }
 
 pub(super) fn normalized_deficit_priority(

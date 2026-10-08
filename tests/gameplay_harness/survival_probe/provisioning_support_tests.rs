@@ -1,5 +1,7 @@
 //! Alignment contracts for survival meal policy planning.
 
+use std::collections::BTreeMap;
+
 use super::*;
 
 #[test]

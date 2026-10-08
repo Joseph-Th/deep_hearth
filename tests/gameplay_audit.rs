@@ -271,8 +271,16 @@ mod settlement_wire_contract_tests;
 mod survival_contract_tests;
 #[path = "gameplay_harness/survival_probe/explanation.rs"]
 mod survival_explanation;
+#[path = "gameplay_harness/survival_generation_contract_tests.rs"]
+mod survival_generation_contract_tests;
+#[path = "gameplay_harness/survival_preservation_catalog.rs"]
+mod survival_preservation_catalog;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
+#[path = "gameplay_harness/survival_provisioning_policy.rs"]
+mod survival_provisioning_policy;
+#[path = "gameplay_harness/survival_world_generation.rs"]
+mod survival_world_generation;
 #[path = "gameplay_harness/wilderness_contract_tests.rs"]
 mod wilderness_contract_tests;
 #[path = "gameplay_harness/woodworking_contract_tests.rs"]

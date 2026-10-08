@@ -1,7 +1,5 @@
 //! Bounded survival-provisioning gameplay probe over authored food, preservation, and finite drink.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_fluid_store, seed_geological_deposit, seed_lot,
     seed_player_survival_at_hunger_warning_boundary,
@@ -33,12 +31,11 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
-    DrinkDefinition, DrinkOutcome, EatOutcome, FoodCategory, FoodDefinition, FoodFreshness,
-    LocalDrinkSource, SurvivalExertion, ValidatedDrink, assess_food_freshness, assess_survival,
-    available_local_drink_sources, initialize_player_survival,
-    project_food_freshness_after_storage_transition, project_survival_resource_budget,
-    validate_drink, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
-    validate_eat,
+    DrinkOutcome, EatOutcome, FoodDefinition, FoodFreshness, LocalDrinkSource, SurvivalExertion,
+    ValidatedDrink, assess_food_freshness, assess_survival, available_local_drink_sources,
+    initialize_player_survival, project_food_freshness_after_storage_transition,
+    project_survival_resource_budget, validate_drink, validate_drink_store_to_full,
+    validate_drink_store_to_hydration_target, validate_eat,
 };
 
 use super::environment::ROOM_TEMPERATURE;
@@ -50,11 +47,17 @@ use super::manual_power_timing::finish_manual_power_work;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
+use super::survival_provisioning_policy::{
+    DietProvisioningPolicy, diet_provisioning_policy_for_behavior_seed, mass_for_target_energy,
+    selected_food_indices,
+};
+use super::survival_world_generation::{
+    ProvisioningWorld, SurvivalStartProfile, provisioning_world,
+};
 use super::temporal::advance_idle_ticks;
 
 #[path = "survival_probe/preservation.rs"]
 pub(super) mod preservation;
-use preservation::preservation_candidates;
 pub(super) use preservation::{
     PreservationInvestmentPolicy, preservation_attention_value_ppm,
     preservation_material_budget_ppm, preservation_minimum_return_ppm,
@@ -98,14 +101,13 @@ use provisioning_support::*;
 #[cfg(test)]
 include_survival_probe_contract_tests!();
 
-#[path = "survival_probe/provisioning_world.rs"]
-pub(super) mod provisioning_world;
-use provisioning_world::{
+#[path = "survival_probe/provisioning_runtime.rs"]
+pub(super) mod provisioning_runtime;
+use provisioning_runtime::{
     PreparedProvisioningWorld, ProvisioningPlan, maximum_direct_provisioning_ticks,
     observed_provisioning_drink, observed_provisioning_foods, prepare_provisioning_world,
     provisioning_plan,
 };
-pub(super) use provisioning_world::{ProvisioningWorld, provisioning_world};
 
 #[path = "survival_probe/provisioning_evaluation.rs"]
 mod provisioning_evaluation;
@@ -116,23 +118,6 @@ use provisioning_evaluation::{
 };
 
 const DIET_RECOVERY_TARGET_VITALITY_PPM: u32 = 950_000;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum SurvivalStartProfile {
-    FullReserve,
-    HungerWarningBoundary,
-    HydrationWarningBoundary,
-}
-
-impl SurvivalStartProfile {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::FullReserve => "full-reserve",
-            Self::HungerWarningBoundary => "hunger-warning-boundary",
-            Self::HydrationWarningBoundary => "hydration-warning-boundary",
-        }
-    }
-}
 
 fn fresh_age(registries: &Registries, state: &AppState, lot: MaterialLotId) -> u64 {
     match assess_food_freshness(registries, state, lot)
@@ -162,33 +147,6 @@ impl ProvisioningPriority {
             Self::Hydration => "hydration",
             Self::Balanced => "balanced",
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum DietProvisioningPolicy {
-    CompactCalories,
-    BalancedRecovery,
-}
-
-impl DietProvisioningPolicy {
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::CompactCalories => "compact-calories",
-            Self::BalancedRecovery => "balanced-recovery",
-        }
-    }
-}
-
-pub(super) fn diet_provisioning_policy_for_behavior_seed(
-    behavior_seed: u64,
-) -> DietProvisioningPolicy {
-    // Focused behavior generation deliberately stratifies this low bit in exploratory samples while
-    // leaving the physical world seed independent. Maintained/replay seeds remain exact and stable.
-    if behavior_seed.is_multiple_of(2) {
-        DietProvisioningPolicy::CompactCalories
-    } else {
-        DietProvisioningPolicy::BalancedRecovery
     }
 }
 
@@ -320,40 +278,6 @@ fn evaluate_survival_provisioning_probe(
 #[cfg(test)]
 pub(super) fn run_survival_provisioning_probe(registries: &Registries, case: FocusedProbeCase) {
     let _ = evaluate_survival_provisioning_probe(registries, case);
-}
-
-pub(super) fn selected_food_indices(
-    foods: &[FoodDefinition],
-    policy: DietProvisioningPolicy,
-) -> Vec<usize> {
-    fn compact_category_rank(category: FoodCategory) -> u8 {
-        // Explicit actor policy for otherwise equivalent calorie-density choices. Keeping this
-        // exhaustive prevents enum declaration order from becoming an accidental tie-breaker.
-        match category {
-            FoodCategory::Grain => 0,
-            FoodCategory::Fruit => 1,
-            FoodCategory::Protein => 2,
-        }
-    }
-
-    let mut indices = (0..foods.len()).collect::<Vec<_>>();
-    match policy {
-        DietProvisioningPolicy::BalancedRecovery => indices,
-        DietProvisioningPolicy::CompactCalories => {
-            indices.sort_by(|left, right| {
-                foods[*right]
-                    .dietary_energy()
-                    .nanojoules_per_milligram()
-                    .cmp(&foods[*left].dietary_energy().nanojoules_per_milligram())
-                    .then_with(|| {
-                        compact_category_rank(foods[*left].category())
-                            .cmp(&compact_category_rank(foods[*right].category()))
-                    })
-            });
-            indices.truncate(indices.len().min(2));
-            indices
-        }
-    }
 }
 
 struct DietRecoveryBranch<'a> {

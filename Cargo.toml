@@ -99,6 +99,11 @@ path = "tests/gameplay_survival_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_survival_generation_contracts"
+path = "tests/gameplay_survival_generation_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_progression"
 path = "tests/gameplay_progression.rs"
 required-features = ["test-gameplay"]

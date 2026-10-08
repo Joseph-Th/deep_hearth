@@ -1,7 +1,7 @@
 //! Canonical preservation-infrastructure gameplay subepisode.
 
 use std::cmp::Reverse;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::preservation::{

@@ -159,8 +159,14 @@ mod stationary_survival;
 mod stationary_survival_start;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
+#[path = "gameplay_harness/survival_preservation_catalog.rs"]
+mod survival_preservation_catalog;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
+#[path = "gameplay_harness/survival_provisioning_policy.rs"]
+mod survival_provisioning_policy;
+#[path = "gameplay_harness/survival_world_generation.rs"]
+mod survival_world_generation;
 #[path = "gameplay_harness/temporal.rs"]
 mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]

@@ -1713,6 +1713,11 @@ class TestTopologyContractTests(unittest.TestCase):
                 "tests/gameplay_harness/fieldwork_probe/planning.rs",
                 "tests/gameplay_harness/fieldwork_probe/campaign.rs",
             },
+            gameplay_targets.GAMEPLAY_SURVIVAL_GENERATION_CONTRACT_TARGET: {
+                "tests/gameplay_harness/survival_probe.rs",
+                "tests/gameplay_harness/survival_probe/provisioning_runtime.rs",
+                "tests/gameplay_harness/survival_probe/preservation_evaluation.rs",
+            },
         }
         for target, excluded in exclusions.items():
             sources = {
@@ -2191,11 +2196,11 @@ class GameplayCiRoutingTests(unittest.TestCase):
         )
 
     def test_survival_generator_failure_reuses_the_warm_audit_target(self) -> None:
-        output = "failures:\n    survival_contract_tests::survival_generation_covers_authored_options_without_policy_leakage\n"
+        output = "failures:\n    survival_generation_contract_tests::survival_world_generation_stays_within_authored_options_and_varies_visible_pressure\n"
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit survival_contract_tests::survival_generation_covers_authored_options_without_policy_leakage",
+            "python tools/run_test.py --target gameplay_audit survival_generation_contract_tests::survival_world_generation_stays_within_authored_options_and_varies_visible_pressure",
         )
 
     def test_failure_output_keeps_context_and_tail_without_unbounded_transcripts(self) -> None:
@@ -4277,6 +4282,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
             "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
+            "full_reserve_worlds_use_varied_proactive_provisioning_windows": gameplay_targets.GAMEPLAY_SURVIVAL_GENERATION_CONTRACT_TARGET,
             "organic_power_workload_sampling_varies_each_disclosed_demand_stratum": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["power-provider"],
             "ore_probe_generation_varies_feed_and_operating_state": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
             "organic_foundry_worlds_follow_prior_progression_scales_and_vary": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry-bootstrap"],
@@ -4330,6 +4336,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "settlement_wire_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
             "settlement_generation_contract_tests": gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
             "survival_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
+            "survival_generation_contract_tests": gameplay_targets.GAMEPLAY_SURVIVAL_GENERATION_CONTRACT_TARGET,
             "progression_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "primitive_liberation_generation_contract_tests": gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
             "first_foundry_generation_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry-bootstrap"],

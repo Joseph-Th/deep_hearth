@@ -1,10 +1,13 @@
 //! Actor policy for choosing ordinary preservation infrastructure.
 
+use std::collections::BTreeMap;
+
 use deep_hearth::content::MATERIAL_WOOD;
 
 use super::super::preservation_route::{
     PreservationConstructionPlan, preservation_construction_plan,
 };
+use super::super::survival_preservation_catalog::preservation_storage_candidates;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -126,30 +129,22 @@ impl PreservationRawOpportunity {
 }
 
 pub(super) fn preservation_candidates(registries: &Registries) -> Vec<PreservationCandidate> {
-    let ambient_preservation =
-        StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm();
-    let mut candidates = registries
-        .storage()
-        .definitions()
-        .filter(|definition| {
-            definition.storage_profile().preservation_multiplier_ppm() > ambient_preservation
-        })
-        .map(|definition| PreservationCandidate {
-            definition: definition.id(),
+    preservation_storage_candidates(registries)
+        .into_iter()
+        .map(|candidate| PreservationCandidate {
+            definition: candidate.definition,
             construction_plan: preservation_construction_plan(
                 registries,
-                definition.assembly_profile(),
+                registries
+                    .storage()
+                    .get(candidate.definition)
+                    .unwrap_or_else(|| unreachable!("cataloged preservation storage disappeared"))
+                    .assembly_profile(),
             ),
-            preservation_multiplier_ppm: definition.storage_profile().preservation_multiplier_ppm(),
-            capacity: definition.maximum_stockpile_capacity(),
+            preservation_multiplier_ppm: candidate.preservation_multiplier_ppm,
+            capacity: candidate.capacity,
         })
-        .collect::<Vec<_>>();
-    candidates.sort_by_key(|candidate| candidate.definition);
-    assert!(
-        !candidates.is_empty(),
-        "survival gameplay has no authored preservation enclosure"
-    );
-    candidates
+        .collect()
 }
 
 pub(super) fn preservation_raw_opportunity(

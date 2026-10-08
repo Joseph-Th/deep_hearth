@@ -31,35 +31,18 @@ use super::survival_probe::preservation_evaluation::{
     project_preservation_candidates_with_raw_opportunity, select_preservation_projection,
     select_preservation_projection_for_attention_value,
 };
-use super::survival_probe::provisioning_world::minimum_visible_preservation_age_ticks;
+use super::survival_provisioning_policy::{
+    DietProvisioningPolicy, diet_provisioning_policy_for_behavior_seed, selected_food_indices,
+};
+use super::survival_world_generation::{
+    SurvivalStartProfile, minimum_visible_preservation_age_ticks, provisioning_world,
+};
 
 fn is_disclosed_preservation_raw_material(commodity: CommodityKey) -> bool {
     commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
         || commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
         || commodity == CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)
         || commodity == CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)
-}
-
-#[test]
-fn full_reserve_worlds_use_varied_proactive_provisioning_windows() {
-    let registries = build_registries();
-    let ticks_per_day = registries.core().calendar().ticks_per_day();
-    let lower = (ticks_per_day / 4).max(1);
-    let upper = lower
-        .checked_add((ticks_per_day / 4).max(1))
-        .unwrap_or_else(|| panic!("survival proactive provisioning window overflowed"));
-    let waits = (1_u64..=256)
-        .map(|seed| provisioning_world(&registries, seed))
-        .filter(|world| world.start_profile == SurvivalStartProfile::FullReserve)
-        .map(|world| world.provisioning_wait_ticks)
-        .collect::<Vec<_>>();
-
-    assert!(!waits.is_empty());
-    assert!(waits.iter().all(|wait| (lower..upper).contains(wait)));
-    assert!(
-        waits.iter().copied().collect::<BTreeSet<_>>().len() > 8,
-        "rested survival worlds collapsed to a scripted provisioning delay"
-    );
 }
 
 #[test]
@@ -73,8 +56,7 @@ fn constrained_food_worlds_execute_real_diet_recovery_instead_of_collapsing_evid
         .len();
     let (world, available_category_count) = (1_u64..=256)
         .find_map(|seed| {
-            let world =
-                super::survival_probe::provisioning_world::provisioning_world(&registries, seed);
+            let world = provisioning_world(&registries, seed);
             let count = world
                 .foods
                 .iter()
@@ -95,54 +77,6 @@ fn constrained_food_worlds_execute_real_diet_recovery_instead_of_collapsing_evid
     assert!(recovery.balanced_meal_actions > 0);
     assert!(recovery.vitality_before_ppm > 0);
     assert!(available_category_count > 0);
-}
-
-#[test]
-fn four_world_survival_sample_spans_distinct_preservation_capacity_pressure() {
-    let registries = build_registries();
-    let base = 0xBCE8_0742_3D33_E090_u64;
-    let worlds = (0_u64..4)
-        .map(|offset| {
-            super::survival_probe::provisioning_world::provisioning_world(
-                &registries,
-                base + offset,
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        worlds
-            .iter()
-            .map(|world| world.preserved_reserve_mass)
-            .collect::<BTreeSet<_>>()
-            .len(),
-        worlds.len(),
-        "bounded preservation pressure must retain organic reserve variation"
-    );
-    let ambient_preservation =
-        StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm();
-    let feasible_counts = worlds
-        .iter()
-        .map(|world| {
-            registries
-                .storage()
-                .definitions()
-                .filter(|definition| {
-                    definition.storage_profile().preservation_multiplier_ppm()
-                        > ambient_preservation
-                        && definition.maximum_stockpile_capacity() >= world.preserved_reserve_mass
-                })
-                .count()
-        })
-        .collect::<Vec<_>>();
-    assert!(
-        feasible_counts.iter().any(|count| *count > 1),
-        "four-world survival exploration must include a real preservation market"
-    );
-    let distinct_counts = feasible_counts.iter().copied().collect::<BTreeSet<_>>();
-    assert!(
-        distinct_counts.len() > 1,
-        "four-world survival exploration must vary how much of the current preservation market can satisfy the protected reserve"
-    );
 }
 
 fn storage_capacity(
@@ -313,27 +247,10 @@ fn preservation_raw_bootstrap_is_explicit_not_inferred_from_missing_producers() 
     )));
 }
 use super::survival_probe::{
-    DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
-    diet_provisioning_policy_for_behavior_seed, preservation_attention_value_ppm,
+    PreservationInvestmentPolicy, preservation_attention_value_ppm,
     preservation_material_budget_ppm, preservation_minimum_return_ppm,
-    prospecting_method_for_work_pressure, provisioning_world,
+    prospecting_method_for_work_pressure,
 };
-
-#[test]
-fn generated_preservation_witnesses_are_old_enough_to_show_the_authored_rate() {
-    let registries = build_registries();
-    for seed in 1_u64..=256 {
-        let world = provisioning_world(&registries, seed);
-        let minimum =
-            minimum_visible_preservation_age_ticks(world.inherited_preservation_multiplier_ppm);
-        assert!(
-            world.age_ticks >= minimum,
-            "seed {seed:#x} generated age {}t below visible preservation threshold {minimum}t for {}ppm",
-            world.age_ticks,
-            world.inherited_preservation_multiplier_ppm,
-        );
-    }
-}
 
 #[test]
 fn survival_explanation_marks_singleton_enclosure_without_forcing_investment() {
@@ -392,9 +309,7 @@ fn survival_explanation_preserves_real_comparisons_and_distinguishes_shared_refe
 
 #[test]
 fn survival_explanation_reports_supply_limited_policy_convergence_and_measured_outcome() {
-    use super::{
-        survival_explanation::diet_comparison_explanation, survival_probe::selected_food_indices,
-    };
+    use super::survival_explanation::diet_comparison_explanation;
     let registries = build_registries();
     let world = provisioning_world(&registries, 1);
     let foods = &world.foods[..2];
@@ -600,101 +515,17 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
 }
 
 #[test]
-fn survival_generation_covers_authored_options_without_policy_leakage() {
+fn survival_investment_policy_generation_stays_bounded_and_registry_valid() {
     let registries = build_registries();
-    let authored_foods = registries
-        .survival()
-        .foods()
-        .map(|food| food.commodity())
-        .collect::<BTreeSet<_>>();
-    let authored_categories = registries
-        .survival()
-        .foods()
-        .map(|food| food.category())
-        .collect::<BTreeSet<_>>();
     let authored_prospecting = registries
         .labor()
         .prospecting_definitions()
         .map(|definition| definition.id())
         .collect::<BTreeSet<_>>();
-    let authored_preservation = registries
-        .storage()
-        .definitions()
-        .map(|definition| {
-            (
-                definition.id().value(),
-                definition.storage_profile().preservation_multiplier_ppm(),
-            )
-        })
-        .collect::<BTreeSet<_>>();
-
-    let sample_count = authored_foods
+    let sample_count = authored_prospecting
         .len()
-        .max(authored_prospecting.len())
-        .max(authored_preservation.len())
         .saturating_mul(64)
         .clamp(256, 1024);
-    let worlds = (1_u64
-        ..=u64::try_from(sample_count)
-            .unwrap_or_else(|_| unreachable!("bounded survival sample count fits u64")))
-        .map(|seed| provisioning_world(&registries, seed))
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        worlds
-            .iter()
-            .map(|world| world.start_profile)
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from([
-            SurvivalStartProfile::FullReserve,
-            SurvivalStartProfile::HungerWarningBoundary,
-            SurvivalStartProfile::HydrationWarningBoundary,
-        ]),
-        "bounded survival generation must cover every start-pressure archetype"
-    );
-    let sampled_foods = worlds
-        .iter()
-        .flat_map(|world| world.foods.iter().copied())
-        .map(|food| food.commodity())
-        .collect::<BTreeSet<_>>();
-    assert!(sampled_foods.is_subset(&authored_foods));
-    if authored_foods.len() > 1 {
-        assert!(sampled_foods.len() > 1);
-    }
-    let sampled_category_counts = worlds
-        .iter()
-        .map(|world| {
-            world
-                .foods
-                .iter()
-                .map(|food| food.category())
-                .collect::<BTreeSet<_>>()
-                .len()
-        })
-        .collect::<BTreeSet<_>>();
-    assert!(sampled_category_counts.contains(&authored_categories.len()));
-    if authored_categories.len() > 1 {
-        assert!(
-            sampled_category_counts
-                .iter()
-                .any(|count| *count < authored_categories.len())
-        );
-    }
-
-    let sampled_preservation = worlds
-        .iter()
-        .map(|world| {
-            (
-                world.inherited_preservation_definition.value(),
-                world.inherited_preservation_multiplier_ppm,
-            )
-        })
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        sampled_preservation, authored_preservation,
-        "bounded survival generation must exercise every authored preservation enclosure"
-    );
-
     let sampled_prospecting = (1_u64
         ..=u64::try_from(sample_count)
             .unwrap_or_else(|_| unreachable!("bounded prospecting sample count fits u64")))
@@ -705,16 +536,6 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         assert!(sampled_prospecting.len() > 1);
     }
 
-    let diet_policies = (1_u64..=16)
-        .map(diet_provisioning_policy_for_behavior_seed)
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        diet_policies,
-        BTreeSet::from([
-            DietProvisioningPolicy::CompactCalories,
-            DietProvisioningPolicy::BalancedRecovery,
-        ])
-    );
     let preservation_attention_values = (1_u64..=32)
         .map(preservation_attention_value_ppm)
         .collect::<BTreeSet<_>>();
