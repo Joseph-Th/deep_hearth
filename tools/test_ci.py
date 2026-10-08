@@ -4242,6 +4242,30 @@ class ExactTestCommandTests(unittest.TestCase):
             gameplay_targets.GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
         )
 
+    def test_gameplay_feature_repair_target_is_configured_and_lightest(self) -> None:
+        target = gameplay_targets.GAMEPLAY_FEATURE_REPAIR_TARGETS[ci.GAMEPLAY_FEATURE]
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        candidates = [
+            definition["name"]
+            for definition in manifest.get("test", [])
+            if ci.GAMEPLAY_FEATURE in definition.get("required-features", [])
+        ]
+        self.assertIn(target, candidates)
+        expected = min(
+            candidates,
+            key=lambda candidate: (len(run_test.target_source_paths(candidate, None)), candidate),
+        )
+        self.assertEqual(target, expected)
+        with mock.patch.object(
+            run_test,
+            "target_source_paths",
+            side_effect=AssertionError("configured feature repair must not scan target closures"),
+        ):
+            self.assertEqual(
+                run_test.smallest_test_target_requiring_feature(ci.GAMEPLAY_FEATURE),
+                target,
+            )
+
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
             "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],

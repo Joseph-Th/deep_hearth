@@ -280,6 +280,9 @@ def smallest_test_target_requiring_feature(
 ) -> str | None:
     """Return the lightest explicit test crate that enables one required Cargo feature."""
 
+    if preferred := gameplay_targets.GAMEPLAY_FEATURE_REPAIR_TARGETS.get(feature):
+        return preferred
+
     candidates = [
         definition["name"]
         for definition in cargo_manifest().get("test", [])

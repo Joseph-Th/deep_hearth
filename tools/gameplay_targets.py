@@ -118,6 +118,9 @@ GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
         )
     )
 )
+GAMEPLAY_FEATURE_REPAIR_TARGETS = {
+    GAMEPLAY_FEATURE: GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
+}
 
 # Fully-qualified owner prefixes are stable routing vocabulary for build-free exact/suite repair.
 # Bare substrings still use the global catalog so ambiguity is detected across every test target.
