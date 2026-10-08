@@ -5,7 +5,6 @@
 //! canonical same-voxel labor into finite carried custody; all subsequent work uses runtime boundaries.
 
 use std::collections::BTreeMap;
-use std::num::NonZeroU64;
 
 use deep_hearth::content::gameplay_fixture::{
     seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_lot,
@@ -16,21 +15,19 @@ use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_WOODWORKING_ADZE,
     EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, FORM_BOARD, FORM_LOG, FORM_LUMP,
-    FORM_TIMBER_RIDDLE_PANEL, MATERIAL_STONE, MATERIAL_WOOD, SURFACE_GATHERING_HAND_COLLECT_STONE,
-    SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+    FORM_TIMBER_RIDDLE_PANEL, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
-use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
+use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
+use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     assess_player_carrying, validate_allocate_ground_stockpile,
     validate_initialize_player_logistics,
 };
 use deep_hearth::maintenance::Condition;
-use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile, MaterialComposition};
+use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -42,13 +39,15 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::focused_case::FocusedProbeCase;
 use super::super::manual_craft_batches::execute_manual_craft_batches;
-use super::super::manual_craft_equipment_planning::{
-    manual_craft_plan_with_equipment, manual_craft_topology_plan_with_equipment,
-};
+use super::super::manual_craft_equipment_planning::manual_craft_plan_with_equipment;
+use super::super::manual_craft_equipment_topology_planning::manual_craft_topology_plan_with_equipment;
 use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::super::manual_craft_selection::select_manual_craft_request;
-use super::super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
+use super::super::primitive_liberation_kit_planning::{
+    RawKitMaterialPlan, add_profile_requirements, equipment_profile, gathering_method_for,
+    project_incremental_kit_acquisition_attention, raw_kit_material_plan, raw_requirement_mass,
+};
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,16 +55,6 @@ pub(super) struct RawKitAcquisitionReview {
     pub(super) attention_ticks: u64,
     pub(super) metabolic_cost_nj: u128,
     pub(super) hydration_cost_ul: u64,
-}
-
-fn gathering_method_for(commodity: CommodityKey) -> SurfaceGatheringMethodId {
-    if commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP) {
-        SURFACE_GATHERING_HAND_COLLECT_STONE
-    } else if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG) {
-        SURFACE_GATHERING_HAND_COLLECT_TIMBER
-    } else {
-        panic!("liberation kit has no authored surface gathering method for {commodity:?}")
-    }
 }
 
 fn gather_surface_resource(
@@ -160,223 +149,6 @@ fn gather_surface_resource(
         .unwrap_or_else(|| unreachable!("surface gathering cannot run backward"))
 }
 
-fn nonzero_batches(batches: u64, context: &'static str) -> NonZeroU64 {
-    NonZeroU64::new(batches)
-        .unwrap_or_else(|| panic!("liberation kit {context} requires a nonzero batch count"))
-}
-
-fn add_attention(total: &mut u64, ticks: u64, context: &'static str) {
-    *total = total
-        .checked_add(ticks)
-        .unwrap_or_else(|| panic!("liberation kit {context} attention overflowed"));
-}
-
-/// Projects the complete raw-source-to-kit acquisition attention from authored mechanics.
-///
-/// This is a pre-action planning surface: it reads immutable gathering, recipe, and equipment
-/// physics only and carries the future adze condition through each assisted craft. Runtime
-/// acquisition asserts both gathering and fabrication against this projection.
-#[derive(Clone, Copy)]
-pub(super) struct RawKitAttentionProjection {
-    pub(super) gathering_ticks: u64,
-    pub(super) fabrication_ticks: u64,
-    pub(super) total_ticks: u64,
-}
-
-pub(super) fn project_incremental_kit_acquisition_attention(
-    registries: &Registries,
-) -> RawKitAttentionProjection {
-    let adze_profile = equipment_profile(registries, EQUIPMENT_STONE_WOODWORKING_ADZE);
-    let equipment = [
-        EQUIPMENT_STONE_ROTARY_QUERN,
-        EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
-    ];
-    let mut final_requirements = BTreeMap::new();
-    for definition in equipment {
-        add_profile_requirements(
-            &mut final_requirements,
-            equipment_profile(registries, definition),
-        );
-    }
-    let panel = CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL);
-    let required_panel = final_requirements
-        .remove(&panel)
-        .unwrap_or_else(|| panic!("liberation kit screen lost its riddle-panel input"));
-    let board = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
-    let (panel_definition, panel_batches) = manual_craft_topology_plan_with_equipment(
-        registries,
-        panel,
-        required_panel,
-        &[board],
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        Condition::PRISTINE,
-        "liberation kit riddle-panel projection",
-    );
-    let panel_board_mass = Mass::from_milligrams(
-        panel_definition
-            .input_mass()
-            .milligrams()
-            .checked_mul(panel_batches)
-            .unwrap_or_else(|| panic!("liberation kit riddle-panel board demand overflowed")),
-    );
-
-    let raw_requirements = raw_kit_requirements(
-        registries,
-        adze_profile,
-        &final_requirements,
-        panel_board_mass,
-    );
-    let mut gathering_ticks = 0_u64;
-    for (commodity, mass) in &raw_requirements {
-        let method_id = gathering_method_for(*commodity);
-        let gathering = registries
-            .labor()
-            .get_surface_gathering(method_id)
-            .copied()
-            .unwrap_or_else(|| panic!("liberation authored gathering method disappeared"));
-        let mut remaining = *mass;
-        while !remaining.is_zero() {
-            let batch = remaining.min(gathering.maximum_batch_mass());
-            let duration = gathering
-                .duration_for_mass(batch)
-                .unwrap_or_else(|| unreachable!("bounded gathering batch has a duration"));
-            add_attention(
-                &mut gathering_ticks,
-                duration.value(),
-                "surface gathering projection",
-            );
-            remaining = remaining.checked_sub(batch).unwrap_or_else(|| {
-                unreachable!("projected gathering batch is bounded by remaining demand")
-            });
-        }
-    }
-
-    let mut fabrication_ticks = 0_u64;
-    for input in adze_profile.inputs() {
-        let (definition, batches) = raw_component_plan(
-            registries,
-            input.commodity(),
-            input.mass(),
-            "liberation kit adze component projection",
-        );
-        let projection = project_manual_craft_hand_work(
-            registries,
-            definition.process(),
-            nonzero_batches(batches, "adze component projection"),
-        )
-        .unwrap_or_else(|error| panic!("liberation kit adze projection failed: {error}"));
-        add_attention(
-            &mut fabrication_ticks,
-            projection.duration().value(),
-            "adze component projection",
-        );
-    }
-
-    let mut adze_condition = Condition::PRISTINE;
-    for (commodity, required) in final_requirements {
-        if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
-            let (definition, batches) = manual_craft_topology_plan_with_equipment(
-                registries,
-                commodity,
-                required,
-                &disclosed_raw_inputs(),
-                EQUIPMENT_STONE_WOODWORKING_ADZE,
-                adze_condition,
-                "liberation kit adze-assisted component projection",
-            );
-            let projection = project_manual_craft_equipment(
-                registries,
-                definition.process(),
-                nonzero_batches(batches, "adze-assisted component projection"),
-                EQUIPMENT_STONE_WOODWORKING_ADZE,
-                adze_condition,
-            )
-            .unwrap_or_else(|error| {
-                panic!("liberation kit assisted component projection failed: {error}")
-            });
-            add_attention(
-                &mut fabrication_ticks,
-                projection.duration().value(),
-                "adze-assisted component projection",
-            );
-            adze_condition = projection.condition_after();
-        } else {
-            let (definition, batches) = raw_component_plan(
-                registries,
-                commodity,
-                required,
-                "liberation kit component projection",
-            );
-            let projection = project_manual_craft_hand_work(
-                registries,
-                definition.process(),
-                nonzero_batches(batches, "component projection"),
-            )
-            .unwrap_or_else(|error| panic!("liberation kit component projection failed: {error}"));
-            add_attention(
-                &mut fabrication_ticks,
-                projection.duration().value(),
-                "component projection",
-            );
-        }
-    }
-
-    let (board_definition, board_batches) = manual_craft_topology_plan_with_equipment(
-        registries,
-        board,
-        panel_board_mass,
-        &disclosed_raw_inputs(),
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        adze_condition,
-        "liberation kit riddle-board projection",
-    );
-    let board_projection = project_manual_craft_equipment(
-        registries,
-        board_definition.process(),
-        nonzero_batches(board_batches, "riddle-board projection"),
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        adze_condition,
-    )
-    .unwrap_or_else(|error| panic!("liberation kit riddle-board projection failed: {error}"));
-    add_attention(
-        &mut fabrication_ticks,
-        board_projection.duration().value(),
-        "riddle-board projection",
-    );
-    adze_condition = board_projection.condition_after();
-    let (worn_panel_definition, worn_panel_batches) = manual_craft_topology_plan_with_equipment(
-        registries,
-        panel,
-        required_panel,
-        &[board],
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        adze_condition,
-        "liberation kit worn riddle-panel projection",
-    );
-    assert_eq!(worn_panel_definition.process(), panel_definition.process());
-    assert_eq!(worn_panel_batches, panel_batches);
-    let panel_projection = project_manual_craft_equipment(
-        registries,
-        worn_panel_definition.process(),
-        nonzero_batches(worn_panel_batches, "riddle-panel projection"),
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        adze_condition,
-    )
-    .unwrap_or_else(|error| panic!("liberation kit riddle-panel projection failed: {error}"));
-    add_attention(
-        &mut fabrication_ticks,
-        panel_projection.duration().value(),
-        "riddle-panel projection",
-    );
-    RawKitAttentionProjection {
-        gathering_ticks,
-        fabrication_ticks,
-        total_ticks: gathering_ticks
-            .checked_add(fabrication_ticks)
-            .unwrap_or_else(|| panic!("liberation acquisition projection overflowed")),
-    }
-}
-
 pub(super) struct AcquiredPrimitiveKit {
     pub(super) decision_state: AppState,
     pub(super) state: AppState,
@@ -398,17 +170,6 @@ struct InheritedProgressionInfrastructure {
     embodied_mass: Mass,
     minimum_condition_ppm: u32,
     maximum_condition_ppm: u32,
-}
-
-fn add_requirement(
-    requirements: &mut BTreeMap<CommodityKey, Mass>,
-    commodity: CommodityKey,
-    mass: Mass,
-) {
-    let entry = requirements.entry(commodity).or_insert(Mass::ZERO);
-    *entry = entry
-        .checked_add(mass)
-        .unwrap_or_else(|| panic!("liberation kit component requirement overflowed"));
 }
 
 fn seed_inherited_progression_infrastructure(
@@ -494,100 +255,6 @@ fn seed_inherited_progression_infrastructure(
             .max()
             .unwrap_or_else(|| unreachable!("inherited progression line has equipment")),
     }
-}
-
-fn add_profile_requirements(
-    requirements: &mut BTreeMap<CommodityKey, Mass>,
-    profile: &MaterialAssemblyProfile,
-) {
-    for input in profile.inputs() {
-        add_requirement(requirements, input.commodity(), input.mass());
-    }
-}
-
-fn equipment_profile(
-    registries: &Registries,
-    definition: EquipmentDefinitionId,
-) -> &MaterialAssemblyProfile {
-    registries
-        .equipment()
-        .get_equipment(definition)
-        .and_then(|equipment| equipment.assembly_profile())
-        .unwrap_or_else(|| panic!("liberation kit equipment lost authored assembly"))
-}
-
-fn disclosed_raw_inputs() -> [CommodityKey; 2] {
-    [
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-    ]
-}
-
-fn raw_component_plan<'a>(
-    registries: &'a Registries,
-    commodity: CommodityKey,
-    required: Mass,
-    context: &'static str,
-) -> (&'a deep_hearth::crafting::ManualCraftDefinition, u64) {
-    manual_craft_topology_plan_for_output_from_inputs(
-        registries,
-        commodity,
-        required,
-        &disclosed_raw_inputs(),
-        context,
-    )
-}
-
-fn add_raw_cost(
-    registries: &Registries,
-    raw: &mut BTreeMap<CommodityKey, Mass>,
-    commodity: CommodityKey,
-    required: Mass,
-) {
-    let (definition, batches) = raw_component_plan(
-        registries,
-        commodity,
-        required,
-        "liberation kit raw-material costing",
-    );
-    let input = Mass::from_milligrams(
-        definition
-            .input_mass()
-            .milligrams()
-            .checked_mul(batches)
-            .unwrap_or_else(|| panic!("liberation kit raw-cost mass overflowed")),
-    );
-    add_requirement(raw, definition.input(), input);
-}
-
-fn raw_kit_requirements(
-    registries: &Registries,
-    adze_profile: &MaterialAssemblyProfile,
-    final_requirements: &BTreeMap<CommodityKey, Mass>,
-    panel_board_mass: Mass,
-) -> BTreeMap<CommodityKey, Mass> {
-    let mut raw = BTreeMap::new();
-    for input in adze_profile.inputs() {
-        add_raw_cost(registries, &mut raw, input.commodity(), input.mass());
-    }
-    for (commodity, required) in final_requirements {
-        add_raw_cost(registries, &mut raw, *commodity, *required);
-    }
-    add_raw_cost(
-        registries,
-        &mut raw,
-        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-        panel_board_mass,
-    );
-    raw
-}
-
-fn raw_requirement_mass(requirements: &BTreeMap<CommodityKey, Mass>) -> Mass {
-    requirements
-        .values()
-        .copied()
-        .try_fold(Mass::ZERO, Mass::checked_add)
-        .unwrap_or_else(|| panic!("liberation kit raw mass overflowed"))
 }
 
 struct ComponentCraftPlan {
@@ -732,48 +399,14 @@ pub(super) fn acquire_raw_kit<T>(
         planned_batches > 0,
         "liberation kit acquisition requires a disclosed nonzero campaign horizon"
     );
-    let adze_profile = equipment_profile(registries, EQUIPMENT_STONE_WOODWORKING_ADZE);
-    let equipment = [
-        EQUIPMENT_STONE_ROTARY_QUERN,
-        EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
-    ];
-    let mut final_requirements = BTreeMap::new();
-    for definition in equipment {
-        add_profile_requirements(
-            &mut final_requirements,
-            equipment_profile(registries, definition),
-        );
-    }
-    let panel = CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL);
-    let required_panel = final_requirements
-        .remove(&panel)
-        .unwrap_or_else(|| panic!("liberation kit screen lost its riddle-panel input"));
-
-    let board = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
-    let (panel_definition, panel_batches) = manual_craft_topology_plan_with_equipment(
-        registries,
-        panel,
+    let RawKitMaterialPlan {
+        adze_requirements,
+        final_requirements,
         required_panel,
-        &[board],
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        Condition::PRISTINE,
-        "liberation kit riddle-panel raw costing",
-    );
-    let panel_board_mass = Mass::from_milligrams(
-        panel_definition
-            .input_mass()
-            .milligrams()
-            .checked_mul(panel_batches)
-            .unwrap_or_else(|| panic!("liberation kit riddle-panel board demand overflowed")),
-    );
-
-    let raw_requirements = raw_kit_requirements(
-        registries,
-        adze_profile,
-        &final_requirements,
-        panel_board_mass,
-    );
-    let raw_mass = raw_requirement_mass(&raw_requirements);
+        raw_requirements,
+        raw_mass,
+        ..
+    } = raw_kit_material_plan(registries);
     let stone_raw = raw_requirements
         .get(&CommodityKey::new(MATERIAL_STONE, FORM_LUMP))
         .copied()
@@ -883,15 +516,15 @@ pub(super) fn acquire_raw_kit<T>(
     let gathering_completed_at = state.tick().value();
     let projected_attention = project_incremental_kit_acquisition_attention(registries);
 
-    for input in adze_profile.inputs() {
+    for (commodity, required) in adze_requirements {
         craft_component(
             registries,
             &mut state,
             ComponentCraftPlan {
                 raw,
                 destination: parts,
-                commodity: input.commodity(),
-                required: input.mass(),
+                commodity,
+                required,
                 equipment: None,
                 context: "liberation kit adze component",
             },

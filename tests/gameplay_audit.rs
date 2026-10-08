@@ -132,6 +132,10 @@ mod manual_construction_planning;
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_equipment_planning.rs"]
 mod manual_craft_equipment_planning;
+#[path = "gameplay_harness/manual_craft_equipment_ranking.rs"]
+mod manual_craft_equipment_ranking;
+#[path = "gameplay_harness/manual_craft_equipment_topology_planning.rs"]
+mod manual_craft_equipment_topology_planning;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
 #[path = "gameplay_harness/manual_craft_planning.rs"]
@@ -144,6 +148,8 @@ mod manual_craft_topology_planning;
 mod manual_ore_recovery;
 #[path = "gameplay_harness/manual_ore_recovery_evaluation.rs"]
 mod manual_ore_recovery_evaluation;
+#[path = "gameplay_harness/manual_ore_recovery_planning.rs"]
+mod manual_ore_recovery_planning;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
@@ -172,6 +178,10 @@ mod preservation_route;
 mod primitive_liberation;
 #[path = "gameplay_harness/primitive_liberation_generation.rs"]
 mod primitive_liberation_generation;
+#[path = "gameplay_harness/primitive_liberation_investment.rs"]
+mod primitive_liberation_investment;
+#[path = "gameplay_harness/primitive_liberation_kit_planning.rs"]
+mod primitive_liberation_kit_planning;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
 #[path = "gameplay_harness/production_timing.rs"]

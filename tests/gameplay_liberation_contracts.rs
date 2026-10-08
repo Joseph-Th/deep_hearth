@@ -1,4 +1,4 @@
-//! Primitive-liberation generator contracts kept off the frequent lived probe.
+//! Primitive-liberation generation and pre-action investment contracts.
 
 #![allow(
     dead_code,
@@ -6,10 +6,6 @@
     unused_variables,
     reason = "contract-only crate reuses the liberation evaluator without compiling the lived-probe runner"
 )]
-
-#[macro_use]
-#[path = "gameplay_harness/output.rs"]
-mod output;
 
 macro_rules! include_primitive_liberation_investment_contract_tests {
     () => {
@@ -20,49 +16,25 @@ macro_rules! include_primitive_liberation_investment_contract_tests {
 
 #[path = "gameplay_harness/capital_investment_policy.rs"]
 mod capital_investment_policy;
-#[path = "gameplay_harness/environment.rs"]
-mod environment;
-#[path = "gameplay_harness/exact_local_runtime.rs"]
-mod exact_local_runtime;
-#[path = "gameplay_harness/focused_case.rs"]
-mod focused_case;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
 #[path = "gameplay_harness/inherited_condition.rs"]
 mod inherited_condition;
-#[path = "gameplay_harness/manual_craft_batches.rs"]
-mod manual_craft_batches;
-#[path = "gameplay_harness/manual_craft_equipment_planning.rs"]
-mod manual_craft_equipment_planning;
-#[path = "gameplay_harness/manual_craft_execution.rs"]
-mod manual_craft_execution;
-#[path = "gameplay_harness/manual_craft_planning.rs"]
-mod manual_craft_planning;
-#[path = "gameplay_harness/manual_craft_selection.rs"]
-mod manual_craft_selection;
+#[path = "gameplay_harness/manual_craft_equipment_ranking.rs"]
+mod manual_craft_equipment_ranking;
+#[path = "gameplay_harness/manual_craft_equipment_topology_planning.rs"]
+mod manual_craft_equipment_topology_planning;
 #[path = "gameplay_harness/manual_craft_topology_planning.rs"]
 mod manual_craft_topology_planning;
-#[path = "gameplay_harness/manual_ore_recovery.rs"]
-mod manual_ore_recovery;
-#[path = "gameplay_harness/manual_ore_recovery_evaluation.rs"]
-mod manual_ore_recovery_evaluation;
-#[path = "gameplay_harness/manual_power_timing.rs"]
-mod manual_power_timing;
-#[path = "gameplay_harness/material_selection.rs"]
-mod material_selection;
-#[path = "gameplay_harness/ore_fixture.rs"]
-mod ore_fixture;
-#[path = "gameplay_harness/physical_time.rs"]
-mod physical_time;
-#[path = "gameplay_harness/primitive_liberation.rs"]
-mod primitive_liberation;
+#[path = "gameplay_harness/manual_ore_recovery_planning.rs"]
+mod manual_ore_recovery_planning;
 #[path = "gameplay_harness/primitive_liberation_generation.rs"]
 mod primitive_liberation_generation;
-#[path = "gameplay_harness/production_timing.rs"]
-mod production_timing;
+#[path = "gameplay_harness/primitive_liberation_investment.rs"]
+mod primitive_liberation_investment;
+#[path = "gameplay_harness/primitive_liberation_kit_planning.rs"]
+mod primitive_liberation_kit_planning;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/settlement_power_planning.rs"]
 mod settlement_power_planning;
-#[path = "gameplay_harness/tick_observation.rs"]
-mod tick_observation;

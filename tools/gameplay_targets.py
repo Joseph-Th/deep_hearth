@@ -147,7 +147,9 @@ GAMEPLAY_TEST_PREFIX_TARGETS = {
         "foundry-bootstrap"
     ],
     "foundry_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],
-    "primitive_liberation::investment_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["liberation"],
+    "primitive_liberation_investment::investment_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS[
+        "liberation"
+    ],
     "primitive_liberation_generation_contract_tests::": GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
     "ore_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
     "power_provider_generation_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS[

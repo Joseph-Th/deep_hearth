@@ -3,12 +3,8 @@
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
-    ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK,
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_ELECTRIC_FURNACE,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
-    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_REGRIND_COPPER_TAILINGS,
-    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
+    ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
+    EQUIPMENT_ELECTRIC_FURNACE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -24,14 +20,11 @@ use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::assess_survival;
 
-use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::LIBERATION_MANUAL_FALLBACK_COVERAGE_SEED;
 use super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
-use super::manual_ore_recovery_evaluation::{
-    evaluate_manual_ore_recovery, project_manual_ore_recovery_attention,
-};
+use super::manual_ore_recovery_evaluation::evaluate_manual_ore_recovery;
 use super::ore_fixture::copper_ore_composition;
 use super::primitive_liberation_generation::{
     LiberationGenerationRole, PrimitiveLiberationWorldParameters,
@@ -39,7 +32,9 @@ use super::primitive_liberation_generation::{
     ordinary_manual_electrical_power_providers,
     primitive_liberation_world_parameters as generated_liberation_world_parameters,
 };
-use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
+use super::primitive_liberation_investment::{
+    LiberationExtensionChoice, plan_liberation_extension,
+};
 
 fn liberation_generation_role(case: FocusedProbeCase) -> LiberationGenerationRole {
     match case.role() {
@@ -85,8 +80,6 @@ mod acquisition;
 mod cleanup;
 #[path = "primitive_liberation/comparison.rs"]
 mod comparison;
-#[cfg(test)]
-include_primitive_liberation_investment_contract_tests!();
 #[path = "primitive_liberation/primary.rs"]
 mod primary;
 #[path = "primitive_liberation/scavenging.rs"]
@@ -95,16 +88,6 @@ mod scavenging;
 mod support;
 
 const PRIMITIVE_LIBERATION_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
-const LIBERATION_POWERED_ROUTE_STAGES: [deep_hearth::production::ProcessId; 8] = [
-    PROCESS_CRUSH_ORE,
-    PROCESS_GRIND_CRUSHED_ORE,
-    PROCESS_SCREEN_CRUSHED_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_CONCENTRATE_COPPER,
-    PROCESS_REGRIND_COPPER_TAILINGS,
-    PROCESS_SCAVENGE_COPPER_TAILINGS,
-    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
-];
 
 #[derive(Clone, Copy)]
 struct PrimitiveLiberationBootstrap {
@@ -427,99 +410,6 @@ fn state_mass(bootstrap: &PrimitiveLiberationBootstrap, state: &AppState) -> Mas
         .unwrap_or_else(|| panic!("liberation campaign ore lot disappeared"))
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum LiberationExtensionChoice {
-    ManualFallback,
-    BuildKit,
-}
-
-impl LiberationExtensionChoice {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::ManualFallback => "manual-fallback",
-            Self::BuildKit => "build-kit",
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct LiberationExtensionPlan {
-    choice: LiberationExtensionChoice,
-    manual_campaign_attention: u64,
-    acquisition_attention: u64,
-    conservative_charge_attention: u64,
-    powered_attention_upper: u64,
-    minimum_return_ppm: u64,
-    minimum_attention_return: u64,
-}
-
-fn plan_liberation_extension(
-    registries: &Registries,
-    case: FocusedProbeCase,
-    batch_mass: Mass,
-    planned_batches: u64,
-) -> LiberationExtensionPlan {
-    assert!(planned_batches > 0);
-    let manual_per_batch = project_manual_ore_recovery_attention(registries, batch_mass);
-    let manual_campaign_attention = manual_per_batch
-        .checked_mul(planned_batches)
-        .unwrap_or_else(|| panic!("liberation manual campaign projection overflowed"));
-    let acquisition = acquisition::project_incremental_kit_acquisition_attention(registries);
-    let provider_condition = inherited_progression_condition(
-        registries,
-        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-        case,
-        0x4352_414E_4B00_0001,
-    );
-    let store = registries
-        .energy()
-        .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
-        .unwrap_or_else(|| panic!("liberation inherited flywheel definition disappeared"));
-    let stage_count = u64::try_from(LIBERATION_POWERED_ROUTE_STAGES.len())
-        .unwrap_or_else(|_| unreachable!("bounded liberation stage count fits u64"));
-    let charge_count = stage_count
-        .checked_mul(planned_batches)
-        .unwrap_or_else(|| panic!("liberation conservative charge count overflowed"));
-    let charge_projection = project_manual_power_sequence(
-        registries,
-        ManualPowerSequenceRequest {
-            method: MANUAL_POWER_HAND_CRANK,
-            equipment: EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-            starting_condition: provider_condition,
-            store: ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
-            energy_per_charge: store.capacity(),
-            charges: charge_count,
-        },
-        "liberation conservative powered-route charging",
-    );
-    let powered_attention_upper = acquisition
-        .total_ticks
-        .checked_add(charge_projection.attention_ticks)
-        .unwrap_or_else(|| panic!("liberation powered attention upper bound overflowed"));
-    let investment_policy = CapitalInvestmentPolicy::baseline();
-    let minimum_return_ppm = investment_policy.minimum_return_ppm();
-    let minimum_attention_return =
-        investment_policy.minimum_attention_return(0, acquisition.total_ticks);
-    let choice = if clears_attention_return(
-        manual_campaign_attention,
-        powered_attention_upper,
-        minimum_attention_return,
-    ) {
-        LiberationExtensionChoice::BuildKit
-    } else {
-        LiberationExtensionChoice::ManualFallback
-    };
-    LiberationExtensionPlan {
-        choice,
-        manual_campaign_attention,
-        acquisition_attention: acquisition.total_ticks,
-        conservative_charge_attention: charge_projection.attention_ticks,
-        powered_attention_upper,
-        minimum_return_ppm,
-        minimum_attention_return,
-    }
-}
-
 pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
     let PrimitiveLiberationWorldParameters {
@@ -528,7 +418,13 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         copper_ppm,
         clay_share_ppm,
     } = primitive_liberation_world_parameters(registries, case);
-    let extension_plan = plan_liberation_extension(registries, case, batch_mass, planned_batches);
+    let extension_plan = plan_liberation_extension(
+        registries,
+        case.seed(),
+        liberation_generation_role(case),
+        batch_mass,
+        planned_batches,
+    );
     let selected_build = extension_plan.choice == LiberationExtensionChoice::BuildKit;
     reviewln!(
         "LIBERATION INVESTMENT seed=0x{seed:016X} sample={} disclosed=[batches:{} batch:{}mg] projected=[manual:{}t extension-acquisition:{}t conservative-charging:{}t powered-upper:{}t minimum-return:{}ppm/{}t] selected={} choice-frozen-before-action=true basis=canonical-manual-recovery+conservative-full-stage-charging",
