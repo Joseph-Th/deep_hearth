@@ -108,6 +108,7 @@ GAMEPLAY_PROGRESSION_EPISODE_CONTRACT_TARGET = "gameplay_progression_episode_con
 GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET = "gameplay_settlement_generation_contracts"
 GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET = "gameplay_liberation_generation_contracts"
 GAMEPLAY_FOUNDRY_GENERATION_CONTRACT_TARGET = "gameplay_foundry_generation_contracts"
+GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET = "gameplay_woodworking_planning_contracts"
 GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
     sorted(
         (
@@ -119,6 +120,7 @@ GAMEPLAY_OWNER_CONTRACT_TARGETS = tuple(
             GAMEPLAY_PROSPECTING_CONTRACT_TARGET,
             GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
             GAMEPLAY_SURVIVAL_GENERATION_CONTRACT_TARGET,
+            GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET,
         )
     )
 )
@@ -174,8 +176,8 @@ GAMEPLAY_TEST_PREFIX_TARGETS = {
     "survival_probe::provisioning_support_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["survival"],
     "saw_bench_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
     "woodworking_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
-    "woodworking_generation_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
-    "woodworking_policy::tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
+    "woodworking_generation_contract_tests::": GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET,
+    "woodworking_policy::tests::": GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET,
     "agency::contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
     "scenario_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
     "workshop_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],

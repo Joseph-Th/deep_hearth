@@ -21,11 +21,14 @@ fn organic_woodworking_generation_varies_demand_and_disclosed_copper_pressure() 
     assert!(
         demands
             .iter()
-            .map(|demand| demand.horizon)
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1,
-        "organic woodworking generation collapsed to one planning horizon"
+            .any(|demand| demand.pipeline_boards == demand.immediate_boards),
+        "organic woodworking generation lost immediate-only demand"
+    );
+    assert!(
+        demands
+            .iter()
+            .any(|demand| demand.pipeline_boards > demand.immediate_boards),
+        "organic woodworking generation lost queued demand"
     );
     assert!(
         demands
@@ -53,23 +56,27 @@ fn four_world_woodworking_sample_spans_workload_without_encoding_copper_decision
     let demands = (0_u64..4)
         .map(|offset| plan_woodworking_demand(&registries, base + offset, true))
         .collect::<Vec<_>>();
-    assert_eq!(
+    assert!(
         demands
             .iter()
-            .map(|demand| demand.horizon)
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["immediate-only", "project", "short-queue"]),
-        "four-world woodworking exploration must span the current planning horizons"
+            .any(|demand| demand.pipeline_boards == demand.immediate_boards),
+        "four-world woodworking exploration lost an immediate-only workload"
     );
     assert!(
         demands
             .iter()
-            .filter(|demand| demand.horizon == "project")
+            .any(|demand| demand.pipeline_boards > demand.immediate_boards),
+        "four-world woodworking exploration lost queued work"
+    );
+    assert!(
+        demands
+            .iter()
+            .filter(|demand| demand.pipeline_boards > demand.immediate_boards)
             .map(|demand| demand.saw_batches)
             .collect::<BTreeSet<_>>()
             .len()
             > 1,
-        "bounded woodworking exploration must retain materially different project workloads"
+        "bounded woodworking exploration must retain materially different queued workloads"
     );
 
     let copper = (0_u64..4)

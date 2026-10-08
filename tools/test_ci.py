@@ -1710,6 +1710,12 @@ class TestTopologyContractTests(unittest.TestCase):
                 "tests/gameplay_harness/woodworking_probe/evaluation.rs",
                 "tests/gameplay_harness/woodworking_probe/execution.rs",
             },
+            gameplay_targets.GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET: {
+                "tests/gameplay_harness/woodworking_contract_tests.rs",
+                "tests/gameplay_harness/saw_bench_contract_tests.rs",
+                "tests/gameplay_harness/manual_craft_execution.rs",
+                "tests/gameplay_harness/world_admission.rs",
+            },
             gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"]: {
                 "tests/gameplay_harness/progression_probe.rs",
                 "tests/gameplay_harness/progression_episode_contract_tests.rs",
@@ -4287,7 +4293,7 @@ class ExactTestCommandTests(unittest.TestCase):
         cases = {
             "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
             "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": gameplay_targets.GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
-            "four_world_woodworking_sample_spans_workload_without_encoding_copper_decisions": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
+            "four_world_woodworking_sample_spans_workload_without_encoding_copper_decisions": gameplay_targets.GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET,
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["settlement"],
             "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry"],
@@ -4356,6 +4362,8 @@ class ExactTestCommandTests(unittest.TestCase):
             "primitive_liberation_investment::investment_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["liberation"],
             "primitive_liberation_generation_contract_tests": gameplay_targets.GAMEPLAY_LIBERATION_GENERATION_CONTRACT_TARGET,
             "foundry_generation_contract_tests": gameplay_targets.GAMEPLAY_FOUNDRY_GENERATION_CONTRACT_TARGET,
+            "woodworking_generation_contract_tests": gameplay_targets.GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET,
+            "woodworking_policy::tests": gameplay_targets.GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET,
             "first_foundry_generation_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["foundry-bootstrap"],
             "power_provider_generation_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["power-provider"],
             "ore_contract_tests": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["ore"],
