@@ -15,9 +15,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::crafting::{
-    manual_craft_options_from_stockpile, project_manual_craft_equipment, resolve_manual_craft,
-};
+use deep_hearth::crafting::{project_manual_craft_equipment, resolve_manual_craft};
 use deep_hearth::equipment::{EquipmentId, validate_upgrade_equipment};
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::maintenance::Condition;
@@ -30,10 +28,12 @@ use deep_hearth::survival::assess_survival;
 use super::capital_investment_crossover::first_attention_return_crossover;
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
-use super::exact_local_runtime::STATIONARY_PLAYER_ORIGIN;
+use super::exact_local_runtime::{
+    STATIONARY_PLAYER_ORIGIN, unique_local_energy_store, unique_local_equipment,
+};
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
-use super::manual_craft_selection::{plan_manual_craft_request, select_manual_craft_request};
+use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
 use super::physical_time::format_physical_duration;
 use super::powered_craft_planning::authored_batch;
@@ -44,6 +44,7 @@ use super::settlement_generation::{
     crossover_workloads, organic_inherited_equipment_condition, organic_investment_policy,
 };
 use super::settlement_power_planning::project_manual_power_workload;
+use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LumberInvestmentChoice {
@@ -309,102 +310,24 @@ fn setup_plans(
     let mut plans = Vec::new();
     let mut attention = 0_u64;
     for input in additions.inputs() {
-        let catalog =
-            manual_craft_options_from_stockpile(registries, state, raw).unwrap_or_else(|error| {
-                panic!("settlement cannot read the ordinary craft catalog: {error}")
-            });
-        let candidates = catalog
-            .into_iter()
-            .filter_map(|option| {
-                let definition = registries
-                    .crafting()
-                    .get_manual(option.process())
-                    .unwrap_or_else(|| panic!("ordinary craft catalog exposed an unknown process"));
-                if !definition
-                    .outputs()
-                    .iter()
-                    .any(|output| output.commodity() == input.commodity())
-                {
-                    return None;
-                }
-                let per_batch = definition
-                    .outputs()
-                    .iter()
-                    .find(|output| output.commodity() == input.commodity())
-                    .map(|output| output.mass())
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "settlement sawmill producer {} lost requested output {}",
-                            definition.process().value(),
-                            input.commodity().value()
-                        )
-                    });
-                let batches = input.mass().milligrams().div_ceil(per_batch.milligrams());
-                let required_input = Mass::from_milligrams(
-                    definition
-                        .input_mass()
-                        .milligrams()
-                        .checked_mul(batches)
-                        .unwrap_or_else(|| panic!("settlement sawmill setup input overflowed")),
-                );
-                Some(
-                    [None, Some(frame_saw)]
-                        .into_iter()
-                        .filter_map(move |equipment| {
-                            let mut request = plan_manual_craft_request(
-                                registries,
-                                state,
-                                definition.process(),
-                                raw,
-                                batches,
-                            )
-                            .ok()?;
-                            if let Some(equipment) = equipment {
-                                request = request.with_equipment(equipment);
-                            }
-                            let resolution =
-                                resolve_manual_craft(registries, state, &request).ok()?;
-                            Some((
-                                definition.process(),
-                                batches,
-                                equipment,
-                                resolution.duration().value(),
-                                required_input.milligrams(),
-                            ))
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-        let best_key = candidates
-            .iter()
-            .map(|(_, _, _, ticks, input_mg)| (*ticks, *input_mg))
-            .min()
-            .unwrap_or_else(|| {
-                panic!(
-                    "settlement sawmill setup has no legal route to component {} from disclosed raw matter",
-                    input.commodity().value()
-                )
-            });
-        let mut best = candidates
-            .into_iter()
-            .filter(|(_, _, _, ticks, input_mg)| (*ticks, *input_mg) == best_key);
-        let (process, batches, equipment, ticks, _) = best
-            .next()
-            .unwrap_or_else(|| unreachable!("settlement best setup key came from a candidate"));
-        assert!(
-            best.next().is_none(),
-            "settlement sawmill setup has equally efficient routes to component {}; add an explicit actor preference",
-            input.commodity().value()
+        let (request, batches) = manual_craft_plan_with_available_equipment(
+            registries,
+            state,
+            &[raw],
+            &[frame_saw],
+            input.commodity(),
+            input.mass(),
+            "settlement sawmill setup",
         );
+        let resolution = resolve_manual_craft(registries, state, &request)
+            .unwrap_or_else(|error| panic!("settlement sawmill setup resolution failed: {error}"));
         attention = attention
-            .checked_add(ticks)
+            .checked_add(resolution.duration().value())
             .unwrap_or_else(|| panic!("settlement sawmill setup attention overflowed"));
         plans.push(SetupPlan {
-            process,
+            process: request.process(),
             batches,
-            equipment,
+            equipment: request.equipment(),
         });
     }
     (plans, attention)
@@ -607,9 +530,30 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         &[],
         "focused settlement",
     );
-    let frame_saw = prior_workshop.frame_saw;
-    let crank = prior_workshop.crank;
-    let drive = prior_workshop.drive;
+    let frame_saw = unique_local_equipment(
+        &state,
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        "focused settlement inherited frame saw",
+    );
+    let crank = unique_local_equipment(
+        &state,
+        EQUIPMENT_STONE_HAND_CRANK,
+        "focused settlement inherited crank",
+    );
+    let drive = unique_local_energy_store(
+        &state,
+        ENERGY_STONE_FLYWHEEL_DRIVE,
+        "focused settlement inherited flywheel",
+    );
+    assert_eq!(
+        (frame_saw, crank, drive),
+        (
+            prior_workshop.frame_saw,
+            prior_workshop.crank,
+            prior_workshop.drive,
+        ),
+        "settlement actor-visible inherited workshop diverged from admitted fixture custody"
+    );
 
     let baseline_crossover_batches = baseline_lumber_crossover_batches(
         registries,

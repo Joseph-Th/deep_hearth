@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::energy::EnergyState;
+use crate::energy::{EnergyState, EnergyStoreRecord};
 use crate::equipment::{EquipmentRecord, EquipmentState};
 use crate::fluid::{FluidState, FluidStoreRecord};
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
@@ -164,6 +164,24 @@ impl AppState {
     #[must_use]
     pub const fn energy(&self) -> &EnergyState {
         &self.systems.energy
+    }
+
+    /// Iterates finite energy stores explicitly located at the admitted player's exact voxel.
+    ///
+    /// No stores are observable before logistics admission. Callers cannot supply an arbitrary
+    /// voxel, so ordinary actor policy can rediscover local batteries, flywheels, and thermal
+    /// stores without enumerating remote energy custody or retaining fixture identities.
+    pub fn available_local_energy_stores(&self) -> impl Iterator<Item = &EnergyStoreRecord> {
+        let player_position = self
+            .systems
+            .logistics
+            .player()
+            .map(|player| player.position());
+        self.systems
+            .logistics
+            .energy_store_locations()
+            .filter(move |(_, position)| Some(*position) == player_position)
+            .filter_map(|(store, _)| self.systems.energy.get_store(store))
     }
 
     pub(crate) fn energy_state_mut(&mut self) -> &mut EnergyState {

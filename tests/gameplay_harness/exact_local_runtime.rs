@@ -1,7 +1,11 @@
 //! Runtime-state invariant for ordinary exact-local gameplay evidence.
 
+use std::collections::BTreeSet;
+
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId};
+use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::logistics::{
@@ -12,6 +16,54 @@ use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 
 pub(super) const STATIONARY_PLAYER_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
+
+#[allow(
+    dead_code,
+    reason = "exact-local targets use only the endpoint kinds relevant to their current episode"
+)]
+pub(super) fn unique_local_equipment(
+    state: &AppState,
+    definition: EquipmentDefinitionId,
+    context: &'static str,
+) -> EquipmentId {
+    let matches = state
+        .available_local_equipment()
+        .filter(|record| record.definition() == definition)
+        .map(|record| record.id())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "stationary gameplay {context} expected one actor-visible local equipment instance of definition {} but found {}",
+        definition.value(),
+        matches.len()
+    );
+    matches[0]
+}
+
+#[allow(
+    dead_code,
+    reason = "exact-local targets use only the endpoint kinds relevant to their current episode"
+)]
+pub(super) fn unique_local_energy_store(
+    state: &AppState,
+    definition: EnergyStoreDefinitionId,
+    context: &'static str,
+) -> EnergyStoreId {
+    let matches = state
+        .available_local_energy_stores()
+        .filter(|record| record.definition() == definition)
+        .map(|record| record.id())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "stationary gameplay {context} expected one actor-visible local energy store of definition {} but found {}",
+        definition.value(),
+        matches.len()
+    );
+    matches[0]
+}
 
 /// Locates pre-existing stationary endpoints at the ordinary player's workshop voxel.
 ///
@@ -109,6 +161,18 @@ pub(super) fn assert_exact_local_runtime_ready(
             equipment.id().value()
         );
     }
+    assert_eq!(
+        state
+            .available_local_equipment()
+            .map(|equipment| equipment.id())
+            .collect::<BTreeSet<_>>(),
+        state
+            .equipment()
+            .equipment()
+            .map(|equipment| equipment.id())
+            .collect::<BTreeSet<_>>(),
+        "stationary gameplay {context} actor-visible equipment diverged from exact-local runtime equipment"
+    );
     for store in state.energy().stores() {
         assert_eq!(
             state.logistics().energy_store_position(store.id()),
@@ -117,6 +181,18 @@ pub(super) fn assert_exact_local_runtime_ready(
             store.id().value()
         );
     }
+    assert_eq!(
+        state
+            .available_local_energy_stores()
+            .map(|store| store.id())
+            .collect::<BTreeSet<_>>(),
+        state
+            .energy()
+            .stores()
+            .map(|store| store.id())
+            .collect::<BTreeSet<_>>(),
+        "stationary gameplay {context} actor-visible energy stores diverged from exact-local runtime energy stores"
+    );
     for store in state.fluid().stores() {
         assert_eq!(
             state.logistics().fluid_store_position(store.id()),
@@ -125,6 +201,30 @@ pub(super) fn assert_exact_local_runtime_ready(
             store.id().value()
         );
     }
+    assert_eq!(
+        state
+            .available_local_fluid_stores()
+            .map(|store| store.id())
+            .collect::<BTreeSet<_>>(),
+        state
+            .fluid()
+            .stores()
+            .map(|store| store.id())
+            .collect::<BTreeSet<_>>(),
+        "stationary gameplay {context} actor-visible fluid stores diverged from exact-local runtime fluid stores"
+    );
+    assert_eq!(
+        state
+            .available_local_ground_stockpiles()
+            .map(|stockpile| stockpile.id())
+            .collect::<BTreeSet<_>>(),
+        state
+            .logistics()
+            .stockpile_locations()
+            .map(|(stockpile, _)| stockpile)
+            .collect::<BTreeSet<_>>(),
+        "stationary gameplay {context} actor-visible ground stockpiles diverged from exact-local runtime custody"
+    );
     validate_loaded_state(registries, state).unwrap_or_else(|error| {
         panic!("stationary gameplay {context} admitted invalid runtime state: {error}")
     });

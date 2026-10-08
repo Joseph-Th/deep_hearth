@@ -24,7 +24,7 @@ use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     assess_player_carrying, validate_allocate_ground_stockpile,
-    validate_initialize_player_logistics,
+    validate_allocate_player_ground_stockpile, validate_initialize_player_logistics,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
@@ -37,6 +37,7 @@ use deep_hearth::surface::{
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::super::environment::ROOM_TEMPERATURE;
+use super::super::exact_local_runtime::{unique_local_energy_store, unique_local_equipment};
 use super::super::focused_case::FocusedProbeCase;
 use super::super::manual_craft_batches::execute_manual_craft_batches;
 use super::super::manual_craft_equipment_planning::manual_craft_plan_with_equipment;
@@ -151,7 +152,7 @@ fn gather_surface_resource(
 
 pub(super) struct AcquiredPrimitiveKit {
     pub(super) decision_state: AppState,
-    pub(super) state: AppState,
+    pub(super) build_state: AppState,
     pub(super) crusher: EquipmentId,
     pub(super) quern: EquipmentId,
     pub(super) screen: EquipmentId,
@@ -437,14 +438,6 @@ pub(super) fn acquire_raw_kit<T>(
         ROOM_TEMPERATURE,
         MaterialComposition::pure(MATERIAL_WOOD),
     );
-    let parts = validate_allocate_ground_stockpile(&state, player_position, raw_mass)
-        .unwrap_or_else(|error| panic!("liberation parts allocation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("liberation parts allocation commit failed: {error}"));
-    let panel_feed = validate_allocate_ground_stockpile(&state, player_position, raw_mass)
-        .unwrap_or_else(|error| panic!("liberation panel-feed allocation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("liberation panel-feed allocation commit failed: {error}"));
     let inherited =
         seed_inherited_progression_infrastructure(registries, &mut state, case, player_position);
     let bootstrap = bootstrap_before_admission(&mut state);
@@ -460,7 +453,46 @@ pub(super) fn acquire_raw_kit<T>(
         &state,
         "primitive liberation",
     );
+    let crusher = unique_local_equipment(
+        &state,
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        "primitive liberation inherited crusher",
+    );
+    let separator = unique_local_equipment(
+        &state,
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+        "primitive liberation inherited separator",
+    );
+    let power_provider = unique_local_equipment(
+        &state,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        "primitive liberation inherited hand crank",
+    );
+    let drive = unique_local_energy_store(
+        &state,
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        "primitive liberation inherited flywheel",
+    );
+    assert_eq!(
+        (crusher, separator, power_provider, drive),
+        (
+            inherited.crusher,
+            inherited.separator,
+            inherited.power_provider,
+            inherited.drive,
+        ),
+        "liberation actor-visible inherited processing line diverged from admitted fixture custody"
+    );
     let decision_state = state.clone();
+    let mut state = decision_state.clone();
+    let parts = validate_allocate_player_ground_stockpile(&state, raw_mass)
+        .unwrap_or_else(|error| panic!("liberation parts allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation parts allocation commit failed: {error}"));
+    let panel_feed = validate_allocate_player_ground_stockpile(&state, raw_mass)
+        .unwrap_or_else(|error| panic!("liberation panel-feed allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation panel-feed allocation commit failed: {error}"));
     let find_local_surface = |commodity: CommodityKey| {
         let matches = state
             .available_surface_resources()
@@ -530,11 +562,16 @@ pub(super) fn acquire_raw_kit<T>(
             },
         );
     }
-    let adze =
+    let assembled_adze =
         validate_assemble_equipment(registries, &state, EQUIPMENT_STONE_WOODWORKING_ADZE, parts)
             .unwrap_or_else(|error| panic!("liberation kit adze assembly failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("liberation kit adze commit failed: {error}"));
+    let adze = unique_local_equipment(&state, EQUIPMENT_STONE_WOODWORKING_ADZE, "woodworking adze");
+    assert_eq!(
+        adze, assembled_adze,
+        "liberation assembled adze identity diverged from actor-visible local equipment"
+    );
     let adze_ready_at = state.tick().value();
 
     for (commodity, required) in final_requirements {
@@ -564,10 +601,16 @@ pub(super) fn acquire_raw_kit<T>(
     );
     let riddle_ready_at = state.tick().value();
     let assemble = |state: &mut AppState, definition| {
-        validate_assemble_equipment(registries, state, definition, parts)
+        let assembled = validate_assemble_equipment(registries, state, definition, parts)
             .unwrap_or_else(|error| panic!("liberation kit equipment assembly failed: {error}"))
             .commit(state)
-            .unwrap_or_else(|error| panic!("liberation kit equipment commit failed: {error}"))
+            .unwrap_or_else(|error| panic!("liberation kit equipment commit failed: {error}"));
+        let observed = unique_local_equipment(state, definition, "liberation extension equipment");
+        assert_eq!(
+            observed, assembled,
+            "liberation assembled extension identity diverged from actor-visible local equipment"
+        );
+        observed
     };
     let quern = assemble(&mut state, EQUIPMENT_STONE_ROTARY_QUERN);
     let screen = assemble(&mut state, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN);
@@ -672,13 +715,13 @@ pub(super) fn acquire_raw_kit<T>(
     );
     let kit = AcquiredPrimitiveKit {
         decision_state,
-        state,
-        crusher: inherited.crusher,
+        build_state: state,
+        crusher,
         quern,
         screen,
-        separator: inherited.separator,
-        power_provider: inherited.power_provider,
-        drive: inherited.drive,
+        separator,
+        power_provider,
+        drive,
         review: RawKitAcquisitionReview {
             attention_ticks: attention,
             metabolic_cost_nj: metabolic.nanojoules(),

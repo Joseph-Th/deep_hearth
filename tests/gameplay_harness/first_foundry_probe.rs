@@ -35,7 +35,9 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::exact_local_runtime::STATIONARY_PLAYER_ORIGIN;
+use super::exact_local_runtime::{
+    STATIONARY_PLAYER_ORIGIN, unique_local_energy_store, unique_local_equipment,
+};
 use super::focused_case::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft;
@@ -273,9 +275,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
 
     let mut state = AppState::new();
     let prior_workshop = seed_prior_settlement_workshop(registries, &mut state, case);
-    let frame_saw = prior_workshop.frame_saw;
-    let treadle_hammer = prior_workshop.treadle_hammer;
-    let processing_line = InheritedProcessingLine {
+    let fixture_processing_line = InheritedProcessingLine {
         crusher: prior_workshop.crusher,
         separator: prior_workshop.separator,
         drive: prior_workshop.processing_drive,
@@ -283,11 +283,10 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         provider: prior_workshop.processing_provider,
     };
     assert_eq!(
-        current_processing_batch_limit(registries, &state, processing_line),
+        current_processing_batch_limit(registries, &state, fixture_processing_line),
         Some(resource_opportunity.recovery_batch_limit),
         "first foundry generated recovery scale must match the live inherited processing line"
     );
-    let workshop_tools = [frame_saw, treadle_hammer];
     let non_copper_component_raw = route_plan
         .capital_raw_mass()
         .checked_sub(capital_copper)
@@ -380,6 +379,59 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         &[],
         "first foundry",
     );
+    let frame_saw = unique_local_equipment(
+        &state,
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        "first foundry inherited frame saw",
+    );
+    let treadle_hammer = unique_local_equipment(
+        &state,
+        EQUIPMENT_TIMBER_TREADLE_HAMMER,
+        "first foundry inherited treadle hammer",
+    );
+    let processing_line = InheritedProcessingLine {
+        crusher: unique_local_equipment(
+            &state,
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            "first foundry inherited crusher",
+        ),
+        separator: unique_local_equipment(
+            &state,
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            "first foundry inherited separator",
+        ),
+        drive: unique_local_energy_store(
+            &state,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            "first foundry inherited processing flywheel",
+        ),
+        power_method: MANUAL_POWER_HAND_CRANK,
+        provider: unique_local_equipment(
+            &state,
+            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            "first foundry inherited processing hand crank",
+        ),
+    };
+    assert_eq!(
+        (
+            frame_saw,
+            treadle_hammer,
+            processing_line.crusher,
+            processing_line.separator,
+            processing_line.drive,
+            processing_line.provider,
+        ),
+        (
+            prior_workshop.frame_saw,
+            prior_workshop.treadle_hammer,
+            fixture_processing_line.crusher,
+            fixture_processing_line.separator,
+            fixture_processing_line.drive,
+            fixture_processing_line.provider,
+        ),
+        "first foundry actor-visible inherited workshop diverged from admitted fixture custody"
+    );
+    let workshop_tools = [frame_saw, treadle_hammer];
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("first foundry player survival disappeared"));
     let matter_before = calculate_matter_accounting(&state)

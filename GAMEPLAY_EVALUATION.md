@@ -31,7 +31,10 @@ all consequential changes use canonical runtime operations. Fixture authorizatio
 Ordinary exact-local episodes locate every disclosed pre-existing stationary endpoint before that boundary, then
 initialize both survival and player logistics before actor work begins. The runtime's no-logistics-player locality
 fallback is valid only for controlled-capability fixtures or explicitly movement-abstracted evidence; it cannot
-support an exact-local ordinary-play claim.
+support an exact-local ordinary-play claim. After admission, route-driving inherited equipment and finite energy
+stores are reacquired through exact-local actor observation rather than fixture-retained identities. Shared
+admission checks require actor-visible local equipment, energy stores, fluid stores, and ground stockpiles to agree
+with the admitted exact-local runtime state; fixture identities may remain only as post-hoc continuity checks.
 
 Actor policy may choose among observable alternatives using attention, material demand, survival reserve,
 throughput, capacity, condition, and acquired evidence. Production owns legality and physics; actor code owns

@@ -1,11 +1,12 @@
 //! Contract tests for root runtime state and trusted continuation.
 
 use super::*;
-use crate::content::FLUID_WATER;
 use crate::content::build_registries;
+use crate::content::{ENERGY_STONE_FLYWHEEL_DRIVE, FLUID_WATER};
 use crate::core::quantity::{Mass, Temperature, Volume};
+use crate::energy::validate_assemble_energy_store;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
-use crate::inventory::add_solid_stockpile_for_test;
+use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::logistics::{
     validate_initialize_player_logistics, validate_place_fluid_store,
     validate_place_ground_stockpile,
@@ -28,6 +29,80 @@ fn app_state_debug_does_not_expose_hidden_geology() {
 
     assert!(debug.contains("geological_knowledge"));
     assert!(!debug.contains("geology:"));
+}
+
+#[test]
+fn local_energy_observation_requires_actor_admission_and_exact_colocation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let assembly_inputs = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .and_then(|definition| definition.assembly_profile())
+        .map(|profile| {
+            profile
+                .inputs()
+                .iter()
+                .map(|input| (input.commodity(), input.mass()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| panic!("local energy observation fixture lost authored assembly"));
+    let assembly_mass = assembly_inputs
+        .iter()
+        .map(|(_, mass)| *mass)
+        .try_fold(Mass::ZERO, Mass::checked_add)
+        .unwrap_or_else(|| panic!("local energy observation assembly mass overflowed"));
+    let mut assemble = |context: &'static str| {
+        let source = add_solid_stockpile_for_test(&mut state, assembly_mass)
+            .unwrap_or_else(|error| panic!("{context} energy source fixture failed: {error}"));
+        for &(commodity, mass) in &assembly_inputs {
+            deposit_lot_for_test(
+                &registries,
+                &mut state,
+                source,
+                commodity,
+                mass,
+                Temperature::from_millikelvin(293_150),
+            )
+            .unwrap_or_else(|error| panic!("{context} energy material fixture failed: {error}"));
+        }
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .unwrap_or_else(|error| panic!("{context} energy assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("{context} energy assembly commit failed: {error}"))
+    };
+    let local = assemble("local");
+    let remote = assemble("remote");
+    let _unlocated = assemble("unlocated");
+    let player_position = VoxelCoord::new(0, 0, 0);
+    state
+        .logistics_state_mut()
+        .apply_energy_store_placement(0, 1, local, player_position);
+    state.logistics_state_mut().apply_energy_store_placement(
+        1,
+        2,
+        remote,
+        VoxelCoord::new(1, 0, 0),
+    );
+
+    assert!(
+        state.available_local_energy_stores().next().is_none(),
+        "energy stores must not be actor-observable before logistics admission"
+    );
+
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("local energy observation player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("local energy observation player commit failed: {error}"));
+    assert_eq!(
+        state
+            .available_local_energy_stores()
+            .map(|store| store.id())
+            .collect::<Vec<_>>(),
+        vec![local],
+        "local energy observation must exclude remote and unlocated stores"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

@@ -200,6 +200,7 @@ struct PrimitiveLiberationCampaignLifecycle {
     screen_condition_ppm: u32,
     separator_condition_ppm: u32,
     power_provider_condition_ppm: u32,
+    state: AppState,
 }
 
 #[derive(Debug)]
@@ -209,6 +210,7 @@ struct ManualLiberationCampaignLifecycle {
     metabolic_cost_nj: u128,
     hydration_cost_ul: u64,
     recovered_native: Mass,
+    state: AppState,
 }
 
 #[derive(Clone, Copy)]
@@ -306,6 +308,11 @@ fn run_powered_campaign_lifecycle(
             .map(|record| record.condition().parts_per_million())
             .unwrap_or_else(|| panic!("liberation campaign equipment disappeared"))
     };
+    let crusher_condition_ppm = condition(infrastructure.crusher);
+    let quern_condition_ppm = condition(infrastructure.quern);
+    let screen_condition_ppm = condition(infrastructure.screen);
+    let separator_condition_ppm = condition(infrastructure.separator);
+    let power_provider_condition_ppm = condition(infrastructure.power_provider);
     PrimitiveLiberationCampaignLifecycle {
         batch_charge_ticks,
         elapsed_ticks: state.tick().value() - started_at,
@@ -320,11 +327,12 @@ fn run_powered_campaign_lifecycle(
             .unwrap_or_else(|| panic!("liberation campaign hydration reserve increased"))
             .microliters(),
         recovered_native,
-        crusher_condition_ppm: condition(infrastructure.crusher),
-        quern_condition_ppm: condition(infrastructure.quern),
-        screen_condition_ppm: condition(infrastructure.screen),
-        separator_condition_ppm: condition(infrastructure.separator),
-        power_provider_condition_ppm: condition(infrastructure.power_provider),
+        crusher_condition_ppm,
+        quern_condition_ppm,
+        screen_condition_ppm,
+        separator_condition_ppm,
+        power_provider_condition_ppm,
+        state,
     }
 }
 
@@ -399,6 +407,7 @@ fn run_manual_campaign_lifecycle(
             .unwrap_or_else(|| panic!("manual liberation campaign hydration reserve increased"))
             .microliters(),
         recovered_native,
+        state,
     }
 }
 
@@ -467,7 +476,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .unwrap_or_else(|| panic!("liberation campaign lost its first batch"));
     let campaign_lifecycle = run_powered_campaign_lifecycle(
         registries,
-        acquired.state.clone(),
+        acquired.build_state.clone(),
         &campaign_bootstraps,
         PrimitiveLiberationCampaignInfrastructure {
             crusher: acquired.crusher,
@@ -531,13 +540,32 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             powered_campaign_hydration_ul,
         ),
     };
+    let selected_state = match extension_plan.choice {
+        LiberationExtensionChoice::ManualFallback => &manual_campaign.state,
+        LiberationExtensionChoice::BuildKit => &campaign_lifecycle.state,
+    };
+    let selected_owns_extension = [
+        deep_hearth::content::EQUIPMENT_STONE_ROTARY_QUERN,
+        deep_hearth::content::EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+    ]
+    .into_iter()
+    .all(|definition| {
+        selected_state
+            .available_local_equipment()
+            .any(|record| record.definition() == definition)
+    });
+    assert_eq!(
+        selected_owns_extension, selected_build,
+        "liberation selected-world state diverged from the frozen extension decision"
+    );
     reviewln!(
-        "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} disclosed=[batches:{} batch:{}mg] selected={} extension-built={} execution=[attention:{}t elapsed:{}t native-copper:{}mg body:{}nJ/{}uL] counterfactual=[manual-attention:{}t manual-native:{}mg powered-attention:{}t powered-native:{}mg] choice-frozen-before-action=true matter=conserved",
+        "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} disclosed=[batches:{} batch:{}mg] selected={} extension-built={} selected-world=[extension-owned:{}] execution=[attention:{}t elapsed:{}t native-copper:{}mg body:{}nJ/{}uL] counterfactual=[manual-attention:{}t manual-native:{}mg powered-attention:{}t powered-native:{}mg] choice-frozen-before-action=true matter=conserved",
         case.role().label(),
         planned_batches,
         batch_mass.milligrams(),
         extension_plan.choice.label(),
         selected_build,
+        selected_owns_extension,
         selected_attention,
         selected_elapsed,
         selected_native.milligrams(),
@@ -548,7 +576,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         powered_campaign_attention,
         campaign_lifecycle.recovered_native.milligrams(),
     );
-    let state = acquired.state;
+    let state = acquired.build_state;
     let crusher = acquired.crusher;
     let quern = acquired.quern;
     let screen = acquired.screen;
