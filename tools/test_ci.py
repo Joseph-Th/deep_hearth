@@ -4223,6 +4223,25 @@ class ExactTestCommandTests(unittest.TestCase):
             gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET,
         )
 
+    def test_direct_compile_repair_source_does_not_walk_unrelated_target_closures(self) -> None:
+        source = ROOT / "tests" / "gameplay_harness" / "settlement_generation_contract_tests.rs"
+        expected = gameplay_targets.GAMEPLAY_SETTLEMENT_GENERATION_CONTRACT_TARGET
+        original = run_test.target_source_paths
+
+        def owner_only(target: str, raw_features: str | None):
+            self.assertEqual(target, expected)
+            return original(target, raw_features)
+
+        with mock.patch.object(run_test, "target_source_paths", side_effect=owner_only):
+            self.assertEqual(run_test.smallest_test_target_for_source(source), expected)
+
+    def test_nested_compile_repair_source_keeps_full_closure_fallback(self) -> None:
+        source = ROOT / "tests" / "gameplay_harness" / "fieldwork_shortfall_policy.rs"
+        self.assertEqual(
+            run_test.smallest_test_target_for_source(source),
+            gameplay_targets.GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,
+        )
+
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
             "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],

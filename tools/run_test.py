@@ -214,6 +214,23 @@ def all_source_test_names(raw_features: str | None) -> list[str]:
 
 
 @lru_cache(maxsize=None)
+def direct_target_source_paths(target: str, raw_features: str | None) -> frozenset[Path]:
+    """Return one target root plus its directly imported Rust modules."""
+
+    features = cargo_feature_set(target, raw_features)
+    root = ROOT / "src" / "lib.rs" if target == "lib" else cargo_test_target_path(target)
+    return frozenset(
+        {
+            root.resolve(),
+            *(
+                path.resolve()
+                for _name, path in test_catalog.external_modules(ROOT, root, features)
+            ),
+        }
+    )
+
+
+@lru_cache(maxsize=None)
 def target_source_paths(target: str, raw_features: str | None) -> frozenset[Path]:
     """Return one target's reachable Rust files for build-free topology checks."""
 
@@ -237,11 +254,18 @@ def smallest_test_target_for_source(
     """
 
     resolved = source.resolve()
+    targets = test_targets()
     candidates = {
         target
-        for target in test_targets()
-        if resolved in target_source_paths(target, raw_features)
+        for target in targets
+        if resolved in direct_target_source_paths(target, raw_features)
     }
+    if not candidates:
+        candidates = {
+            target
+            for target in targets
+            if resolved in target_source_paths(target, raw_features)
+        }
     if not candidates:
         return None
     audit = gameplay_targets.GAMEPLAY_AUDIT_TARGET
