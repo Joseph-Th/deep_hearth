@@ -69,7 +69,15 @@ impl MiningState {
             .filter(|job| {
                 inventory
                     .get_stockpile(job.destination())
-                    .is_some_and(|stockpile| stockpile.supported_by().is_some())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "runtime invariant broken: mining job {} references missing destination stockpile {}",
+                            job.id().value(),
+                            job.destination().value()
+                        )
+                    })
+                    .supported_by()
+                    .is_some()
             })
             .count();
         u64::try_from(count)

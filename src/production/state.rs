@@ -107,7 +107,14 @@ impl ProductionState {
             .physical_availability_candidate_jobs(|stockpile| {
                 inventory
                     .get_stockpile(stockpile)
-                    .is_some_and(|record| record.supported_by().is_some())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "runtime invariant broken: production output references missing stockpile {}",
+                            stockpile.value()
+                        )
+                    })
+                    .supported_by()
+                    .is_some()
             })
     }
 
@@ -142,9 +149,13 @@ impl ProductionState {
         &self,
         equipment: EquipmentId,
     ) -> Option<&ProductionJobRecord> {
-        self.indexes
-            .equipment_occupant(equipment)
-            .and_then(|job| self.jobs.get(job))
+        let job = self.indexes.equipment_occupant(equipment)?;
+        Some(self.jobs.get(job).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: production equipment occupancy index references missing job {}",
+                job.value()
+            )
+        }))
     }
 
     /// Returns the lowest-ID running production job with in-flight output reserved for a stockpile.
@@ -154,11 +165,15 @@ impl ProductionState {
         &self,
         stockpile: StockpileId,
     ) -> Option<&ProductionJobRecord> {
-        self.indexes
-            .output_stockpile_occupants(stockpile)
-            .and_then(|jobs| {
-                jobs.iter()
-                    .find_map(|job| self.jobs.get(job).filter(|record| !record.is_suspended()))
-            })
+        let jobs = self.indexes.output_stockpile_occupants(stockpile)?;
+        jobs.iter().find_map(|job| {
+            let record = self.jobs.get(job).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: production output occupancy index references missing job {}",
+                    job.value()
+                )
+            });
+            (!record.is_suspended()).then_some(record)
+        })
     }
 }

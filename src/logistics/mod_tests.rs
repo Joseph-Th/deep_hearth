@@ -5,7 +5,7 @@ use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::inventory::{
-    MaterialLotSelection, MaterialRelocationError, add_solid_stockpile_for_test,
+    MaterialLotSelection, MaterialRelocationError, StockpileId, add_solid_stockpile_for_test,
     deposit_lot_for_test,
 };
 use crate::material::CommodityKey;
@@ -35,6 +35,30 @@ fn initialization_binds_player_position_to_inventory_owned_carried_capacity() {
     assert_eq!(carrying.stored(), Mass::ZERO);
     assert_eq!(carrying.available(), capacity);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn local_ground_observation_rejects_dangling_logistics_reference() {
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("dangling ground observation player setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("dangling ground observation player setup commit failed: {error}")
+        });
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_ground_placement(
+        revision,
+        revision + 1,
+        StockpileId::new(u32::MAX),
+        position,
+    );
+
+    assert!(
+        std::panic::catch_unwind(|| state.available_local_ground_stockpiles().count()).is_err(),
+        "local ground-stockpile observation must reject a dangling logistics reference"
+    );
 }
 
 #[test]

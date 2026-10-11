@@ -181,7 +181,14 @@ impl AppState {
             .logistics
             .energy_store_locations()
             .filter(move |(_, position)| Some(*position) == player_position)
-            .filter_map(|(store, _)| self.systems.energy.get_store(store))
+            .map(|(store, _)| {
+                self.systems.energy.get_store(store).unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: logistics references missing energy store {}",
+                        store.value()
+                    )
+                })
+            })
     }
 
     pub(crate) fn energy_state_mut(&mut self) -> &mut EnergyState {
@@ -209,7 +216,14 @@ impl AppState {
             .logistics
             .fluid_store_locations()
             .filter(move |(_, position)| Some(*position) == player_position)
-            .filter_map(|(store, _)| self.systems.fluid.get_store(store))
+            .map(|(store, _)| {
+                self.systems.fluid.get_store(store).unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: logistics references missing fluid store {}",
+                        store.value()
+                    )
+                })
+            })
     }
 
     pub(crate) fn fluid_state_mut(&mut self) -> &mut FluidState {
@@ -237,7 +251,17 @@ impl AppState {
             .logistics
             .equipment_locations()
             .filter(move |(_, position)| Some(*position) == player_position)
-            .filter_map(|(equipment, _)| self.systems.equipment.get_equipment(equipment))
+            .map(|(equipment, _)| {
+                self.systems
+                    .equipment
+                    .get_equipment(equipment)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "runtime invariant broken: logistics references missing equipment {}",
+                            equipment.value()
+                        )
+                    })
+            })
     }
 
     pub(crate) fn equipment_state_mut(&mut self) -> &mut EquipmentState {
@@ -321,7 +345,17 @@ impl AppState {
             .logistics
             .stockpile_locations()
             .filter(move |(_, position)| Some(*position) == player_position)
-            .filter_map(|(stockpile, _)| self.systems.inventory.get_stockpile(stockpile))
+            .map(|(stockpile, _)| {
+                self.systems
+                    .inventory
+                    .get_stockpile(stockpile)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "runtime invariant broken: logistics references missing stockpile {}",
+                            stockpile.value()
+                        )
+                    })
+            })
     }
 
     pub(crate) fn inventory_state_mut(&mut self) -> &mut InventoryState {

@@ -4,8 +4,9 @@ use super::*;
 use crate::content::build_registries;
 use crate::content::{ENERGY_STONE_FLYWHEEL_DRIVE, FLUID_WATER};
 use crate::core::quantity::{Mass, Temperature, Volume};
-use crate::energy::validate_assemble_energy_store;
-use crate::fluid::add_fluid_store_with_contents_for_fixture;
+use crate::energy::{EnergyStoreId, validate_assemble_energy_store};
+use crate::equipment::EquipmentId;
+use crate::fluid::{FluidStoreId, add_fluid_store_with_contents_for_fixture};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::logistics::{
     validate_initialize_player_logistics, validate_place_fluid_store,
@@ -19,6 +20,54 @@ fn new_state_starts_at_zero_and_validates() {
 
     assert_eq!(state.tick(), SimulationTick::ZERO);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn local_asset_observation_rejects_dangling_logistics_references() {
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("dangling-local-observation player setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("dangling-local-observation player setup commit failed: {error}")
+        });
+
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        EnergyStoreId::new(u64::MAX),
+        position,
+    );
+    assert!(
+        std::panic::catch_unwind(|| state.available_local_energy_stores().count()).is_err(),
+        "local energy observation must reject a dangling logistics reference"
+    );
+
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_fluid_store_placement(
+        revision,
+        revision + 1,
+        FluidStoreId::new(u64::MAX),
+        position,
+    );
+    assert!(
+        std::panic::catch_unwind(|| state.available_local_fluid_stores().count()).is_err(),
+        "local fluid observation must reject a dangling logistics reference"
+    );
+
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        EquipmentId::new(u32::MAX),
+        position,
+    );
+    assert!(
+        std::panic::catch_unwind(|| state.available_local_equipment().count()).is_err(),
+        "local equipment observation must reject a dangling logistics reference"
+    );
 }
 
 #[test]

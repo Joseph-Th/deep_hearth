@@ -269,7 +269,14 @@ pub fn validate_claim_mining_output(
         state
             .inventory()
             .get_stockpile(destination)
-            .is_some_and(|stockpile| stockpile.supported_by().is_some()),
+            .unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: mining claim references missing destination stockpile {}",
+                    destination.value()
+                )
+            })
+            .supported_by()
+            .is_some(),
     );
     validate_reserved_stockpile_structural_load_headroom(
         state,

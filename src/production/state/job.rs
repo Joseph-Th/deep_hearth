@@ -319,7 +319,15 @@ impl ProductionJobRecord {
         self.output_streams().iter().any(|stream| {
             inventory
                 .get_stockpile(stream.destination())
-                .is_some_and(|stockpile| stockpile.supported_by().is_some())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: production job {} output references missing stockpile {}",
+                        self.id().value(),
+                        stream.destination().value()
+                    )
+                })
+                .supported_by()
+                .is_some()
         })
     }
 
