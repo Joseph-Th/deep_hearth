@@ -211,7 +211,7 @@ fn public_mining_debug_does_not_expose_hidden_source_or_reserved_output() {
 }
 
 fn ready_mining_claim_fixture() -> (Registries, AppState, MiningJobId) {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -244,7 +244,7 @@ fn ready_mining_claim_fixture() -> (Registries, AppState, MiningJobId) {
 
 #[test]
 fn mining_start_rejects_exhausted_job_id_without_claiming_work() {
-    let (registries, state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("mining job-id exhaustion serialization failed: {error}"));
     encoded["state"]["systems"]["mining"]["next_job_id"] = serde_json::json!(u64::MAX);
@@ -274,7 +274,7 @@ fn mining_start_rejects_exhausted_job_id_without_claiming_work() {
 
 #[test]
 fn mining_start_rejects_exhausted_mining_revision_without_claiming_work() {
-    let (registries, state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("mining revision exhaustion serialization failed: {error}"));
     encoded["state"]["systems"]["mining"]["revision"] = serde_json::json!(u64::MAX);
@@ -304,8 +304,13 @@ fn mining_start_rejects_exhausted_mining_revision_without_claiming_work() {
 
 #[test]
 fn mining_start_reserves_completion_and_claim_headroom() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
-    let support = active_stockpile_support(&registries, &mut state);
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("mining revision-budget player disappeared"));
+    let support = active_stockpile_support_at(&registries, &mut state, position);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("mining revision-budget destination mount failed: {error}"))
         .commit(&mut state)
@@ -391,7 +396,7 @@ fn mining_start_reserves_completion_and_claim_headroom() {
 
 #[test]
 fn unmounted_mining_start_does_not_reserve_impossible_structural_work() {
-    let (registries, state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("unmounted mining structure-budget serialization failed: {error}")
@@ -471,8 +476,13 @@ fn trusted_load_rejects_working_mining_without_scheduled_completion_revisions() 
 
 #[test]
 fn trusted_load_rejects_working_mining_without_claim_headroom() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
-    let support = active_stockpile_support(&registries, &mut state);
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("headroom-bound mining player disappeared"));
+    let support = active_stockpile_support_at(&registries, &mut state, position);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("mining claim-headroom destination mount failed: {error}"))
         .commit(&mut state)
@@ -627,7 +637,12 @@ fn mining_claim_consumes_exact_reserved_headroom_at_owner_limits() {
         .get_job(job)
         .map(MiningJobRecord::destination)
         .unwrap_or_else(|| panic!("headroom-bound mining job disappeared"));
-    let support = active_stockpile_support(&registries, &mut state);
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("headroom-bound mining player disappeared"));
+    let support = active_stockpile_support_at(&registries, &mut state, position);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("headroom-bound mining destination mount failed: {error}"))
         .commit(&mut state)
@@ -662,7 +677,7 @@ fn mining_claim_consumes_exact_reserved_headroom_at_owner_limits() {
 
 #[test]
 fn mining_support_recovery_can_consume_released_claim_headroom() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -699,7 +714,12 @@ fn mining_support_recovery_can_consume_released_claim_headroom() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("support-recovery destination ballast failed: {error}"));
-    let support = active_stockpile_support(&registries, &mut state);
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("support-recovery mining player disappeared"));
+    let support = active_stockpile_support_at(&registries, &mut state, position);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("support-recovery destination mount failed: {error}"))
         .commit(&mut state)
@@ -764,7 +784,12 @@ fn mining_destination_mount_reserves_future_claim_structure_headroom() {
         .get_job(job)
         .map(MiningJobRecord::destination)
         .unwrap_or_else(|| panic!("mount-headroom mining job disappeared"));
-    let support = active_stockpile_support(&registries, &mut state);
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("mount-headroom mining player disappeared"));
+    let support = active_stockpile_support_at(&registries, &mut state, position);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("mount-headroom serialization failed: {error}"));
     encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);

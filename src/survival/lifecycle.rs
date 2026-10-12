@@ -34,6 +34,7 @@ impl Display for InitializeSurvivalError {
 
 impl Error for InitializeSurvivalError {}
 
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerSurvivalInitialization {
     expected_revision: u64,

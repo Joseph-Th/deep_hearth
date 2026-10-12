@@ -13,7 +13,9 @@ use crate::energy::{
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
 use crate::survival::{Vitality, initialize_player_survival, player_record};
 
 const DISSIPATIVE_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(510_001);
@@ -121,8 +123,12 @@ fn clock_exhaustion_leaves_state_unchanged() {
 fn exhausted_survival_revision_reloaded_from_save_rejects_tick_atomically() {
     let registries = build_registries();
     let mut source = AppState::new();
-    initialize_player_survival(&registries, &mut source)
-        .unwrap_or_else(|error| panic!("survival-revision fixture failed: {error}"));
+    validate_admit_player(&registries, &source, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("survival-revision fixture admission failed: {error}"))
+        .commit(&mut source)
+        .unwrap_or_else(|error| {
+            panic!("survival-revision fixture admission commit failed: {error}")
+        });
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &source))
         .unwrap_or_else(|error| panic!("survival-revision fixture serialization failed: {error}"));
     encoded["state"]["systems"]["survival"]["revision"] = serde_json::json!(u64::MAX);

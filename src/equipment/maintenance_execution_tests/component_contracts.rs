@@ -445,6 +445,13 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
     .unwrap_or_else(|error| panic!("component service fresh component failed: {error}"));
     let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(800_000))
         .unwrap_or_else(|error| panic!("component service spent stockpile failed: {error}"));
+    complete_service_player_logistics(
+        &registries,
+        &mut state,
+        VoxelCoord::new(0, 0, 0),
+        &[pick],
+        &[replacement, spent],
+    );
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("component service matter before failed: {error}"))
         .total();
@@ -518,8 +525,13 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
     assert_eq!(completion.condition_after(), Condition::PRISTINE);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("component service final state audit failed: {error}"));
-    let recovery = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_020_000))
-        .unwrap_or_else(|error| panic!("component service recovery stockpile failed: {error}"));
+    let recovery =
+        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(1_020_000))
+            .unwrap_or_else(|error| panic!("component service recovery allocation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("component service recovery allocation commit failed: {error}")
+            });
     let encoded =
         serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("component service persistence serialization failed: {error}")

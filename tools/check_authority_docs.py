@@ -177,7 +177,7 @@ SYSTEM_STATE_FIELD = re.compile(
 DOCUMENTED_RUNTIME_OWNER = re.compile(
     r"^\|\s*`([A-Za-z][A-Za-z0-9_]*State)`\s*\|", re.MULTILINE
 )
-DOCUMENTED_SOURCE_MODULE = re.compile(r"`src/([a-z_][a-z0-9_]*)/`")
+DOCUMENTED_SOURCE_MODULE = re.compile(r"`src/([a-z_][a-z0-9_]*)(?:/|\.rs)`")
 PUBLIC_MUT_SELF = re.compile(
     r"^\s*pub(?:\s+const)?\s+fn\s+([a-z_][a-z0-9_]*)\s*\(\s*&mut\s+self",
     re.MULTILINE,

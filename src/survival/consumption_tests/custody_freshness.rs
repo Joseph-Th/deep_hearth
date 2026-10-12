@@ -6,7 +6,8 @@ use super::*;
 fn eating_moves_exact_food_mass_into_consumption_boundary_and_round_trips() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_and_spend_reserves(&registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    admit_and_spend_reserves(&registries, &mut state, position);
     let meal_mass = minimum_meal_mass(&registries);
     let lot_mass = meal_mass
         .checked_add(meal_mass)
@@ -22,6 +23,10 @@ fn eating_moves_exact_food_mass_into_consumption_boundary_and_round_trips() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("food lot fixture failed: {error}"));
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap_or_else(|error| panic!("food stockpile placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("food stockpile placement commit failed: {error}"));
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("food pre-consumption matter accounting failed: {error}"));
     let survival_before = assess_survival(&registries, &state)

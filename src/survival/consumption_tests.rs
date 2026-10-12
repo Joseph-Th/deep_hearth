@@ -25,6 +25,7 @@ use crate::logistics::{
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
@@ -36,6 +37,20 @@ use crate::survival::{
 fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) {
     initialize_player_survival(registries, state)
         .unwrap_or_else(|error| panic!("survival initialization failed: {error}"));
+    spend_initial_reserves(registries, state);
+}
+
+fn admit_and_spend_reserves(registries: &Registries, state: &mut AppState, position: VoxelCoord) {
+    validate_admit_player(registries, state, position)
+        .unwrap_or_else(|error| panic!("survival persistence player admission failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("survival persistence player admission commit failed: {error}")
+        });
+    spend_initial_reserves(registries, state);
+}
+
+fn spend_initial_reserves(registries: &Registries, state: &mut AppState) {
     for _ in 0..5 {
         let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("survival reserve-spend tick failed: {error}"));
@@ -372,7 +387,8 @@ fn direct_consumption_fixture(
     crate::fluid::FluidStoreId,
 ) {
     let mut state = AppState::new();
-    initialize_and_spend_reserves(registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    admit_and_spend_reserves(registries, &mut state, position);
     let meal_mass = minimum_meal_mass(registries);
     let stockpile = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("direct-consumption revision stockpile failed: {error}"));
@@ -394,6 +410,18 @@ fn direct_consumption_fixture(
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("direct-consumption revision water failed: {error}"));
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap_or_else(|error| panic!("direct-consumption stockpile placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("direct-consumption stockpile placement commit failed: {error}")
+        });
+    validate_place_fluid_store(&state, water, position)
+        .unwrap_or_else(|error| panic!("direct-consumption fluid placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("direct-consumption fluid placement commit failed: {error}")
+        });
     (state, stockpile, food, water)
 }
 

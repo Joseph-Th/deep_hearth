@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema emitted and accepted by this build.
@@ -59,7 +60,21 @@ impl LoadedSaveEnvelope {
 
         state.rebuild_derived_indexes();
         validate_loaded_state(registries, &state).map_err(LoadError::InvalidState)?;
+        validate_persisted_player_admission(&state)?;
         Ok(state)
+    }
+}
+
+fn validate_persisted_player_admission(state: &AppState) -> Result<(), LoadError> {
+    match player_admission_state(state) {
+        PlayerAdmissionState::Absent | PlayerAdmissionState::Admitted => Ok(()),
+        PlayerAdmissionState::Partial {
+            survival_initialized,
+            logistics_initialized,
+        } => Err(LoadError::IncompletePlayerAdmission {
+            survival_initialized,
+            logistics_initialized,
+        }),
     }
 }
 
@@ -93,6 +108,11 @@ pub enum LoadError {
         found: RegistrySchemaVersion,
         supported: RegistrySchemaVersion,
     },
+    /// Ordinary player state was persisted with only one admission owner present.
+    IncompletePlayerAdmission {
+        survival_initialized: bool,
+        logistics_initialized: bool,
+    },
     /// The decoded runtime data violates a persistent state invariant.
     InvalidState(StateValidationError),
 }
@@ -110,6 +130,13 @@ impl Display for LoadError {
                 found.value(),
                 supported.value()
             ),
+            Self::IncompletePlayerAdmission {
+                survival_initialized,
+                logistics_initialized,
+            } => write!(
+                formatter,
+                "persisted player admission is incomplete: survival initialized={survival_initialized}, logistics initialized={logistics_initialized}"
+            ),
             Self::InvalidState(error) => write!(formatter, "invalid persisted state: {error}"),
         }
     }
@@ -122,10 +149,7 @@ impl Error for LoadError {
                 found: _found,
                 supported: _supported,
             } => None,
-            Self::RegistrySchemaMismatch {
-                found: _found,
-                supported: _supported,
-            } => None,
+            Self::RegistrySchemaMismatch { .. } | Self::IncompletePlayerAdmission { .. } => None,
             Self::InvalidState(error) => Some(error),
         }
     }

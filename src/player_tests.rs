@@ -1,3 +1,5 @@
+//! Atomic ordinary-player admission and stale-owner rejection contracts.
+
 use crate::content::build_registries;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;

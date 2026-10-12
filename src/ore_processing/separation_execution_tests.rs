@@ -20,7 +20,7 @@ use crate::inventory::{
 use crate::labor::PlayerWork;
 use crate::logistics::{
     PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
-    validate_place_ground_stockpile,
+    validate_place_ground_stockpile, validate_player_logistics_initialization,
 };
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
@@ -1099,6 +1099,21 @@ fn hand_sorting_enforces_a_small_attention_bounded_batch() {
 fn in_progress_hand_sorting_round_trip_preserves_deterministic_continuation() {
     let mass = Mass::from_milligrams(100_000);
     let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [fixture.source, fixture.target, fixture.residue] {
+        validate_place_ground_stockpile(&fixture.state, stockpile, position)
+            .unwrap_or_else(|error| panic!("manual separation replay placement failed: {error}"))
+            .commit(&mut fixture.state)
+            .unwrap_or_else(|error| {
+                panic!("manual separation replay placement commit failed: {error}")
+            });
+    }
+    validate_player_logistics_initialization(&fixture.registries, &fixture.state, position)
+        .unwrap_or_else(|error| panic!("manual separation replay logistics failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("manual separation replay logistics commit failed: {error}")
+        });
     let resolved = resolve_manual(&fixture, mass);
     let duration = resolved.duration();
     validate_start_manual_constituent_separation(

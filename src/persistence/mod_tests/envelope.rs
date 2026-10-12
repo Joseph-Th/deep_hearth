@@ -1,6 +1,9 @@
 //! Save round-trip, schema-version, compatibility rejection, and unknown-field contracts.
 
 use super::*;
+use crate::logistics::validate_initialize_player_logistics;
+use crate::player::validate_admit_player;
+use crate::survival::initialize_player_survival;
 
 #[test]
 fn save_round_trip_preserves_authoritative_runtime_state() {
@@ -73,6 +76,68 @@ fn save_round_trip_preserves_authoritative_runtime_state() {
         Err(error) => panic!("loaded save reserialization unexpectedly failed: {error}"),
     };
     assert_eq!(reencoded, encoded);
+}
+
+#[test]
+fn trusted_load_rejects_partial_player_admission() {
+    let registries = build_registries();
+
+    let mut survival_only = AppState::new();
+    initialize_player_survival(&registries, &mut survival_only)
+        .unwrap_or_else(|error| panic!("survival-only persistence fixture failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &survival_only), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &survival_only))
+        .unwrap_or_else(|error| panic!("survival-only persistence serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("survival-only persistence decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::IncompletePlayerAdmission {
+            survival_initialized: true,
+            logistics_initialized: false,
+        })
+    );
+
+    let mut logistics_only = AppState::new();
+    validate_initialize_player_logistics(
+        &logistics_only,
+        VoxelCoord::new(0, 0, 0),
+        Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("logistics-only persistence fixture failed: {error}"))
+    .commit(&mut logistics_only)
+    .unwrap_or_else(|error| panic!("logistics-only persistence commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &logistics_only), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &logistics_only))
+        .unwrap_or_else(|error| panic!("logistics-only persistence serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("logistics-only persistence decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::IncompletePlayerAdmission {
+            survival_initialized: false,
+            logistics_initialized: true,
+        })
+    );
+}
+
+#[test]
+fn atomic_player_admission_round_trips_through_trusted_load() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(4, -2, 7))
+        .unwrap_or_else(|error| panic!("player persistence admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("player persistence admission commit failed: {error}"));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("admitted player serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("admitted player decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("admitted player trusted load failed: {error}"));
+    assert_eq!(loaded, state);
 }
 
 #[test]

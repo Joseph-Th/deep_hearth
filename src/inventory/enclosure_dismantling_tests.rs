@@ -23,6 +23,7 @@ use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
     GroundStockpilePlacementCommitError, PlayerStockpileAccessError,
     validate_initialize_player_logistics, validate_place_ground_stockpile,
+    validate_player_logistics_initialization,
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -41,6 +42,28 @@ use crate::survival::{
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
+
+fn complete_dismantling_player_logistics(
+    registries: &Registries,
+    state: &mut AppState,
+    stockpiles: &[StockpileId],
+) {
+    let position = VoxelCoord::new(0, 0, 0);
+    for &stockpile in stockpiles {
+        validate_place_ground_stockpile(state, stockpile, position)
+            .unwrap_or_else(|error| panic!("dismantling persistence placement failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| {
+                panic!("dismantling persistence placement commit failed: {error}")
+            });
+    }
+    validate_player_logistics_initialization(registries, state, position)
+        .unwrap_or_else(|error| panic!("dismantling persistence player logistics failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("dismantling persistence player logistics commit failed: {error}")
+        });
+}
 
 fn fixture() -> (
     Registries,
@@ -503,6 +526,7 @@ fn dismantling_checkpoints_preservation_and_recovers_reusable_enclosure_matter()
         assess_food_freshness(&registries, &state, food),
         Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(150)
     ));
+    complete_dismantling_player_logistics(&registries, &mut state, &[target, recovery]);
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("dismantle matter-before audit failed: {error}"));
     let energy_before = calculate_explicit_energy_accounting(&registries, &state)
@@ -765,6 +789,11 @@ fn dismantled_double_wall_body_salvages_into_a_standard_enclosure_with_exact_res
         .unwrap_or_else(|error| panic!("storage salvage output failed: {error}"));
     let rebuilt_body = add_solid_stockpile_for_test(&mut state, body_mass)
         .unwrap_or_else(|error| panic!("storage salvage rebuilt-body stockpile failed: {error}"));
+    complete_dismantling_player_logistics(
+        &registries,
+        &mut state,
+        &[target, construction, recovery, salvage_output, rebuilt_body],
+    );
 
     validate_build_storage_enclosure(
         &registries,
@@ -1094,6 +1123,11 @@ fn dismantling_requires_unmounted_resources_and_holds_them_until_completion() {
 #[test]
 fn dismantling_prechecks_inventory_revision_and_lot_id_exhaustion_without_mutation() {
     let (registries, mut base, target, construction, recovery, _) = fixture();
+    complete_dismantling_player_logistics(
+        &registries,
+        &mut base,
+        &[target, construction, recovery],
+    );
     validate_build_storage_enclosure(
         &registries,
         &base,

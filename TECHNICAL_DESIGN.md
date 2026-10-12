@@ -535,14 +535,17 @@ concrete shader binding contract.
 `LoadedSaveEnvelope::into_state(registries)` is the public decoded-save promotion boundary and
 `validate_loaded_state(registries, state)` is its exhaustive graph validator. Raw `AppState` does not
 implement public deserialization, so adapters cannot bypass schema/reconstruction checks by decoding the
-runtime root directly. Validation recomputes rather than trusting cached claims. Admission:
+runtime root directly. Validation recomputes rather than trusting cached claims. Generic graph validation may
+also audit explicitly controlled in-memory spatial proxies, but save promotion additionally requires player
+admission to be either wholly absent or complete across survival and logistics. A survival-only or
+logistics-only actor cannot become trusted runtime continuation through persistence. Admission:
 
 1. validates save and registry versions;
 2. rebuilds derived indexes;
 3. validates each local owner and all authored/runtime references;
-4. validates cross-owner occupancy, reservations, support, provenance, and ownership;
-5. replays operation-specific physical outcomes where persisted work depends on them;
-6. returns `AppState` only after the complete graph is valid.
+4. validates cross-owner occupancy, reservations, support, provenance, and ownership, including operation-specific physical replay where persisted work depends on it;
+5. rejects incomplete persisted player admission before runtime use;
+6. returns `AppState` only after both the generic graph and save-specific promotion contract are valid.
 
 Cross-owner validation covers, as applicable:
 

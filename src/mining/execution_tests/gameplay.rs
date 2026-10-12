@@ -184,6 +184,13 @@ fn mining_requires_enough_hydration_reserve_to_finish() {
         .unwrap_or_else(|error| panic!("mining reserve destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining reserve deposit failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("mining reserve serialization failed: {error}"));
     encoded["state"]["systems"]["survival"]["player"]["hydration"] = serde_json::json!(1_u64);
@@ -222,6 +229,13 @@ fn active_mining_save_requires_enough_hydration_to_finish_remaining_work() {
         .unwrap_or_else(|error| panic!("mining save reserve destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining save reserve deposit failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
     let token = validate_known_mining(
         &registries,
         &state,
@@ -497,6 +511,13 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
 
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining copper deposit insertion failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[stone_source, shaped, ore_destination],
+        &[pick],
+    );
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("mining initial matter accounting failed: {error}"))
         .total();

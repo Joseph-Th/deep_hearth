@@ -479,8 +479,6 @@ fn manual_craft_load_audit_rejects_forged_duration() {
 fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuation() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("timber chest joinery survival setup failed: {error}"));
     let chest_mass = Mass::from_milligrams(2_400_000);
     let source = add_solid_stockpile_for_test(&mut state, chest_mass)
         .unwrap_or_else(|error| panic!("timber chest joinery source failed: {error}"));
@@ -495,6 +493,23 @@ fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuat
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("timber chest joinery board fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("timber chest joinery player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("timber chest joinery player admission commit failed: {error}")
+        });
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| {
+                panic!("timber chest joinery stockpile placement failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("timber chest joinery stockpile placement commit failed: {error}")
+            });
+    }
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("timber chest joinery initial matter audit failed: {error}"))
         .total();
@@ -574,8 +589,6 @@ fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuat
 fn double_wall_chest_joinery_round_trip_preserves_full_cost_and_output() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("double-wall chest survival setup failed: {error}"));
     let body_mass = Mass::from_milligrams(4_000_000);
     let source = add_solid_stockpile_for_test(&mut state, body_mass)
         .unwrap_or_else(|error| panic!("double-wall chest source failed: {error}"));
@@ -590,6 +603,21 @@ fn double_wall_chest_joinery_round_trip_preserves_full_cost_and_output() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("double-wall chest board fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("double-wall chest player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("double-wall chest player admission commit failed: {error}")
+        });
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| panic!("double-wall chest stockpile placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("double-wall chest stockpile placement commit failed: {error}")
+            });
+    }
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("double-wall chest matter setup failed: {error}"))
         .total();

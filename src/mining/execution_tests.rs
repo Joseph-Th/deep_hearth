@@ -39,7 +39,8 @@ use crate::labor::{
 };
 use crate::logistics::{
     PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_allocate_ground_stockpile,
-    validate_initialize_player_logistics, validate_place_ground_stockpile,
+    validate_allocate_player_ground_stockpile, validate_initialize_player_logistics,
+    validate_place_ground_stockpile, validate_player_logistics_initialization,
 };
 use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
@@ -350,7 +351,7 @@ fn fatal_tick_cancels_unfinished_mining_without_extraction_but_with_elapsed_tool
 
 #[test]
 fn fatal_mining_cancellation_consumes_reserved_headroom_at_owner_limits() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -902,9 +903,16 @@ fn record_local_hardness_evidence(
         .unwrap_or_else(|error| panic!("local hardness evidence failed: {error}"));
 }
 
-fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
-    let bounds = VoxelBounds::new(VoxelCoord::new(8, 0, 0), VoxelCoord::new(9, 1, 1))
-        .unwrap_or_else(|error| panic!("mining support bounds failed: {error}"));
+fn active_stockpile_support_at(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+) -> StructuralElementId {
+    let bounds = VoxelBounds::new(
+        position,
+        VoxelCoord::new(position.x() + 1, position.y() + 1, position.z() + 1),
+    )
+    .unwrap_or_else(|error| panic!("mining support bounds failed: {error}"));
     let support = add_structural_element(
         registries,
         state,
@@ -924,6 +932,46 @@ fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> St
         .commit(state)
         .unwrap_or_else(|error| panic!("mining support activation commit failed: {error}"));
     support
+}
+
+fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
+    active_stockpile_support_at(registries, state, VoxelCoord::new(8, 0, 0))
+}
+
+fn complete_known_mining_player_logistics(
+    registries: &Registries,
+    state: &mut AppState,
+    deposit: GeologicalDepositId,
+    destinations: &[StockpileId],
+    equipment: &[EquipmentId],
+) -> VoxelCoord {
+    let position = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds().min())
+        .unwrap_or_else(|| panic!("ordinary mining fixture deposit disappeared"));
+    for &destination in destinations {
+        validate_place_ground_stockpile(state, destination, position)
+            .unwrap_or_else(|error| panic!("ordinary mining destination placement failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| {
+                panic!("ordinary mining destination placement commit failed: {error}")
+            });
+    }
+    for &item in equipment {
+        let revision = state.logistics().revision();
+        state.logistics_state_mut().apply_equipment_placement(
+            revision,
+            revision + 1,
+            item,
+            position,
+        );
+    }
+    validate_player_logistics_initialization(registries, state, position)
+        .unwrap_or_else(|error| panic!("ordinary mining player logistics failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("ordinary mining player logistics commit failed: {error}"));
+    position
 }
 
 fn validate_known_mining(
@@ -974,6 +1022,24 @@ fn unstarted_mining_fixture() -> (
         .unwrap_or_else(|error| panic!("mining exhaustion destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining exhaustion deposit failed: {error}"));
+    (registries, state, deposit, destination, pick)
+}
+
+fn ordinary_unstarted_mining_fixture() -> (
+    Registries,
+    AppState,
+    GeologicalDepositId,
+    StockpileId,
+    EquipmentId,
+) {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
     (registries, state, deposit, destination, pick)
 }
 

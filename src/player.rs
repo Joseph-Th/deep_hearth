@@ -169,13 +169,38 @@ fn map_logistics_commit_error(
     }
 }
 
-fn validate_owner_absence(state: &AppState) -> Result<(), PlayerAdmissionError> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PlayerAdmissionState {
+    Absent,
+    Admitted,
+    Partial {
+        survival_initialized: bool,
+        logistics_initialized: bool,
+    },
+}
+
+#[must_use]
+pub(crate) fn player_admission_state(state: &AppState) -> PlayerAdmissionState {
     let survival_initialized = state.survival().player().is_some();
     let logistics_initialized = state.logistics().player().is_some();
     match (survival_initialized, logistics_initialized) {
-        (false, false) => Ok(()),
-        (true, true) => Err(PlayerAdmissionError::AlreadyAdmitted),
-        _ => Err(PlayerAdmissionError::PartialExistingAdmission {
+        (false, false) => PlayerAdmissionState::Absent,
+        (true, true) => PlayerAdmissionState::Admitted,
+        _ => PlayerAdmissionState::Partial {
+            survival_initialized,
+            logistics_initialized,
+        },
+    }
+}
+
+fn validate_owner_absence(state: &AppState) -> Result<(), PlayerAdmissionError> {
+    match player_admission_state(state) {
+        PlayerAdmissionState::Absent => Ok(()),
+        PlayerAdmissionState::Admitted => Err(PlayerAdmissionError::AlreadyAdmitted),
+        PlayerAdmissionState::Partial {
+            survival_initialized,
+            logistics_initialized,
+        } => Err(PlayerAdmissionError::PartialExistingAdmission {
             survival_initialized,
             logistics_initialized,
         }),

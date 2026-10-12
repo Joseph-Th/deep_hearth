@@ -34,8 +34,9 @@ use crate::inventory::{
 };
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
-    validate_place_ground_stockpile,
+    PlayerEquipmentAccessError, PlayerStockpileAccessError,
+    validate_allocate_player_ground_stockpile, validate_initialize_player_logistics,
+    validate_place_ground_stockpile, validate_player_logistics_initialization,
 };
 use crate::maintenance::{MaintenanceThresholds, calculate_condition_after_partial_recovery};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
@@ -304,6 +305,44 @@ fn active_test_exertion() -> SurvivalExertion {
 fn initialize_service_player(registries: &Registries, state: &mut AppState) {
     initialize_player_survival(registries, state)
         .unwrap_or_else(|error| panic!("maintenance player-survival fixture failed: {error}"));
+}
+
+fn complete_service_player_logistics(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+    equipment: &[EquipmentId],
+    stockpiles: &[StockpileId],
+) {
+    assert!(
+        state.logistics().player().is_none(),
+        "maintenance persistence fixture logistics must be completed exactly once"
+    );
+    for &stockpile in stockpiles {
+        validate_place_ground_stockpile(state, stockpile, position)
+            .unwrap_or_else(|error| {
+                panic!("maintenance persistence stockpile placement failed: {error}")
+            })
+            .commit(state)
+            .unwrap_or_else(|error| {
+                panic!("maintenance persistence stockpile placement commit failed: {error}")
+            });
+    }
+    for &item in equipment {
+        let revision = state.logistics().revision();
+        state.logistics_state_mut().apply_equipment_placement(
+            revision,
+            revision + 1,
+            item,
+            position,
+        );
+    }
+    validate_player_logistics_initialization(registries, state, position)
+        .unwrap_or_else(|error| panic!("maintenance persistence player logistics failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("maintenance persistence player logistics commit failed: {error}")
+        });
 }
 
 fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {

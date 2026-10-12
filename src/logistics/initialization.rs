@@ -19,7 +19,7 @@ use super::PlayerLogisticsRecord;
 
 /// Failure while validating initial player world/carrying custody.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InitializePlayerLogisticsError {
+pub(crate) enum InitializePlayerLogisticsError {
     AlreadyInitialized,
     ZeroCarriedCapacity,
     StockpileIdExhausted,
@@ -53,7 +53,7 @@ impl Error for InitializePlayerLogisticsError {}
 
 /// Failure when initial logistics authorization is committed against changed owner state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InitializePlayerLogisticsCommitError {
+pub(crate) enum InitializePlayerLogisticsCommitError {
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
 }
@@ -78,7 +78,7 @@ impl Error for InitializePlayerLogisticsCommitError {}
 /// Revision-bound initial player position plus allocation of the inventory-owned carried stockpile.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ValidatedPlayerLogisticsInitialization {
+pub(crate) struct ValidatedPlayerLogisticsInitialization {
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
     position: VoxelCoord,
@@ -88,7 +88,7 @@ pub struct ValidatedPlayerLogisticsInitialization {
 impl ValidatedPlayerLogisticsInitialization {
     #[must_use]
     #[cfg(test)]
-    pub const fn carried_stockpile(&self) -> StockpileId {
+    pub(crate) const fn carried_stockpile(&self) -> StockpileId {
         self.carried.stockpile()
     }
 

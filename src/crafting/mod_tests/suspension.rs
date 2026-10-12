@@ -168,7 +168,7 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
     });
     assert_eq!(state.player_work().active(), None);
 
-    let region = VoxelBounds::new(VoxelCoord::new(10, 0, 0), VoxelCoord::new(11, 1, 1))
+    let region = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1))
         .unwrap_or_else(|error| {
             panic!("manual craft parallel-work prospecting bounds failed: {error}")
         });
@@ -250,8 +250,14 @@ fn simultaneously_recoverable_manual_crafts_resume_one_at_a_time_in_job_order() 
     let second_destination =
         add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
             .unwrap_or_else(|error| panic!("second manual craft destination failed: {error}"));
+    validate_place_ground_stockpile(&state, second_destination, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("second manual craft destination placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("second manual craft destination placement commit failed: {error}")
+        });
     let first_support = active_stockpile_support_at(&registries, &mut state, 0);
-    let second_support = active_stockpile_support_at(&registries, &mut state, 10);
+    let second_support = active_stockpile_support_at(&registries, &mut state, 0);
     for (destination, support) in [
         (first_destination, first_support),
         (second_destination, second_support),

@@ -25,10 +25,12 @@ use crate::labor::{
     PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError,
     calculate_player_work_resource_budget,
 };
+use crate::logistics::validate_place_ground_stockpile;
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::production::{
     ProcessDefinition, ProcessId, ProductionAvailabilityChange, ProductionRegistry,
     ProductionSuspensionReason, StartProcessError, validate_start_process,
@@ -153,8 +155,6 @@ fn make_fixture() -> (
 ) {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("manual craft survival initialization failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
         .unwrap_or_else(|error| panic!("manual craft source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
@@ -168,6 +168,19 @@ fn make_fixture() -> (
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("manual craft stone fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("manual craft player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("manual craft player admission commit failed: {error}"));
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| panic!("manual craft stockpile placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("manual craft stockpile placement commit failed: {error}")
+            });
+    }
     (registries, state, source, lot, destination)
 }
 

@@ -39,6 +39,7 @@ establish current reachability.
 | Foundational vocabulary and root state | `src/core/`, `src/capability/`, `src/material/`, `src/maintenance/`, `src/spatial/` |
 | Immutable definition aggregation | `src/registry/`, `src/content/` |
 | Durable runtime owners | `src/energy/`, `src/equipment/`, `src/fluid/`, `src/geology/`, `src/inventory/`, `src/labor/`, `src/logistics/`, `src/mining/`, `src/production/`, `src/structural/`, `src/surface/`, `src/survival/` |
+| Cross-owner player admission | `src/player.rs` |
 | Transformation/resolution overlays | `src/crafting/`, `src/ore_processing/`, `src/thermal/` |
 | Cross-owner accounting | `src/matter/` |
 | Persistence and orchestration | `src/persistence/`, `src/simulation/` |

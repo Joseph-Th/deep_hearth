@@ -20,7 +20,7 @@ use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId, ProspectingWork};
 use crate::logistics::{
     PlayerEquipmentAccessError, validate_allocate_ground_stockpile,
-    validate_initialize_player_logistics,
+    validate_initialize_player_logistics, validate_player_logistics_initialization,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
@@ -784,6 +784,30 @@ fn assemble_stone_pick_for_wrong_provider_test(
         .unwrap_or_else(|error| panic!("wrong-provider pick assembly commit failed: {error}"))
 }
 
+fn complete_prospecting_player_logistics(
+    registries: &Registries,
+    state: &mut AppState,
+    region: VoxelBounds,
+    equipment: Option<EquipmentId>,
+) {
+    let position = region.min();
+    if let Some(equipment) = equipment {
+        let revision = state.logistics().revision();
+        state.logistics_state_mut().apply_equipment_placement(
+            revision,
+            revision + 1,
+            equipment,
+            position,
+        );
+    }
+    validate_player_logistics_initialization(registries, state, position)
+        .unwrap_or_else(|error| panic!("prospecting persistence player logistics failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("prospecting persistence player logistics commit failed: {error}")
+        });
+}
+
 fn prospecting_duration(registries: &Registries, method: ProspectingMethodId) -> u64 {
     registries
         .labor()
@@ -861,6 +885,7 @@ fn prospecting_admission_reserves_completion_identity_and_owner_revisions() {
     });
     let hammer = assemble_sampling_hammer(&registries, &mut state);
     let region = one_voxel(41);
+    complete_prospecting_player_logistics(&registries, &mut state, region, Some(hammer));
     let encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("prospecting revision-budget serialization failed: {error}")
@@ -1105,6 +1130,7 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     insert_low_grade_copper(&registries, &mut state, region);
     let request = MiningTargetRequest::new(region, MATERIAL_COPPER);
     let hammer = assemble_sampling_hammer(&registries, &mut state);
+    complete_prospecting_player_logistics(&registries, &mut state, region, Some(hammer));
 
     let field_work = start_prospecting(
         &registries,
@@ -1254,6 +1280,7 @@ fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation(
         .unwrap_or_else(|error| panic!("round-trip prospecting survival setup failed: {error}"));
     let region = one_voxel(30);
     insert_copper(&registries, &mut state, region);
+    complete_prospecting_player_logistics(&registries, &mut state, region, None);
     let work = start_inspection(&registries, &mut state, region);
     let field_duration = work
         .completes_at()

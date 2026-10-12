@@ -4,6 +4,8 @@ use super::*;
 use crate::content::build_registries;
 use crate::core::quantity::{Energy, Volume};
 use crate::core::time::SimulationTick;
+use crate::player::validate_admit_player;
+use crate::spatial::VoxelCoord;
 use crate::survival::{SurvivalExertion, assess_survival};
 
 fn next_tick(state: &AppState) -> SimulationTick {
@@ -333,8 +335,10 @@ fn paused_vitality_recovery_preserves_fractional_progress() {
 fn fractional_diet_recovery_accumulates_instead_of_creating_rate_cliffs() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("fractional recovery initialization failed: {error}"));
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("fractional recovery admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fractional recovery admission commit failed: {error}"));
     let physiology = registries.survival().physiology();
     let expected_revision = state.survival().revision();
     state.survival_state_mut().apply_player(

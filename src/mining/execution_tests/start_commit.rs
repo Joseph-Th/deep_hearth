@@ -40,7 +40,7 @@ fn validated_start(
 #[test]
 fn mining_start_commit_rejects_stale_owner_revisions_atomically() {
     for owner in ["inventory", "equipment", "mining"] {
-        let (registries, state, deposit, destination, pick) = unstarted_mining_fixture();
+        let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
         let token = validated_start(&registries, &state, deposit, destination, pick);
         let (expected, error) = match owner {
             "inventory" => {
@@ -85,8 +85,13 @@ fn mining_start_commit_rejects_stale_owner_revisions_atomically() {
 
 #[test]
 fn mining_start_commit_rejects_stale_structural_support_revision_atomically() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
-    let support = active_stockpile_support(&registries, &mut state);
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("mining stale-structure player disappeared"));
+    let support = active_stockpile_support_at(&registries, &mut state, position);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("mining stale-structure mount validation failed: {error}"))
         .commit(&mut state)

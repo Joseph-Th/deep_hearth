@@ -9,7 +9,8 @@ fn decode_tampered(encoded: serde_json::Value, context: &str) -> LoadedSaveEnvel
 
 fn eating_state(registries: &Registries, mass: Mass) -> AppState {
     let mut state = AppState::new();
-    initialize_and_spend_reserves(registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    admit_and_spend_reserves(registries, &mut state, position);
     let stockpile = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("pending-meal stockpile failed: {error}"));
     let food = deposit_lot_for_test(
@@ -21,6 +22,10 @@ fn eating_state(registries: &Registries, mass: Mass) -> AppState {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("pending-meal food failed: {error}"));
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap_or_else(|error| panic!("pending-meal stockpile placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("pending-meal stockpile placement commit failed: {error}"));
     let _ = validate_eat(
         registries,
         &state,
@@ -83,7 +88,8 @@ fn trusted_load_rejects_pending_meal_below_authored_intake_minimum() {
 fn pending_meal_replay_keeps_admission_freshness_after_source_storage_improves() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_and_spend_reserves(&registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    admit_and_spend_reserves(&registries, &mut state, position);
     let meal_mass = minimum_meal_mass(&registries);
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000_000))
         .unwrap_or_else(|error| panic!("pending-meal source stockpile failed: {error}"));
@@ -108,6 +114,12 @@ fn pending_meal_replay_keeps_admission_freshness_after_source_storage_improves()
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("pending-meal enclosure body failed: {error}"));
+    for stockpile in [source, enclosure_source] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| panic!("pending-meal local placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("pending-meal local placement commit failed: {error}"));
+    }
 
     let _ = validate_eat(
         &registries,
@@ -161,7 +173,8 @@ fn pending_meal_replay_keeps_admission_freshness_after_source_storage_improves()
 fn aged_fresh_pending_meal_round_trips_with_admission_history_intact() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_and_spend_reserves(&registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    admit_and_spend_reserves(&registries, &mut state, position);
     let mass = minimum_meal_mass(&registries);
     let stockpile = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("aged pending-meal stockpile failed: {error}"));
@@ -174,6 +187,12 @@ fn aged_fresh_pending_meal_round_trips_with_admission_history_intact() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("aged pending-meal food failed: {error}"));
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap_or_else(|error| panic!("aged pending-meal stockpile placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("aged pending-meal stockpile placement commit failed: {error}")
+        });
     let shelf_life = registries
         .survival()
         .get_food(CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD))
@@ -211,7 +230,8 @@ fn aged_fresh_pending_meal_round_trips_with_admission_history_intact() {
 
 fn drinking_state(registries: &Registries, volume: Volume) -> AppState {
     let mut state = AppState::new();
-    initialize_and_spend_reserves(registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    admit_and_spend_reserves(registries, &mut state, position);
     let store = add_fluid_store_with_contents_for_fixture(
         registries,
         &mut state,
@@ -221,6 +241,10 @@ fn drinking_state(registries: &Registries, volume: Volume) -> AppState {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("pending-drink fixture failed: {error}"));
+    validate_place_fluid_store(&state, store, position)
+        .unwrap_or_else(|error| panic!("pending-drink store placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("pending-drink store placement commit failed: {error}"));
     let _ = validate_drink(registries, &state, store, volume)
         .unwrap_or_else(|error| panic!("pending-drink validation failed: {error}"))
         .commit(&mut state)

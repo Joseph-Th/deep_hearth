@@ -370,6 +370,13 @@ fn maintenance_rejects_revision_budget_that_cannot_complete_before_any_mutation(
     let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("revision-budget maintenance spent failed: {error}"));
     add_material(&registries, &mut state, source, Mass::from_milligrams(20));
+    complete_service_player_logistics(
+        &registries,
+        &mut state,
+        VoxelCoord::new(0, 0, 0),
+        &[equipment],
+        &[source, spent],
+    );
 
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
@@ -471,6 +478,26 @@ fn maintenance_start_preserves_equipment_revision_owed_to_running_production() {
         Energy::from_nanojoules(1_000_000_000),
     )
     .unwrap_or_else(|error| panic!("shared-budget production energy failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    let logistics_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        logistics_revision,
+        logistics_revision + 1,
+        energy_store,
+        position,
+    );
+    complete_service_player_logistics(
+        &registries,
+        &mut state,
+        position,
+        &[production_equipment, maintenance_equipment],
+        &[
+            process_source,
+            process_destination,
+            maintenance_source,
+            spent,
+        ],
+    );
     let heating = resolve_sensible_heating_process(
         &registries,
         &state,
@@ -625,6 +652,13 @@ fn in_progress_maintenance_round_trip_preserves_material_payment_and_continuatio
     let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("maintenance continuation spent failed: {error}"));
     add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    complete_service_player_logistics(
+        &registries,
+        &mut state,
+        VoxelCoord::new(0, 0, 0),
+        &[equipment],
+        &[source, spent],
+    );
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("maintenance continuation matter audit failed: {error}"))
         .total();

@@ -415,6 +415,13 @@ fn loaded_mining_job_reconstructs_authored_condition_outcome() {
         .unwrap_or_else(|error| panic!("mining wear-audit destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining wear-audit deposit failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
     let job = validate_known_mining(
         &registries,
         &state,
@@ -466,6 +473,13 @@ fn loaded_mining_state_rejects_job_map_key_identity_mismatch() {
         .unwrap_or_else(|error| panic!("mining key-audit destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining key-audit deposit failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
     let job = validate_known_mining(
         &registries,
         &state,
@@ -514,6 +528,13 @@ fn loaded_mining_state_rejects_equipment_double_booking_after_index_rebuild() {
         .unwrap_or_else(|error| panic!("mining double-book destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining double-book deposit failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
     let job = validate_known_mining(
         &registries,
         &state,
@@ -608,15 +629,7 @@ fn deposit_excavation_hardness_is_independent_of_assay_composition() {
 
 #[test]
 fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining trace survival setup failed: {error}"));
-    let pick = assemble_pick_for_test(&registries, &mut state);
-    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("mining trace destination failed: {error}"));
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining trace deposit failed: {error}"));
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -646,8 +659,12 @@ fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
     );
 
     let reinforcement_source =
-        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
-            .unwrap_or_else(|error| panic!("mining trace reinforcement source failed: {error}"));
+        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(20_000))
+            .unwrap_or_else(|error| panic!("mining trace reinforcement allocation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("mining trace reinforcement allocation commit failed: {error}")
+            });
     deposit_lot_for_test(
         &registries,
         &mut state,
@@ -696,15 +713,7 @@ fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
 
 #[test]
 fn loaded_working_mining_job_rejects_forged_source_mass_trace() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining source-trace survival setup failed: {error}"));
-    let pick = assemble_pick_for_test(&registries, &mut state);
-    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("mining source-trace destination failed: {error}"));
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining source-trace deposit failed: {error}"));
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -739,7 +748,7 @@ fn loaded_working_mining_job_rejects_forged_source_mass_trace() {
 
 #[test]
 fn loaded_working_mining_job_rejects_forged_requested_mass() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -783,6 +792,13 @@ fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
             .unwrap_or_else(|error| panic!("second follow-on mining destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("follow-on mining deposit failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[first_destination, second_destination],
+        &[pick],
+    );
     let extraction_mass = Mass::from_milligrams(100_000);
 
     let first_job = validate_known_mining(

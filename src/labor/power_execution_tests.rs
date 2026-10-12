@@ -16,9 +16,9 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::TickSpan;
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{
-    EnergySinkError, EnergyStoreRecord, EnergySupplyError, PowerRemainder, add_energy_store,
-    add_energy_store_with_initial_for_fixture, integrate_power, validate_assemble_energy_store,
-    validate_energy_supply,
+    EnergySinkError, EnergyStoreId, EnergyStoreRecord, EnergySupplyError, PowerRemainder,
+    add_energy_store, add_energy_store_with_initial_for_fixture, integrate_power,
+    validate_assemble_energy_store, validate_energy_supply,
 };
 use crate::equipment::{
     validate_assemble_equipment, validate_mount_equipment, validate_unmount_equipment,
@@ -27,7 +27,7 @@ use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, depos
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError};
 use crate::logistics::{
     PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, validate_allocate_ground_stockpile,
-    validate_initialize_player_logistics,
+    validate_initialize_player_logistics, validate_player_logistics_initialization,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
@@ -46,6 +46,39 @@ fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
         let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("manual power setup tick failed: {error}"));
     }
+}
+
+fn complete_manual_power_player_logistics(
+    registries: &Registries,
+    state: &mut AppState,
+    equipment: &[EquipmentId],
+    stores: &[EnergyStoreId],
+) {
+    let position = VoxelCoord::new(0, 0, 0);
+    for &equipment in equipment {
+        let revision = state.logistics().revision();
+        state.logistics_state_mut().apply_equipment_placement(
+            revision,
+            revision + 1,
+            equipment,
+            position,
+        );
+    }
+    for &store in stores {
+        let revision = state.logistics().revision();
+        state.logistics_state_mut().apply_energy_store_placement(
+            revision,
+            revision + 1,
+            store,
+            position,
+        );
+    }
+    validate_player_logistics_initialization(registries, state, position)
+        .unwrap_or_else(|error| panic!("manual power persistence player logistics failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("manual power persistence player logistics commit failed: {error}")
+        });
 }
 
 #[test]
@@ -443,6 +476,7 @@ fn manual_power_rejects_completion_owner_revision_exhaustion_at_admission() {
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
         .unwrap_or_else(|error| panic!("manual power revision drive failed: {error}"));
+    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
     let requested = Energy::from_nanojoules(100_000_000_000);
     let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("manual power revision serialization failed: {error}"));
@@ -790,6 +824,12 @@ fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomical
         Energy::from_nanojoules(1_000_000_000_000_000),
     )
     .unwrap_or_else(|error| panic!("shared-energy passive store failed: {error}"));
+    complete_manual_power_player_logistics(
+        &registries,
+        &mut state,
+        &[crank],
+        &[manual_destination],
+    );
     let requested = Energy::from_nanojoules(300_000_000_000);
     let start = validate_start_manual_power(
         &registries,
@@ -844,6 +884,12 @@ fn passive_loss_cannot_spend_energy_revision_reserved_for_later_manual_power_com
         Energy::from_nanojoules(1_000_000_000_000_000),
     )
     .unwrap_or_else(|error| panic!("reserved-energy passive store failed: {error}"));
+    complete_manual_power_player_logistics(
+        &registries,
+        &mut state,
+        &[crank],
+        &[manual_destination],
+    );
     let start = validate_start_manual_power(
         &registries,
         &state,
@@ -971,6 +1017,7 @@ fn manual_power_topoff_credits_guaranteed_pre_completion_flywheel_loss() {
         .unwrap_or_else(|error| panic!("topoff survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = assemble_flywheel_fixture(&registries, &mut state);
+    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
     let initial = Energy::from_nanojoules(300_100_000_000);
     let requested = Energy::from_nanojoules(200_000_000_000);
     let initial_charge = validate_start_manual_power(
@@ -1137,6 +1184,7 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
             .unwrap_or_else(|error| panic!("hand crank assembly commit failed: {error}"));
     let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
         .unwrap_or_else(|error| panic!("manual power drive allocation failed: {error}"));
+    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
     let survival_before = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("manual power survival state disappeared"));
     let condition_before = state

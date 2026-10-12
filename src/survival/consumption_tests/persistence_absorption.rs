@@ -114,8 +114,13 @@ fn trusted_load_replays_direct_consumption_attention_durations() {
 fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("multi-tick drinking survival setup failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("multi-tick drinking player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("multi-tick drinking player admission commit failed: {error}")
+        });
     let physiology = registries.survival().physiology();
     let hydration_before = physiology
         .maximum_hydration()
@@ -152,6 +157,12 @@ fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("multi-tick drinking water fixture failed: {error}"));
+    validate_place_fluid_store(&state, store, position)
+        .unwrap_or_else(|error| panic!("multi-tick drinking store placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("multi-tick drinking store placement commit failed: {error}")
+        });
     let outcome = validate_drink(&registries, &state, store, volume)
         .unwrap_or_else(|error| panic!("multi-tick drinking validation failed: {error}"))
         .commit(&mut state)

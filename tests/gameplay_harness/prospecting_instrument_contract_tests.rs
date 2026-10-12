@@ -21,12 +21,14 @@ use deep_hearth::geology::{
     GeologicalEvidenceKind, validate_start_field_prospecting,
 };
 use deep_hearth::labor::ProspectingSpatialResolution;
+use deep_hearth::logistics::validate_place_ground_stockpile;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{
     MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target,
 };
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use deep_hearth::player::validate_admit_player;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 
@@ -213,7 +215,17 @@ fn shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_ev
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("shallow-core matter setup failed: {error}"))
         .total();
-    seed_player_survival_at_full_reserve(&registries, &mut state);
+    let position = region.min();
+    validate_place_ground_stockpile(&state, drill_source, position)
+        .unwrap_or_else(|error| panic!("shallow-core drill-source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("shallow-core drill-source placement commit failed: {error}")
+        });
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("shallow-core player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("shallow-core player admission commit failed: {error}"));
 
     let drill = validate_assemble_equipment(
         &registries,
@@ -441,8 +453,8 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     );
     let channel_width = i64::try_from(channel.maximum_region_voxels())
         .unwrap_or_else(|_| panic!("channel survey width exceeds i64"));
-    let channel_region = horizontal_region(10, channel_width);
-    let hidden_target = horizontal_region(10 + channel_width / 2, 1);
+    let channel_region = horizontal_region(0, channel_width);
+    let hidden_target = horizontal_region(channel_width / 2, 1);
     seed_geological_deposit(
         &registries,
         &mut state,
@@ -459,7 +471,23 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .unwrap_or_else(|error| panic!("prospecting-instrument matter setup failed: {error}"))
         .total();
 
-    seed_player_survival_at_full_reserve(&registries, &mut state);
+    let position = detailed_region.min();
+    for stockpile in [hammer_source, reinforcement_source, recovery] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| {
+                panic!("prospecting-instrument stockpile placement failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("prospecting-instrument stockpile placement commit failed: {error}")
+            });
+    }
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("prospecting-instrument player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("prospecting-instrument player admission commit failed: {error}")
+        });
     let hammer = validate_assemble_equipment(
         &registries,
         &state,
@@ -686,10 +714,22 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         target_observation.excavation_hardness(),
         Some(expected_hardness)
     );
+    let detailed_cell_observation = channel_observations
+        .iter()
+        .find(|observation| observation.region() == detailed_region)
+        .copied()
+        .unwrap_or_else(|| panic!("indexed detailed-survey cell observation disappeared"));
+    assert_eq!(
+        detailed_cell_observation.excavation_hardness(),
+        Some(expected_hardness),
+        "indexed channel survey must retain hardness evidence for the already occupied detailed-survey voxel"
+    );
     assert!(
         channel_observations
             .iter()
-            .filter(|observation| observation.region() != hidden_target)
+            .filter(|observation| {
+                observation.region() != hidden_target && observation.region() != detailed_region
+            })
             .all(|observation| observation.excavation_hardness().is_none()),
         "indexed blank cells must not leak hidden geological presence through a hardness side channel"
     );

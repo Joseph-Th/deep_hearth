@@ -31,7 +31,7 @@ use crate::inventory::{
 use crate::labor::PlayerWork;
 use crate::logistics::{
     PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
-    validate_place_ground_stockpile,
+    validate_place_ground_stockpile, validate_player_logistics_initialization,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::CompositionComponent;
@@ -449,6 +449,35 @@ fn cobbing_hammer_is_an_ordinary_wearing_attention_investment_with_exact_save_re
     let matter_before = calculate_matter_accounting(&fixture.state)
         .unwrap_or_else(|error| panic!("cobbing-hammer matter audit failed: {error}"))
         .total();
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [fixture.source, fixture.destination] {
+        validate_place_ground_stockpile(&fixture.state, stockpile, position)
+            .unwrap_or_else(|error| panic!("cobbing-hammer stockpile placement failed: {error}"))
+            .commit(&mut fixture.state)
+            .unwrap_or_else(|error| {
+                panic!("cobbing-hammer stockpile placement commit failed: {error}")
+            });
+    }
+    let logistics_revision = fixture.state.logistics().revision();
+    fixture
+        .state
+        .logistics_state_mut()
+        .apply_equipment_placement(logistics_revision, logistics_revision + 1, hammer, position);
+    validate_player_logistics_initialization(&fixture.registries, &fixture.state, position)
+        .unwrap_or_else(|error| panic!("cobbing-hammer player logistics failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| panic!("cobbing-hammer player logistics commit failed: {error}"));
+    let assisted = resolve_manual_comminution_process(
+        &fixture.registries,
+        &fixture.state,
+        ManualComminutionRequest::new(
+            PROCESS_HAND_BREAK_ORE,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, mass)],
+        )
+        .with_equipment(hammer),
+    )
+    .unwrap_or_else(|error| panic!("admitted cobbing-hammer resolution failed: {error}"));
     let duration = assisted.duration();
     let job = validate_start_manual_comminution(
         &fixture.registries,
@@ -1832,6 +1861,21 @@ fn hand_breaking_enforces_its_attention_bounded_batch() {
 fn in_progress_hand_breaking_round_trip_replays_exact_manual_physics() {
     let mass = Mass::from_milligrams(100_000);
     let mut fixture = manual_comminution_fixture(mass);
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [fixture.source, fixture.destination] {
+        validate_place_ground_stockpile(&fixture.state, stockpile, position)
+            .unwrap_or_else(|error| panic!("manual comminution replay placement failed: {error}"))
+            .commit(&mut fixture.state)
+            .unwrap_or_else(|error| {
+                panic!("manual comminution replay placement commit failed: {error}")
+            });
+    }
+    validate_player_logistics_initialization(&fixture.registries, &fixture.state, position)
+        .unwrap_or_else(|error| panic!("manual comminution replay logistics failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("manual comminution replay logistics commit failed: {error}")
+        });
     let resolved = resolve_manual_comminution(&fixture, mass);
     let duration = resolved.duration();
     let job = validate_start_manual_comminution(

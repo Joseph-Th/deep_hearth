@@ -222,8 +222,6 @@ fn copper_scrap_rework_is_slower_than_native_work_and_replays_exactly() {
     );
 
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("scrap recovery survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
         .unwrap_or_else(|error| panic!("scrap recovery source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
@@ -238,6 +236,19 @@ fn copper_scrap_rework_is_slower_than_native_work_and_replays_exactly() {
         temperature,
     )
     .unwrap_or_else(|error| panic!("scrap recovery copper fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("scrap recovery player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("scrap recovery player admission commit failed: {error}"));
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| panic!("scrap recovery stockpile placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("scrap recovery stockpile placement commit failed: {error}")
+            });
+    }
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("scrap recovery matter-before audit failed: {error}"))
         .total();
@@ -338,8 +349,6 @@ fn stone_scrap_reknapping_is_slower_than_fresh_knapping_and_replays_exactly() {
     assert_eq!(reknap.input_mass(), Mass::from_milligrams(1_000_000));
 
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("stone scrap reknap survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("stone scrap reknap source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
@@ -354,6 +363,23 @@ fn stone_scrap_reknapping_is_slower_than_fresh_knapping_and_replays_exactly() {
         temperature,
     )
     .unwrap_or_else(|error| panic!("stone scrap reknap fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("stone scrap reknap player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("stone scrap reknap player admission commit failed: {error}")
+        });
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| {
+                panic!("stone scrap reknap stockpile placement failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("stone scrap reknap stockpile placement commit failed: {error}")
+            });
+    }
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("stone scrap reknap matter-before failed: {error}"))
         .total();

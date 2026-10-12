@@ -13,8 +13,6 @@ use crate::content::{
 fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_exactly() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("woodworking survival setup failed: {error}"));
 
     let components = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("woodworking component stockpile failed: {error}"));
@@ -36,15 +34,6 @@ fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_e
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("woodworking handle component failed: {error}"));
-    let adze = validate_assemble_equipment(
-        &registries,
-        &state,
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        components,
-    )
-    .unwrap_or_else(|error| panic!("woodworking adze assembly failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("woodworking adze assembly commit failed: {error}"));
 
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
         .unwrap_or_else(|error| panic!("woodworking source failed: {error}"));
@@ -68,6 +57,28 @@ fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_e
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("woodworking second log failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("woodworking player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("woodworking player admission commit failed: {error}"));
+    for stockpile in [components, source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| panic!("woodworking stockpile placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("woodworking stockpile placement commit failed: {error}")
+            });
+    }
+    let adze = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        components,
+    )
+    .unwrap_or_else(|error| panic!("woodworking adze assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("woodworking adze assembly commit failed: {error}"));
 
     let hand = resolve_manual_craft(
         &registries,
