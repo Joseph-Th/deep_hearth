@@ -5,7 +5,7 @@ use crate::content::{
     FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE,
     SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
@@ -17,7 +17,9 @@ use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
-use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_survival};
+use crate::survival::{
+    FoodFreshness, Vitality, assess_food_freshness, initialize_player_survival, player_record,
+};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
@@ -143,6 +145,157 @@ fn admit_player(
         .commit(state)
         .unwrap_or_else(|error| panic!("surface test logistics commit failed: {error}"))
         .carried_stockpile()
+}
+
+fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut AppState) {
+    let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("surface fatality fixture lost survival player"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+}
+
+#[test]
+fn fatal_tick_cancels_unfinished_surface_gathering_and_releases_capacity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let gathered_mass = Mass::from_milligrams(1_000_000);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        gathered_mass,
+    );
+    let carried = admit_player(&registries, &mut state, position);
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE,
+        stone,
+        gathered_mass,
+    )
+    .unwrap_or_else(|error| panic!("fatal surface gathering start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal surface gathering commit failed: {error}"));
+    let work = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work,
+        other => panic!("fatal surface gathering did not own player work: {other:?}"),
+    };
+    assert!(work.completes_at().value() > state.tick().value() + 1);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.reserved_inbound()),
+        Some(gathered_mass)
+    );
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal surface gathering tick failed: {error}"));
+
+    assert!(outcome.surface_gathering().is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state
+            .surface()
+            .get(stone)
+            .map(|resource| resource.remaining_mass()),
+        Some(gathered_mass),
+        "canceled gathering must not consume the surface source"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| (record.stored_mass(), record.reserved_inbound())),
+        Some((Mass::ZERO, Mass::ZERO)),
+        "canceled gathering must release capacity without materializing matter"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn surface_gathering_due_on_fatal_tick_completes_before_attention_release() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let gathered_mass = Mass::from_milligrams(100);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        gathered_mass,
+    );
+    let carried = admit_player(&registries, &mut state, position);
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE,
+        stone,
+        gathered_mass,
+    )
+    .unwrap_or_else(|error| panic!("fatal due surface gathering start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal due surface gathering commit failed: {error}"));
+    let work = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work,
+        other => panic!("fatal due surface gathering did not own player work: {other:?}"),
+    };
+    assert_eq!(work.completes_at().value(), state.tick().value() + 1);
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal due surface gathering tick failed: {error}"));
+
+    assert_eq!(
+        outcome
+            .surface_gathering()
+            .map(|gathering| gathering.gathered_mass()),
+        Some(gathered_mass)
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state
+            .surface()
+            .get(stone)
+            .map(|resource| resource.remaining_mass()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| (record.stored_mass(), record.reserved_inbound())),
+        Some((gathered_mass, Mass::ZERO))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
