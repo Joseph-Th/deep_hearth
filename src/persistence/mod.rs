@@ -5,7 +5,9 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::quantity::Mass;
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+use crate::inventory::{StockpileId, StockpileStorageProfile};
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
@@ -60,14 +62,17 @@ impl LoadedSaveEnvelope {
 
         state.rebuild_derived_indexes();
         validate_loaded_state(registries, &state).map_err(LoadError::InvalidState)?;
-        validate_persisted_player_admission(&state)?;
+        validate_persisted_player_admission(registries, &state)?;
         Ok(state)
     }
 }
 
-fn validate_persisted_player_admission(state: &AppState) -> Result<(), LoadError> {
+fn validate_persisted_player_admission(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), LoadError> {
     match player_admission_state(state) {
-        PlayerAdmissionState::Absent | PlayerAdmissionState::Admitted => Ok(()),
+        PlayerAdmissionState::Absent => Ok(()),
         PlayerAdmissionState::Partial {
             survival_initialized,
             logistics_initialized,
@@ -75,6 +80,35 @@ fn validate_persisted_player_admission(state: &AppState) -> Result<(), LoadError
             survival_initialized,
             logistics_initialized,
         }),
+        PlayerAdmissionState::Admitted => {
+            let player = state
+                .logistics()
+                .player()
+                .unwrap_or_else(|| unreachable!("admitted player has logistics state"));
+            let stockpile = state
+                .inventory()
+                .get_stockpile(player.carried_stockpile())
+                .unwrap_or_else(|| {
+                    unreachable!("generic validation proved admitted carried custody exists")
+                });
+            let expected_capacity = registries.survival().physiology().carried_mass_capacity();
+            if stockpile.capacity() != expected_capacity {
+                return Err(LoadError::PlayerCarriedCapacityMismatch {
+                    stockpile: stockpile.id(),
+                    expected: expected_capacity,
+                    actual: stockpile.capacity(),
+                });
+            }
+            let expected_profile = StockpileStorageProfile::unbounded_solid_only();
+            if stockpile.storage_profile() != expected_profile {
+                return Err(LoadError::PlayerCarriedStorageProfileMismatch {
+                    stockpile: stockpile.id(),
+                    expected: expected_profile,
+                    actual: stockpile.storage_profile(),
+                });
+            }
+            Ok(())
+        }
     }
 }
 
@@ -113,6 +147,18 @@ pub enum LoadError {
         survival_initialized: bool,
         logistics_initialized: bool,
     },
+    /// Ordinary player carried custody no longer matches the authored body capacity.
+    PlayerCarriedCapacityMismatch {
+        stockpile: StockpileId,
+        expected: Mass,
+        actual: Mass,
+    },
+    /// Ordinary player carried custody no longer has its canonical ambient solid-only profile.
+    PlayerCarriedStorageProfileMismatch {
+        stockpile: StockpileId,
+        expected: StockpileStorageProfile,
+        actual: StockpileStorageProfile,
+    },
     /// The decoded runtime data violates a persistent state invariant.
     InvalidState(StateValidationError),
 }
@@ -137,6 +183,26 @@ impl Display for LoadError {
                 formatter,
                 "persisted player admission is incomplete: survival initialized={survival_initialized}, logistics initialized={logistics_initialized}"
             ),
+            Self::PlayerCarriedCapacityMismatch {
+                stockpile,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "persisted player carried stockpile {} has capacity {} mg; authored body capacity is {} mg",
+                stockpile.value(),
+                actual.milligrams(),
+                expected.milligrams()
+            ),
+            Self::PlayerCarriedStorageProfileMismatch {
+                stockpile,
+                expected: _expected,
+                actual: _actual,
+            } => write!(
+                formatter,
+                "persisted player carried stockpile {} does not have the canonical ambient solid-only storage profile",
+                stockpile.value()
+            ),
             Self::InvalidState(error) => write!(formatter, "invalid persisted state: {error}"),
         }
     }
@@ -149,7 +215,10 @@ impl Error for LoadError {
                 found: _found,
                 supported: _supported,
             } => None,
-            Self::RegistrySchemaMismatch { .. } | Self::IncompletePlayerAdmission { .. } => None,
+            Self::RegistrySchemaMismatch { .. }
+            | Self::IncompletePlayerAdmission { .. }
+            | Self::PlayerCarriedCapacityMismatch { .. }
+            | Self::PlayerCarriedStorageProfileMismatch { .. } => None,
             Self::InvalidState(error) => Some(error),
         }
     }

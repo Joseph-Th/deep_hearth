@@ -141,6 +141,52 @@ fn atomic_player_admission_round_trips_through_trusted_load() {
 }
 
 #[test]
+fn trusted_load_rejects_tampered_admitted_player_carried_custody_shape() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(4, -2, 7))
+        .unwrap_or_else(|error| panic!("player custody-tamper admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("player custody-tamper admission commit failed: {error}"));
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| panic!("player custody-tamper carried stockpile disappeared"));
+    let expected_capacity = registries.survival().physiology().carried_mass_capacity();
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("player custody-tamper serialization failed: {error}"));
+
+    let mut capacity = encoded.clone();
+    capacity["state"]["systems"]["inventory"]["stockpiles"][carried.value().to_string()]["capacity"] =
+        serde_json::json!(expected_capacity.milligrams() + 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(capacity)
+        .unwrap_or_else(|error| panic!("player capacity-tamper decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::PlayerCarriedCapacityMismatch {
+            stockpile: carried,
+            expected: expected_capacity,
+            actual: Mass::from_milligrams(expected_capacity.milligrams() + 1),
+        })
+    );
+
+    let mut profile = encoded;
+    profile["state"]["systems"]["inventory"]["stockpiles"][carried.value().to_string()]["storage_profile"]
+        ["preservation_multiplier_ppm"] = serde_json::json!(2_000_000_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(profile)
+        .unwrap_or_else(|error| panic!("player profile-tamper decode failed: {error}"));
+    assert!(matches!(
+        decoded.into_state(&registries),
+        Err(LoadError::PlayerCarriedStorageProfileMismatch {
+            stockpile,
+            expected: _,
+            actual: _,
+        }) if stockpile == carried
+    ));
+}
+
+#[test]
 fn unsupported_schema_is_rejected_before_runtime_use() {
     let encoded = br#"{
             "schema_version": 999,
