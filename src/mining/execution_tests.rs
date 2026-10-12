@@ -443,6 +443,75 @@ fn fatal_tick_cancels_unfinished_mining_without_extraction_but_with_elapsed_tool
 }
 
 #[test]
+fn fatal_tick_preserves_due_mining_completion_and_automatic_settlement() {
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
+    let remaining_before = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.remaining_mass())
+        .unwrap_or_else(|| panic!("fatal-completion mining deposit disappeared before start"));
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("fatal-completion mining start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal-completion mining commit failed: {error}"));
+    let record = state
+        .mining()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("fatal-completion mining job disappeared after start"));
+    let completes_at = record.completes_at();
+    let output_mass = record.output().mass();
+
+    while state.tick().value() + 1 < completes_at.value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fatal-completion setup tick failed: {error}"));
+        assert_eq!(outcome.mining_output(), None);
+    }
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal mining completion tick failed: {error}"));
+
+    assert_eq!(outcome.tick(), completes_at);
+    assert_eq!(
+        outcome.mining_output().map(MiningOutputReceipt::job),
+        Some(job)
+    );
+    assert!(state.mining().get_job(job).is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| (stockpile.stored_mass(), stockpile.reserved_inbound())),
+        Some((output_mass, Mass::ZERO)),
+        "mining due on the fatal tick must settle its already-completed output exactly once"
+    );
+    assert_eq!(
+        state
+            .geology()
+            .get_deposit(deposit)
+            .map(|record| record.remaining_mass()),
+        remaining_before.checked_sub(output_mass),
+        "fatality on the completion tick must not cancel authoritative geological extraction"
+    );
+    validate_loaded_state(&registries, &state).unwrap_or_else(|error| {
+        panic!("fatal-completion mining state failed trusted-load audit: {error}")
+    });
+}
+
+#[test]
 fn fatal_mining_cancellation_consumes_reserved_headroom_at_owner_limits() {
     let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
