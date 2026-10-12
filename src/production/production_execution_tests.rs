@@ -23,10 +23,7 @@ use crate::inventory::{
     add_solid_stockpile_for_test, add_stockpile, deposit_bulk_for_test, deposit_lot_for_test,
     deposit_lot_spec_for_test, validate_material_relocation_for_test, validate_mount_stockpile,
 };
-use crate::logistics::{
-    PlayerStockpileAccessError, validate_initialize_player_logistics,
-    validate_place_ground_stockpile,
-};
+use crate::logistics::{PlayerStockpileAccessError, validate_place_ground_stockpile};
 use crate::maintenance::Condition;
 use crate::material::{
     CommodityKey, MaterialComposition, MaterialLotSpec, ParticleSizeClass,
@@ -36,6 +33,7 @@ use crate::ore_processing::{
     ResolvedScreening, ScreeningProcessDefinition, ScreeningRequest, resolve_screening_process,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
     ProductionJobRecord, ProductionSiteEndpoint, ProductionValidationError,
@@ -62,6 +60,23 @@ const TEST_TARGET_TEMPERATURE: Temperature = Temperature::from_millikelvin(900_0
 
 fn wood_log() -> CommodityKey {
     CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+}
+
+#[test]
+fn player_process_start_requires_complete_player_admission() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolved = make_test_resolution(&registries, &mut state, source);
+
+    assert!(
+        validate_start_process(&registries, &state, &resolved, source, destination).is_ok(),
+        "capability-level production admission must remain available without a player"
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_process(&registries, &state, &resolved, source, destination).err(),
+        Some(StartPlayerProcessError::PlayerNotAdmitted)
+    );
+    assert_eq!(state, before);
 }
 
 fn berry_food() -> CommodityKey {
@@ -337,10 +352,10 @@ fn player_process_start_rejects_remote_co_located_process_site() {
         resources.energy,
         process_position,
     );
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("remote process player logistics setup failed: {error}"))
+    validate_admit_player(&registries, &state, player_position)
+        .unwrap_or_else(|error| panic!("remote process player admission failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("remote process player logistics commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("remote process player admission commit failed: {error}"));
     let resolved = resolve_test_heating(
         &registries,
         &state,

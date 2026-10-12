@@ -15,11 +15,13 @@ use super::{
     ProcessOutputRoute, StartProcessError, ValidatedStartProcess, validate_start_process_routed,
 };
 use crate::inventory::StockpileId;
+use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::production::ProcessResolution;
 
 /// Failure while authorizing an already-resolved production process for an admitted player.
 #[derive(Debug, PartialEq, Eq)]
 pub enum StartPlayerProcessError {
+    PlayerNotAdmitted,
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
     EnergyStoreAccess(PlayerEnergyStoreAccessError),
@@ -29,6 +31,7 @@ pub enum StartPlayerProcessError {
 impl Display for StartPlayerProcessError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerNotAdmitted => formatter.write_str("player is not fully admitted"),
             Self::StockpileAccess(error) => write!(formatter, "stockpile access failed: {error}"),
             Self::EquipmentAccess(error) => write!(formatter, "equipment access failed: {error}"),
             Self::EnergyStoreAccess(error) => {
@@ -42,6 +45,7 @@ impl Display for StartPlayerProcessError {
 impl Error for StartPlayerProcessError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::PlayerNotAdmitted => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
             Self::EnergyStoreAccess(error) => Some(error),
@@ -55,6 +59,9 @@ fn validate_player_process_access(
     resolution: &ProcessResolution,
     routes: &[ProcessOutputRoute],
 ) -> Result<(), StartPlayerProcessError> {
+    if player_admission_state(state) != PlayerAdmissionState::Admitted {
+        return Err(StartPlayerProcessError::PlayerNotAdmitted);
+    }
     validate_player_stockpile_access(state, resolution.source())
         .map_err(StartPlayerProcessError::StockpileAccess)?;
     for route in routes {
@@ -79,9 +86,9 @@ fn validate_player_process_access(
 /// Authorizes one single-output resolved process for an admitted player's current exact-local
 /// custody before entering capability-level production admission.
 ///
-/// Controlled fixtures without a logistics player retain the access helpers' capability-level
-/// behavior. Ordinary player-facing callers should use this surface rather than
-/// [`super::validate_start_process`].
+/// Controlled fixtures without a fully admitted player must use capability-level
+/// [`super::validate_start_process`] directly. Ordinary player-facing callers should use this
+/// surface so player admission and exact-local access are both enforced.
 pub fn validate_start_player_process(
     registries: &Registries,
     state: &AppState,
