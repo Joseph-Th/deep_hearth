@@ -40,7 +40,7 @@ def woodworking_summary(lines: list[str]) -> str | None:
     frozen_before_action = 0
     for line in feedback:
         attention = re.search(
-            r"saw-attention=\[setup-threshold-met:(true|false) actual-payback:(true|false)\]",
+            r"saw-attention=\[capital-gate-met:(true|false) realized-payback:(true|false)\]",
             line,
         )
         timber = re.search(r"saw-timber=\[nominal:([^ ]+) actual:([^\]]+)\]", line)
@@ -71,10 +71,10 @@ def woodworking_summary(lines: list[str]) -> str | None:
         f"timber-saving={count('timber-saving:true')} "
         f"timber-neutral={count('timber-neutral:true')} "
         f"saw-feedback=[samples:{len(feedback)}/{len(woodworking)} "
-        f"setup-threshold-met:{setup_budget_met}/{len(feedback)} "
+        f"capital-gate-met:{setup_budget_met}/{len(feedback)} "
         f"realized-payback:{realized_payback}/{len(feedback)} "
-        f"hindsight=[below-threshold-payback:{below_threshold_paybacks} "
-        f"threshold-without-payback:{threshold_without_payback}] "
+        f"policy-vs-lifecycle=[payback-despite-stricter-gate:{below_threshold_paybacks} "
+        f"gate-met-without-payback:{threshold_without_payback}] "
         f"timber-model-agrees:{timber_model_agrees}/{len(feedback)} "
         f"frozen:{frozen_before_action}/{len(feedback)}]"
     )

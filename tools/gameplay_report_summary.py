@@ -163,6 +163,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "first-copper",
         "organic-first-copper",
         "sequencing-physical",
+        "processing-market",
         "disclosed-order-attention",
     ),
     "primitive-liberation": (
@@ -232,7 +233,8 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
         *_ORDINARY_DIGEST_FIELDS["primitive-progression"],
         "sequencing-consequence",
-        "processing-crossover",
+        "processing-market-detail",
+        "processing-setup-tradeoff",
         "stockpile-alt",
         "executed-manual-fallback",
         "integrated-campaign",
@@ -242,9 +244,7 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
     "power-provider": (
         *_ORDINARY_DIGEST_FIELDS["power-provider"],
         "market",
-        "settlement-copper-policy",
         "settlement-candidates",
-        "settlement-frontier",
         "settlement-off-frontier",
     ),
     "settlement": (

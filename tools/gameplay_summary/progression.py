@@ -158,7 +158,14 @@ def _investment_evidence(
     order_attention_saved: list[int] = []
     preaction_manual_attention: list[int] = []
     preaction_machine_upper: list[int] = []
+    one_cycle_manual_attention: list[int] = []
+    one_cycle_machine_upper: list[int] = []
+    attention_crossover_cycles: list[int] = []
+    disclosed_cycles: list[int] = []
+    capital_input_mass: list[int] = []
+    capital_embodied_mass: list[int] = []
     frozen_processing_choices = 0
+    workload_sensitive_choices = 0
     for line in progression:
         economics = re.search(
             r"disclosed-order-economics=\[cycles:(\d+) manual-player-attention:(\d+)t mechanized-player-attention:(\d+)t saved:(\d+)t\]",
@@ -169,14 +176,34 @@ def _investment_evidence(
             mechanized_order_attention.append(int(economics.group(3)))
             order_attention_saved.append(int(economics.group(4)))
         investment = re.search(
-            r"processing-investment=\[selected:mechanized preaction-manual:(\d+)t "
-            r"conservative-machine-upper:(\d+)t .*?choice-frozen-before-action:true\]",
+            r"processing-investment=\[selected:mechanized disclosed-cycles:(\d+) "
+            r"preaction-manual:(\d+)t conservative-machine-upper:(\d+)t "
+            r"assembly:\d+t capital-input:(\d+)mg embodied:(\d+)mg "
+            r"capital-source:prepared-owned-raw "
+            r".*?choice-frozen-before-action:true\]",
             line,
         )
         if investment is not None:
-            preaction_manual_attention.append(int(investment.group(1)))
-            preaction_machine_upper.append(int(investment.group(2)))
+            disclosed_cycles.append(int(investment.group(1)))
+            preaction_manual_attention.append(int(investment.group(2)))
+            preaction_machine_upper.append(int(investment.group(3)))
+            capital_input_mass.append(int(investment.group(4)))
+            capital_embodied_mass.append(int(investment.group(5)))
             frozen_processing_choices += 1
+        market = re.search(
+            r"processing-market=\[one-cycle:manual manual:(\d+)t "
+            r"machine-upper:(\d+)t attention-crossover:(\d+)cycles disclosed:mechanized\]",
+            line,
+        )
+        if market is not None:
+            manual = int(market.group(1))
+            machine = int(market.group(2))
+            crossover = int(market.group(3))
+            one_cycle_manual_attention.append(manual)
+            one_cycle_machine_upper.append(machine)
+            attention_crossover_cycles.append(crossover)
+            if manual < machine and crossover > 1:
+                workload_sensitive_choices += 1
     return (
         frozen_processing_choices,
         (
@@ -186,6 +213,16 @@ def _investment_evidence(
             f"frozen:{frozen_processing_choices}/{len(progression)}]"
         ),
         (
+            "processing-market=["
+            f"short-manual:{workload_sensitive_choices}/{len(progression)} "
+            f"attention-crossover:{_span(attention_crossover_cycles, unit='cycles')} "
+            f"capital:{scaled_span(capital_embodied_mass, 1_000_000, 'kg')}/prepared-owned "
+            f"long-mechanized:{frozen_processing_choices}/{len(progression)}] "
+            "processing-market-detail=["
+            f"one-cycle-manual:{_span(one_cycle_manual_attention)} "
+            f"one-cycle-machine-upper:{_span(one_cycle_machine_upper)} "
+            f"capital-input:{scaled_span(capital_input_mass, 1_000_000, 'kg')} "
+            f"disclosed:{_span(disclosed_cycles, unit='cycles')}] "
             "disclosed-order-attention=["
             f"manual:{_span(manual_order_attention)} "
             f"mechanized:{_span(mechanized_order_attention)} "
@@ -243,11 +280,11 @@ def _bridge_tradeoff_evidence(
             f"powered:{_span(powered_recovery, unit='ppm')}]"
         ),
         (
-            "processing-crossover=["
+            "processing-setup-tradeoff=["
             f"one-bridge-manual:{_span(manual_bridge_attention)} "
             f"line-setup:{_span(powered_line_attention)} "
             f"long-order-mechanized:{frozen_processing_choices}/{len(progression)}] "
-            "processing-crossover-physical=["
+            "processing-setup-tradeoff-physical=["
             f"manual:{physical_duration_span(lines, manual_bridge_attention)} "
             f"line-setup:{physical_duration_span(lines, powered_line_attention)}]"
         ),

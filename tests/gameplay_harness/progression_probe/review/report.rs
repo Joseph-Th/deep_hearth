@@ -516,7 +516,7 @@ pub(super) fn report_primitive_progression_review(
         review.unfilled_autonomous_ticks,
     );
     reviewln!(
-        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} evidence-scope=ordinary-system-spatial-proxy movement=abstracted locality-claim=false information={} local-copper-sequence={} decision-evidence=[owned-bulk:{}ppm blocked-hard:{}..{}ppm rule=buy-access-only-if-hard-lower-beats-owned-bulk] scarcity=[direct-second-upgrade-blocked:{} processed-output-playable:{} converged-both-upgrades:{}] processing-investment=[selected:mechanized preaction-manual:{}t conservative-machine-upper:{}t assembly:{}t initial-charge:{}t repeated-charge-upper:{}t choice-frozen-before-action:true] matched-alternatives=[pick-first,crank-first] tradeoff=[hard-access-lead:{}t autonomous-output-window:{}t] portfolio-scope=pick-vs-crank-only pick-first=[pick:{}t hard-sample:{}t exclusive-hard-window:{}t/{}:{}mg machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t eventual-convergence:{:+}t] bridge-tradeoff=[manual-second:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; powered-line:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] disclosed-order-economics=[cycles:{} manual-player-attention:{}t mechanized-player-attention:{}t saved:{}t] manual-second-counterfactual=[pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} trade=[hard-info-lead-vs-crank-first:{}t automation-delay:+{}t]] post-upgrade-feed={} stockpiling-coverage-delegation=[feed-attention:{}t maintenance-prep-overlap:{}t productive-attention:{}t returned-attention:{}t returned:{}ppm overlap/setup:{}ppm unrecovered-setup:{}t overlap-equivalent:{overlap_setup_equivalent} post-equivalent:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] selected-reinvestment=[{reinvestment_summary}] coverage-obligations=[maintenance-material-prep:{}t overlapped:{}t maintenance-service:{}t survival:{}ppm/{}ppm]",
+        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} evidence-scope=ordinary-system-spatial-proxy movement=abstracted locality-claim=false information={} local-copper-sequence={} decision-evidence=[owned-bulk:{}ppm blocked-hard:{}..{}ppm rule=buy-access-only-if-hard-lower-beats-owned-bulk] scarcity=[direct-second-upgrade-blocked:{} processed-output-playable:{} converged-both-upgrades:{}] processing-investment=[selected:mechanized disclosed-cycles:{} preaction-manual:{}t conservative-machine-upper:{}t assembly:{}t capital-input:{}mg embodied:{}mg capital-source:prepared-owned-raw initial-charge:{}t repeated-charge-upper:{}t choice-frozen-before-action:true] processing-market=[one-cycle:manual manual:{}t machine-upper:{}t attention-crossover:{}cycles disclosed:mechanized] matched-alternatives=[pick-first,crank-first] tradeoff=[hard-access-lead:{}t autonomous-output-window:{}t] portfolio-scope=pick-vs-crank-only pick-first=[pick:{}t hard-sample:{}t exclusive-hard-window:{}t/{}:{}mg machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t eventual-convergence:{:+}t] bridge-tradeoff=[manual-second:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; powered-line:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] disclosed-order-economics=[cycles:{} manual-player-attention:{}t mechanized-player-attention:{}t saved:{}t] manual-second-counterfactual=[pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} trade=[hard-info-lead-vs-crank-first:{}t automation-delay:+{}t]] post-upgrade-feed={} stockpiling-coverage-delegation=[feed-attention:{}t maintenance-prep-overlap:{}t productive-attention:{}t returned-attention:{}t returned:{}ppm overlap/setup:{}ppm unrecovered-setup:{}t overlap-equivalent:{overlap_setup_equivalent} post-equivalent:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] selected-reinvestment=[{reinvestment_summary}] coverage-obligations=[maintenance-material-prep:{}t overlapped:{}t maintenance-service:{}t survival:{}ppm/{}ppm]",
         if review.information_refinement_required {
             "deferred-refinement"
         } else {
@@ -529,11 +529,17 @@ pub(super) fn report_primitive_progression_review(
         review.direct_second_upgrade_blocked,
         review.processed_output_has_playable_acquisition_use,
         review.converged_both_upgrades,
+        STOCKPILE_WORK_ORDER_CYCLES,
         review.preaction_manual_processing_attention_ticks,
         review.preaction_mechanized_attention_upper_ticks,
         review.preaction_machine_assembly_ticks,
+        review.processing_machine_input_mass_mg,
+        review.processing_machine_embodied_mass_mg,
         review.preaction_machine_initial_charge_ticks,
         review.preaction_machine_repeated_charge_ticks,
+        review.processing_one_cycle_manual_attention_ticks,
+        review.processing_one_cycle_mechanized_attention_upper_ticks,
+        review.processing_attention_crossover_cycles,
         review.extraction_hard_access_lead_ticks,
         review.mechanization_processed_output_window_ticks,
         extraction_pick_delay,

@@ -347,6 +347,8 @@ pub(super) fn primitive_machine_energy_plan(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PrimitiveProcessingInvestmentProjection {
     pub(super) assembly_attention_ticks: u64,
+    pub(super) assembly_input_mass_mg: u64,
+    pub(super) assembly_embodied_mass_mg: u64,
     pub(super) initial_charge_ticks: u64,
     pub(super) repeated_charge_ticks: u64,
     pub(super) conservative_attention_ticks: u64,
@@ -361,6 +363,7 @@ pub(super) struct PrimitiveProcessingInvestmentPlan {
     pub(super) separation_feed_mass: Mass,
     pub(super) seed: u64,
     pub(super) crank_reinforced_before_charge: bool,
+    pub(super) work_order_cycles: u64,
 }
 
 pub(super) fn project_primitive_processing_investment(
@@ -376,7 +379,12 @@ pub(super) fn project_primitive_processing_investment(
         separation_feed_mass,
         seed,
         crank_reinforced_before_charge,
+        work_order_cycles,
     } = plan;
+    assert!(
+        work_order_cycles > 0,
+        "primitive processing investment projection requires at least one disclosed work cycle"
+    );
     let drive_profile = registries
         .energy()
         .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
@@ -416,7 +424,10 @@ pub(super) fn project_primitive_processing_investment(
     let mut repeated_charge_ticks = 0_u64;
     // Full-capacity top-ups are deliberately conservative. The actual line reuses residual stored
     // work; two extra top-ups cover separation/reserve uncertainty beyond the disclosed cycles.
-    for _ in 0..STOCKPILE_WORK_ORDER_CYCLES + 2 {
+    let conservative_charge_events = work_order_cycles
+        .checked_add(2)
+        .unwrap_or_else(|| panic!("primitive projected charge-event count overflowed"));
+    for _ in 0..conservative_charge_events {
         let charge = project_manual_power(
             registries,
             MANUAL_POWER_HAND_CRANK,
@@ -451,6 +462,8 @@ pub(super) fn project_primitive_processing_investment(
         .unwrap_or_else(|| panic!("primitive processing investment projection overflowed"));
     PrimitiveProcessingInvestmentProjection {
         assembly_attention_ticks: assembly.attention_ticks,
+        assembly_input_mass_mg: assembly.input_mass_mg,
+        assembly_embodied_mass_mg: assembly.embodied_mass_mg,
         initial_charge_ticks: initial_charge.duration().value(),
         repeated_charge_ticks,
         conservative_attention_ticks,

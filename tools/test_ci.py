@@ -3138,7 +3138,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "WILDERNESS EXPERIENCE evidence=controlled-local-sources+ordinary-exact-local-after-admission timing=[first-meal:85t/5.1m stable:85t/5.1m] provisioning=[meal:250000mg retained:250000mg warning-safe:true] carrying=[peak:500000mg capacity:25000000mg utilization:20000ppm] water=[observed:1500000uL consumed:0uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:161t capacity:10000000mg food:250000mg ambient:4d boxed:7d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:2 setup:110t bare:100t adze:56t crossover:5batches] reason:no-current-workload] remaining-opportunity=[stone:3000000mg timber:8000000mg]",
             "PROBE INPUT name=survival-provisioning mode=explore samples=1 organic=0",
             "SURVIVAL EXPERIENCE seed=0x1 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] storage-policy:decline",
-            "PROGRESSION EXPERIENCE seed=0x1 sample=anchor information=surface-resolved local-copper-sequence=pick-first scarcity=[direct-second-upgrade-blocked:true processed-output-playable:true converged-both-upgrades:true] processing-investment=[selected:mechanized preaction-manual:2470t conservative-machine-upper:1800t assembly:320t initial-charge:18t repeated-charge-upper:1400t choice-frozen-before-action:true] counterfactual=[crank-first-tradeoff hard-access-lead:478t] bridge-tradeoff=[manual-second:111t feed:41465mg recovery:650000ppm body:1000000000000nJ/1000uL; powered-line:421t feed:29947mg recovery:900000ppm body:2000000000000nJ/2000uL] disclosed-order-economics=[cycles:12 manual-player-attention:2470t mechanized-player-attention:429t saved:2041t] stockpiling-coverage-delegation=[feed-attention:28t maintenance-prep-overlap:40t productive-attention:68t returned-attention:315t returned:822454ppm overlap/setup:210526ppm unrecovered-setup:255t overlap-equivalent:unreached post-equivalent:0cycles stop:stockpile-order-complete economics:finite-stockpile-order-complete] selected-reinvestment=[completed]",
+            "PROGRESSION EXPERIENCE seed=0x1 sample=anchor information=surface-resolved local-copper-sequence=pick-first scarcity=[direct-second-upgrade-blocked:true processed-output-playable:true converged-both-upgrades:true] processing-investment=[selected:mechanized disclosed-cycles:12 preaction-manual:2470t conservative-machine-upper:1800t assembly:320t capital-input:11000000mg embodied:5400000mg capital-source:prepared-owned-raw initial-charge:18t repeated-charge-upper:1400t choice-frozen-before-action:true] processing-market=[one-cycle:manual manual:300t machine-upper:600t attention-crossover:3cycles disclosed:mechanized] counterfactual=[crank-first-tradeoff hard-access-lead:478t] bridge-tradeoff=[manual-second:111t feed:41465mg recovery:650000ppm body:1000000000000nJ/1000uL; powered-line:421t feed:29947mg recovery:900000ppm body:2000000000000nJ/2000uL] disclosed-order-economics=[cycles:12 manual-player-attention:2470t mechanized-player-attention:429t saved:2041t] stockpiling-coverage-delegation=[feed-attention:28t maintenance-prep-overlap:40t productive-attention:68t returned-attention:315t returned:822454ppm overlap/setup:210526ppm unrecovered-setup:255t overlap-equivalent:unreached post-equivalent:0cycles stop:stockpile-order-complete economics:finite-stockpile-order-complete] selected-reinvestment=[completed]",
             "PROGRESSION FALLBACK seed=0x1 evidence=maintained-route-regression route=owned-ore->hand-break->hand-sort->cold-work captured:true input=[ore:88163mg copper:441278ppm] attention=[break:98t sort:49t cold-work:40t total:187t] matter=[native:25287mg residue:62876mg reinforcement:20000mg remainder:5287mg] recovery=[manual:650000ppm powered:900000ppm] survival-cost=[237021000000000nJ 66695uL] machinery=none stored-work=none matter=conserved",
             "PROGRESSION REVIEW seed=0x1 sample=anchor role=runtime-experience-after-disclosed-bootstrap continuity=single-state captured:true coverage-autonomy=[repeat-horizon:12/24cycles stop:stockpile-order-complete] selected-reinvestment=[completed copper-invested:60000mg next-stage=[sizing-plate-continuation:90t]] stored-work=[passive-loss:125000000000nJ reserve-recharge:1t]",
             "PROGRESSION GOAL seed=0x1 immediate=265t delayed=741t chosen=immediate",
@@ -3150,7 +3150,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] inherited-condition=1000000..1000000ppm resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true manual-electrical-reachability=authored-acquisition-edge support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
-            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model saw-attention=[setup-threshold-met:false actual-payback:false] saw-timber=[nominal:costlier actual:costlier] selected=bare-hands choice-frozen-before-action=true feedback-scope=next-order",
+            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model saw-attention=[capital-gate-met:false realized-payback:false] saw-timber=[nominal:costlier actual:costlier] selected=bare-hands choice-frozen-before-action=true feedback-scope=next-order",
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
             "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 geology=quarry-soft policy-input=false report-only=true",
             "FIELDWORK CONTINUATION seed=0x1 available=true reused-knowledge=true reused-tool=true requested=1mg extracted=1mg extraction=2t/7.2s avoided-search=10t/36.0s avoided-kit=50t/3.0m stop=order-complete scope=matched-repeat-order destination-capacity=diagnostic-only",
@@ -3186,7 +3186,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "default gameplay digest must stay reviewable while preserving wilderness and fantasy evidence",
         )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
-        self.assertLess(len(concise.encode()), 6_000)
+        self.assertLess(len(concise.encode()), 6_100)
         for prefix in (
             "SIMULATION TIME ",
             "GAMEPLAY primitive-progression scope=spatial-proxy ",
@@ -3220,6 +3220,10 @@ class GameplayReportContractTests(unittest.TestCase):
             "WORKSHOP EXPERIENCE REVIEW ",
         ):
             self.assertNotIn(redundant, concise)
+        self.assertIn(
+            "processing-market=[short-manual:1/1 attention-crossover:3..3cycles capital:5.4..5.4kg/prepared-owned long-mechanized:1/1]",
+            concise,
+        )
         self.assertIn(
             "disclosed-order-attention=[manual:2470..2470t mechanized:429..429t saved:2041..2041t]",
             concise,
@@ -3295,6 +3299,10 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertNotIn("work-interlock=[", concise)
         self.assertIn("GAMEPLAY loop-dynamics ", concise)
         self.assertIn("thermal-bootstrap=1/1", concise)
+        self.assertIn(
+            "GAMEPLAY fantasy agency-growth=[opening-stabilized:1/1 rational-deferral:1/1 workload-sensitive-processing:1/1",
+            concise,
+        )
         self.assertIn(
             "GAMEPLAY loop continuity=[progression:1/1 settlement-repeat:0/1 "
             "liberation-carry:1/1 foundry-carry:1/1 cross-era:modeled-handoffs]",
@@ -3724,13 +3732,13 @@ class GameplayReportContractTests(unittest.TestCase):
             "\n".join(
                 (
                     "WOODWORKING EXPERIENCE seed=0x1 demand-horizon=project choice=stone-adze reason=pipeline-timber-cost-not-recovered",
-                    "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model saw-attention=[setup-threshold-met:false actual-payback:true] saw-timber=[nominal:costlier actual:costlier] selected=stone-adze choice-frozen-before-action=true feedback-scope=next-order",
+                    "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model saw-attention=[capital-gate-met:false realized-payback:true] saw-timber=[nominal:costlier actual:costlier] selected=stone-adze choice-frozen-before-action=true feedback-scope=next-order",
                 )
             ),
             {},
         )
         self.assertIn(
-            "saw-feedback=[samples:1/1 setup-threshold-met:0/1 realized-payback:1/1 hindsight=[below-threshold-payback:1 threshold-without-payback:0] timber-model-agrees:1/1 frozen:1/1]",
+            "saw-feedback=[samples:1/1 capital-gate-met:0/1 realized-payback:1/1 policy-vs-lifecycle=[payback-despite-stricter-gate:1 gate-met-without-payback:0] timber-model-agrees:1/1 frozen:1/1]",
             summary,
         )
 

@@ -35,6 +35,12 @@ use super::manual_craft_selection::select_manual_craft_request;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
 use super::seed::mix64;
+// Keep generation owned at the probe boundary. The focused test is a crate root, while the
+// standalone report nests this same probe under `gameplay_woodworking`; child modules must not
+// assume either topology through `crate::woodworking_generation`.
+use super::woodworking_generation::{
+    WoodworkingDemandPlan, organic_woodworking_native_copper, plan_woodworking_demand,
+};
 use super::woodworking_policy::{
     WoodworkingInvestmentPreference, WoodworkingInvestmentReason, WoodworkingTimberBalance,
     woodworking_investment_decision, woodworking_timber_balance,

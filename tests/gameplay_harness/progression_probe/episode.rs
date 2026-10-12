@@ -140,30 +140,78 @@ pub(super) fn run_primitive_progression_case(
         "inventory-visible bulk ore must contain enough represented copper for the second upgrade"
     );
     let processing_decision_at = state.tick().value();
-    // This is disclosed scenario demand, not a post-hoc payback horizon. The actor knows it wants
-    // one second reinforcement plus a finite twelve-cycle crushed-feed stockpile before choosing
-    // whether the larger processing-line investment is appropriate.
-    let manual_stockpile_breaking_ticks =
-        project_manual_stockpile_breaking_attention(registries, mined_mass);
     let manual_bridge_projection =
         project_owned_ore_manual_bridge(registries, bulk_sample.copper_ppm, crank_upgrade_native);
+    let processing_investment_plan = PrimitiveProcessingInvestmentPlan {
+        raw,
+        native_storage,
+        shaped,
+        mined_mass,
+        separation_feed_mass: soft_separation_feed_mass,
+        seed,
+        crank_reinforced_before_charge: priority == PrimitivePriority::CrankFirst,
+        work_order_cycles: STOCKPILE_WORK_ORDER_CYCLES,
+    };
+    let projected_processing_attention = |work_order_cycles| {
+        let manual_stockpile =
+            project_manual_stockpile_breaking_attention(registries, mined_mass, work_order_cycles);
+        let manual = manual_bridge_projection
+            .total_attention_ticks
+            .checked_add(manual_stockpile)
+            .unwrap_or_else(|| panic!("primitive projected manual workload overflowed"));
+        let mechanized = project_primitive_processing_investment(
+            registries,
+            &state,
+            PrimitiveProcessingInvestmentPlan {
+                work_order_cycles,
+                ..processing_investment_plan
+            },
+        );
+        (manual, mechanized)
+    };
+    let (processing_one_cycle_manual_attention_ticks, one_cycle_machine_projection) =
+        projected_processing_attention(1);
+    let processing_one_cycle_mechanized_attention_upper_ticks =
+        one_cycle_machine_projection.conservative_attention_ticks;
+    assert!(
+        processing_one_cycle_manual_attention_ticks
+            < processing_one_cycle_mechanized_attention_upper_ticks,
+        "one known primitive processing cycle should favor the immediate manual bridge before machinery has a workload to repay its setup: manual {}t vs machine upper {}t",
+        processing_one_cycle_manual_attention_ticks,
+        processing_one_cycle_mechanized_attention_upper_ticks,
+    );
+    let processing_attention_crossover_cycles = (2..=STOCKPILE_WORK_ORDER_CYCLES)
+        .find(|cycles| {
+            let (manual, mechanized) = projected_processing_attention(*cycles);
+            mechanized.conservative_attention_ticks < manual
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "primitive processing line never repays its conservative player-attention cost within the disclosed {STOCKPILE_WORK_ORDER_CYCLES}-cycle order"
+            )
+        });
+    let (before_crossover_manual, before_crossover_machine) =
+        projected_processing_attention(processing_attention_crossover_cycles - 1);
+    assert!(
+        before_crossover_manual >= manual_bridge_projection.total_attention_ticks
+            && before_crossover_manual >= processing_one_cycle_manual_attention_ticks
+            && before_crossover_machine.conservative_attention_ticks >= before_crossover_manual,
+        "primitive processing attention crossover must be the first workload where machinery beats the manual route on player attention"
+    );
+
+    // The selected episode owns a known twelve-cycle stockpiling order. That is one long-workload
+    // decision, not a universal rule that primitive processing should mechanize immediately.
+    let manual_stockpile_breaking_ticks = project_manual_stockpile_breaking_attention(
+        registries,
+        mined_mass,
+        STOCKPILE_WORK_ORDER_CYCLES,
+    );
     let preaction_manual_processing_attention_ticks = manual_bridge_projection
         .total_attention_ticks
         .checked_add(manual_stockpile_breaking_ticks)
         .unwrap_or_else(|| panic!("primitive pre-action manual workload overflowed"));
-    let processing_investment_projection = project_primitive_processing_investment(
-        registries,
-        &state,
-        PrimitiveProcessingInvestmentPlan {
-            raw,
-            native_storage,
-            shaped,
-            mined_mass,
-            separation_feed_mass: soft_separation_feed_mass,
-            seed,
-            crank_reinforced_before_charge: priority == PrimitivePriority::CrankFirst,
-        },
-    );
+    let processing_investment_projection =
+        project_primitive_processing_investment(registries, &state, processing_investment_plan);
     assert!(
         processing_investment_projection.conservative_attention_ticks
             < preaction_manual_processing_attention_ticks,
@@ -1054,6 +1102,12 @@ pub(super) fn run_primitive_progression_case(
         manual_bridge_ready_at,
         manual_bridge_feed_mass: manual_bridge.feed_mass,
         manual_bridge_attention_ticks: manual_bridge.total_attention_ticks,
+        processing_attention_crossover_cycles,
+        processing_one_cycle_manual_attention_ticks,
+        processing_one_cycle_mechanized_attention_upper_ticks,
+        processing_machine_input_mass_mg: processing_investment_projection.assembly_input_mass_mg,
+        processing_machine_embodied_mass_mg: processing_investment_projection
+            .assembly_embodied_mass_mg,
         preaction_manual_processing_attention_ticks,
         preaction_mechanized_attention_upper_ticks: processing_investment_projection
             .conservative_attention_ticks,

@@ -87,14 +87,22 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
 
-fn project_manual_stockpile_breaking_attention(registries: &Registries, cycle_mass: Mass) -> u64 {
+fn project_manual_stockpile_breaking_attention(
+    registries: &Registries,
+    cycle_mass: Mass,
+    work_order_cycles: u64,
+) -> u64 {
+    assert!(
+        work_order_cycles > 0,
+        "primitive stockpile work-order projection requires at least one cycle"
+    );
     let definition = registries
         .ore_processing()
         .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
         .unwrap_or_else(|| panic!("primitive progression hand-breaking route disappeared"));
     let total_mass = cycle_mass
         .milligrams()
-        .checked_mul(STOCKPILE_WORK_ORDER_CYCLES)
+        .checked_mul(work_order_cycles)
         .unwrap_or_else(|| panic!("primitive stockpile work-order mass overflowed"));
     let maximum = definition.max_batch_mass().milligrams();
     let mut remaining = total_mass;
@@ -432,6 +440,11 @@ struct PrimitiveProgressionExperience {
     manual_bridge_ready_at: u64,
     manual_bridge_feed_mass: Mass,
     manual_bridge_attention_ticks: u64,
+    processing_attention_crossover_cycles: u64,
+    processing_one_cycle_manual_attention_ticks: u64,
+    processing_one_cycle_mechanized_attention_upper_ticks: u64,
+    processing_machine_input_mass_mg: u64,
+    processing_machine_embodied_mass_mg: u64,
     preaction_manual_processing_attention_ticks: u64,
     preaction_mechanized_attention_upper_ticks: u64,
     preaction_machine_assembly_ticks: u64,
@@ -522,6 +535,11 @@ fn consume_report_only_experience_fields(experience: &PrimitiveProgressionExperi
     let _ = (
         experience.processing_decision_at,
         experience.manual_bridge_ready_at,
+        experience.processing_attention_crossover_cycles,
+        experience.processing_one_cycle_manual_attention_ticks,
+        experience.processing_one_cycle_mechanized_attention_upper_ticks,
+        experience.processing_machine_input_mass_mg,
+        experience.processing_machine_embodied_mass_mg,
         experience.manual_stockpile_breaking_ticks,
         experience.mechanized_stockpile_player_ticks,
         experience.manual_bootstrap_pick_ready_ticks,

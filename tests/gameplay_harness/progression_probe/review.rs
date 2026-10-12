@@ -40,6 +40,11 @@ pub(crate) struct PrimitiveProgressionReview {
     pub(crate) bulk_sample_copper_ppm: u32,
     manual_bridge_feed_mg: u64,
     manual_bridge_attention_ticks: u64,
+    processing_attention_crossover_cycles: u64,
+    processing_one_cycle_manual_attention_ticks: u64,
+    processing_one_cycle_mechanized_attention_upper_ticks: u64,
+    processing_machine_input_mass_mg: u64,
+    processing_machine_embodied_mass_mg: u64,
     preaction_manual_processing_attention_ticks: u64,
     preaction_mechanized_attention_upper_ticks: u64,
     preaction_machine_assembly_ticks: u64,
@@ -164,6 +169,17 @@ fn manual_bridge_evidence_captured(review: &PrimitiveProgressionReview) -> bool 
         && review.manual_bridge_metabolic_cost_nj > 0
         && review.manual_bridge_hydration_cost_ul > 0
         && review.manual_bridge_attention_ticks < review.processing_line_preparation_ticks
+}
+
+fn processing_market_captured(review: &PrimitiveProgressionReview) -> bool {
+    review.processing_one_cycle_manual_attention_ticks
+        < review.processing_one_cycle_mechanized_attention_upper_ticks
+        && review.processing_attention_crossover_cycles > 1
+        && review.processing_attention_crossover_cycles <= STOCKPILE_WORK_ORDER_CYCLES
+        && review.processing_machine_input_mass_mg >= review.processing_machine_embodied_mass_mg
+        && review.processing_machine_embodied_mass_mg > 0
+        && review.preaction_manual_processing_attention_ticks
+            > review.preaction_mechanized_attention_upper_ticks
 }
 
 fn automation_maturity_captured(review: &PrimitiveProgressionReview) -> bool {
@@ -762,6 +778,13 @@ pub(crate) fn evaluate_primitive_progression_probe(
         bulk_sample_copper_ppm: extraction.bulk_sample_copper_ppm,
         manual_bridge_feed_mg: natural.manual_bridge_feed_mass.milligrams(),
         manual_bridge_attention_ticks: natural.manual_bridge_attention_ticks,
+        processing_attention_crossover_cycles: natural.processing_attention_crossover_cycles,
+        processing_one_cycle_manual_attention_ticks: natural
+            .processing_one_cycle_manual_attention_ticks,
+        processing_one_cycle_mechanized_attention_upper_ticks: natural
+            .processing_one_cycle_mechanized_attention_upper_ticks,
+        processing_machine_input_mass_mg: natural.processing_machine_input_mass_mg,
+        processing_machine_embodied_mass_mg: natural.processing_machine_embodied_mass_mg,
         preaction_manual_processing_attention_ticks: natural
             .preaction_manual_processing_attention_ticks,
         preaction_mechanized_attention_upper_ticks: natural
@@ -887,6 +910,7 @@ fn validate_primitive_progression_review(
         && information_path_captured(review)
         && investment_choice_captured(review, choice_windows_are_consequential)
         && manual_bridge_evidence_captured(review)
+        && processing_market_captured(review)
         && automation_maturity_captured(review)
         && reinvestment_captured(registries, review, maintained_reinvestment_required);
     assert!(

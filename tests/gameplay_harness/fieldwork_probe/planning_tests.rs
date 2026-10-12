@@ -385,6 +385,35 @@ fn long_order_band_crosses_the_reinforced_quarry_investment_boundary() {
 }
 
 #[test]
+fn organic_bulk_demand_generator_reaches_both_sides_of_quarry_investment_boundary() {
+    let registries = deep_hearth::content::build_registries();
+    let limits = fieldwork_mining_limits(&registries);
+    let (state, raw, parts) = fieldwork_planning_fixture(&registries, true);
+    let selected = (0_u64..256)
+        .filter_map(|seed| {
+            choose_fieldwork_tool(
+                &registries,
+                &state,
+                raw,
+                parts,
+                limits.reinforced_quarry_hardness,
+                bulk_fieldwork_order_mass(&registries, seed),
+            )
+            .map(|estimate| estimate.tool.target)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert!(
+        selected.contains(&EQUIPMENT_COPPER_REINFORCED_PICK),
+        "organic bulk demand stopped producing work small enough to defer reinforced quarry capital"
+    );
+    assert!(
+        selected.contains(&EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK),
+        "organic bulk demand stopped producing work large enough to justify reinforced quarry capital"
+    );
+}
+
+#[test]
 fn wear_adjusted_order_can_favor_the_lighter_reinforced_tool() {
     let registries = deep_hearth::content::build_registries();
     // An explicit visible work order, not an inference from hidden deposit reserves.

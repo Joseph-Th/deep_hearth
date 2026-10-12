@@ -205,8 +205,9 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         and " tool-choice=[selected:defer " in line
         for line in evidence.wilderness
     )
-    mechanized_processing = sum(
-        "processing-investment=[selected:mechanized" in line
+    workload_sensitive_processing = sum(
+        " processing-market=[one-cycle:manual " in line
+        and " disclosed:mechanized]" in line
         for line in evidence.progression
     )
     delegated_orders = sum(
@@ -224,7 +225,7 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         "agency-growth=["
         f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
         f"rational-deferral:{rational_deferrals}/{len(evidence.wilderness)} "
-        f"mechanized-processing:{mechanized_processing}/{len(evidence.progression)} "
+        f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
         f"electrical-foundry:{electrical_foundries}/{foundry_builds}]"
     )

@@ -12,9 +12,6 @@ use super::execution::{
     execute_bare_pipeline, execute_saw_pipeline, project_saw_setup_budget, projected_board_mass,
 };
 use super::*;
-use crate::woodworking_generation::{
-    WoodworkingDemandPlan, organic_woodworking_native_copper, plan_woodworking_demand,
-};
 
 #[cfg(not(test))]
 #[path = "evaluation/report.rs"]
