@@ -163,7 +163,7 @@ fn validate_mining_source_ownership(
         }
     } else if references.deposit_remaining_mass > remaining_after {
         return Err(
-            MiningJobValidationError::ReadyDepositMassAbovePostExtraction {
+            MiningJobValidationError::AwaitingSettlementDepositMassAbovePostExtraction {
                 job: job.id(),
                 maximum: remaining_after,
                 actual: references.deposit_remaining_mass,

@@ -73,7 +73,7 @@ impl MatterAccounting {
         self.stored
     }
 
-    /// Matter currently owned by durable production jobs or ready-to-claim mining output.
+    /// Matter currently owned by durable production jobs or mining output awaiting settlement.
     #[must_use]
     pub const fn in_process(self) -> AggregateMass {
         self.in_process
@@ -239,7 +239,7 @@ fn calculate_in_process_mass(state: &AppState) -> Result<AggregateMass, MatterAc
     let mining = state
         .mining()
         .jobs()
-        .filter(|job| job.is_ready_to_claim())
+        .filter(|job| job.is_awaiting_settlement())
         .map(|job| AggregateMass::from_mass(job.output().mass()));
     sum_masses(
         production.chain(mining),
@@ -265,7 +265,8 @@ fn calculate_total_mass(parts: &[AggregateMass]) -> Result<AggregateMass, Matter
 /// caches.
 ///
 /// Finite geological deposits own extractable matter until mining completion. Completed mining output
-/// is a ready-to-claim owner until claim transfers it into inventory. Structural embodiment remains
+/// awaiting settlement remains mining-owned until the automatic settlement transaction transfers it
+/// into inventory. Structural embodiment remains
 /// structure-owned because no demolition/recovery operation exists. Production start transfers input
 /// matter from inventory to the durable in-process output snapshot until completion. Reservations and
 /// unfinished mining output plans are not matter owners and are excluded from this projection.

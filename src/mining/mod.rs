@@ -10,10 +10,10 @@ mod validation;
 
 pub use definitions::{MiningMethodDefinition, MiningMethodId, MiningRegistry};
 pub(crate) use execution::{
-    MiningCancellationError, MiningCancellationPlan, MiningClaimError, MiningTickPlan,
-    ValidatedMiningClaim, apply_mining_cancellation, apply_mining_tick, decide_mining_cancellation,
-    decide_mining_tick, validate_due_mining_output_settlement,
-    validate_ready_mining_output_settlement,
+    MiningCancellationError, MiningCancellationPlan, MiningSettlementError, MiningTickPlan,
+    ValidatedMiningSettlement, apply_mining_cancellation, apply_mining_tick,
+    decide_mining_cancellation, decide_mining_tick, validate_awaiting_mining_output_settlement,
+    validate_due_mining_output_settlement,
 };
 pub use execution::{
     MiningOutputReceipt, MiningStartCommitError, MiningStartError, ValidatedMiningStart,

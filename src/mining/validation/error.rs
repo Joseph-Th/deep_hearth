@@ -81,7 +81,7 @@ pub enum MiningJobValidationError {
         expected: Mass,
         actual: Mass,
     },
-    ReadyDepositMassAbovePostExtraction {
+    AwaitingSettlementDepositMassAbovePostExtraction {
         job: MiningJobId,
         maximum: Mass,
         actual: Mass,

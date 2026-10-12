@@ -36,7 +36,7 @@ impl AppState {
         self.systems
             .player_work
             .future_inventory_revision_demand()
-            .checked_add(self.systems.mining.future_claim_count())
+            .checked_add(self.systems.mining.future_settlement_count())
             .unwrap_or_else(|| {
                 unreachable!("resident nonproduction inventory revision demand fits u64")
             })
@@ -75,16 +75,19 @@ impl AppState {
 
     pub(crate) fn future_nonproduction_structure_revision_demand(&self) -> u64 {
         // Only supported mining destinations require a structure-owned load mutation when their
-        // retained output is claimed. Support assignment changes reproject this demand atomically.
+        // retained output settles. Support assignment changes reproject this demand atomically.
         self.systems
             .mining
-            .future_supported_claim_count(&self.systems.inventory)
+            .future_supported_settlement_count(&self.systems.inventory)
     }
 
-    pub(crate) fn retained_mining_claim_count_for_stockpile(&self, stockpile: StockpileId) -> u64 {
+    pub(crate) fn retained_mining_settlement_count_for_stockpile(
+        &self,
+        stockpile: StockpileId,
+    ) -> u64 {
         self.systems
             .mining
-            .future_claim_count_for_destination(stockpile)
+            .future_settlement_count_for_destination(stockpile)
     }
 
     pub(crate) fn checked_future_structure_revision_demand(&self) -> Option<u64> {
@@ -109,7 +112,7 @@ impl AppState {
         )?;
         checked_combined_demand(
             production_and_player,
-            self.systems.mining.future_claim_count(),
+            self.systems.mining.future_settlement_count(),
         )
     }
 

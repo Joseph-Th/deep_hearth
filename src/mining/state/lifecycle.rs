@@ -1,4 +1,4 @@
-//! Revision-bound mining job insertion, completion transition, and claim retirement.
+//! Revision-bound mining job insertion, completion transition, and settlement retirement.
 
 use crate::core::time::SimulationTick;
 
@@ -69,13 +69,17 @@ impl MiningState {
         self.revision = next_revision;
     }
 
-    pub(crate) fn mark_due_job_ready(
+    pub(crate) fn mark_due_job_awaiting_settlement(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
         completion_tick: SimulationTick,
     ) -> MiningJobId {
-        self.assert_due_job_ready_available(expected_revision, next_revision, completion_tick);
+        self.assert_due_job_awaiting_settlement_available(
+            expected_revision,
+            next_revision,
+            completion_tick,
+        );
         let jobs = self
             .due_jobs
             .remove(&completion_tick)
@@ -88,14 +92,14 @@ impl MiningState {
             .jobs
             .get_mut(&id)
             .unwrap_or_else(|| unreachable!("due mining job was prechecked"));
-        record.schedule.phase = MiningJobPhase::ReadyToClaim;
+        record.schedule.phase = MiningJobPhase::AwaitingSettlement;
         let removed = self.equipment_occupancy.remove(&record.equipment());
         assert_eq!(removed, Some(id));
         self.revision = next_revision;
         id
     }
 
-    pub(crate) fn assert_due_job_ready_available(
+    pub(crate) fn assert_due_job_awaiting_settlement_available(
         &self,
         expected_revision: u64,
         next_revision: u64,
@@ -124,7 +128,7 @@ impl MiningState {
         assert_eq!(self.equipment_occupancy.get(&record.equipment()), Some(&id));
     }
 
-    pub(crate) fn assert_ready_job_removable(
+    pub(crate) fn assert_awaiting_settlement_job_removable(
         &self,
         id: MiningJobId,
         expected_revision: u64,
@@ -135,15 +139,15 @@ impl MiningState {
         let record = self
             .jobs
             .get(&id)
-            .unwrap_or_else(|| panic!("validated mining claim job disappeared"));
-        assert!(record.is_ready_to_claim());
+            .unwrap_or_else(|| panic!("validated mining settlement job disappeared"));
+        assert!(record.is_awaiting_settlement());
         assert!(
             self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
-            "ready mining job remained in due index"
+            "awaiting-settlement mining job remained in due index"
         );
         assert!(
             self.equipment_occupancy.values().all(|job| *job != id),
-            "ready mining job retained equipment occupancy"
+            "awaiting-settlement mining job retained equipment occupancy"
         );
     }
 
@@ -201,17 +205,17 @@ impl MiningState {
         self.revision = next_revision;
     }
 
-    pub(crate) fn remove_ready_job(
+    pub(crate) fn remove_awaiting_settlement_job(
         &mut self,
         id: MiningJobId,
         expected_revision: u64,
         next_revision: u64,
     ) -> MiningJobRecord {
-        self.assert_ready_job_removable(id, expected_revision, next_revision);
+        self.assert_awaiting_settlement_job_removable(id, expected_revision, next_revision);
         let record = self
             .jobs
             .remove(&id)
-            .unwrap_or_else(|| unreachable!("ready mining claim job was prechecked"));
+            .unwrap_or_else(|| unreachable!("awaiting-settlement mining job was prechecked"));
         self.revision = next_revision;
         record
     }

@@ -1,4 +1,4 @@
-//! Contract tests for mining admission, lifecycle, and claim.
+//! Contract tests for mining admission, lifecycle, and settlement.
 
 use super::*;
 use crate::content::{
@@ -112,13 +112,13 @@ fn complete_mining_job(
     receipt.unwrap_or_else(|| panic!("{context} produced no automatic mining output landing"))
 }
 
-/// Drives a canonical mining job to durable ready custody by making its mounted destination
+/// Drives a canonical mining job to durable awaiting-settlement custody by making its mounted destination
 /// physically unable to accept the output before the completion tick.
 ///
 /// Ordinary gameplay must never need this state. Tests use it to exercise persistence and
 /// recovery contracts for the internal settlement boundary that remains authoritative when a
 /// physical blocker appears after admission.
-fn complete_mining_into_blocked_ready_state(
+fn complete_mining_into_blocked_settlement_state(
     registries: &Registries,
     state: &mut AppState,
     job: MiningJobId,
@@ -172,7 +172,7 @@ fn complete_mining_into_blocked_ready_state(
         state
             .mining()
             .get_job(job)
-            .is_some_and(MiningJobRecord::is_ready_to_claim),
+            .is_some_and(MiningJobRecord::is_awaiting_settlement),
         "{context} blocked output must remain in durable mining custody"
     );
     assert_eq!(state.player_work().active(), None);
@@ -669,7 +669,7 @@ fn mining_shortage_is_revealed_only_after_committing_requested_work() {
         Some(Mass::ZERO)
     );
     validate_loaded_state(&registries, &scarce)
-        .unwrap_or_else(|error| panic!("scarce mining post-claim state invalid: {error}"));
+        .unwrap_or_else(|error| panic!("scarce mining post-settlement state invalid: {error}"));
 }
 
 fn assemble_quarry_pick_for_test(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -1508,8 +1508,8 @@ fn trusted_load_rejects_remote_mining_equipment_before_condition_state() {
     );
 }
 
-#[path = "execution_tests/claim_contracts.rs"]
-mod claim_contracts;
+#[path = "execution_tests/settlement_contracts.rs"]
+mod settlement_contracts;
 
 #[path = "execution_tests/start_commit.rs"]
 mod start_commit;

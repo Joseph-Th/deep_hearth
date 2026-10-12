@@ -56,7 +56,7 @@ pub enum MiningValidationError {
         due: SimulationTick,
         current: SimulationTick,
     },
-    ReadyClaimBeforeCompletion {
+    AwaitingSettlementBeforeCompletion {
         job: MiningJobId,
         completion: SimulationTick,
         current: SimulationTick,
@@ -113,13 +113,13 @@ impl Display for MiningValidationError {
                 due.value(),
                 current.value()
             ),
-            Self::ReadyClaimBeforeCompletion {
+            Self::AwaitingSettlementBeforeCompletion {
                 job,
                 completion,
                 current,
             } => write!(
                 formatter,
-                "ready mining job {} claims completion at tick {} after current tick {}",
+                "mining job {} awaits settlement at completion tick {} after current tick {}",
                 job.value(),
                 completion.value(),
                 current.value()
@@ -173,7 +173,7 @@ fn validate_mining_job(
     if job.is_working() {
         validate_working_mining_job(job, current, expected)
     } else {
-        validate_ready_mining_job(job, current)
+        validate_awaiting_settlement_mining_job(job, current)
     }
 }
 
@@ -243,12 +243,12 @@ fn validate_working_mining_job(
     expected.add_working_job(job)
 }
 
-fn validate_ready_mining_job(
+fn validate_awaiting_settlement_mining_job(
     job: &MiningJobRecord,
     current: SimulationTick,
 ) -> Result<(), MiningValidationError> {
     if job.completes_at() > current {
-        return Err(MiningValidationError::ReadyClaimBeforeCompletion {
+        return Err(MiningValidationError::AwaitingSettlementBeforeCompletion {
             job: job.id(),
             completion: job.completes_at(),
             current,

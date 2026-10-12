@@ -54,10 +54,14 @@ fn scheduled_equipment_revision_demand_tracks_only_active_wear_buckets() {
 
     assert_eq!(state.scheduled_equipment_revision_bucket_count(), 1);
     assert_eq!(
-        state.mark_due_job_ready(1, 2, completion_tick),
+        state.mark_due_job_awaiting_settlement(1, 2, completion_tick),
         MiningJobId::new(1)
     );
-    assert_eq!(state.jobs().count(), 1, "ready job remains durable history");
+    assert_eq!(
+        state.jobs().count(),
+        1,
+        "awaiting-settlement job remains durable history"
+    );
     assert_eq!(state.scheduled_equipment_revision_bucket_count(), 0);
 
     let mut no_wear = MiningState::new();

@@ -238,12 +238,13 @@ impl Display for MiningStartError {
                 committed.milligrams()
             ),
             Self::MaterialLotIdExhausted => formatter
-                .write_str("material lot identifier space cannot reserve mining output claim"),
+                .write_str("material lot identifier space cannot reserve mining output settlement"),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
             }
             Self::StructureRevisionExhausted => {
-                formatter.write_str("structural revision space cannot reserve mining output claim")
+                formatter
+                    .write_str("structural revision space cannot reserve mining output settlement")
             }
             Self::DestinationSupport(error) => {
                 write!(formatter, "mining destination support failed: {error}")

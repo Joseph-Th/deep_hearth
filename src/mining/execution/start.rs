@@ -284,7 +284,7 @@ fn validate_mining_revision_capacity(
         return Err(MiningStartError::EquipmentRevisionExhausted);
     }
     // Reserve the lot identity and inventory-revision headroom required for this admitted output
-    // claim to land after completion.
+    // settlement after completion.
     if !state.has_material_lot_id_headroom_from(state.inventory().next_lot_id(), 1) {
         return Err(MiningStartError::MaterialLotIdExhausted);
     }
@@ -301,8 +301,8 @@ fn validate_mining_revision_capacity(
         .checked_add(1)
         .ok_or(MiningStartError::GeologyRevisionExhausted)?;
     let expected_mining_revision = state.mining().revision();
-    // Admission, completion, and claim retirement each consume a mining revision; retained jobs
-    // also reserve their future revision demand.
+    // Admission, completion, and settlement retirement each consume a mining revision; retained
+    // jobs also reserve their future revision demand.
     if !state.can_spend_mining_revisions(3) {
         return Err(MiningStartError::MiningRevisionExhausted);
     }

@@ -739,7 +739,7 @@ fn knap_assemble_mine_loop_auto_settles_conserves_exclusivity_and_persists() {
 }
 
 #[test]
-fn ready_mining_output_waits_for_destination_support_recovery() {
+fn awaiting_mining_output_waits_for_destination_support_recovery() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
@@ -768,7 +768,7 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
     .unwrap_or_else(|error| panic!("mining support-recovery start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("mining support-recovery start commit failed: {error}"));
-    let support = complete_mining_into_blocked_ready_state(
+    let support = complete_mining_into_blocked_settlement_state(
         &registries,
         &mut state,
         job,
@@ -779,7 +779,7 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
         state
             .mining()
             .get_job(job)
-            .is_some_and(MiningJobRecord::is_ready_to_claim)
+            .is_some_and(MiningJobRecord::is_awaiting_settlement)
     );
 
     let _ = validate_unmount_stockpile(&registries, &state, destination)
@@ -810,7 +810,7 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
-fn blocked_ready_mining_with_local_stone(
+fn blocked_unsettled_mining_with_local_stone(
     context: &'static str,
 ) -> (
     Registries,
@@ -861,7 +861,7 @@ fn blocked_ready_mining_with_local_stone(
     .unwrap_or_else(|error| panic!("{context} mining start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("{context} mining start commit failed: {error}"));
-    let support = complete_mining_into_blocked_ready_state(
+    let support = complete_mining_into_blocked_settlement_state(
         &registries,
         &mut state,
         job,
@@ -872,9 +872,9 @@ fn blocked_ready_mining_with_local_stone(
 }
 
 #[test]
-fn ready_mining_retry_defers_to_due_surface_gathering_inventory_mutation() {
+fn mining_settlement_retry_defers_to_due_surface_gathering_inventory_mutation() {
     let (registries, mut state, job, destination, _support, stone) =
-        blocked_ready_mining_with_local_stone("mining retry versus gathering completion");
+        blocked_unsettled_mining_with_local_stone("mining retry versus gathering completion");
     validate_start_player_surface_gathering(
         &registries,
         &state,
@@ -907,7 +907,7 @@ fn ready_mining_retry_defers_to_due_surface_gathering_inventory_mutation() {
         state
             .mining()
             .get_job(job)
-            .is_some_and(MiningJobRecord::is_ready_to_claim)
+            .is_some_and(MiningJobRecord::is_awaiting_settlement)
     );
 
     let retry = advance_tick(&registries, &mut state)
@@ -917,9 +917,9 @@ fn ready_mining_retry_defers_to_due_surface_gathering_inventory_mutation() {
 }
 
 #[test]
-fn ready_mining_retry_defers_to_fatal_surface_gathering_cancellation() {
+fn mining_settlement_retry_defers_to_fatal_surface_gathering_cancellation() {
     let (registries, mut state, job, destination, _support, stone) =
-        blocked_ready_mining_with_local_stone("mining retry versus gathering cancellation");
+        blocked_unsettled_mining_with_local_stone("mining retry versus gathering cancellation");
     validate_start_player_surface_gathering(
         &registries,
         &state,
@@ -952,7 +952,7 @@ fn ready_mining_retry_defers_to_fatal_surface_gathering_cancellation() {
         state
             .mining()
             .get_job(job)
-            .is_some_and(MiningJobRecord::is_ready_to_claim)
+            .is_some_and(MiningJobRecord::is_awaiting_settlement)
     );
 
     let retry = advance_tick(&registries, &mut state)

@@ -25,9 +25,9 @@ use crate::labor::{
 };
 use crate::logistics::{PlayerStepOutcome, apply_player_step_tick, decide_player_step_tick};
 use crate::mining::{
-    MiningClaimError, MiningOutputReceipt, MiningTickPlan, ValidatedMiningClaim, apply_mining_tick,
-    decide_mining_tick, validate_due_mining_output_settlement,
-    validate_ready_mining_output_settlement,
+    MiningOutputReceipt, MiningSettlementError, MiningTickPlan, ValidatedMiningSettlement,
+    apply_mining_tick, decide_mining_tick, validate_awaiting_mining_output_settlement,
+    validate_due_mining_output_settlement,
 };
 use crate::production::{
     CompletionApplication, CompletionPlan, ProcessCompletion, ProductionAvailabilityChange,
@@ -212,9 +212,10 @@ fn decide_automatic_mining_output(
     next_tick: SimulationTick,
     mining_plan: Option<MiningTickPlan>,
     inventory_owner_busy: bool,
-) -> Result<Option<ValidatedMiningClaim>, TickError> {
+) -> Result<Option<ValidatedMiningSettlement>, TickError> {
     // Mining recovery is incidental to the current player action. If another scheduled phase owns
-    // an inventory mutation this tick, preserve the durable ready state and retry next tick rather
+    // an inventory mutation this tick, preserve durable awaiting-settlement custody and retry next
+    // tick rather
     // than invalidating that phase's revision-bound plan or inventing a combined transaction.
     if inventory_owner_busy {
         return Ok(None);
@@ -225,25 +226,31 @@ fn decide_automatic_mining_output(
     } else if let Some(job) = state
         .mining()
         .jobs()
-        .find(|job| job.is_ready_to_claim())
+        .find(|job| job.is_awaiting_settlement())
         .map(|job| job.id())
     {
-        validate_ready_mining_output_settlement(registries, state, job, next_tick)
+        validate_awaiting_mining_output_settlement(registries, state, job, next_tick)
     } else {
         return Ok(None);
     };
     match planned {
-        Ok(claim) => Ok(Some(claim)),
+        Ok(settlement) => Ok(Some(settlement)),
         // A support can fail after mining admission. Extraction remains authoritative and the
-        // durable ready state retries automatically after the physical blocker is repaired.
-        Err(MiningClaimError::StructuralLoad(_)) => Ok(None),
-        Err(MiningClaimError::LotIdExhausted) => Err(TickError::MaterialLotIdExhausted),
-        Err(MiningClaimError::InventoryRevisionExhausted) => {
+        // durable awaiting-settlement state retries automatically after the physical blocker is
+        // repaired.
+        Err(MiningSettlementError::StructuralLoad(_)) => Ok(None),
+        Err(MiningSettlementError::LotIdExhausted) => Err(TickError::MaterialLotIdExhausted),
+        Err(MiningSettlementError::InventoryRevisionExhausted) => {
             Err(TickError::InventoryRevisionExhausted)
         }
-        Err(MiningClaimError::MiningRevisionExhausted) => Err(TickError::MiningRevisionExhausted),
-        Err(MiningClaimError::UnknownJob { .. } | MiningClaimError::NotReady { .. }) => {
-            unreachable!("automatic mining settlement must target current due or ready work")
+        Err(MiningSettlementError::MiningRevisionExhausted) => {
+            Err(TickError::MiningRevisionExhausted)
+        }
+        Err(
+            MiningSettlementError::UnknownJob { .. }
+            | MiningSettlementError::NotAwaitingSettlement { .. },
+        ) => {
+            unreachable!("automatic mining settlement must target current due or awaiting work")
         }
     }
 }
@@ -405,7 +412,8 @@ pub fn advance_tick(
         availability_changes: production_availability_changes,
     } = apply_completion_plan(state, completion_plan)?;
     let _completed_mining_job = apply_mining_tick(state, mining_plan);
-    let mining_output = automatic_mining_output.map(|claim| claim.apply_prechecked(state));
+    let mining_output =
+        automatic_mining_output.map(|settlement| settlement.apply_prechecked(state));
     let surface_gathering = apply_surface_gathering_tick(state, surface_gathering_plan);
     let player_step = apply_player_step_tick(state, player_step_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);

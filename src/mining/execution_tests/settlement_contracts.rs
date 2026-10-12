@@ -1,4 +1,4 @@
-//! Mining admission, claim headroom, and destination ownership contracts.
+//! Mining admission, settlement headroom, and destination ownership contracts.
 
 use super::*;
 
@@ -210,7 +210,7 @@ fn public_mining_debug_does_not_expose_hidden_source_or_reserved_output() {
     }
 }
 
-fn ready_mining_claim_fixture() -> (Registries, AppState, MiningJobId) {
+fn awaiting_mining_settlement_fixture() -> (Registries, AppState, MiningJobId) {
     let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
@@ -221,10 +221,10 @@ fn ready_mining_claim_fixture() -> (Registries, AppState, MiningJobId) {
         pick,
         Mass::from_milligrams(100_000),
     )
-    .unwrap_or_else(|error| panic!("mining claim exhaustion start failed: {error}"))
+    .unwrap_or_else(|error| panic!("mining settlement exhaustion start failed: {error}"))
     .commit(&mut state)
-    .unwrap_or_else(|error| panic!("mining claim exhaustion start commit failed: {error}"));
-    let _support = complete_mining_into_blocked_ready_state(
+    .unwrap_or_else(|error| panic!("mining settlement exhaustion start commit failed: {error}"));
+    let _support = complete_mining_into_blocked_settlement_state(
         &registries,
         &mut state,
         job,
@@ -239,13 +239,29 @@ fn ready_mining_claim_fixture() -> (Registries, AppState, MiningJobId) {
         state
             .mining()
             .get_job(job)
-            .is_some_and(MiningJobRecord::is_ready_to_claim)
+            .is_some_and(MiningJobRecord::is_awaiting_settlement)
     );
     (registries, state, job)
 }
 
 #[test]
-fn mining_start_rejects_exhausted_job_id_without_claiming_work() {
+fn awaiting_settlement_is_the_only_current_serialized_phase_name() {
+    let (registries, state, job) = awaiting_mining_settlement_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mining settlement phase serialization failed: {error}"));
+    let phase = &mut encoded["state"]["systems"]["mining"]["jobs"][job.value().to_string()]["schedule"]
+        ["phase"];
+    assert_eq!(*phase, serde_json::json!("awaiting_settlement"));
+
+    *phase = serde_json::json!("ready_to_claim");
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded).is_err(),
+        "obsolete phase spelling must not deserialize in the current schema"
+    );
+}
+
+#[test]
+fn mining_start_rejects_exhausted_job_id_without_starting_work() {
     let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("mining job-id exhaustion serialization failed: {error}"));
@@ -275,7 +291,7 @@ fn mining_start_rejects_exhausted_job_id_without_claiming_work() {
 }
 
 #[test]
-fn mining_start_rejects_exhausted_mining_revision_without_claiming_work() {
+fn mining_start_rejects_exhausted_mining_revision_without_starting_work() {
     let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("mining revision exhaustion serialization failed: {error}"));
@@ -305,7 +321,7 @@ fn mining_start_rejects_exhausted_mining_revision_without_claiming_work() {
 }
 
 #[test]
-fn mining_start_reserves_completion_and_claim_headroom() {
+fn mining_start_reserves_completion_and_settlement_headroom() {
     let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let position = state
         .logistics()
@@ -420,7 +436,7 @@ fn unmounted_mining_start_does_not_reserve_impossible_structural_work() {
         Mass::from_milligrams(100_000),
     )
     .unwrap_or_else(|error| {
-        panic!("unmounted mining should not reserve a structural claim revision: {error}")
+        panic!("unmounted mining should not reserve a structural settlement revision: {error}")
     })
     .commit(&mut loaded)
     .unwrap_or_else(|error| panic!("unmounted mining start commit failed: {error}"));
@@ -477,7 +493,7 @@ fn trusted_load_rejects_working_mining_without_scheduled_completion_revisions() 
 }
 
 #[test]
-fn trusted_load_rejects_working_mining_without_claim_headroom() {
+fn trusted_load_rejects_working_mining_without_settlement_headroom() {
     let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let position = state
         .logistics()
@@ -486,10 +502,12 @@ fn trusted_load_rejects_working_mining_without_claim_headroom() {
         .unwrap_or_else(|| panic!("headroom-bound mining player disappeared"));
     let support = active_stockpile_support_at(&registries, &mut state, position);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
-        .unwrap_or_else(|error| panic!("mining claim-headroom destination mount failed: {error}"))
+        .unwrap_or_else(|error| {
+            panic!("mining settlement-headroom destination mount failed: {error}")
+        })
         .commit(&mut state)
         .unwrap_or_else(|error| {
-            panic!("mining claim-headroom destination mount commit failed: {error}")
+            panic!("mining settlement-headroom destination mount commit failed: {error}")
         });
     let _job = validate_known_mining(
         &registries,
@@ -500,16 +518,16 @@ fn trusted_load_rejects_working_mining_without_claim_headroom() {
         pick,
         Mass::from_milligrams(100_000),
     )
-    .unwrap_or_else(|error| panic!("mining claim-headroom start failed: {error}"))
+    .unwrap_or_else(|error| panic!("mining settlement-headroom start failed: {error}"))
     .commit(&mut state)
-    .unwrap_or_else(|error| panic!("mining claim-headroom commit failed: {error}"));
+    .unwrap_or_else(|error| panic!("mining settlement-headroom commit failed: {error}"));
     let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("mining claim-headroom serialization failed: {error}"));
+        .unwrap_or_else(|error| panic!("mining settlement-headroom serialization failed: {error}"));
 
     let mut candidate = encoded.clone();
     candidate["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
-        .unwrap_or_else(|error| panic!("mining claim lot-headroom decode failed: {error}"));
+        .unwrap_or_else(|error| panic!("mining settlement lot-headroom decode failed: {error}"));
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(
@@ -522,8 +540,9 @@ fn trusted_load_rejects_working_mining_without_claim_headroom() {
 
     let mut candidate = encoded.clone();
     candidate["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
-        .unwrap_or_else(|error| panic!("mining claim inventory-headroom decode failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate).unwrap_or_else(|error| {
+        panic!("mining settlement inventory-headroom decode failed: {error}")
+    });
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(
@@ -536,8 +555,9 @@ fn trusted_load_rejects_working_mining_without_claim_headroom() {
 
     let mut candidate = encoded.clone();
     candidate["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
-        .unwrap_or_else(|error| panic!("mining claim structure-headroom decode failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate).unwrap_or_else(|error| {
+        panic!("mining settlement structure-headroom decode failed: {error}")
+    });
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(
@@ -551,7 +571,7 @@ fn trusted_load_rejects_working_mining_without_claim_headroom() {
     let mut candidate = encoded;
     candidate["state"]["systems"]["mining"]["revision"] = serde_json::json!(u64::MAX - 1);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
-        .unwrap_or_else(|error| panic!("mining claim owner-headroom decode failed: {error}"));
+        .unwrap_or_else(|error| panic!("mining settlement owner-headroom decode failed: {error}"));
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(
@@ -564,15 +584,16 @@ fn trusted_load_rejects_working_mining_without_claim_headroom() {
 }
 
 #[test]
-fn trusted_load_rejects_ready_mining_output_without_claim_lot_headroom() {
-    let (registries, state, job) = ready_mining_claim_fixture();
+fn trusted_load_rejects_awaiting_mining_output_without_settlement_lot_headroom() {
+    let (registries, state, job) = awaiting_mining_settlement_fixture();
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
-            panic!("mining claim lot-id exhaustion serialization failed: {error}")
+            panic!("mining settlement lot-id exhaustion serialization failed: {error}")
         });
     encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("mining claim lot-id exhaustion decode failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
+        panic!("mining settlement lot-id exhaustion decode failed: {error}")
+    });
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(
@@ -581,20 +602,20 @@ fn trusted_load_rejects_ready_mining_output_without_claim_lot_headroom() {
                 required: 1,
             }
         )),
-        "ready mining job {job:?} must retain one claim identity"
+        "awaiting-settlement mining job {job:?} must retain one settlement identity"
     );
 }
 
 #[test]
-fn trusted_load_rejects_ready_mining_output_without_claim_inventory_revision() {
-    let (registries, state, job) = ready_mining_claim_fixture();
+fn trusted_load_rejects_awaiting_mining_output_without_settlement_inventory_revision() {
+    let (registries, state, job) = awaiting_mining_settlement_fixture();
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
-            panic!("mining claim inventory revision exhaustion serialization failed: {error}")
+            panic!("mining settlement inventory revision exhaustion serialization failed: {error}")
         });
     encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
-        panic!("mining claim inventory revision exhaustion decode failed: {error}")
+        panic!("mining settlement inventory revision exhaustion decode failed: {error}")
     });
     assert_eq!(
         decoded.into_state(&registries),
@@ -604,20 +625,20 @@ fn trusted_load_rejects_ready_mining_output_without_claim_inventory_revision() {
                 required: 1,
             }
         )),
-        "ready mining job {job:?} must retain one claim inventory revision"
+        "awaiting-settlement mining job {job:?} must retain one settlement inventory revision"
     );
 }
 
 #[test]
-fn trusted_load_rejects_ready_mining_output_without_claim_mining_revision() {
-    let (registries, state, job) = ready_mining_claim_fixture();
+fn trusted_load_rejects_awaiting_mining_output_without_settlement_mining_revision() {
+    let (registries, state, job) = awaiting_mining_settlement_fixture();
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
-            panic!("mining claim mining revision exhaustion serialization failed: {error}")
+            panic!("mining settlement mining revision exhaustion serialization failed: {error}")
         });
     encoded["state"]["systems"]["mining"]["revision"] = serde_json::json!(u64::MAX);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
-        panic!("mining claim mining revision exhaustion decode failed: {error}")
+        panic!("mining settlement mining revision exhaustion decode failed: {error}")
     });
     assert_eq!(
         decoded.into_state(&registries),
@@ -627,13 +648,13 @@ fn trusted_load_rejects_ready_mining_output_without_claim_mining_revision() {
                 required: 1,
             }
         )),
-        "ready mining job {job:?} must retain one claim retirement revision"
+        "awaiting-settlement mining job {job:?} must retain one settlement retirement revision"
     );
 }
 
 #[test]
-fn mining_claim_consumes_exact_reserved_headroom_at_owner_limits() {
-    let (registries, mut state, job) = ready_mining_claim_fixture();
+fn mining_settlement_consumes_exact_reserved_headroom_at_owner_limits() {
+    let (registries, mut state, job) = awaiting_mining_settlement_fixture();
     let destination = state
         .mining()
         .get_job(job)
@@ -662,12 +683,14 @@ fn mining_claim_consumes_exact_reserved_headroom_at_owner_limits() {
         .unwrap_or_else(|error| panic!("headroom-bound mining decode failed: {error}"));
     let mut loaded = decoded
         .into_state(&registries)
-        .unwrap_or_else(|error| panic!("exact mining claim headroom must load: {error}"));
+        .unwrap_or_else(|error| panic!("exact mining settlement headroom must load: {error}"));
 
-    validate_claim_mining_output(&registries, &loaded, job)
-        .unwrap_or_else(|error| panic!("exact mining claim headroom rejected claim: {error}"))
+    validate_mining_output_settlement_for_test(&registries, &loaded, job)
+        .unwrap_or_else(|error| {
+            panic!("exact mining settlement headroom rejected settlement: {error}")
+        })
         .commit(&mut loaded)
-        .unwrap_or_else(|error| panic!("exact mining claim headroom commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("exact mining settlement headroom commit failed: {error}"));
 
     assert_eq!(loaded.inventory().revision(), u64::MAX);
     assert_eq!(loaded.inventory().next_lot_id(), u64::MAX);
@@ -678,7 +701,7 @@ fn mining_claim_consumes_exact_reserved_headroom_at_owner_limits() {
 }
 
 #[test]
-fn mining_support_recovery_can_consume_released_claim_headroom() {
+fn mining_support_recovery_can_consume_released_settlement_headroom() {
     let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
@@ -701,7 +724,7 @@ fn mining_support_recovery_can_consume_released_claim_headroom() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("support-recovery destination ballast failed: {error}"));
-    let _support = complete_mining_into_blocked_ready_state(
+    let _support = complete_mining_into_blocked_settlement_state(
         &registries,
         &mut state,
         job,
@@ -719,31 +742,31 @@ fn mining_support_recovery_can_consume_released_claim_headroom() {
         .unwrap_or_else(|error| panic!("reserved support-recovery state should load: {error}"));
 
     assert!(matches!(
-        validate_claim_mining_output(&registries, &loaded, job),
-        Err(MiningClaimError::StructuralLoad(
+        validate_mining_output_settlement_for_test(&registries, &loaded, job),
+        Err(MiningSettlementError::StructuralLoad(
             StockpileStructuralLoadError::SupportNotActiveForIncrease { .. }
         ))
     ));
     let _ = validate_unmount_stockpile(&registries, &loaded, destination)
         .unwrap_or_else(|error| {
-            panic!("unmount must consume the claim's released structural headroom: {error}")
+            panic!("unmount must consume the settlement's released structural headroom: {error}")
         })
         .commit(&mut loaded)
         .unwrap_or_else(|error| panic!("support-recovery unmount commit failed: {error}"));
     assert_eq!(loaded.structures().revision(), u64::MAX);
 
-    validate_claim_mining_output(&registries, &loaded, job)
-        .unwrap_or_else(|error| panic!("unmounted recovered claim rejected: {error}"))
+    validate_mining_output_settlement_for_test(&registries, &loaded, job)
+        .unwrap_or_else(|error| panic!("unmounted recovered settlement rejected: {error}"))
         .commit(&mut loaded)
-        .unwrap_or_else(|error| panic!("unmounted recovered claim commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("unmounted recovered settlement commit failed: {error}"));
     assert!(loaded.mining().get_job(job).is_none());
     assert_eq!(loaded.structures().revision(), u64::MAX);
     assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
 }
 
 #[test]
-fn mining_destination_mount_reserves_future_claim_structure_headroom() {
-    let (registries, mut state, job) = ready_mining_claim_fixture();
+fn mining_destination_mount_reserves_future_settlement_structure_headroom() {
+    let (registries, mut state, job) = awaiting_mining_settlement_fixture();
     let destination = state
         .mining()
         .get_job(job)
@@ -760,9 +783,9 @@ fn mining_destination_mount_reserves_future_claim_structure_headroom() {
     encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("mount-headroom decode failed: {error}"));
-    let loaded = decoded
-        .into_state(&registries)
-        .unwrap_or_else(|error| panic!("unmounted claim at structural limit should load: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("unmounted settlement at structural limit should load: {error}")
+    });
 
     assert!(matches!(
         validate_mount_stockpile(&registries, &loaded, destination, support),
@@ -773,7 +796,7 @@ fn mining_destination_mount_reserves_future_claim_structure_headroom() {
         ))
     ));
     assert!(
-        validate_claim_mining_output(&registries, &loaded, job).is_ok(),
-        "unmounted claim must remain landable when support assignment is rejected"
+        validate_mining_output_settlement_for_test(&registries, &loaded, job).is_ok(),
+        "unmounted settlement must remain landable when support assignment is rejected"
     );
 }

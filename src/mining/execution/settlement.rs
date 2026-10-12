@@ -1,4 +1,4 @@
-//! Reserved mining-output claim transaction and structural-load commitment.
+//! Reserved mining-output settlement transaction and structural-load commitment.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -19,9 +19,9 @@ use super::super::MiningJobId;
 use super::tick::MiningTickPlan;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MiningClaimError {
+pub(crate) enum MiningSettlementError {
     UnknownJob { job: MiningJobId },
-    NotReady { job: MiningJobId },
+    NotAwaitingSettlement { job: MiningJobId },
     LotIdExhausted,
     InventoryRevisionExhausted,
     MiningRevisionExhausted,
@@ -61,14 +61,14 @@ impl MiningOutputReceipt {
     }
 }
 
-impl Display for MiningClaimError {
+impl Display for MiningSettlementError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownJob { job } => write!(formatter, "unknown mining job {}", job.value()),
-            Self::NotReady { job } => {
+            Self::NotAwaitingSettlement { job } => {
                 write!(
                     formatter,
-                    "mining job {} output is not ready to claim",
+                    "mining job {} output is not awaiting settlement",
                     job.value()
                 )
             }
@@ -84,19 +84,19 @@ impl Display for MiningClaimError {
             Self::StructuralLoad(error) => {
                 write!(
                     formatter,
-                    "claimed mining output structural load failed: {error}"
+                    "mining output settlement structural load failed: {error}"
                 )
             }
         }
     }
 }
 
-impl Error for MiningClaimError {
+impl Error for MiningSettlementError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownJob { .. }
-            | Self::NotReady { .. }
+            | Self::NotAwaitingSettlement { .. }
             | Self::LotIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::MiningRevisionExhausted => None,
@@ -106,36 +106,36 @@ impl Error for MiningClaimError {
 
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MiningClaimCommitError {
+pub(crate) enum MiningSettlementCommitError {
     StaleInventory { expected: u64, actual: u64 },
     StaleMining { expected: u64, actual: u64 },
 }
 
 #[cfg(test)]
-impl Display for MiningClaimCommitError {
+impl Display for MiningSettlementCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
-                "validated mining claim expected inventory revision {expected} but current revision is {actual}"
+                "validated mining settlement expected inventory revision {expected} but current revision is {actual}"
             ),
             Self::StaleMining { expected, actual } => write!(
                 formatter,
-                "validated mining claim expected mining revision {expected} but current revision is {actual}"
+                "validated mining settlement expected mining revision {expected} but current revision is {actual}"
             ),
         }
     }
 }
 
 #[cfg(test)]
-impl Error for MiningClaimCommitError {
+impl Error for MiningSettlementCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
     }
 }
 
 #[must_use]
-pub(crate) struct ValidatedMiningClaim {
+pub(crate) struct ValidatedMiningSettlement {
     job: MiningJobId,
     output: MaterialLotSpec,
     expected_mining_revision: u64,
@@ -144,26 +144,26 @@ pub(crate) struct ValidatedMiningClaim {
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
-impl ValidatedMiningClaim {
+impl ValidatedMiningSettlement {
     #[cfg(test)]
     pub(crate) fn commit(
         self,
         state: &mut AppState,
-    ) -> Result<MiningOutputReceipt, MiningClaimCommitError> {
+    ) -> Result<MiningOutputReceipt, MiningSettlementCommitError> {
         if state.inventory().revision() != self.inventory.expected_revision() {
-            return Err(MiningClaimCommitError::StaleInventory {
+            return Err(MiningSettlementCommitError::StaleInventory {
                 expected: self.inventory.expected_revision(),
                 actual: state.inventory().revision(),
             });
         }
         self.inventory.assert_matches_state(state.inventory());
         if state.mining().revision() != self.expected_mining_revision {
-            return Err(MiningClaimCommitError::StaleMining {
+            return Err(MiningSettlementCommitError::StaleMining {
                 expected: self.expected_mining_revision,
                 actual: state.mining().revision(),
             });
         }
-        state.mining().assert_ready_job_removable(
+        state.mining().assert_awaiting_settlement_job_removable(
             self.job,
             self.expected_mining_revision,
             self.next_mining_revision,
@@ -175,7 +175,7 @@ impl ValidatedMiningClaim {
     /// exact state by the canonical tick planner.
     pub(crate) fn apply_prechecked(self, state: &mut AppState) -> MiningOutputReceipt {
         self.inventory.assert_matches_state(state.inventory());
-        state.mining().assert_ready_job_removable(
+        state.mining().assert_awaiting_settlement_job_removable(
             self.job,
             self.expected_mining_revision,
             self.next_mining_revision,
@@ -189,22 +189,22 @@ impl ValidatedMiningClaim {
         assert_eq!(
             receipts.len(),
             1,
-            "one mining claim must produce exactly one reserved inventory landing receipt"
+            "one mining settlement must produce exactly one reserved inventory landing receipt"
         );
         let receipt = receipts
             .pop()
-            .unwrap_or_else(|| unreachable!("mining claim receipt cardinality checked above"));
+            .unwrap_or_else(|| unreachable!("mining settlement receipt cardinality checked above"));
         let destination = receipt.destination();
         let mut landed_lots = receipt.into_lot_ids();
         assert_eq!(
             landed_lots.len(),
             1,
-            "one mining claim must land exactly one output parcel"
+            "one mining settlement must land exactly one output parcel"
         );
         let landed_lot = landed_lots
             .pop()
-            .unwrap_or_else(|| unreachable!("mining claim landing cardinality checked above"));
-        state.mining_state_mut().remove_ready_job(
+            .unwrap_or_else(|| unreachable!("mining settlement landing cardinality checked above"));
+        state.mining_state_mut().remove_awaiting_settlement_job(
             self.job,
             self.expected_mining_revision,
             self.next_mining_revision,
@@ -226,20 +226,20 @@ fn validate_mining_output_settlement(
     expected_mining_revision: u64,
     mining_immediate_steps: u64,
     released_mining_future_demand: u64,
-) -> Result<ValidatedMiningClaim, MiningClaimError> {
+) -> Result<ValidatedMiningSettlement, MiningSettlementError> {
     let record = state
         .mining()
         .get_job(job)
-        .ok_or(MiningClaimError::UnknownJob { job })?;
+        .ok_or(MiningSettlementError::UnknownJob { job })?;
     let output = record.output().clone();
-    let unclaimed_ticks = admitted_at
+    let unsettled_ticks = admitted_at
         .checked_duration_since(record.completes_at())
         .unwrap_or_else(|| {
             panic!("validated mining output cannot complete after its inventory admission time")
         });
-    let storage_age_parts = u128::from(unclaimed_ticks.value())
+    let storage_age_parts = u128::from(unsettled_ticks.value())
         .checked_mul(STORAGE_AGE_PARTS_PER_TICK)
-        .unwrap_or_else(|| unreachable!("u64 unclaimed ticks times storage age parts fits u128"));
+        .unwrap_or_else(|| unreachable!("u64 unsettled ticks times storage age parts fits u128"));
     let inventory = decide_reserved_deposits(
         registries,
         state.inventory(),
@@ -252,34 +252,36 @@ fn validate_mining_output_settlement(
         )],
     )
     .map_err(|error| match error {
-        ReservedDepositPlanError::LotIdExhausted => MiningClaimError::LotIdExhausted,
-        ReservedDepositPlanError::RevisionExhausted => MiningClaimError::InventoryRevisionExhausted,
+        ReservedDepositPlanError::LotIdExhausted => MiningSettlementError::LotIdExhausted,
+        ReservedDepositPlanError::RevisionExhausted => {
+            MiningSettlementError::InventoryRevisionExhausted
+        }
     })?;
     if !state.has_material_lot_id_headroom_from_after_releasing(inventory.next_lot_id(), 0, 1) {
-        return Err(MiningClaimError::LotIdExhausted);
+        return Err(MiningSettlementError::LotIdExhausted);
     }
     if !state.can_spend_inventory_revisions_after_releasing(1, 1) {
-        return Err(MiningClaimError::InventoryRevisionExhausted);
+        return Err(MiningSettlementError::InventoryRevisionExhausted);
     }
     let destination = record.destination();
     let stored_after = inventory
         .stored_mass_after_by_destination(state.inventory())
         .get(&destination)
         .copied()
-        .unwrap_or_else(|| panic!("mining claim deposit plan omitted its destination"));
+        .unwrap_or_else(|| panic!("mining settlement deposit plan omitted its destination"));
     let structural_load = validate_stockpile_stored_mass_changes(
         registries,
         state,
         [StockpileStoredMassChange::new(destination, stored_after)],
     )
-    .map_err(MiningClaimError::StructuralLoad)?;
+    .map_err(MiningSettlementError::StructuralLoad)?;
     let released_structure_demand = u64::from(
         state
             .inventory()
             .get_stockpile(destination)
             .unwrap_or_else(|| {
                 panic!(
-                    "runtime invariant broken: mining claim references missing destination stockpile {}",
+                    "runtime invariant broken: mining settlement references missing destination stockpile {}",
                     destination.value()
                 )
             })
@@ -291,17 +293,17 @@ fn validate_mining_output_settlement(
         structural_load.as_ref(),
         released_structure_demand,
     )
-    .map_err(MiningClaimError::StructuralLoad)?;
+    .map_err(MiningSettlementError::StructuralLoad)?;
     if !state.can_spend_mining_revisions_after_releasing(
         mining_immediate_steps,
         released_mining_future_demand,
     ) {
-        return Err(MiningClaimError::MiningRevisionExhausted);
+        return Err(MiningSettlementError::MiningRevisionExhausted);
     }
     let next_mining_revision = expected_mining_revision
         .checked_add(1)
-        .unwrap_or_else(|| unreachable!("mining claim consumes its reserved future revision"));
-    Ok(ValidatedMiningClaim {
+        .unwrap_or_else(|| unreachable!("mining settlement consumes its reserved future revision"));
+    Ok(ValidatedMiningSettlement {
         job,
         output,
         expected_mining_revision,
@@ -312,26 +314,26 @@ fn validate_mining_output_settlement(
 }
 
 #[cfg(test)]
-pub(crate) fn validate_claim_mining_output(
+pub(crate) fn validate_mining_output_settlement_for_test(
     registries: &Registries,
     state: &AppState,
     job: MiningJobId,
-) -> Result<ValidatedMiningClaim, MiningClaimError> {
-    validate_ready_mining_output_settlement(registries, state, job, state.tick())
+) -> Result<ValidatedMiningSettlement, MiningSettlementError> {
+    validate_awaiting_mining_output_settlement(registries, state, job, state.tick())
 }
 
-pub(crate) fn validate_ready_mining_output_settlement(
+pub(crate) fn validate_awaiting_mining_output_settlement(
     registries: &Registries,
     state: &AppState,
     job: MiningJobId,
     admitted_at: SimulationTick,
-) -> Result<ValidatedMiningClaim, MiningClaimError> {
+) -> Result<ValidatedMiningSettlement, MiningSettlementError> {
     let record = state
         .mining()
         .get_job(job)
-        .ok_or(MiningClaimError::UnknownJob { job })?;
-    if !record.is_ready_to_claim() {
-        return Err(MiningClaimError::NotReady { job });
+        .ok_or(MiningSettlementError::UnknownJob { job })?;
+    if !record.is_awaiting_settlement() {
+        return Err(MiningSettlementError::NotAwaitingSettlement { job });
     }
     validate_mining_output_settlement(
         registries,
@@ -348,25 +350,25 @@ pub(crate) fn validate_ready_mining_output_settlement(
 ///
 /// Mining completion itself does not mutate inventory or structures, so this plan can bind those
 /// owners before the tick mutates anything. The returned token expects the mining owner revision
-/// immediately after the due job transitions into durable ready custody.
+/// immediately after the due job transitions into durable awaiting-settlement custody.
 pub(crate) fn validate_due_mining_output_settlement(
     registries: &Registries,
     state: &AppState,
     plan: MiningTickPlan,
     admitted_at: SimulationTick,
-) -> Result<ValidatedMiningClaim, MiningClaimError> {
+) -> Result<ValidatedMiningSettlement, MiningSettlementError> {
     let job = plan.job();
     let record = state
         .mining()
         .get_job(job)
-        .ok_or(MiningClaimError::UnknownJob { job })?;
+        .ok_or(MiningSettlementError::UnknownJob { job })?;
     if !record.is_working() || record.completes_at() != admitted_at {
-        return Err(MiningClaimError::NotReady { job });
+        return Err(MiningSettlementError::NotAwaitingSettlement { job });
     }
     let expected_mining_revision = plan
         .expected_mining_revision()
         .checked_add(plan.mining_revision_steps())
-        .ok_or(MiningClaimError::MiningRevisionExhausted)?;
+        .ok_or(MiningSettlementError::MiningRevisionExhausted)?;
     validate_mining_output_settlement(
         registries,
         state,
@@ -379,5 +381,5 @@ pub(crate) fn validate_due_mining_output_settlement(
 }
 
 #[cfg(test)]
-#[path = "claim_tests.rs"]
+#[path = "settlement_tests.rs"]
 mod tests;

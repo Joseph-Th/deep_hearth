@@ -126,7 +126,7 @@ pub(crate) fn apply_mining_tick(
         .expected_geology_revision
         .checked_add(1)
         .unwrap_or_else(|| panic!("prebudgeted geology revision exhausted"));
-    state.mining().assert_due_job_ready_available(
+    state.mining().assert_due_job_awaiting_settlement_available(
         plan.expected_revision,
         next_mining_revision,
         plan.completion_tick,
@@ -159,7 +159,7 @@ pub(crate) fn apply_mining_tick(
             next_equipment_revision,
         );
     }
-    Some(state.mining_state_mut().mark_due_job_ready(
+    Some(state.mining_state_mut().mark_due_job_awaiting_settlement(
         plan.expected_revision,
         next_mining_revision,
         plan.completion_tick,

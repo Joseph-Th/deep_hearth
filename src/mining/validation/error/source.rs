@@ -26,7 +26,7 @@ impl Error for MiningJobValidationError {
             | Self::OutputMassMismatch { .. }
             | Self::OutputExceedsDepositTrace { .. }
             | Self::WorkingDepositMassMismatch { .. }
-            | Self::ReadyDepositMassAbovePostExtraction { .. }
+            | Self::AwaitingSettlementDepositMassAbovePostExtraction { .. }
             | Self::OverlappingRetainedWork { .. }
             | Self::DepositHistoryMassIncrease { .. }
             | Self::OutputStorageInvalid { .. }

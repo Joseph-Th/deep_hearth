@@ -136,13 +136,13 @@ impl Display for MiningJobValidationError {
                 expected.milligrams(),
                 actual.milligrams()
             ),
-            Self::ReadyDepositMassAbovePostExtraction {
+            Self::AwaitingSettlementDepositMassAbovePostExtraction {
                 job,
                 maximum,
                 actual,
             } => write!(
                 formatter,
-                "ready mining job {} requires its extraction to have reduced geological source mass to at most {} mg but found {} mg",
+                "mining job {} awaiting settlement requires its extraction to have reduced geological source mass to at most {} mg but found {} mg",
                 job.value(),
                 maximum.milligrams(),
                 actual.milligrams()
@@ -271,7 +271,7 @@ impl Display for MiningJobValidationError {
             ),
             Self::WorkingMiningRevisionExhausted { job } => write!(
                 formatter,
-                "working mining job {} cannot reserve its automatic ready-state revision",
+                "working mining job {} cannot reserve its automatic awaiting-settlement revision",
                 job.value()
             ),
             Self::WorkingGeologyRevisionExhausted { job } => write!(

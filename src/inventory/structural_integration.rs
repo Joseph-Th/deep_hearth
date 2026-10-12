@@ -256,7 +256,7 @@ pub fn validate_mount_stockpile(
     validate_support_change_structural_headroom(
         state,
         &structural,
-        state.retained_mining_claim_count_for_stockpile(stockpile),
+        state.retained_mining_settlement_count_for_stockpile(stockpile),
         0,
     )?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
@@ -307,7 +307,7 @@ pub fn validate_unmount_stockpile(
         state,
         &structural,
         0,
-        state.retained_mining_claim_count_for_stockpile(stockpile),
+        state.retained_mining_settlement_count_for_stockpile(stockpile),
     )?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {

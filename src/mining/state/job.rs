@@ -53,7 +53,7 @@ pub(in crate::mining) struct MiningJobResources {
 #[serde(rename_all = "snake_case")]
 pub(in crate::mining) enum MiningJobPhase {
     Working,
-    ReadyToClaim,
+    AwaitingSettlement,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,7 +98,7 @@ impl Debug for MiningJobRecord {
                 &self.equipment_condition_after(),
             )
             .field("working", &self.is_working())
-            .field("ready_to_claim", &self.is_ready_to_claim())
+            .field("awaiting_settlement", &self.is_awaiting_settlement())
             .finish_non_exhaustive()
     }
 }
@@ -187,7 +187,7 @@ impl MiningJobRecord {
     }
 
     #[must_use]
-    pub const fn is_ready_to_claim(&self) -> bool {
-        matches!(self.schedule.phase, MiningJobPhase::ReadyToClaim)
+    pub const fn is_awaiting_settlement(&self) -> bool {
+        matches!(self.schedule.phase, MiningJobPhase::AwaitingSettlement)
     }
 }
