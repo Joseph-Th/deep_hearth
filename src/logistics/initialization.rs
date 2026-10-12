@@ -157,6 +157,9 @@ fn validate_initialization_with_capacity(
             InitializePlayerLogisticsError::InventoryRevisionExhausted
         }
     })?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(InitializePlayerLogisticsError::InventoryRevisionExhausted);
+    }
     let expected_logistics_revision = state.logistics().revision();
     let next_logistics_revision = expected_logistics_revision
         .checked_add(1)

@@ -161,6 +161,9 @@ pub fn validate_allocate_ground_stockpile(
             GroundStockpileAllocationError::InventoryRevisionExhausted
         }
     })?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(GroundStockpileAllocationError::InventoryRevisionExhausted);
+    }
     let expected_logistics_revision = state.logistics().revision();
     if !state.can_spend_logistics_revisions(1) {
         return Err(GroundStockpileAllocationError::LogisticsRevisionExhausted);

@@ -1,12 +1,28 @@
 //! Atomic ordinary-player admission and stale-owner rejection contracts.
 
-use crate::content::build_registries;
-use crate::core::quantity::Mass;
+use crate::content::{
+    FORM_LOG, MATERIAL_WOOD, STANDARD_TEST_HEATER, STANDARD_TEST_HEATING_ENERGY, build_registries,
+    make_test_registries_with_standard_sensible_heating,
+};
+use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::AppState;
-use crate::inventory::{StockpileStorageProfile, add_stockpile};
-use crate::logistics::validate_player_logistics_initialization;
+use crate::energy::add_energy_store_with_initial_for_fixture;
+use crate::equipment::add_equipment;
+use crate::inventory::{
+    MaterialLotSelection, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
+    deposit_lot_for_test,
+};
+use crate::logistics::{
+    GroundStockpileAllocationError, validate_allocate_ground_stockpile,
+    validate_player_logistics_initialization,
+};
+use crate::maintenance::Condition;
+use crate::material::CommodityKey;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::production::{ProcessId, validate_start_process};
 use crate::spatial::VoxelCoord;
 use crate::survival::initialize_player_survival;
+use crate::thermal::{SensibleHeatingRequest, resolve_sensible_heating_process};
 
 use super::{PlayerAdmissionCommitError, PlayerAdmissionError, validate_admit_player};
 
@@ -91,4 +107,95 @@ fn stale_inventory_rejects_player_admission_without_partial_commit() {
         })
     );
     assert_eq!(state, before_commit);
+}
+
+#[test]
+fn stockpile_allocation_preserves_inventory_revision_reserved_for_running_production() {
+    let process = ProcessId::new(988_001);
+    let registries = make_test_registries_with_standard_sensible_heating(process);
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("allocation-headroom source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("allocation-headroom destination failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(20),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("allocation-headroom source material failed: {error}"));
+    let equipment = add_equipment(
+        &registries,
+        &mut state,
+        STANDARD_TEST_HEATER,
+        Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("allocation-headroom equipment failed: {error}"));
+    let energy = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        STANDARD_TEST_HEATING_ENERGY,
+        Energy::from_nanojoules(10_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("allocation-headroom energy failed: {error}"));
+    let resolved = resolve_sensible_heating_process(
+        &registries,
+        &state,
+        SensibleHeatingRequest::new(
+            process,
+            source,
+            &[MaterialLotSelection::new(lot, Mass::from_milligrams(10))],
+            equipment,
+            energy,
+            Temperature::from_millikelvin(900_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("allocation-headroom process resolution failed: {error}"));
+    validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("allocation-headroom production start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("allocation-headroom production commit failed: {error}"));
+
+    let required = state
+        .checked_future_inventory_revision_demand()
+        .unwrap_or_else(|| panic!("allocation-headroom future inventory demand overflowed"));
+    assert!(
+        required > 0,
+        "running production must retain future inventory work"
+    );
+    let revision = u64::MAX - required;
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("allocation-headroom serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(revision);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("allocation-headroom decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("exactly reserved inventory revision capacity should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_allocate_ground_stockpile(
+            &loaded,
+            VoxelCoord::new(0, 0, 0),
+            Mass::from_milligrams(1),
+        )
+        .err(),
+        Some(GroundStockpileAllocationError::InventoryRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+    assert_eq!(
+        validate_admit_player(&registries, &loaded, VoxelCoord::new(0, 0, 0)).err(),
+        Some(PlayerAdmissionError::InventoryRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
 }
