@@ -1,28 +1,27 @@
 //! Fresh-world contracts for the executable portion of the wilderness opening.
 //!
-//! Built-in fresh-world generation supplies finite same-voxel stone, timber, and forage before
-//! actor admission. Hydrology is still absent, so only water remains a controlled local fixture.
-//! Every acquisition, fabrication, assembly, storage, consumption, locality, survival, and time
-//! consequence after admission uses its canonical runtime owner.
+//! Built-in fresh-world generation supplies finite same-voxel stone, timber, and forage plus one
+//! finite adjacent water opportunity before actor admission. Every acquisition, movement,
+//! fabrication, assembly, storage, consumption, locality, survival, and time consequence after
+//! admission uses its canonical runtime owner. Terrain/path authority and hydrology remain absent.
 
 use std::num::NonZeroU64;
 
-use deep_hearth::content::gameplay_fixture::seed_fluid_store;
 use deep_hearth::content::{
-    EQUIPMENT_STONE_WOODWORKING_ADZE, FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP,
-    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
     STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_STONE,
     SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
-use deep_hearth::core::quantity::{Mass, Temperature, Volume};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::SimulationTick;
 use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
-use deep_hearth::logistics::{assess_player_carrying, validate_place_fluid_store};
+use deep_hearth::logistics::{assess_player_carrying, validate_start_player_step};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -32,15 +31,17 @@ use deep_hearth::simulation::advance_tick;
 use deep_hearth::surface::{
     SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
 };
-use deep_hearth::survival::{assess_survival, available_local_drink_sources, validate_eat};
-use deep_hearth::world_generation::{
-    WorldGenerationSeed, validate_generate_initial_wilderness_surface,
+use deep_hearth::survival::{
+    AdjacentDrinkSource, assess_survival, available_adjacent_drink_sources,
+    available_local_drink_sources, validate_eat,
 };
+use deep_hearth::world_generation::{WorldGenerationSeed, validate_generate_initial_wilderness};
 
-use super::exact_local_runtime::{STATIONARY_PLAYER_ORIGIN, assert_exact_local_runtime_ready};
+use super::exact_local_runtime::{
+    STATIONARY_PLAYER_ORIGIN, assert_ordinary_admitted_runtime_ready,
+};
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
-const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +54,7 @@ pub(super) struct WildernessOpeningReview {
     pub(super) carried_capacity_mg: u64,
     pub(super) water_observed_ul: u64,
     pub(super) water_consumed_ul: u64,
+    pub(super) water_steps: u64,
     pub(super) remaining_stone_mg: u64,
     pub(super) remaining_timber_mg: u64,
     pub(super) field_box_build_ticks: u64,
@@ -65,6 +67,16 @@ pub(super) struct WildernessOpeningReview {
     pub(super) adze_board_ticks: u64,
     pub(super) adze_crossover_batches: u64,
     pub(super) final_warning_safe: bool,
+}
+
+fn adjacent_drinkable_source(registries: &Registries, state: &AppState) -> AdjacentDrinkSource {
+    let matches = available_adjacent_drink_sources(registries, state).collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "generated wilderness opening requires exactly one face-adjacent drinkable source"
+    );
+    matches[0]
 }
 
 fn project_wilderness_adze_decision(
@@ -235,35 +247,18 @@ fn gather(
     assert_eq!(state.player_work().active(), None);
 }
 
-pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningReview {
+pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview {
     let registries = build_registries();
     let mut state = AppState::new();
-    validate_generate_initial_wilderness_surface(
+    validate_generate_initial_wilderness(
         &registries,
         &state,
         WILDERNESS_WORLD_SEED,
         STATIONARY_PLAYER_ORIGIN,
     )
-    .unwrap_or_else(|error| panic!("wilderness initial surface generation failed: {error}"))
+    .unwrap_or_else(|error| panic!("wilderness initial generation failed: {error}"))
     .commit(&mut state)
-    .unwrap_or_else(|error| panic!("wilderness initial surface generation commit failed: {error}"));
-    {
-        // The controlled fixture supplies only the still-missing hydrology/world-source edge. Its
-        // store identity stays inside setup; ordinary play must rediscover the local finite water
-        // through the actor-safe exact-voxel observation surface below.
-        let fixture_water = seed_fluid_store(
-            &registries,
-            &mut state,
-            Volume::from_microliters(2_000_000),
-            FLUID_WATER,
-            Volume::from_microliters(1_500_000),
-            ROOM_TEMPERATURE,
-        );
-        validate_place_fluid_store(&state, fixture_water, STATIONARY_PLAYER_ORIGIN)
-            .unwrap_or_else(|error| panic!("wilderness water placement failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("wilderness water placement commit failed: {error}"));
-    }
+    .unwrap_or_else(|error| panic!("wilderness initial generation commit failed: {error}"));
 
     // Ordinary admission owns a fixed body-scale carrying limit. The opening must adapt to that
     // capability instead of resizing the player to whatever the current script intends to gather.
@@ -318,17 +313,22 @@ pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningRevie
     assert_eq!(
         assess_player_carrying(&state).map(|assessment| assessment.capacity()),
         Some(registries.survival().physiology().carried_mass_capacity()),
-        "controlled wilderness carrying must expose authored body capability"
+        "generated wilderness carrying must expose authored body capability"
     );
-    assert_exact_local_runtime_ready(&registries, &state, "controlled wilderness opening");
+    assert_ordinary_admitted_runtime_ready(&registries, &state, "generated wilderness opening");
     assert!(
         state.available_local_ground_stockpiles().next().is_none(),
         "the opening should not begin with an empty ground staging pile masquerading as player storage"
     );
     assert_eq!(
         available_local_drink_sources(&registries, &state).count(),
-        1,
-        "the controlled opening should expose its finite local water opportunity from the admitted player's first frame"
+        0,
+        "generated adjacent water must not masquerade as exact-local before the player moves"
+    );
+    let adjacent_water = adjacent_drinkable_source(&registries, &state);
+    assert!(
+        STATIONARY_PLAYER_ORIGIN.is_face_adjacent_to(adjacent_water.position()),
+        "generated opening water must be reachable by the ordinary adjacent-step boundary"
     );
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("wilderness initial matter audit failed: {error}"))
@@ -513,7 +513,31 @@ pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningRevie
         "eating one serving should leave one carried serving without forcing premature storage"
     );
 
+    let movement = validate_start_player_step(&registries, &state, adjacent_water.position())
+        .unwrap_or_else(|error| panic!("wilderness water step validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("wilderness water step commit failed: {error}"));
+    advance_to(
+        &registries,
+        &mut state,
+        movement.completes_at(),
+        TickEventAllowance {
+            player_step: true,
+            ..TickEventAllowance::default()
+        },
+        "adjacent water step",
+    );
+    assert_eq!(
+        state.logistics().player().map(|player| player.position()),
+        Some(adjacent_water.position()),
+        "completed wilderness step must move authoritative locality to the observed water voxel"
+    );
     let water = local_drinkable_store(&registries, &state);
+    assert_eq!(
+        water,
+        adjacent_water.store(),
+        "local water observation after movement must recover the adjacent source the actor chose"
+    );
     let water_before = state
         .fluid()
         .get_store(water)
@@ -532,7 +556,7 @@ pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningRevie
     );
     assert!(
         water_decision.hydration() > physiology.thirsty_below(),
-        "the controlled wilderness opening must remain comfortably above the authored thirst warning after its foraged meal"
+        "the generated wilderness opening must remain comfortably above the authored thirst warning after foraging and its water step"
     );
     assert_eq!(
         state
@@ -562,7 +586,7 @@ pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningRevie
         .unwrap_or_else(|| panic!("wilderness physical duration overflowed"));
     assert!(
         (3 * minute..=8 * minute).contains(&elapsed_microseconds),
-        "controlled opening should end when immediate provisioning is stable instead of padding the first quarter hour with unneeded infrastructure"
+        "generated opening should end when immediate provisioning is stable instead of padding the first quarter hour with unneeded infrastructure"
     );
     assert_eq!(
         calculate_matter_accounting(&state)
@@ -571,10 +595,10 @@ pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningRevie
         matter_before,
         "wilderness opening must conserve represented matter across gathering and eating"
     );
-    assert_exact_local_runtime_ready(
+    assert_ordinary_admitted_runtime_ready(
         &registries,
         &state,
-        "completed controlled wilderness opening",
+        "completed generated wilderness opening",
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("wilderness final state invalid: {error}"));
@@ -596,6 +620,7 @@ pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningRevie
         carried_capacity_mg: carrying_after_forage.capacity().milligrams(),
         water_observed_ul: water_before.microliters(),
         water_consumed_ul: 0,
+        water_steps: 1,
         remaining_stone_mg,
         remaining_timber_mg,
         field_box_build_ticks,
@@ -628,7 +653,8 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
     let registries = build_registries();
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     std::println!(
-        "WILDERNESS EXPERIENCE evidence=ordinary-spawn-surface+controlled-water+exact-local-after-admission generation=[surface:ordinary water:controlled] timing=[first-meal:{}t/{} stable:{}t/{}] provisioning=[meal:{}mg retained:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
+        "WILDERNESS EXPERIENCE evidence=ordinary-generated-opening+exact-local-after-admission generation=[surface:ordinary water:ordinary] movement=[water:{}step] timing=[first-meal:{}t/{} stable:{}t/{}] provisioning=[meal:{}mg retained:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
+        review.water_steps,
         review.first_meal_ticks,
         physical_minutes_tenths(&registries, review.first_meal_ticks),
         review.camp_ticks,
@@ -658,11 +684,11 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
 }
 
 #[test]
-fn controlled_wilderness_opening_stabilizes_without_premature_investment() {
-    let review = evaluate_controlled_wilderness_opening();
+fn generated_wilderness_opening_stabilizes_without_premature_investment() {
+    let review = evaluate_generated_wilderness_opening();
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         std::println!(
-            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=0x{:016X} behavior_root=unused replay=generated-surface+controlled-water",
+            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=0x{:016X} behavior_root=unused replay=generated-surface+generated-water",
             WILDERNESS_WORLD_SEED.value(),
         );
         print_wilderness_experience(review);

@@ -108,6 +108,12 @@ fn local_drink_source_observation_exposes_only_currently_usable_colocated_fluid(
             .next()
             .is_none()
     );
+    assert!(
+        available_adjacent_drink_sources(&registries, &state)
+            .next()
+            .is_none(),
+        "adjacent drink-source observation requires admitted logistics"
+    );
 
     validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("drink-source actor admission failed: {error}"))
@@ -128,6 +134,13 @@ fn local_drink_source_observation_exposes_only_currently_usable_colocated_fluid(
             serving,
             Temperature::from_millikelvin(293_150),
         )]
+    );
+    assert_eq!(
+        available_adjacent_drink_sources(&registries, &state)
+            .map(|source| (source.store(), source.fluid(), source.position()))
+            .collect::<Vec<_>>(),
+        vec![(remote, FLUID_WATER, VoxelCoord::new(1, 0, 0))],
+        "adjacent observation should expose only drinkable face-neighbor sources without leaking exact volume or temperature"
     );
 }
 

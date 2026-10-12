@@ -233,13 +233,13 @@ fn main() {
         "DESIGN TARGET role=self-reliant-field-engineer fantasy=turn-local-scarcity-and-uncertainty-into-earned-technological-agency loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
     );
     std::println!(
-        "EVALUATION SCOPE kind=ordinary-play evidence=[controlled-local-wilderness+runtime-actions-after-admission,post-bootstrap-domain-episodes] exact-local=[wilderness,survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] movement-abstracted=[primitive-progression,fieldwork] movement-authority=absent reachability-authority=STATUS.md"
+        "EVALUATION SCOPE kind=ordinary-play evidence=[generated-local-wilderness+runtime-actions-after-admission,post-bootstrap-domain-episodes] exact-local=[wilderness,survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] movement-abstracted=[primitive-progression,fieldwork] movement-authority=adjacent-open-space-only terrain-path-authority=absent reachability-authority=STATUS.md"
     );
     std::println!(
-        "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=n/a behavior_root=unused replay=controlled-local"
+        "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=n/a behavior_root=unused replay=generated-opening"
     );
     wilderness_contract_tests::print_wilderness_experience(
-        wilderness_contract_tests::evaluate_controlled_wilderness_opening(),
+        wilderness_contract_tests::evaluate_generated_wilderness_opening(),
     );
 
     run_focused_probe_with_registries(

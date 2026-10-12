@@ -153,7 +153,7 @@ pub(crate) struct ValidatedSurfaceGeneration {
 }
 
 impl ValidatedSurfaceGeneration {
-    pub(crate) fn commit(self, state: &mut AppState) -> Result<(), SurfaceGenerationCommitError> {
+    pub(crate) fn precheck(&self, state: &AppState) -> Result<(), SurfaceGenerationCommitError> {
         let actual_tick = state.tick();
         if actual_tick != self.expected_tick {
             return Err(SurfaceGenerationCommitError::StaleTick {
@@ -175,11 +175,21 @@ impl ValidatedSurfaceGeneration {
                 actual: actual_next_resource_id,
             });
         }
+        Ok(())
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) {
         state.surface_state_mut().apply_generated_batch(
             self.records,
             self.next_resource_id,
             self.next_revision,
         );
+    }
+
+    #[cfg(any(test, feature = "test-gameplay"))]
+    pub(crate) fn commit(self, state: &mut AppState) -> Result<(), SurfaceGenerationCommitError> {
+        self.precheck(state)?;
+        self.apply(state);
         Ok(())
     }
 }

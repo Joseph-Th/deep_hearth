@@ -15,9 +15,7 @@ GAMEPLAY_VARIATION_SCOPE_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE"
 GAMEPLAY_REPORT_MODE_ENV = "DEEP_HEARTH_GAMEPLAY_REPORT"
 
 EVIDENCE_ORDINARY_EXACT_LOCAL = "ordinary-exact-local-after-disclosed-bootstrap"
-EVIDENCE_ORDINARY_GENERATED_SURFACE_CONTROLLED_WATER = (
-    "ordinary-spawn-surface+controlled-water+exact-local-after-admission"
-)
+EVIDENCE_ORDINARY_GENERATED_OPENING = "ordinary-generated-opening+exact-local-after-admission"
 EVIDENCE_ORDINARY_SPATIAL_PROXY = "ordinary-system-spatial-proxy"
 EVIDENCE_CONTROLLED_CAPABILITY = "controlled-capability"
 EVIDENCE_COUNTERFACTUAL = "counterfactual"
@@ -45,8 +43,8 @@ GAMEPLAY_SCOPE_SPECS = {
     ),
     "wilderness": GameplayScopeSpec(
         "gameplay_wilderness",
-        "wilderness_contract_tests::controlled_wilderness_opening_stabilizes_without_premature_investment",
-        evidence_mode=EVIDENCE_ORDINARY_GENERATED_SURFACE_CONTROLLED_WATER,
+        "wilderness_contract_tests::generated_wilderness_opening_stabilizes_without_premature_investment",
+        evidence_mode=EVIDENCE_ORDINARY_GENERATED_OPENING,
     ),
     "progression": GameplayScopeSpec(
         "gameplay_progression",

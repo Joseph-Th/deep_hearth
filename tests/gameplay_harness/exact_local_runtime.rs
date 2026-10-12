@@ -7,11 +7,42 @@ use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::logistics::{validate_place_fluid_store, validate_place_ground_stockpile};
+use deep_hearth::logistics::{
+    assess_player_carrying, validate_place_fluid_store, validate_place_ground_stockpile,
+};
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 
 pub(super) const STATIONARY_PLAYER_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
+
+/// Verifies complete ordinary player admission and trusted-load validity without requiring every
+/// world endpoint to occupy one stationary workshop voxel.
+///
+/// Moving exact-local episodes use this boundary. The stricter stationary helper below remains for
+/// workshop-style episodes whose evidence specifically depends on all endpoints being co-located.
+pub(super) fn assert_ordinary_admitted_runtime_ready(
+    registries: &Registries,
+    state: &AppState,
+    context: &'static str,
+) {
+    let player = state
+        .logistics()
+        .player()
+        .unwrap_or_else(|| panic!("ordinary gameplay {context} has no admitted logistics player"));
+    assert!(
+        state.survival().player().is_some(),
+        "ordinary gameplay {context} has logistics without survival admission"
+    );
+    let carrying = assess_player_carrying(state)
+        .unwrap_or_else(|| panic!("ordinary gameplay {context} has no carried custody"));
+    assert_eq!(
+        carrying.position(),
+        player.position(),
+        "ordinary gameplay {context} carrying observation disagrees with player locality"
+    );
+    validate_loaded_state(registries, state)
+        .unwrap_or_else(|error| panic!("ordinary gameplay {context} state is invalid: {error}"));
+}
 
 #[allow(
     dead_code,
@@ -112,6 +143,10 @@ pub(super) fn locate_stationary_endpoints(
 ///
 /// Controlled setup may create endpoints before the actor exists, but none may remain locationless
 /// once ordinary player admission commits.
+#[allow(
+    dead_code,
+    reason = "moving exact-local targets use the admission-only invariant while stationary targets use this stricter form"
+)]
 pub(super) fn assert_exact_local_runtime_ready(
     registries: &Registries,
     state: &AppState,

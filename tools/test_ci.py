@@ -1582,7 +1582,7 @@ class TestTopologyContractTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            by_mode[gameplay_targets.EVIDENCE_ORDINARY_GENERATED_SURFACE_CONTROLLED_WATER],
+            by_mode[gameplay_targets.EVIDENCE_ORDINARY_GENERATED_OPENING],
             {"wilderness"},
         )
         self.assertEqual(
@@ -1597,7 +1597,7 @@ class TestTopologyContractTests(unittest.TestCase):
             with self.subTest(scope=scope):
                 if spec.evidence_mode in {
                     gameplay_targets.EVIDENCE_ORDINARY_EXACT_LOCAL,
-                    gameplay_targets.EVIDENCE_ORDINARY_GENERATED_SURFACE_CONTROLLED_WATER,
+                    gameplay_targets.EVIDENCE_ORDINARY_GENERATED_OPENING,
                 }:
                     self.assertIn(exact_local, sources)
                     self.assertNotIn(spatial_proxy, sources)
@@ -3134,8 +3134,8 @@ class GameplayReportContractTests(unittest.TestCase):
             "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4]",
             "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
             "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior",
-            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=0x57494C4445524E53 behavior_root=unused replay=generated-surface+controlled-water",
-            "WILDERNESS EXPERIENCE evidence=ordinary-spawn-surface+controlled-water+exact-local-after-admission generation=[surface:ordinary water:controlled] timing=[first-meal:85t/5.1m stable:85t/5.1m] provisioning=[meal:250000mg retained:250000mg warning-safe:true] carrying=[peak:500000mg capacity:25000000mg utilization:20000ppm] water=[observed:1500000uL consumed:0uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:161t capacity:10000000mg food:250000mg ambient:4d boxed:7d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:2 setup:110t bare:100t adze:56t crossover:5batches] reason:no-current-workload] remaining-opportunity=[stone:3000000mg timber:8000000mg]",
+            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=0x57494C4445524E53 behavior_root=unused replay=generated-surface+generated-water",
+            "WILDERNESS EXPERIENCE evidence=ordinary-generated-opening+exact-local-after-admission generation=[surface:ordinary water:ordinary] movement=[water:1step] timing=[first-meal:85t/5.1m stable:86t/5.2m] provisioning=[meal:250000mg retained:250000mg warning-safe:true] carrying=[peak:500000mg capacity:25000000mg utilization:20000ppm] water=[observed:1500000uL consumed:0uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:161t capacity:10000000mg food:250000mg ambient:4d boxed:7d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:2 setup:110t bare:100t adze:56t crossover:5batches] reason:no-current-workload] remaining-opportunity=[stone:3000000mg timber:8000000mg]",
             "PROBE INPUT name=survival-provisioning mode=explore samples=1 organic=0",
             "SURVIVAL EXPERIENCE seed=0x1 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] storage-policy:decline",
             "PROGRESSION EXPERIENCE seed=0x1 sample=anchor information=surface-resolved local-copper-sequence=pick-first scarcity=[direct-second-upgrade-blocked:true processed-output-playable:true converged-both-upgrades:true] processing-investment=[selected:mechanized disclosed-cycles:12 preaction-manual:2470t conservative-machine-upper:1800t assembly:320t capital-input:11000000mg embodied:5400000mg capital-source:prepared-owned-raw initial-charge:18t repeated-charge-upper:1400t choice-frozen-before-action:true] processing-market=[one-cycle:manual manual:300t machine-upper:600t attention-crossover:3cycles disclosed:mechanized] counterfactual=[crank-first-tradeoff hard-access-lead:478t] bridge-tradeoff=[manual-second:111t feed:41465mg recovery:650000ppm body:1000000000000nJ/1000uL; powered-line:421t feed:29947mg recovery:900000ppm body:2000000000000nJ/2000uL] disclosed-order-economics=[cycles:12 manual-player-attention:2470t mechanized-player-attention:429t saved:2041t] stockpiling-coverage-delegation=[feed-attention:28t maintenance-prep-overlap:40t productive-attention:68t returned-attention:315t returned:822454ppm overlap/setup:210526ppm unrecovered-setup:255t overlap-equivalent:unreached post-equivalent:0cycles stop:stockpile-order-complete economics:finite-stockpile-order-complete] selected-reinvestment=[completed]",
@@ -3239,7 +3239,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
         self.assertIn("selected-route=[manual:0 build:1]", concise)
         self.assertIn(
-            "bootstrap-boundary=[opening=[surface:1/1 water:0/1] liberation=[selected-builds:1/1 fixture-surface:1/1 gather:1/1 world-gen:0/1]]",
+            "bootstrap-boundary=[opening=[surface:1/1 water:1/1] liberation=[selected-builds:1/1 fixture-surface:1/1 gather:1/1 world-gen:0/1]]",
             concise,
         )
         self.assertIn(

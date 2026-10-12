@@ -22,6 +22,7 @@ use crate::labor::{
     validate_player_attention,
 };
 use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
 use crate::survival::{DirectConsumptionDefinition, DrinkDefinition};
 
 use super::super::state::PendingDrinking;
@@ -32,6 +33,36 @@ struct ResolvedDrinkSource {
     fluid: FluidDefinitionId,
     temperature: Temperature,
     definition: DrinkDefinition,
+}
+
+/// Actor-visible drinkable source at one face-adjacent voxel.
+///
+/// This intentionally reveals only source identity, fluid identity, and destination voxel. Exact
+/// finite volume and temperature remain local observations after the player actually reaches the
+/// source. It is immediate-neighbor orientation, not arbitrary remote scanning or line-of-sight.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AdjacentDrinkSource {
+    store: FluidStoreId,
+    fluid: FluidDefinitionId,
+    position: VoxelCoord,
+}
+
+impl AdjacentDrinkSource {
+    #[must_use]
+    pub const fn store(self) -> FluidStoreId {
+        self.store
+    }
+
+    #[must_use]
+    pub const fn fluid(self) -> FluidDefinitionId {
+        self.fluid
+    }
+
+    #[must_use]
+    pub const fn position(self) -> VoxelCoord {
+        self.position
+    }
 }
 
 /// Actor-visible finite drink source currently usable at the player's exact voxel.
@@ -46,6 +77,35 @@ pub struct LocalDrinkSource {
     fluid: FluidDefinitionId,
     available_volume: Volume,
     temperature: Temperature,
+}
+
+/// Iterates drinkable sources located exactly one face-adjacent voxel from the admitted player.
+///
+/// Empty, non-drinkable, temperature-incompatible, local, diagonal, and more distant stores are
+/// omitted. Callers cannot supply an arbitrary observation coordinate.
+pub fn available_adjacent_drink_sources<'a>(
+    registries: &'a Registries,
+    state: &'a AppState,
+) -> impl Iterator<Item = AdjacentDrinkSource> + 'a {
+    let player_position = state.logistics().player().map(|player| player.position());
+    state
+        .logistics()
+        .fluid_store_locations()
+        .filter(move |(_, position)| {
+            player_position.is_some_and(|player| player.is_face_adjacent_to(*position))
+        })
+        .filter_map(move |(store, position)| {
+            let contents = state.fluid().get_store(store)?.contents()?;
+            let drink = registries.survival().get_drink(contents.fluid())?;
+            drink
+                .consumption_temperature()
+                .contains(contents.temperature())
+                .then_some(AdjacentDrinkSource {
+                    store,
+                    fluid: contents.fluid(),
+                    position,
+                })
+        })
 }
 
 impl LocalDrinkSource {

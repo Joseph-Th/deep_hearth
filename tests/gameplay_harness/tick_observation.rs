@@ -10,6 +10,7 @@ pub(super) struct TickEventAllowance<'a> {
     pub(super) production_jobs: &'a [ProductionJobId],
     pub(super) production_availability_changes: bool,
     pub(super) mining_jobs: &'a [MiningJobId],
+    pub(super) player_step: bool,
     pub(super) surface_resources: &'a [SurfaceResourceId],
     pub(super) manual_power: bool,
     pub(super) equipment_maintenance: bool,
@@ -30,6 +31,7 @@ pub(super) fn assert_tick_events_within(
         !outcome.production_availability_changes().is_empty(),
         !outcome.production_completions().is_empty(),
         outcome.ready_mining_job().is_some(),
+        outcome.player_step().is_some(),
         outcome.surface_gathering().is_some(),
         outcome.manual_power().is_some(),
         outcome.equipment_maintenance().is_some(),
@@ -98,6 +100,10 @@ fn assert_player_work_events_within(
             .ready_mining_job()
             .is_none_or(|job| allowance.mining_jobs.contains(&job)),
         "gameplay harness {context} crossed an unrelated mining completion"
+    );
+    assert!(
+        allowance.player_step || outcome.player_step().is_none(),
+        "gameplay harness {context} crossed unrelated player movement"
     );
     assert!(
         outcome

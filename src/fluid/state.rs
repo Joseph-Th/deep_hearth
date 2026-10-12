@@ -134,7 +134,6 @@ impl FluidState {
         self.revision
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
     #[must_use]
     pub(super) const fn next_store_id(&self) -> u64 {
         self.next_store_id
@@ -159,8 +158,7 @@ impl FluidState {
         self.stores_by_support = stores_by_support;
     }
 
-    /// Atomically inserts one fixture-allocated store and advances identity and revision cursors.
-    #[cfg(any(test, feature = "test-gameplay"))]
+    /// Atomically inserts one validated finite store and advances identity and revision cursors.
     pub(super) fn insert_store(
         &mut self,
         record: FluidStoreRecord,
@@ -193,6 +191,11 @@ impl FluidState {
         );
         self.next_store_id = next_store_id;
         self.revision = next_revision;
+    }
+
+    #[must_use]
+    pub(crate) fn is_pristine_generation_state(&self) -> bool {
+        self.revision == 0 && self.next_store_id == 1 && self.records.is_empty()
     }
 
     /// Applies one validated egress final contents under one owner revision advance.

@@ -1,18 +1,22 @@
 //! Stateless deterministic creation of the currently implemented initial wilderness opportunity.
 //!
-//! Generated loose matter immediately enters `SurfaceResourceState`, which remains the sole
-//! persistent owner. This module owns only fresh-world authorization and deterministic authored
-//! generation inputs; it is not a terrain, chunk, ecology, or movement owner.
+//! Generated loose matter and finite opening water immediately enter their canonical persistent
+//! owners. This module owns only fresh-world authorization and deterministic authored generation
+//! inputs; it is not a terrain, chunk, ecology, hydrology, or movement owner.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::content::{
-    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
 };
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+use crate::fluid::{
+    FluidGenerationCommitError, FluidGenerationError, FluidStoreId, GeneratedFluidStoreSpec,
+    ValidatedFluidGeneration, validate_generate_fluid_store,
+};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
@@ -30,6 +34,8 @@ const TIMBER_BASE_MASS_MG: u64 = 8_000_000;
 const TIMBER_VARIATION_MG: u64 = 4_000_000;
 const BERRIES_BASE_MASS_MG: u64 = 500_000;
 const BERRIES_VARIATION_MG: u64 = 300_000;
+const OPENING_WATER_VOLUME_UL: u64 = 1_500_000;
+const OPENING_WATER_DIRECTION_SALT: u64 = 0x5741_5445_525F_4144;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WorldGenerationSeed(u64);
@@ -56,9 +62,14 @@ pub enum InitialWildernessGenerationError {
         logistics_initialized: bool,
     },
     SurfaceAlreadyGenerated,
+    FluidAlreadyGenerated,
     SurfaceIdExhausted,
     SurfaceRevisionExhausted,
+    FluidStoreIdExhausted,
+    FluidRevisionExhausted,
+    LogisticsRevisionExhausted,
     InvalidGeneratedResource(SurfaceResourceValidationError),
+    InvalidGeneratedWater,
 }
 
 impl Display for InitialWildernessGenerationError {
@@ -79,17 +90,31 @@ impl Display for InitialWildernessGenerationError {
             Self::SurfaceAlreadyGenerated => formatter.write_str(
                 "initial wilderness surface generation requires pristine surface-resource state",
             ),
+            Self::FluidAlreadyGenerated => formatter
+                .write_str("initial wilderness water generation requires pristine fluid state"),
             Self::SurfaceIdExhausted => {
                 formatter.write_str("surface resource identifier space is exhausted")
             }
             Self::SurfaceRevisionExhausted => {
                 formatter.write_str("surface resource revision space is exhausted")
             }
+            Self::FluidStoreIdExhausted => {
+                formatter.write_str("fluid store identifier space is exhausted")
+            }
+            Self::FluidRevisionExhausted => {
+                formatter.write_str("fluid revision space is exhausted")
+            }
+            Self::LogisticsRevisionExhausted => {
+                formatter.write_str("logistics revision space is exhausted")
+            }
             Self::InvalidGeneratedResource(error) => {
                 write!(
                     formatter,
                     "built-in wilderness surface resource is invalid: {error}"
                 )
+            }
+            Self::InvalidGeneratedWater => {
+                formatter.write_str("built-in wilderness water source is invalid")
             }
         }
     }
@@ -102,8 +127,13 @@ impl Error for InitialWildernessGenerationError {
             Self::NotInitialTick { .. }
             | Self::PlayerAlreadyInitialized { .. }
             | Self::SurfaceAlreadyGenerated
+            | Self::FluidAlreadyGenerated
             | Self::SurfaceIdExhausted
-            | Self::SurfaceRevisionExhausted => None,
+            | Self::SurfaceRevisionExhausted
+            | Self::FluidStoreIdExhausted
+            | Self::FluidRevisionExhausted
+            | Self::LogisticsRevisionExhausted
+            | Self::InvalidGeneratedWater => None,
         }
     }
 }
@@ -126,6 +156,21 @@ pub enum InitialWildernessGenerationCommitError {
         expected: u32,
         actual: u32,
     },
+    StaleFluidRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleFluidIdentity {
+        expected: u64,
+        actual: u64,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    WaterAlreadyLocated {
+        store: FluidStoreId,
+    },
 }
 
 impl Display for InitialWildernessGenerationCommitError {
@@ -142,7 +187,11 @@ impl Error for InitialWildernessGenerationCommitError {}
 #[must_use]
 pub struct ValidatedInitialWildernessGeneration {
     expected_tick: SimulationTick,
-    generation: ValidatedSurfaceGeneration,
+    surface_generation: ValidatedSurfaceGeneration,
+    water_generation: ValidatedFluidGeneration,
+    water_position: VoxelCoord,
+    expected_logistics_revision: u64,
+    next_logistics_revision: u64,
 }
 
 impl ValidatedInitialWildernessGeneration {
@@ -164,17 +213,67 @@ impl ValidatedInitialWildernessGeneration {
                 logistics_initialized,
             });
         }
-        self.generation.commit(state).map_err(|error| match error {
-            SurfaceGenerationCommitError::StaleTick { expected, actual } => {
-                InitialWildernessGenerationCommitError::TickChanged { expected, actual }
-            }
-            SurfaceGenerationCommitError::StaleRevision { expected, actual } => {
-                InitialWildernessGenerationCommitError::StaleSurfaceRevision { expected, actual }
-            }
-            SurfaceGenerationCommitError::StaleNextResourceId { expected, actual } => {
-                InitialWildernessGenerationCommitError::StaleSurfaceIdentity { expected, actual }
-            }
-        })
+        self.surface_generation
+            .precheck(state)
+            .map_err(|error| match error {
+                SurfaceGenerationCommitError::StaleTick { expected, actual } => {
+                    InitialWildernessGenerationCommitError::TickChanged { expected, actual }
+                }
+                SurfaceGenerationCommitError::StaleRevision { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StaleSurfaceRevision {
+                        expected,
+                        actual,
+                    }
+                }
+                SurfaceGenerationCommitError::StaleNextResourceId { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StaleSurfaceIdentity {
+                        expected,
+                        actual,
+                    }
+                }
+            })?;
+        self.water_generation
+            .precheck(state)
+            .map_err(|error| match error {
+                FluidGenerationCommitError::StaleTick { expected, actual } => {
+                    InitialWildernessGenerationCommitError::TickChanged { expected, actual }
+                }
+                FluidGenerationCommitError::StaleRevision { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StaleFluidRevision { expected, actual }
+                }
+                FluidGenerationCommitError::StaleNextStoreId { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StaleFluidIdentity { expected, actual }
+                }
+            })?;
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(
+                InitialWildernessGenerationCommitError::StaleLogisticsRevision {
+                    expected: self.expected_logistics_revision,
+                    actual: actual_logistics_revision,
+                },
+            );
+        }
+        let water_store = self.water_generation.store();
+        if state
+            .logistics()
+            .fluid_store_position(water_store)
+            .is_some()
+        {
+            return Err(
+                InitialWildernessGenerationCommitError::WaterAlreadyLocated { store: water_store },
+            );
+        }
+
+        self.surface_generation.apply(state);
+        self.water_generation.apply(state);
+        state.logistics_state_mut().apply_fluid_store_placement(
+            self.expected_logistics_revision,
+            self.next_logistics_revision,
+            water_store,
+            self.water_position,
+        );
+        Ok(())
     }
 }
 
@@ -183,6 +282,36 @@ fn mix64(mut value: u64) -> u64 {
     value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     value ^ (value >> 31)
+}
+
+fn generated_adjacent_water_position(seed: WorldGenerationSeed, spawn: VoxelCoord) -> VoxelCoord {
+    let first = usize::try_from(local_entropy(seed, spawn, OPENING_WATER_DIRECTION_SALT) % 4)
+        .unwrap_or_else(|_| unreachable!("bounded water direction fits usize"));
+    for offset in 0..4 {
+        let candidate = match (first + offset) % 4 {
+            0 => spawn
+                .x()
+                .checked_add(1)
+                .map(|x| VoxelCoord::new(x, spawn.y(), spawn.z())),
+            1 => spawn
+                .z()
+                .checked_add(1)
+                .map(|z| VoxelCoord::new(spawn.x(), spawn.y(), z)),
+            2 => spawn
+                .x()
+                .checked_sub(1)
+                .map(|x| VoxelCoord::new(x, spawn.y(), spawn.z())),
+            3 => spawn
+                .z()
+                .checked_sub(1)
+                .map(|z| VoxelCoord::new(spawn.x(), spawn.y(), z)),
+            _ => unreachable!("water direction is reduced modulo four"),
+        };
+        if let Some(candidate) = candidate {
+            return candidate;
+        }
+    }
+    unreachable!("every finite voxel has at least one representable horizontal neighbor")
 }
 
 fn local_entropy(seed: WorldGenerationSeed, spawn: VoxelCoord, salt: u64) -> u64 {
@@ -229,13 +358,13 @@ fn player_initialization_flags(state: &AppState) -> (bool, bool) {
     )
 }
 
-/// Validates one deterministic, same-voxel opening opportunity for a fresh built-in world.
+/// Validates one deterministic opening opportunity for a fresh built-in world.
 ///
-/// This establishes finite loose stone, fallen timber, and forage only. It does not generate
-/// terrain, remote resources, water, shelter, fire, movement routes, or ecology. The caller supplies
-/// the explicit seed and spawn voxel, and the resulting surface records are ordinary persistent
-/// world state immediately after commit.
-pub fn validate_generate_initial_wilderness_surface(
+/// This establishes finite loose stone, fallen timber, and forage at spawn plus one finite,
+/// non-refilling drinkable water source at a horizontally adjacent voxel. It does not generate
+/// terrain, routes, flow, recharge, groundwater, shelter, fire, or ecology. The caller supplies the
+/// explicit seed and spawn voxel; generated owner records become ordinary persistent world state.
+pub fn validate_generate_initial_wilderness(
     registries: &Registries,
     state: &AppState,
     seed: WorldGenerationSeed,
@@ -253,6 +382,9 @@ pub fn validate_generate_initial_wilderness_surface(
     }
     if !state.surface().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::SurfaceAlreadyGenerated);
+    }
+    if !state.fluid().is_pristine_generation_state() {
+        return Err(InitialWildernessGenerationError::FluidAlreadyGenerated);
     }
     let specs = [
         generated_spec(
@@ -295,8 +427,8 @@ pub fn validate_generate_initial_wilderness_surface(
         .unwrap_or_else(|error| {
             panic!("built-in wilderness generation specification is invalid: {error}")
         });
-    let generation = validate_generate_surface_resources(registries, state, specs).map_err(
-        |error| match error {
+    let surface_generation = validate_generate_surface_resources(registries, state, specs)
+        .map_err(|error| match error {
             SurfaceGenerationError::Empty => {
                 unreachable!("built-in wilderness generation always emits three resources")
             }
@@ -309,11 +441,50 @@ pub fn validate_generate_initial_wilderness_surface(
             SurfaceGenerationError::InvalidResource(error) => {
                 InitialWildernessGenerationError::InvalidGeneratedResource(error)
             }
-        },
-    )?;
+        })?;
+    let water_volume = Volume::from_microliters(OPENING_WATER_VOLUME_UL);
+    let water_generation = validate_generate_fluid_store(
+        registries,
+        state,
+        GeneratedFluidStoreSpec::new(
+            water_volume,
+            FLUID_WATER,
+            water_volume,
+            WILDERNESS_TEMPERATURE,
+        ),
+    )
+    .map_err(|error| match error {
+        FluidGenerationError::IdExhausted => {
+            InitialWildernessGenerationError::FluidStoreIdExhausted
+        }
+        FluidGenerationError::RevisionExhausted => {
+            InitialWildernessGenerationError::FluidRevisionExhausted
+        }
+        FluidGenerationError::ZeroCapacity
+        | FluidGenerationError::UnknownDefinition { .. }
+        | FluidGenerationError::ZeroVolume
+        | FluidGenerationError::ZeroTemperature
+        | FluidGenerationError::VolumeExceedsCapacity { .. }
+        | FluidGenerationError::BelowMeltingPoint { .. } => {
+            InitialWildernessGenerationError::InvalidGeneratedWater
+        }
+    })?;
+    if !state.can_spend_logistics_revisions(1) {
+        return Err(InitialWildernessGenerationError::LogisticsRevisionExhausted);
+    }
+    let expected_logistics_revision = state.logistics().revision();
+    let next_logistics_revision = expected_logistics_revision
+        .checked_add(1)
+        .unwrap_or_else(|| {
+            unreachable!("logistics headroom check includes generated water placement")
+        });
     Ok(ValidatedInitialWildernessGeneration {
         expected_tick: state.tick(),
-        generation,
+        surface_generation,
+        water_generation,
+        water_position: generated_adjacent_water_position(seed, spawn),
+        expected_logistics_revision,
+        next_logistics_revision,
     })
 }
 

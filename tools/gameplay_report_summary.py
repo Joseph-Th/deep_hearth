@@ -152,6 +152,7 @@ _ORDINARY_DIGEST_FIELDS = {
     "wilderness": (
         "evidence",
         "generation",
+        "movement",
         "timing",
         "provisioning",
         "carrying",

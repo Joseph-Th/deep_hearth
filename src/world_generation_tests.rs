@@ -1,17 +1,20 @@
-//! Contracts for deterministic fresh-world wilderness surface generation.
+//! Contracts for deterministic fresh-world wilderness opening generation.
 
 use crate::content::{
-    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
     build_registries,
 };
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::SimulationTick;
+use crate::fluid::add_fluid_store_with_contents_for_fixture;
+use crate::logistics::validate_allocate_ground_stockpile;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
 use crate::surface::{GeneratedSurfaceResourceSpec, validate_generate_surface_resources};
+use crate::survival::{available_adjacent_drink_sources, available_local_drink_sources};
 
 use super::*;
 
@@ -31,7 +34,7 @@ fn generated_profile(state: &AppState) -> Vec<(CommodityKey, Mass, VoxelCoord)> 
 
 fn generate(state: &mut AppState, seed: WorldGenerationSeed, spawn: VoxelCoord) {
     let registries = build_registries();
-    validate_generate_initial_wilderness_surface(&registries, state, seed, spawn)
+    validate_generate_initial_wilderness(&registries, state, seed, spawn)
         .unwrap_or_else(|error| panic!("wilderness generation validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("wilderness generation commit failed: {error}"));
@@ -45,11 +48,40 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
     let mut replay = AppState::new();
     generate(&mut first, seed, spawn);
     generate(&mut replay, seed, spawn);
+    assert_eq!(
+        first, replay,
+        "identical explicit seeds must replay the whole generated opening"
+    );
     assert_eq!(generated_profile(&first), generated_profile(&replay));
 
     let profile = generated_profile(&first);
     assert_eq!(profile.len(), 3);
     assert!(profile.iter().all(|(_, _, position)| *position == spawn));
+    let water = first
+        .fluid()
+        .stores()
+        .next()
+        .unwrap_or_else(|| panic!("generated wilderness water disappeared"));
+    assert_eq!(first.fluid().stores().count(), 1);
+    let contents = water
+        .contents()
+        .unwrap_or_else(|| panic!("generated wilderness water store is empty"));
+    assert_eq!(contents.fluid(), FLUID_WATER);
+    assert_eq!(
+        contents.volume(),
+        Volume::from_microliters(OPENING_WATER_VOLUME_UL)
+    );
+    assert_eq!(
+        water.capacity(),
+        Volume::from_microliters(OPENING_WATER_VOLUME_UL)
+    );
+    assert_eq!(contents.temperature(), WILDERNESS_TEMPERATURE);
+    let water_position = first
+        .logistics()
+        .fluid_store_position(water.id())
+        .unwrap_or_else(|| panic!("generated wilderness water has no world location"));
+    assert!(spawn.is_face_adjacent_to(water_position));
+    assert_eq!(water_position.y(), spawn.y());
     let mass_for = |commodity| {
         profile
             .iter()
@@ -87,7 +119,7 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
 }
 
 #[test]
-fn initial_wilderness_generation_requires_fresh_pre_admission_surface_state() {
+fn initial_wilderness_generation_requires_fresh_pre_admission_world_state() {
     let registries = build_registries();
     let spawn = VoxelCoord::new(0, 0, 0);
     let seed = WorldGenerationSeed::new(7);
@@ -96,10 +128,27 @@ fn initial_wilderness_generation_requires_fresh_pre_admission_surface_state() {
     generate(&mut generated, seed, spawn);
     let before_second = generated.clone();
     assert_eq!(
-        validate_generate_initial_wilderness_surface(&registries, &generated, seed, spawn).err(),
+        validate_generate_initial_wilderness(&registries, &generated, seed, spawn).err(),
         Some(InitialWildernessGenerationError::SurfaceAlreadyGenerated)
     );
     assert_eq!(generated, before_second);
+
+    let mut fluid_generated = AppState::new();
+    add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut fluid_generated,
+        Volume::from_microliters(1),
+        FLUID_WATER,
+        Volume::from_microliters(1),
+        WILDERNESS_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("preexisting fluid generation fixture failed: {error}"));
+    let before_fluid = fluid_generated.clone();
+    assert_eq!(
+        validate_generate_initial_wilderness(&registries, &fluid_generated, seed, spawn).err(),
+        Some(InitialWildernessGenerationError::FluidAlreadyGenerated)
+    );
+    assert_eq!(fluid_generated, before_fluid);
 
     let mut admitted = AppState::new();
     validate_admit_player(&registries, &admitted, spawn)
@@ -108,7 +157,7 @@ fn initial_wilderness_generation_requires_fresh_pre_admission_surface_state() {
         .unwrap_or_else(|error| panic!("world-generation admission commit failed: {error}"));
     let before_admitted = admitted.clone();
     assert_eq!(
-        validate_generate_initial_wilderness_surface(&registries, &admitted, seed, spawn).err(),
+        validate_generate_initial_wilderness(&registries, &admitted, seed, spawn).err(),
         Some(InitialWildernessGenerationError::PlayerAlreadyInitialized {
             survival_initialized: true,
             logistics_initialized: true,
@@ -120,7 +169,7 @@ fn initial_wilderness_generation_requires_fresh_pre_admission_surface_state() {
     apply_clock_advance(&mut aged, SimulationTick::new(1));
     let before_aged = aged.clone();
     assert_eq!(
-        validate_generate_initial_wilderness_surface(&registries, &aged, seed, spawn).err(),
+        validate_generate_initial_wilderness(&registries, &aged, seed, spawn).err(),
         Some(InitialWildernessGenerationError::NotInitialTick {
             tick: SimulationTick::new(1),
         })
@@ -129,10 +178,76 @@ fn initial_wilderness_generation_requires_fresh_pre_admission_surface_state() {
 }
 
 #[test]
+fn initial_wilderness_generation_rejects_stale_fluid_commit_without_surface_mutation() {
+    let registries = build_registries();
+    let spawn = VoxelCoord::new(0, 0, 0);
+    let validated = validate_generate_initial_wilderness(
+        &registries,
+        &AppState::new(),
+        WorldGenerationSeed::new(12),
+        spawn,
+    )
+    .unwrap_or_else(|error| panic!("stale fluid generation validation failed: {error}"));
+
+    let mut state = AppState::new();
+    add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(1),
+        FLUID_WATER,
+        Volume::from_microliters(1),
+        WILDERNESS_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("competing fluid generation failed: {error}"));
+    let before = state.clone();
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(InitialWildernessGenerationCommitError::StaleFluidRevision {
+            expected: 0,
+            actual: 1,
+        })
+    );
+    assert_eq!(state, before);
+    assert!(state.surface().resources().next().is_none());
+}
+
+#[test]
+fn initial_wilderness_generation_rejects_stale_logistics_commit_without_owner_mutation() {
+    let registries = build_registries();
+    let spawn = VoxelCoord::new(0, 0, 0);
+    let validated = validate_generate_initial_wilderness(
+        &registries,
+        &AppState::new(),
+        WorldGenerationSeed::new(14),
+        spawn,
+    )
+    .unwrap_or_else(|error| panic!("stale logistics generation validation failed: {error}"));
+
+    let mut state = AppState::new();
+    validate_allocate_ground_stockpile(&state, VoxelCoord::new(8, 0, 0), Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("competing logistics allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("competing logistics allocation commit failed: {error}"));
+    let before = state.clone();
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(
+            InitialWildernessGenerationCommitError::StaleLogisticsRevision {
+                expected: 0,
+                actual: 1,
+            }
+        )
+    );
+    assert_eq!(state, before);
+    assert!(state.surface().resources().next().is_none());
+    assert!(state.fluid().stores().next().is_none());
+}
+
+#[test]
 fn initial_wilderness_generation_rejects_stale_surface_commit_without_mutation() {
     let registries = build_registries();
     let spawn = VoxelCoord::new(0, 0, 0);
-    let validated = validate_generate_initial_wilderness_surface(
+    let validated = validate_generate_initial_wilderness(
         &registries,
         &AppState::new(),
         WorldGenerationSeed::new(11),
@@ -174,11 +289,8 @@ fn initial_wilderness_generation_rejects_admission_or_time_change_before_commit(
     let seed = WorldGenerationSeed::new(13);
 
     let mut admitted = AppState::new();
-    let validated =
-        validate_generate_initial_wilderness_surface(&registries, &admitted, seed, spawn)
-            .unwrap_or_else(|error| {
-                panic!("stale admission generation validation failed: {error}")
-            });
+    let validated = validate_generate_initial_wilderness(&registries, &admitted, seed, spawn)
+        .unwrap_or_else(|error| panic!("stale admission generation validation failed: {error}"));
     validate_admit_player(&registries, &admitted, spawn)
         .unwrap_or_else(|error| panic!("stale admission player validation failed: {error}"))
         .commit(&mut admitted)
@@ -194,7 +306,7 @@ fn initial_wilderness_generation_rejects_admission_or_time_change_before_commit(
     assert_eq!(admitted, before_admitted_commit);
 
     let mut aged = AppState::new();
-    let validated = validate_generate_initial_wilderness_surface(&registries, &aged, seed, spawn)
+    let validated = validate_generate_initial_wilderness(&registries, &aged, seed, spawn)
         .unwrap_or_else(|error| panic!("stale tick generation validation failed: {error}"));
     apply_clock_advance(&mut aged, SimulationTick::new(1));
     let before_aged_commit = aged.clone();
@@ -209,12 +321,12 @@ fn initial_wilderness_generation_rejects_admission_or_time_change_before_commit(
 }
 
 #[test]
-fn generated_wilderness_surface_persists_and_remains_actor_local_after_load() {
+fn generated_wilderness_persists_with_local_surface_and_adjacent_water_after_load() {
     let registries = build_registries();
     let spawn = VoxelCoord::new(-3, 1, 5);
     let seed = WorldGenerationSeed::new(0xCAFE_BABE);
     let mut state = AppState::new();
-    validate_generate_initial_wilderness_surface(&registries, &state, seed, spawn)
+    validate_generate_initial_wilderness(&registries, &state, seed, spawn)
         .unwrap_or_else(|error| panic!("persistent wilderness generation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("persistent wilderness generation commit failed: {error}"));
@@ -226,6 +338,14 @@ fn generated_wilderness_surface_persists_and_remains_actor_local_after_load() {
         .available_surface_resources()
         .map(|record| (record.commodity(), record.remaining_mass()))
         .collect::<Vec<_>>();
+    assert_eq!(
+        available_local_drink_sources(&registries, &state).count(),
+        0
+    );
+    let adjacent_before = available_adjacent_drink_sources(&registries, &state)
+        .map(|source| (source.store(), source.fluid(), source.position()))
+        .collect::<Vec<_>>();
+    assert_eq!(adjacent_before.len(), 1);
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("wilderness generation save failed: {error}"));
@@ -239,4 +359,12 @@ fn generated_wilderness_surface_persists_and_remains_actor_local_after_load() {
         .map(|record| (record.commodity(), record.remaining_mass()))
         .collect::<Vec<_>>();
     assert_eq!(visible_after, visible_before);
+    let adjacent_after = available_adjacent_drink_sources(&registries, &loaded)
+        .map(|source| (source.store(), source.fluid(), source.position()))
+        .collect::<Vec<_>>();
+    assert_eq!(adjacent_after, adjacent_before);
+    assert_eq!(
+        available_local_drink_sources(&registries, &loaded).count(),
+        0
+    );
 }

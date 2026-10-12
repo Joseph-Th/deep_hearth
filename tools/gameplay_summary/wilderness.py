@@ -21,6 +21,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         (
             "evidence",
             "generation",
+            "movement",
             "timing",
             "provisioning",
             "carrying",
@@ -32,6 +33,6 @@ def wilderness_summary(lines: list[str]) -> str | None:
     )
     return (
         "ORDINARY SUMMARY probe=wilderness samples=1 "
-        "sample-shape=[controlled:1] "
+        "sample-shape=[maintained:1] "
         f"{detail}"
     )

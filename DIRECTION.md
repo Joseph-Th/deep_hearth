@@ -87,9 +87,11 @@ crafting, equipment, storage, survival, fluid, thermal, and structural owners. F
 the entry point; exact physical consequences should remain consequences of those actions rather than
 prerequisites for learning a special interaction language.
 
-The current explicit-seed spawn generator closes only the initial same-voxel loose stone/timber/forage source
-edge. Adjacent open-space stepping supplies a real locality transition, but terrain, route/discovery, ecology,
-and hydrology are still missing; those authorities must make the opening spatially legible and self-sufficient.
+The current explicit-seed opening generator closes same-voxel loose stone/timber/forage plus one finite
+non-refilling water opportunity at an immediate horizontal neighbor. The lived wilderness episode orients to
+that source, pays the ordinary load-sensitive step, and then uses exact-local fluid observation. This is enough
+to remove controlled water from the opening, not enough to claim terrain, route/discovery, ecology, or hydrology:
+flow/recharge, broader source generation, and spatially meaningful wilderness travel still need those authorities.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a

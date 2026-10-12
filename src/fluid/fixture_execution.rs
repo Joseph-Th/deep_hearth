@@ -8,7 +8,12 @@ use crate::core::state::AppState;
 use crate::registry::Registries;
 
 use super::definitions::FluidDefinitionId;
-use super::state::{FluidContents, FluidStoreId, FluidStoreRecord};
+use super::generation::{
+    FluidGenerationError, GeneratedFluidStoreSpec, validate_generate_fluid_store,
+};
+use super::state::FluidStoreId;
+#[cfg(test)]
+use super::state::{FluidContents, FluidStoreRecord};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AddFluidStoreError {
@@ -77,6 +82,7 @@ pub(crate) fn add_fluid_store(
     allocate_fluid_store(state, capacity, None)
 }
 
+#[cfg(test)]
 fn allocate_fluid_store(
     state: &mut AppState,
     capacity: Volume,
@@ -131,30 +137,38 @@ pub(crate) fn add_fluid_store_with_contents_for_fixture(
     volume: Volume,
     temperature: Temperature,
 ) -> Result<FluidStoreId, AddFluidStoreError> {
-    let definition_record = registries
-        .fluid()
-        .get_fluid(definition)
-        .ok_or(AddFluidStoreError::UnknownDefinition { definition })?;
-    if temperature == Temperature::ZERO {
-        return Err(AddFluidStoreError::InitialTemperatureZero);
-    }
-    if let Some(melting_point) =
-        definition_record.minimum_modeled_temperature(registries.materials())
-        && temperature < melting_point
-    {
-        return Err(AddFluidStoreError::InitialBelowMeltingPoint {
+    validate_generate_fluid_store(
+        registries,
+        state,
+        GeneratedFluidStoreSpec::new(capacity, definition, volume, temperature),
+    )
+    .map_err(|error| match error {
+        FluidGenerationError::ZeroCapacity => AddFluidStoreError::ZeroCapacity,
+        FluidGenerationError::UnknownDefinition { definition } => {
+            AddFluidStoreError::UnknownDefinition { definition }
+        }
+        FluidGenerationError::ZeroVolume => AddFluidStoreError::InitialVolumeZero,
+        FluidGenerationError::ZeroTemperature => AddFluidStoreError::InitialTemperatureZero,
+        FluidGenerationError::VolumeExceedsCapacity { volume, capacity } => {
+            AddFluidStoreError::InitialVolumeExceedsCapacity {
+                initial: volume,
+                capacity,
+            }
+        }
+        FluidGenerationError::BelowMeltingPoint {
             definition,
             temperature,
             melting_point,
-        });
-    }
-    allocate_fluid_store(
-        state,
-        capacity,
-        Some(FluidContents {
-            fluid: definition,
-            volume,
+        } => AddFluidStoreError::InitialBelowMeltingPoint {
+            definition,
             temperature,
-        }),
-    )
+            melting_point,
+        },
+        FluidGenerationError::IdExhausted => AddFluidStoreError::IdExhausted,
+        FluidGenerationError::RevisionExhausted => AddFluidStoreError::RevisionExhausted,
+    })?
+    .commit(state)
+    .map_err(|error| {
+        unreachable!("immediate fixture fluid generation cannot become stale: {error:?}")
+    })
 }

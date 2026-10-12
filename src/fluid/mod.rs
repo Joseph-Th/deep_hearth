@@ -5,6 +5,7 @@ mod definitions;
 mod egress;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture_execution;
+mod generation;
 mod physics;
 mod state;
 mod structural_integration;
@@ -21,6 +22,10 @@ pub use structural_integration::{
 
 pub(crate) use egress::{
     FluidEgressCommitError, FluidEgressError, ValidatedFluidEgress, validate_fluid_egress,
+};
+pub(crate) use generation::{
+    FluidGenerationCommitError, FluidGenerationError, GeneratedFluidStoreSpec,
+    ValidatedFluidGeneration, validate_generate_fluid_store,
 };
 pub(crate) use physics::{FluidMassProjectionError, project_fluid_material_mass};
 pub(crate) use state::validate_loaded_fluid;

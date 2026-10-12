@@ -16,8 +16,9 @@ pub use direct_use::{
 };
 
 pub use drinking::{
-    DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome, LocalDrinkSource,
-    MinimumDrinkHydrationProjection, ValidatedDrink, available_local_drink_sources,
+    AdjacentDrinkSource, DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome,
+    LocalDrinkSource, MinimumDrinkHydrationProjection, ValidatedDrink,
+    available_adjacent_drink_sources, available_local_drink_sources,
     project_minimum_drink_to_hydration_target, validate_drink,
 };
 pub use eating::{
