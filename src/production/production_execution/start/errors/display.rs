@@ -48,6 +48,11 @@ impl Display for StartProcessError {
                 "stockpile {} is being dismantled and cannot accept a new in-flight production output",
                 stockpile.value()
             ),
+            Self::OutputDestinationInTransit { stockpile } => write!(
+                formatter,
+                "stockpile {} is carried by an active player step and cannot accept a new in-flight production output",
+                stockpile.value()
+            ),
             Self::OutputRouteCountMismatch { streams, routes } => write!(
                 formatter,
                 "resolved process has {streams} output streams but start supplied {routes} routes"

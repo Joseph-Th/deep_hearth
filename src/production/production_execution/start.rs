@@ -16,6 +16,7 @@ use crate::core::time::TickSpan;
 use crate::energy::{EnergyConsumptionReservation, EnergyIngressReservation};
 use crate::equipment::ValidatedEquipmentUse;
 use crate::inventory::{ConsumptionReservation, StockpileId, ValidatedStockpileStructuralLoad};
+use crate::labor::PlayerWork;
 use crate::registry::Registries;
 
 use super::super::resolution::{ProcessOutputStreamId, ProcessResolution};
@@ -76,6 +77,22 @@ pub struct ValidatedStartProcess {
     equipment_use: Option<ValidatedEquipmentUse>,
     destination_structure_revision: Option<u64>,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
+}
+
+fn moving_player_output_destination(
+    state: &AppState,
+    destinations: impl IntoIterator<Item = StockpileId>,
+) -> Option<StockpileId> {
+    if !matches!(state.player_work().active(), Some(PlayerWork::Step { .. })) {
+        return None;
+    }
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())?;
+    destinations
+        .into_iter()
+        .find(|destination| *destination == carried)
 }
 
 /// Validates all preconditions for starting a timed material transformation without mutating state.

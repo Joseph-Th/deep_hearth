@@ -21,7 +21,9 @@ pub use resolution::{
     ProcessResolutionError,
 };
 pub use site::ProductionSiteEndpoint;
-pub(crate) use site::{validate_process_start_site, validate_retained_job_site};
+pub(crate) use site::{
+    player_move_production_site_conflict, validate_process_start_site, validate_retained_job_site,
+};
 pub use state::{
     ProductionJobId, ProductionJobRecord, ProductionOccupancyRelease, ProductionOutputStream,
     ProductionState, ProductionSuspension, ProductionSuspensionReason, ProductionValidationError,

@@ -349,7 +349,9 @@ Prospecting requires the player inside the survey region and any instrument at t
 the player inside the acquired resolved target region plus local tool/output access. Manual power requires local provider
 and destination store. Production uses an actor-independent same-site rule: every explicitly located continuing
 endpoint in one admitted job must agree on a voxel. Validation tokens bind logistics revision where location can
-invalidate admission.
+invalidate admission. Player movement projects carried output destinations at the destination voxel and rejects a
+step that would split an admitted production site; process admission and commit likewise cannot add a new output
+reservation to carried custody while that custody is already in transit.
 
 Movement, pathing, haulage cost, automatic proximity search, generic stockpile/equipment/energy/fluid transport,
 and mounted-production site/contact geometry are absent.

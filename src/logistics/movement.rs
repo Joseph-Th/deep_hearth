@@ -5,10 +5,12 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+use crate::inventory::StockpileId;
 use crate::labor::{
     PlayerStepWork, PlayerWork, PlayerWorkCommitError, PlayerWorkStartError,
     ValidatedPlayerWorkStart, validate_player_work_start,
 };
+use crate::production::{ProductionJobId, player_move_production_site_conflict};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -27,6 +29,10 @@ pub enum PlayerStepError {
     },
     CompletionTickOverflow,
     LogisticsRevisionExhausted,
+    ProductionSiteConflict {
+        stockpile: StockpileId,
+        job: ProductionJobId,
+    },
     PlayerWork(PlayerWorkStartError),
 }
 
@@ -68,6 +74,12 @@ impl Display for PlayerStepError {
             Self::LogisticsRevisionExhausted => {
                 formatter.write_str("player step cannot reserve its logistics completion revision")
             }
+            Self::ProductionSiteConflict { stockpile, job } => write!(
+                formatter,
+                "player step would move carried stockpile {} away from retained production job {}",
+                stockpile.value(),
+                job.value()
+            ),
             Self::PlayerWork(error) => {
                 write!(formatter, "player step cannot reserve labor: {error}")
             }
@@ -83,7 +95,8 @@ impl Error for PlayerStepError {
             | Self::DestinationNotAdjacent { .. }
             | Self::DestinationInaccessible { .. }
             | Self::CompletionTickOverflow
-            | Self::LogisticsRevisionExhausted => None,
+            | Self::LogisticsRevisionExhausted
+            | Self::ProductionSiteConflict { .. } => None,
         }
     }
 }
@@ -99,6 +112,10 @@ pub enum PlayerStepCommitError {
         actual: VoxelCoord,
     },
     PlayerDisappeared,
+    ProductionSiteConflict {
+        stockpile: StockpileId,
+        job: ProductionJobId,
+    },
     PlayerWork(PlayerWorkCommitError),
 }
 
@@ -114,7 +131,8 @@ impl Error for PlayerStepCommitError {
             Self::PlayerWork(error) => Some(error),
             Self::StaleLogisticsRevision { .. }
             | Self::PlayerPositionChanged { .. }
-            | Self::PlayerDisappeared => None,
+            | Self::PlayerDisappeared
+            | Self::ProductionSiteConflict { .. } => None,
         }
     }
 }
@@ -150,6 +168,16 @@ impl ValidatedPlayerStepStart {
                 actual: player.position(),
             });
         }
+        if let Some(job) = player_move_production_site_conflict(
+            state,
+            player.carried_stockpile(),
+            self.work.destination(),
+        ) {
+            return Err(PlayerStepCommitError::ProductionSiteConflict {
+                stockpile: player.carried_stockpile(),
+                job,
+            });
+        }
         self.player_work
             .precheck(state)
             .map_err(PlayerStepCommitError::PlayerWork)?;
@@ -179,6 +207,14 @@ pub fn validate_start_player_step(
         return Err(PlayerStepError::DestinationInaccessible {
             origin,
             destination,
+        });
+    }
+    if let Some(job) =
+        player_move_production_site_conflict(state, carrying.stockpile(), destination)
+    {
+        return Err(PlayerStepError::ProductionSiteConflict {
+            stockpile: carrying.stockpile(),
+            job,
         });
     }
     let locomotion = registries.survival().physiology().locomotion();
@@ -252,6 +288,11 @@ pub(crate) fn decide_player_step_tick(
             .logistics()
             .is_step_authorized(work.origin(), work.destination()),
         "runtime invariant broken: active player step lost traversal authorization"
+    );
+    let carried = player.carried_stockpile();
+    assert!(
+        player_move_production_site_conflict(state, carried, work.destination()).is_none(),
+        "runtime invariant broken: active player step would split a retained production site"
     );
     let expected_logistics_revision = state.logistics().revision();
     let next_logistics_revision = expected_logistics_revision.checked_add(1).ok_or(())?;

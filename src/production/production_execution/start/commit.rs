@@ -7,7 +7,7 @@ use crate::energy::{
 use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::apply_prechecked_consumption_reservation;
 
-use super::ValidatedStartProcess;
+use super::{ValidatedStartProcess, moving_player_output_destination};
 use crate::production::{ProductionJobId, ProductionJobRecord};
 
 mod errors;
@@ -36,6 +36,14 @@ impl ValidatedStartProcess {
         } = self;
         let job_id = job.id();
 
+        if let Some(stockpile) = moving_player_output_destination(
+            state,
+            job.output_streams()
+                .iter()
+                .map(|stream| stream.destination()),
+        ) {
+            return Err(StartProcessCommitError::OutputDestinationInTransit { stockpile });
+        }
         validate_commit_occupancy(state, &job)?;
         validate_logistics_revision(state, expected_logistics_revision)?;
         validate_production_revision(state, expected_production_revision)?;

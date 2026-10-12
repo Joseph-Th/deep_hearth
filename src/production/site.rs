@@ -8,7 +8,7 @@ use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
 use crate::spatial::VoxelCoord;
 
-use super::{ProcessResolution, ProductionJobRecord};
+use super::{ProcessResolution, ProductionJobId, ProductionJobRecord};
 
 /// One production endpoint that can already have an explicit logistics-owned world location.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,10 +112,17 @@ pub(crate) fn validate_process_start_site(
 /// Suspension stops active time but does not dissolve the job's retained equipment, released-energy
 /// sink, or output destinations. Those endpoints must therefore remain co-located while suspended
 /// as well as while running, otherwise a loaded job could later resume physically remote work.
-pub(crate) fn validate_retained_job_site(
+fn validate_retained_job_site_with_stockpile_override(
     state: &AppState,
     job: &ProductionJobRecord,
+    stockpile_override: Option<(StockpileId, VoxelCoord)>,
 ) -> Result<(), ProductionSiteMismatch> {
+    let stockpile_position = |stockpile| {
+        stockpile_override
+            .filter(|(overridden, _)| *overridden == stockpile)
+            .map(|(_, position)| position)
+            .or_else(|| state.logistics().stockpile_position(stockpile))
+    };
     let mut anchor = None;
     if let Some(provider) = job.equipment_provider() {
         bind_known_endpoint(
@@ -137,8 +144,41 @@ pub(crate) fn validate_retained_job_site(
         bind_known_endpoint(
             &mut anchor,
             ProductionSiteEndpoint::Destination(destination),
-            state.logistics().stockpile_position(destination),
+            stockpile_position(destination),
         )?;
     }
     Ok(())
+}
+
+pub(crate) fn validate_retained_job_site(
+    state: &AppState,
+    job: &ProductionJobRecord,
+) -> Result<(), ProductionSiteMismatch> {
+    validate_retained_job_site_with_stockpile_override(state, job, None)
+}
+
+/// Returns the first durable production job whose retained site would be split if the player's
+/// carried stockpile moved to `destination`.
+pub(crate) fn player_move_production_site_conflict(
+    state: &AppState,
+    carried: StockpileId,
+    destination: VoxelCoord,
+) -> Option<ProductionJobId> {
+    state
+        .production()
+        .jobs()
+        .filter(|job| {
+            job.output_streams()
+                .iter()
+                .any(|stream| stream.destination() == carried)
+        })
+        .find_map(|job| {
+            validate_retained_job_site_with_stockpile_override(
+                state,
+                job,
+                Some((carried, destination)),
+            )
+            .is_err()
+            .then_some(job.id())
+        })
 }

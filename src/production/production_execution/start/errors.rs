@@ -48,6 +48,9 @@ pub enum StartProcessError {
     OutputDestinationBusyStorageDismantling {
         stockpile: StockpileId,
     },
+    OutputDestinationInTransit {
+        stockpile: StockpileId,
+    },
     OutputRouteCountMismatch {
         streams: usize,
         routes: usize,
