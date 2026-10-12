@@ -915,28 +915,14 @@ pub(super) fn crush_while_mining(
         mining_jobs = mining_jobs
             .checked_add(1)
             .unwrap_or_else(|| panic!("primitive concurrent mining-job count overflowed"));
-        assert_eq!(
-            finish_mining_work(
-                registries,
-                state,
-                concurrent_mining_job,
-                Some(crush_job),
-                "concurrent mining",
-            ),
-            work_ticks
+        let (completed_ticks, receipt) = finish_mining_work(
+            registries,
+            state,
+            concurrent_mining_job,
+            Some(crush_job),
+            "concurrent mining",
         );
-        assert!(
-            state.mining().get_job(concurrent_mining_job).is_some(),
-            "completed mining output must remain claimable after concurrent machine work"
-        );
-        let receipt = validate_claim_mining_output(registries, state, concurrent_mining_job)
-            .unwrap_or_else(|error| {
-                panic!("primitive progression concurrent mining claim failed: {error}")
-            })
-            .commit(state)
-            .unwrap_or_else(|error| {
-                panic!("primitive progression concurrent mining claim commit failed: {error}")
-            });
+        assert_eq!(completed_ticks, work_ticks);
         let recovered = receipt.output().mass();
         mined_mass = mined_mass
             .checked_add(recovered)

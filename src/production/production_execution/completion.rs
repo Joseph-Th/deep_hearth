@@ -195,6 +195,11 @@ impl CompletionPlan {
         &self.availability_changes
     }
 
+    #[must_use]
+    pub(crate) const fn has_inventory_deposits(&self) -> bool {
+        !self.inventory_deposits.is_empty()
+    }
+
     /// Projects only the inventory deposits that this production tick will apply, allowing later
     /// same-tick inventory owners to plan against the deterministic post-production inventory.
     pub(crate) fn project_inventory_after_deposits<'inventory>(

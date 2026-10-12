@@ -95,7 +95,7 @@ inventory assess that decision; they do not retroactively reselect it. Refresh c
 assessments before later service, fallback, or adaptation decisions.
 
 Use owner-provided continuation data instead of reconstructing it. In particular, consume
-`ProcessCompletion::landings()` / `ProcessParcelLanding`, `MiningClaimReceipt`, and admitted direct-consumption
+`ProcessCompletion::landings()` / `ProcessParcelLanding`, `MiningOutputReceipt`, and admitted direct-consumption
 completion ticks rather than rescanning destinations or rereading unrelated state to rediscover identities or
 schedules.
 

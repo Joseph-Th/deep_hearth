@@ -224,15 +224,17 @@ fn ready_mining_claim_fixture() -> (Registries, AppState, MiningJobId) {
     .unwrap_or_else(|error| panic!("mining claim exhaustion start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("mining claim exhaustion start commit failed: {error}"));
-    let record = state
-        .mining()
-        .get_job(job)
-        .unwrap_or_else(|| panic!("mining claim exhaustion job disappeared after start"));
-    let duration = record.completes_at().value() - record.started_at().value();
-    for _ in 0..duration {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("mining claim exhaustion completion failed: {error}"));
-    }
+    let _support = complete_mining_into_blocked_ready_state(
+        &registries,
+        &mut state,
+        job,
+        destination,
+        "mining settlement fixture",
+    );
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("mining settlement fixture unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining settlement fixture unmount commit failed: {error}"));
     assert!(
         state
             .mining()
@@ -690,21 +692,6 @@ fn mining_support_recovery_can_consume_released_claim_headroom() {
     .unwrap_or_else(|error| panic!("support-recovery mining start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("support-recovery mining start commit failed: {error}"));
-    let duration = state
-        .mining()
-        .get_job(job)
-        .map(|record| record.completes_at().value() - record.started_at().value())
-        .unwrap_or_else(|| panic!("support-recovery mining job disappeared"));
-    for _ in 0..duration {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("support-recovery mining completion failed: {error}"));
-    }
-    assert!(
-        state
-            .mining()
-            .get_job(job)
-            .is_some_and(MiningJobRecord::is_ready_to_claim)
-    );
     deposit_lot_for_test(
         &registries,
         &mut state,
@@ -714,34 +701,12 @@ fn mining_support_recovery_can_consume_released_claim_headroom() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("support-recovery destination ballast failed: {error}"));
-    let position = state
-        .logistics()
-        .player()
-        .map(|player| player.position())
-        .unwrap_or_else(|| panic!("support-recovery mining player disappeared"));
-    let support = active_stockpile_support_at(&registries, &mut state, position);
-    let _ = validate_mount_stockpile(&registries, &state, destination, support)
-        .unwrap_or_else(|error| panic!("support-recovery destination mount failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| {
-            panic!("support-recovery destination mount commit failed: {error}")
-        });
-    let _ = validate_set_structural_load(
+    let _support = complete_mining_into_blocked_ready_state(
         &registries,
-        &state,
-        support,
-        StructuralLoadKind::Snow,
-        Force::from_millinewtons(50_000_000),
-    )
-    .unwrap_or_else(|error| panic!("support-recovery overload failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("support-recovery overload commit failed: {error}"));
-    assert_eq!(
-        state
-            .structures()
-            .get_element(support)
-            .map(|record| record.lifecycle()),
-        Some(StructuralLifecycle::Failed)
+        &mut state,
+        job,
+        destination,
+        "support-recovery mining",
     );
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))

@@ -642,20 +642,12 @@ fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
     .unwrap_or_else(|error| panic!("mining trace start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("mining trace start commit failed: {error}"));
-    let duration = state
-        .mining()
-        .get_job(job)
-        .map(|record| record.completes_at().value() - record.started_at().value())
-        .unwrap_or_else(|| panic!("mining trace job disappeared"));
-    for _ in 0..duration {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("mining trace completion failed: {error}"));
-    }
-    assert!(
-        state
-            .mining()
-            .get_job(job)
-            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    let _support = complete_mining_into_blocked_ready_state(
+        &registries,
+        &mut state,
+        job,
+        destination,
+        "mining trace",
     );
 
     let reinforcement_source =
@@ -778,7 +770,7 @@ fn loaded_working_mining_job_rejects_forged_requested_mass() {
 }
 
 #[test]
-fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
+fn blocked_unsettled_output_allows_follow_on_extraction_from_the_same_deposit() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
@@ -813,20 +805,12 @@ fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
     .unwrap_or_else(|error| panic!("first follow-on mining start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("first follow-on mining commit failed: {error}"));
-    let first_duration = state
-        .mining()
-        .get_job(first_job)
-        .map(|record| record.completes_at().value() - record.started_at().value())
-        .unwrap_or_else(|| panic!("first follow-on mining job disappeared"));
-    for _ in 0..first_duration {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("first follow-on mining tick failed: {error}"));
-    }
-    assert!(
-        state
-            .mining()
-            .get_job(first_job)
-            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    let _first_support = complete_mining_into_blocked_ready_state(
+        &registries,
+        &mut state,
+        first_job,
+        first_destination,
+        "first follow-on mining",
     );
     assert_eq!(
         state
@@ -848,15 +832,13 @@ fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
     .unwrap_or_else(|error| panic!("second follow-on mining start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("second follow-on mining commit failed: {error}"));
-    let second_duration = state
-        .mining()
-        .get_job(second_job)
-        .map(|record| record.completes_at().value() - record.started_at().value())
-        .unwrap_or_else(|| panic!("second follow-on mining job disappeared"));
-    for _ in 0..second_duration {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("second follow-on mining tick failed: {error}"));
-    }
+    let _second_support = complete_mining_into_blocked_ready_state(
+        &registries,
+        &mut state,
+        second_job,
+        second_destination,
+        "second follow-on mining",
+    );
 
     for job in [first_job, second_job] {
         assert!(
@@ -864,7 +846,7 @@ fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
                 .mining()
                 .get_job(job)
                 .is_some_and(MiningJobRecord::is_ready_to_claim),
-            "completed extraction {job:?} must remain claimable after later extraction"
+            "blocked extraction {job:?} must remain durably unsettled after later extraction"
         );
     }
     assert_eq!(
@@ -947,6 +929,12 @@ fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
         .unwrap_or_else(|error| panic!("follow-on mining load failed: {error}"));
     assert_eq!(restored, state);
 
+    for destination in [first_destination, second_destination] {
+        let _ = validate_unmount_stockpile(&registries, &state, destination)
+            .unwrap_or_else(|error| panic!("follow-on mining unmount failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("follow-on mining unmount commit failed: {error}"));
+    }
     validate_claim_mining_output(&registries, &state, first_job)
         .unwrap_or_else(|error| panic!("older follow-on mining claim failed: {error}"))
         .commit(&mut state)
@@ -1041,6 +1029,13 @@ fn loaded_ready_mining_job_reconstructs_authored_duration() {
         .unwrap_or_else(|error| panic!("mining duration-audit destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining duration-audit deposit failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
     let job = validate_known_mining(
         &registries,
         &state,
@@ -1060,10 +1055,13 @@ fn loaded_ready_mining_job_reconstructs_authored_duration() {
     let required = crate::core::time::TickSpan::new(
         record.completes_at().value() - record.started_at().value(),
     );
-    for _ in 0..required.value() {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("mining duration-audit completion failed: {error}"));
-    }
+    let _support = complete_mining_into_blocked_ready_state(
+        &registries,
+        &mut state,
+        job,
+        destination,
+        "mining duration audit",
+    );
     let ready = state
         .mining()
         .get_job(job)

@@ -411,7 +411,7 @@ fn missing_mining_capability_reports_the_exact_authored_requirement() {
 }
 
 #[test]
-fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
+fn knap_assemble_mine_loop_auto_settles_conserves_exclusivity_and_persists() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
@@ -620,14 +620,19 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
                 .unwrap_or_else(|error| panic!("mining work tick failed: {error}")),
         );
     }
+    let final_tick = final_tick
+        .as_ref()
+        .unwrap_or_else(|| panic!("mining work produced no tick outcome"));
+    let mining_output = final_tick
+        .mining_output()
+        .unwrap_or_else(|| panic!("mining completion produced no automatic output landing"));
+    assert_eq!(mining_output.job(), job);
     assert_eq!(
-        final_tick
-            .as_ref()
-            .unwrap_or_else(|| panic!("mining work produced no tick outcome"))
-            .ready_mining_job(),
-        Some(job)
+        mining_output.output().mass(),
+        Mass::from_milligrams(100_000)
     );
     assert_eq!(state.player_work().active(), None);
+    assert!(state.mining().get_job(job).is_none());
     assert_eq!(
         state
             .geology()
@@ -670,99 +675,43 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
         state
             .inventory()
             .get_stockpile(ore_destination)
-            .unwrap_or_else(|| panic!("mining destination disappeared before claim"))
+            .unwrap_or_else(|| panic!("mining destination disappeared after completion"))
             .stored_mass(),
-        Mass::ZERO
+        Mass::from_milligrams(100_000)
     );
-    let ready_energy = calculate_explicit_energy_accounting(&registries, &state)
-        .unwrap_or_else(|error| panic!("ready mining energy accounting failed: {error}"));
-    assert_eq!(ready_energy.total(), Some(energy_before_mining));
-    assert!(
-        !ready_energy.mining_material_thermal().is_zero(),
-        "extracted ore must retain explicit thermal ownership while waiting to be claimed"
+    let settled_energy = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| panic!("settled mining energy accounting failed: {error}"));
+    assert_eq!(settled_energy.total(), Some(energy_before_mining));
+    assert_eq!(
+        settled_energy.mining_material_thermal(),
+        crate::energy::PreciseEnergy::ZERO,
+        "automatic settlement must transfer completed ore thermal ownership out of mining"
     );
     let completion_tick = state.tick();
-    for _ in 0..3 {
-        let delayed = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("delayed mining-claim tick failed: {error}"));
-        assert_eq!(delayed.ready_mining_job(), None);
-        assert!(
-            state
-                .mining()
-                .get_job(job)
-                .is_some_and(MiningJobRecord::is_ready_to_claim),
-            "completed mining output must remain durably mining-owned until claim"
-        );
-        assert_eq!(state.player_work().active(), None);
-        assert_eq!(
-            state
-                .inventory()
-                .get_stockpile(ore_destination)
-                .map(|stockpile| stockpile.reserved_inbound()),
-            Some(Mass::from_milligrams(100_000)),
-            "delayed mining output must retain its destination capacity reservation"
-        );
-        assert_eq!(
-            calculate_matter_accounting(&state)
-                .unwrap_or_else(|error| panic!("delayed mining matter audit failed: {error}"))
-                .total(),
-            matter_before
-        );
-        validate_loaded_state(&registries, &state)
-            .unwrap_or_else(|error| panic!("delayed mining state audit failed: {error}"));
-    }
-
-    let delayed_encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("delayed mining save serialization failed: {error}"));
-    let delayed_loaded: LoadedSaveEnvelope = serde_json::from_value(delayed_encoded)
-        .unwrap_or_else(|error| panic!("delayed mining save decode failed: {error}"));
-    let delayed_restored = delayed_loaded
-        .into_state(&registries)
-        .unwrap_or_else(|error| panic!("delayed mining save validation failed: {error}"));
-    assert_eq!(delayed_restored, state);
-
-    validate_claim_mining_output(&registries, &state, job)
-        .unwrap_or_else(|error| panic!("mining claim validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("mining claim commit failed: {error}"));
     let destination = state
         .inventory()
         .get_stockpile(ore_destination)
-        .unwrap_or_else(|| panic!("mining destination disappeared after claim"));
+        .unwrap_or_else(|| panic!("mining destination disappeared after automatic settlement"));
     assert_eq!(
         destination.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_ORE)),
         Mass::from_milligrams(100_000)
     );
     assert_eq!(destination.reserved_inbound(), Mass::ZERO);
-    let claimed_lot = state
+    let mined_lot = state
         .inventory()
         .lot_ids(ore_destination)
         .next()
         .and_then(|lot| state.inventory().get_lot(lot))
-        .unwrap_or_else(|| panic!("claimed mining output lot disappeared"));
+        .unwrap_or_else(|| panic!("automatically settled mining output lot disappeared"));
     assert_eq!(
-        claimed_lot.created_at(),
+        mined_lot.created_at(),
         completion_tick,
-        "delayed claim must preserve physical extraction time as provenance"
+        "automatic settlement must preserve physical extraction time as provenance"
     );
     assert_eq!(
-        claimed_lot.latest_created_at(),
+        mined_lot.latest_created_at(),
         completion_tick,
-        "delayed claim must not rewrite output provenance to the later claim tick"
-    );
-    assert_eq!(
-        claimed_lot
-            .storage_history()
-            .project(state.tick(), AMBIENT_PRESERVATION_MULTIPLIER_PPM,),
-        Some(3 * STORAGE_AGE_PARTS_PER_TICK),
-        "unclaimed output must accumulate ambient storage exposure before inventory admission"
-    );
-    assert_eq!(
-        calculate_explicit_energy_accounting(&registries, &state)
-            .unwrap_or_else(|error| panic!("claimed mining energy ownership audit failed: {error}"))
-            .mining_material_thermal(),
-        crate::energy::PreciseEnergy::ZERO,
-        "claim must transfer all ready ore thermal ownership out of mining"
+        "automatic settlement must not rewrite output provenance"
     );
     assert_eq!(
         calculate_matter_accounting(&state)
@@ -798,13 +747,15 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("mining support-recovery destination failed: {error}"));
-    let support = active_stockpile_support(&registries, &mut state);
-    let _ = validate_mount_stockpile(&registries, &state, destination, support)
-        .unwrap_or_else(|error| panic!("mining support-recovery mount failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("mining support-recovery mount commit failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining support-recovery deposit failed: {error}"));
+    complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
     let job = validate_known_mining(
         &registries,
         &state,
@@ -817,20 +768,13 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
     .unwrap_or_else(|error| panic!("mining support-recovery start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("mining support-recovery start commit failed: {error}"));
-    let duration = state
-        .mining()
-        .get_job(job)
-        .and_then(|record| {
-            record
-                .completes_at()
-                .value()
-                .checked_sub(record.started_at().value())
-        })
-        .unwrap_or_else(|| panic!("mining support-recovery duration was invalid"));
-    for _ in 0..duration {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("mining support-recovery work tick failed: {error}"));
-    }
+    let support = complete_mining_into_blocked_ready_state(
+        &registries,
+        &mut state,
+        job,
+        destination,
+        "mining support recovery",
+    );
     assert!(
         state
             .mining()
@@ -838,16 +782,10 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
             .is_some_and(MiningJobRecord::is_ready_to_claim)
     );
 
-    let _ = validate_set_structural_load(
-        &registries,
-        &state,
-        support,
-        StructuralLoadKind::Snow,
-        Force::from_millinewtons(50_000_000),
-    )
-    .unwrap_or_else(|error| panic!("mining support-recovery overload failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("mining support-recovery overload commit failed: {error}"));
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("mining support-recovery unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining support-recovery unmount commit failed: {error}"));
     assert_eq!(
         state
             .structures()
@@ -855,27 +793,12 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
             .map(|record| record.lifecycle()),
         Some(StructuralLifecycle::Failed)
     );
-    let blocked = state.clone();
-    assert!(matches!(
-        validate_claim_mining_output(&registries, &state, job),
-        Err(MiningClaimError::StructuralLoad(
-            StockpileStructuralLoadError::SupportNotActiveForIncrease {
-                stockpile,
-                element,
-                lifecycle: StructuralLifecycle::Failed,
-            }
-        )) if stockpile == destination && element == support
-    ));
-    assert_eq!(state, blocked);
-
-    let _ = validate_unmount_stockpile(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("mining support-recovery unmount failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("mining support-recovery unmount commit failed: {error}"));
-    validate_claim_mining_output(&registries, &state, job)
-        .unwrap_or_else(|error| panic!("mining support-recovery claim failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("mining support-recovery claim commit failed: {error}"));
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("mining support-recovery retry tick failed: {error}"));
+    assert_eq!(
+        outcome.mining_output().map(|output| output.job()),
+        Some(job)
+    );
     assert!(state.mining().get_job(job).is_none());
     assert_eq!(
         state

@@ -55,16 +55,19 @@ fn run_mining_soak() -> AppState {
             .checked_sub(job_record.started_at().value())
             .unwrap_or_else(|| panic!("mining soak duration underflowed at step {step}"));
         assert!(duration > 0);
+        let mut receipt = None;
         for _ in 0..duration {
-            let _ = advance_tick(&registries, &mut state)
+            let outcome = advance_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("mining soak tick failed at step {step}: {error}"));
+            if let Some(output) = outcome.mining_output() {
+                assert_eq!(output.job(), job);
+                receipt = Some(output.clone());
+            }
         }
-        validate_claim_mining_output(&registries, &state, job)
-            .unwrap_or_else(|error| panic!("mining soak claim failed at step {step}: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("mining soak claim commit failed at step {step}: {error}")
-            });
+        assert!(
+            receipt.is_some(),
+            "mining soak produced no output at step {step}"
+        );
 
         if step.is_multiple_of(97) {
             validate_loaded_state(&registries, &state).unwrap_or_else(|error| {

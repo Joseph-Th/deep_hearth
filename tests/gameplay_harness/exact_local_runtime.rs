@@ -20,6 +20,10 @@ pub(super) const STATIONARY_PLAYER_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0)
 ///
 /// Moving exact-local episodes use this boundary. The stricter stationary helper below remains for
 /// workshop-style episodes whose evidence specifically depends on all endpoints being co-located.
+#[allow(
+    dead_code,
+    reason = "shared exact-local harness targets compile only the episode helpers they exercise"
+)]
 pub(super) fn assert_ordinary_admitted_runtime_ready(
     registries: &Registries,
     state: &AppState,

@@ -30,7 +30,7 @@ pub(super) fn assert_tick_events_within(
     let recognized_event_categories = [
         !outcome.production_availability_changes().is_empty(),
         !outcome.production_completions().is_empty(),
-        outcome.ready_mining_job().is_some(),
+        outcome.mining_output().is_some(),
         outcome.player_step().is_some(),
         outcome.surface_gathering().is_some(),
         outcome.manual_power().is_some(),
@@ -97,8 +97,8 @@ fn assert_player_work_events_within(
 ) {
     assert!(
         outcome
-            .ready_mining_job()
-            .is_none_or(|job| allowance.mining_jobs.contains(&job)),
+            .mining_output()
+            .is_none_or(|output| allowance.mining_jobs.contains(&output.job())),
         "gameplay harness {context} crossed an unrelated mining completion"
     );
     assert!(

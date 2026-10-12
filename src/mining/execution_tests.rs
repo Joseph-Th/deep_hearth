@@ -28,9 +28,8 @@ use crate::geology::{
     MaterialAbundanceEstimate, ProspectingResolution, record_prospecting_for_test,
 };
 use crate::inventory::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotSelection, STORAGE_AGE_PARTS_PER_TICK,
-    StockpileId, StockpileStructuralLoadError, add_solid_stockpile_for_test, deposit_lot_for_test,
-    validate_build_storage_enclosure, validate_mount_stockpile,
+    MaterialLotSelection, StockpileId, StockpileStructuralLoadError, add_solid_stockpile_for_test,
+    deposit_lot_for_test, validate_build_storage_enclosure, validate_mount_stockpile,
     validate_start_storage_enclosure_dismantling, validate_unmount_stockpile,
 };
 use crate::labor::{
@@ -46,8 +45,8 @@ use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
 use crate::matter::calculate_matter_accounting;
 use crate::mining::{
-    MiningJobId, MiningJobRecord, MiningJobValidationError, MiningMethodId, MiningTargetRequest,
-    MiningValidationError, resolve_mining_target,
+    MiningJobId, MiningJobRecord, MiningJobValidationError, MiningMethodId, MiningOutputReceipt,
+    MiningTargetRequest, MiningValidationError, resolve_mining_target,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
@@ -76,6 +75,104 @@ fn clay_earth_deposit_spec(mass: Mass, hardness: Pressure) -> GeneratedDepositSp
         MaterialComposition::pure(MATERIAL_CLAY),
     )
     .unwrap_or_else(|error| panic!("clay-earth mining deposit failed: {error}"))
+}
+
+fn complete_mining_job(
+    registries: &Registries,
+    state: &mut AppState,
+    job: MiningJobId,
+    context: &'static str,
+) -> MiningOutputReceipt {
+    let completes_at = state
+        .mining()
+        .get_job(job)
+        .map(MiningJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("{context} mining job disappeared before completion"));
+    let mut receipt = None;
+    while state.tick() < completes_at {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("{context} mining tick failed: {error}"));
+        if let Some(output) = outcome.mining_output() {
+            assert_eq!(
+                output.job(),
+                job,
+                "{context} landed an unrelated mining job"
+            );
+            assert!(
+                receipt.is_none(),
+                "{context} landed mining output more than once"
+            );
+            receipt = Some(output.clone());
+        }
+    }
+    receipt.unwrap_or_else(|| panic!("{context} produced no automatic mining output landing"))
+}
+
+/// Drives a canonical mining job to durable ready custody by making its mounted destination
+/// physically unable to accept the output before the completion tick.
+///
+/// Ordinary gameplay must never need this state. Tests use it to exercise persistence and
+/// recovery contracts for the internal settlement boundary that remains authoritative when a
+/// physical blocker appears after admission.
+fn complete_mining_into_blocked_ready_state(
+    registries: &Registries,
+    state: &mut AppState,
+    job: MiningJobId,
+    destination: StockpileId,
+    context: &'static str,
+) -> StructuralElementId {
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("{context} mining player disappeared"));
+    let support = active_stockpile_support_at(registries, state, position);
+    let _ = validate_mount_stockpile(registries, state, destination, support)
+        .unwrap_or_else(|error| panic!("{context} destination mount failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("{context} destination mount commit failed: {error}"));
+
+    let completes_at = state
+        .mining()
+        .get_job(job)
+        .map(MiningJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("{context} mining job disappeared before blocked completion"));
+    while state.tick().value() + 1 < completes_at.value() {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("{context} mining setup tick failed: {error}"));
+        assert_eq!(outcome.mining_output(), None);
+    }
+
+    let _ = validate_set_structural_load(
+        registries,
+        state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("{context} support overload failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("{context} support overload commit failed: {error}"));
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Failed)
+    );
+
+    let outcome = advance_tick(registries, state)
+        .unwrap_or_else(|error| panic!("{context} blocked completion tick failed: {error}"));
+    assert_eq!(outcome.mining_output(), None);
+    assert!(
+        state
+            .mining()
+            .get_job(job)
+            .is_some_and(MiningJobRecord::is_ready_to_claim),
+        "{context} blocked output must remain in durable mining custody"
+    );
+    assert_eq!(state.player_work().active(), None);
+    support
 }
 
 #[test]
@@ -152,19 +249,7 @@ fn hand_digging_extracts_soft_clay_without_blurring_pick_and_shovel_roles() {
     .unwrap_or_else(|error| panic!("clay digging start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("clay digging commit failed: {error}"));
-    let completes_at = state
-        .mining()
-        .get_job(job)
-        .map(MiningJobRecord::completes_at)
-        .unwrap_or_else(|| panic!("clay digging job disappeared"));
-    while state.tick() < completes_at {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("clay digging tick failed: {error}"));
-    }
-    let receipt = validate_claim_mining_output(&registries, &state, job)
-        .unwrap_or_else(|error| panic!("clay digging claim validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("clay digging claim failed: {error}"));
+    let receipt = complete_mining_job(&registries, &mut state, job, "clay digging");
     assert_eq!(
         receipt.output().commodity(),
         CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)
@@ -314,7 +399,7 @@ fn fatal_tick_cancels_unfinished_mining_without_extraction_but_with_elapsed_tool
     let outcome = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal mining tick failed: {error}"));
 
-    assert_eq!(outcome.ready_mining_job(), None);
+    assert_eq!(outcome.mining_output(), None);
     assert!(state.mining().get_job(job).is_none());
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
@@ -443,33 +528,30 @@ fn fatal_tick_allows_mining_due_that_tick_to_finish_work() {
     while state.tick().value() + 1 < completes_at.value() {
         let outcome = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("fatal due mining setup tick failed: {error}"));
-        assert_eq!(outcome.ready_mining_job(), None);
+        assert_eq!(outcome.mining_output(), None);
     }
     make_next_tick_fatal(&registries, &mut state);
 
     let outcome = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal due mining completion tick failed: {error}"));
 
-    assert_eq!(outcome.ready_mining_job(), Some(job));
+    assert_eq!(
+        outcome.mining_output().map(|output| output.job()),
+        Some(job)
+    );
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
         state.survival().player().map(|player| player.vitality()),
         Some(Vitality::ZERO)
     );
-    assert!(
-        state
-            .mining()
-            .get_job(job)
-            .is_some_and(|record| record.is_ready_to_claim()),
-        "mining due on the fatal tick must enter claim custody"
-    );
+    assert!(state.mining().get_job(job).is_none());
     assert_eq!(
         state
             .inventory()
             .get_stockpile(destination)
             .map(|stockpile| stockpile.reserved_inbound()),
-        Some(output_mass),
-        "ready mining output must retain its reserved claim destination"
+        Some(Mass::ZERO),
+        "mining due on the fatal tick must settle its reserved output automatically"
     );
     assert_eq!(
         state
@@ -573,15 +655,7 @@ fn mining_shortage_is_revealed_only_after_committing_requested_work() {
         "the committed job may reveal its now-irreversible actual output reservation"
     );
 
-    let duration = scarce_record.completes_at().value() - scarce_record.started_at().value();
-    for _ in 0..duration {
-        let _ = advance_tick(&registries, &mut scarce)
-            .unwrap_or_else(|error| panic!("scarce mining completion failed: {error}"));
-    }
-    let receipt = validate_claim_mining_output(&registries, &scarce, scarce_job)
-        .unwrap_or_else(|error| panic!("scarce mining claim validation failed: {error}"))
-        .commit(&mut scarce)
-        .unwrap_or_else(|error| panic!("scarce mining claim failed: {error}"));
+    let receipt = complete_mining_job(&registries, &mut scarce, scarce_job, "scarce mining");
     assert_eq!(receipt.output().mass(), recoverable);
     assert_eq!(
         scarce
@@ -690,18 +764,19 @@ fn mining_order_projection_matches_executed_quarry_batches() {
             .get_job(job)
             .unwrap_or_else(|| panic!("order job missing"))
             .completes_at();
+        let mut receipt = None;
         while state.tick() < completes {
             let outcome = advance_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("order tick failed: {error}"));
             assert_eq!(
-                outcome.ready_mining_job(),
+                outcome.mining_output().map(|output| output.job()),
                 (state.tick() == completes).then_some(job)
             );
+            if state.tick() == completes {
+                receipt = outcome.mining_output().cloned();
+            }
         }
-        let receipt = validate_claim_mining_output(&registries, &state, job)
-            .unwrap_or_else(|error| panic!("order claim failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("order landing failed: {error}"));
+        let receipt = receipt.unwrap_or_else(|| panic!("order mining produced no output receipt"));
         assert_eq!(receipt.output().mass(), requested);
         remaining = remaining
             .checked_sub(requested)

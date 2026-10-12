@@ -70,7 +70,7 @@ use deep_hearth::material::{
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{
     MiningStartError, MiningTargetRequest, MiningTargetResolution, MiningTargetResolutionError,
-    resolve_mining_target, validate_claim_mining_output, validate_start_mining,
+    resolve_mining_target, validate_start_mining,
 };
 use deep_hearth::ore_processing::{
     ComminutionRequest, ComminutionResolutionError, ConstituentSeparationProcessDefinition,

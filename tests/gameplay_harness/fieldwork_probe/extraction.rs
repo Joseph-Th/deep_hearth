@@ -7,9 +7,8 @@ use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::mining::{
-    MiningClaimReceipt, MiningTargetRequest, MiningTargetResolution, MiningTargetResolutionError,
-    ValidatedMiningStart, resolve_mining_target, validate_claim_mining_output,
-    validate_start_mining,
+    MiningOutputReceipt, MiningTargetRequest, MiningTargetResolution, MiningTargetResolutionError,
+    ValidatedMiningStart, resolve_mining_target, validate_start_mining,
 };
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -69,7 +68,7 @@ pub(super) struct FieldworkExtraction {
 }
 
 struct BatchClaim {
-    receipt: MiningClaimReceipt,
+    receipt: MiningOutputReceipt,
     ticks: u64,
     condition_before: Condition,
     condition_after: Condition,
@@ -90,15 +89,19 @@ fn complete_batch(
     let ticks = record.completes_at().value() - record.started_at().value();
     let condition_before = record.equipment_condition_before();
     let condition_after = record.equipment_condition_after();
-    // Only the schedule and wear are observed before the claim, never the reserved output.
+    // Only the schedule and wear are observed before completion, never the reserved output.
+    let mut receipt = None;
     for elapsed in 1..=ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("fieldwork mining tick failed: {error}"));
         assert_eq!(
-            outcome.ready_mining_job(),
+            outcome.mining_output().map(|output| output.job()),
             (elapsed == ticks).then_some(job),
-            "fieldwork readiness diverged from its authoritative schedule"
+            "fieldwork output landing diverged from its authoritative schedule"
         );
+        if elapsed == ticks {
+            receipt = outcome.mining_output().cloned();
+        }
         assert_tick_events_within(
             &outcome,
             TickEventAllowance {
@@ -108,12 +111,8 @@ fn complete_batch(
             "fieldwork mining",
         );
     }
-    let receipt = validate_claim_mining_output(registries, state, job)
-        .unwrap_or_else(|error| panic!("fieldwork mining claim validation failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("fieldwork mining claim commit failed: {error}"));
     BatchClaim {
-        receipt,
+        receipt: receipt.unwrap_or_else(|| panic!("fieldwork mining produced no output receipt")),
         ticks,
         condition_before,
         condition_after,

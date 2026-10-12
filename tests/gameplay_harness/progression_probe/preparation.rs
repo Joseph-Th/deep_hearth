@@ -41,13 +41,14 @@ pub(super) fn finish_mining_work(
     job: deep_hearth::mining::MiningJobId,
     concurrent_production: Option<ProductionJobId>,
     context: &'static str,
-) -> u64 {
+) -> (u64, deep_hearth::mining::MiningOutputReceipt) {
     let record = state
         .mining()
         .get_job(job)
         .unwrap_or_else(|| panic!("primitive progression {context} mining job disappeared"));
     let ticks = duration(record.started_at().value(), record.completes_at().value());
     let concurrent_production_jobs = concurrent_production.as_slice();
+    let mut receipt = None;
     for elapsed in 1..=ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("primitive progression {context} tick failed: {error}"));
@@ -62,9 +63,9 @@ pub(super) fn finish_mining_work(
         );
         if elapsed < ticks {
             assert_eq!(
-                outcome.ready_mining_job(),
+                outcome.mining_output().map(|output| output.job()),
                 None,
-                "primitive progression {context} mining became ready before its validated completion"
+                "primitive progression {context} mining landed output before its validated completion"
             );
             assert_eq!(
                 state.player_work().active(),
@@ -72,14 +73,20 @@ pub(super) fn finish_mining_work(
             );
         } else {
             assert_eq!(
-                outcome.ready_mining_job(),
+                outcome.mining_output().map(|output| output.job()),
                 Some(job),
-                "primitive progression {context} must expose the completed mining job exactly once"
+                "primitive progression {context} must expose the landed mining output exactly once"
             );
+            receipt = outcome.mining_output().cloned();
             assert_eq!(state.player_work().active(), None);
         }
     }
-    ticks
+    (
+        ticks,
+        receipt.unwrap_or_else(|| {
+            panic!("primitive progression {context} mining produced no output receipt")
+        }),
+    )
 }
 
 pub(super) fn multiply_mass(mass: Mass, count: u64, context: &'static str) -> Mass {

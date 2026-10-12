@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::inventory::{
     MaterialLotId, ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest,
     STORAGE_AGE_PARTS_PER_TICK, StockpileId, StockpileStoredMassChange,
@@ -13,12 +14,12 @@ use crate::inventory::{
 };
 use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
-use crate::structural::StructuralCommitError;
 
 use super::super::MiningJobId;
+use super::tick::MiningTickPlan;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MiningClaimError {
+pub(crate) enum MiningClaimError {
     UnknownJob { job: MiningJobId },
     NotReady { job: MiningJobId },
     LotIdExhausted,
@@ -27,16 +28,16 @@ pub enum MiningClaimError {
     StructuralLoad(StockpileStructuralLoadError),
 }
 
-/// Observable result of transferring one ready mining output into inventory custody.
+/// Observable result of transferring one completed mining output into inventory custody.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MiningClaimReceipt {
+pub struct MiningOutputReceipt {
     job: MiningJobId,
     destination: StockpileId,
     output: MaterialLotSpec,
     landed_lot: MaterialLotId,
 }
 
-impl MiningClaimReceipt {
+impl MiningOutputReceipt {
     #[must_use]
     pub const fn job(&self) -> MiningJobId {
         self.job
@@ -47,13 +48,13 @@ impl MiningClaimReceipt {
         self.destination
     }
 
-    /// Returns the exact claimed contribution before any inventory coalescing.
+    /// Returns the exact mined contribution before any inventory coalescing.
     #[must_use]
     pub const fn output(&self) -> &MaterialLotSpec {
         &self.output
     }
 
-    /// Returns the merge-aware inventory identity that survived admission of the claimed output.
+    /// Returns the merge-aware inventory identity that survived admission of the mined output.
     #[must_use]
     pub const fn landed_lot(&self) -> MaterialLotId {
         self.landed_lot
@@ -103,13 +104,14 @@ impl Error for MiningClaimError {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MiningClaimCommitError {
+pub(crate) enum MiningClaimCommitError {
     StaleInventory { expected: u64, actual: u64 },
     StaleMining { expected: u64, actual: u64 },
-    Structure(StructuralCommitError),
 }
 
+#[cfg(test)]
 impl Display for MiningClaimCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -121,27 +123,19 @@ impl Display for MiningClaimCommitError {
                 formatter,
                 "validated mining claim expected mining revision {expected} but current revision is {actual}"
             ),
-            Self::Structure(error) => {
-                write!(
-                    formatter,
-                    "validated mining claim structural commit failed: {error}"
-                )
-            }
         }
     }
 }
 
+#[cfg(test)]
 impl Error for MiningClaimCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::StaleInventory { .. } | Self::StaleMining { .. } => None,
-        }
+        None
     }
 }
 
 #[must_use]
-pub struct ValidatedMiningClaim {
+pub(crate) struct ValidatedMiningClaim {
     job: MiningJobId,
     output: MaterialLotSpec,
     expected_mining_revision: u64,
@@ -151,10 +145,11 @@ pub struct ValidatedMiningClaim {
 }
 
 impl ValidatedMiningClaim {
-    pub fn commit(
+    #[cfg(test)]
+    pub(crate) fn commit(
         self,
         state: &mut AppState,
-    ) -> Result<MiningClaimReceipt, MiningClaimCommitError> {
+    ) -> Result<MiningOutputReceipt, MiningClaimCommitError> {
         if state.inventory().revision() != self.inventory.expected_revision() {
             return Err(MiningClaimCommitError::StaleInventory {
                 expected: self.inventory.expected_revision(),
@@ -173,9 +168,22 @@ impl ValidatedMiningClaim {
             self.expected_mining_revision,
             self.next_mining_revision,
         );
+        Ok(self.apply_prechecked(state))
+    }
+
+    /// Applies a settlement whose complete cross-owner snapshot was already validated for this
+    /// exact state by the canonical tick planner.
+    pub(crate) fn apply_prechecked(self, state: &mut AppState) -> MiningOutputReceipt {
+        self.inventory.assert_matches_state(state.inventory());
+        state.mining().assert_ready_job_removable(
+            self.job,
+            self.expected_mining_revision,
+            self.next_mining_revision,
+        );
         if let Some(load) = self.structural_load {
-            load.commit(state)
-                .map_err(MiningClaimCommitError::Structure)?;
+            load.commit(state).unwrap_or_else(|error| {
+                panic!("prevalidated automatic mining output load failed: {error}")
+            });
         }
         let mut receipts = apply_reserved_deposits(state.inventory_state_mut(), self.inventory);
         assert_eq!(
@@ -201,33 +209,33 @@ impl ValidatedMiningClaim {
             self.expected_mining_revision,
             self.next_mining_revision,
         );
-        Ok(MiningClaimReceipt {
+        MiningOutputReceipt {
             job: self.job,
             destination,
             output: self.output,
             landed_lot,
-        })
+        }
     }
 }
 
-pub fn validate_claim_mining_output(
+fn validate_mining_output_settlement(
     registries: &Registries,
     state: &AppState,
     job: MiningJobId,
+    admitted_at: SimulationTick,
+    expected_mining_revision: u64,
+    mining_immediate_steps: u64,
+    released_mining_future_demand: u64,
 ) -> Result<ValidatedMiningClaim, MiningClaimError> {
     let record = state
         .mining()
         .get_job(job)
         .ok_or(MiningClaimError::UnknownJob { job })?;
-    if !record.is_ready_to_claim() {
-        return Err(MiningClaimError::NotReady { job });
-    }
     let output = record.output().clone();
-    let unclaimed_ticks = state
-        .tick()
+    let unclaimed_ticks = admitted_at
         .checked_duration_since(record.completes_at())
         .unwrap_or_else(|| {
-            panic!("validated ready mining output cannot complete after current time")
+            panic!("validated mining output cannot complete after its inventory admission time")
         });
     let storage_age_parts = u128::from(unclaimed_ticks.value())
         .checked_mul(STORAGE_AGE_PARTS_PER_TICK)
@@ -236,7 +244,7 @@ pub fn validate_claim_mining_output(
         registries,
         state.inventory(),
         record.completes_at(),
-        state.tick(),
+        admitted_at,
         vec![ReservedDepositRequest::new(
             record.destination(),
             vec![output.clone()],
@@ -284,8 +292,10 @@ pub fn validate_claim_mining_output(
         released_structure_demand,
     )
     .map_err(MiningClaimError::StructuralLoad)?;
-    let expected_mining_revision = state.mining().revision();
-    if !state.can_spend_mining_revisions_after_releasing(1, 1) {
+    if !state.can_spend_mining_revisions_after_releasing(
+        mining_immediate_steps,
+        released_mining_future_demand,
+    ) {
         return Err(MiningClaimError::MiningRevisionExhausted);
     }
     let next_mining_revision = expected_mining_revision
@@ -299,6 +309,73 @@ pub fn validate_claim_mining_output(
         inventory,
         structural_load,
     })
+}
+
+#[cfg(test)]
+pub(crate) fn validate_claim_mining_output(
+    registries: &Registries,
+    state: &AppState,
+    job: MiningJobId,
+) -> Result<ValidatedMiningClaim, MiningClaimError> {
+    validate_ready_mining_output_settlement(registries, state, job, state.tick())
+}
+
+pub(crate) fn validate_ready_mining_output_settlement(
+    registries: &Registries,
+    state: &AppState,
+    job: MiningJobId,
+    admitted_at: SimulationTick,
+) -> Result<ValidatedMiningClaim, MiningClaimError> {
+    let record = state
+        .mining()
+        .get_job(job)
+        .ok_or(MiningClaimError::UnknownJob { job })?;
+    if !record.is_ready_to_claim() {
+        return Err(MiningClaimError::NotReady { job });
+    }
+    validate_mining_output_settlement(
+        registries,
+        state,
+        job,
+        admitted_at,
+        state.mining().revision(),
+        1,
+        1,
+    )
+}
+
+/// Plans same-tick inventory settlement for one mining operation that is due to complete now.
+///
+/// Mining completion itself does not mutate inventory or structures, so this plan can bind those
+/// owners before the tick mutates anything. The returned token expects the mining owner revision
+/// immediately after the due job transitions into durable ready custody.
+pub(crate) fn validate_due_mining_output_settlement(
+    registries: &Registries,
+    state: &AppState,
+    plan: MiningTickPlan,
+    admitted_at: SimulationTick,
+) -> Result<ValidatedMiningClaim, MiningClaimError> {
+    let job = plan.job();
+    let record = state
+        .mining()
+        .get_job(job)
+        .ok_or(MiningClaimError::UnknownJob { job })?;
+    if !record.is_working() || record.completes_at() != admitted_at {
+        return Err(MiningClaimError::NotReady { job });
+    }
+    let expected_mining_revision = plan
+        .expected_mining_revision()
+        .checked_add(plan.mining_revision_steps())
+        .ok_or(MiningClaimError::MiningRevisionExhausted)?;
+    validate_mining_output_settlement(
+        registries,
+        state,
+        job,
+        admitted_at,
+        expected_mining_revision,
+        2,
+        2,
+    )
 }
 
 #[cfg(test)]

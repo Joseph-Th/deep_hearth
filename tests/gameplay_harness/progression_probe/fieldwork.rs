@@ -56,16 +56,9 @@ pub(super) fn try_mine_and_claim_resolved(
         mining_record.started_at().value(),
         mining_record.completes_at().value(),
     );
-    assert_eq!(
-        finish_mining_work(registries, state, mining_job, None, "mining"),
-        mining_ticks
-    );
-    let receipt = validate_claim_mining_output(registries, state, mining_job)
-        .unwrap_or_else(|error| panic!("primitive progression mining claim failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("primitive progression mining claim commit failed: {error}")
-        });
+    let (completed_ticks, receipt) =
+        finish_mining_work(registries, state, mining_job, None, "mining");
+    assert_eq!(completed_ticks, mining_ticks);
     Ok(MiningAttemptOutcome {
         ticks: mining_ticks,
         output: receipt.output().mass(),

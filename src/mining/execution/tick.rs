@@ -22,8 +22,9 @@ struct EquipmentConditionChange {
     after: Condition,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct MiningTickPlan {
+    job: MiningJobId,
     expected_revision: u64,
     expected_geology_revision: u64,
     completion_tick: SimulationTick,
@@ -32,6 +33,14 @@ pub(crate) struct MiningTickPlan {
 }
 
 impl MiningTickPlan {
+    pub(crate) const fn job(&self) -> MiningJobId {
+        self.job
+    }
+
+    pub(crate) const fn expected_mining_revision(&self) -> u64 {
+        self.expected_revision
+    }
+
     pub(crate) const fn mining_revision_steps(&self) -> u64 {
         1
     }
@@ -94,6 +103,7 @@ pub(crate) fn decide_mining_tick(
         after: record.equipment_condition_after(),
     });
     Some(MiningTickPlan {
+        job,
         expected_revision,
         expected_geology_revision,
         completion_tick: next_tick,

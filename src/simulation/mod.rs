@@ -24,7 +24,11 @@ use crate::labor::{
     decide_player_work_tick, player_work_exertion,
 };
 use crate::logistics::{PlayerStepOutcome, apply_player_step_tick, decide_player_step_tick};
-use crate::mining::{MiningJobId, apply_mining_tick, decide_mining_tick};
+use crate::mining::{
+    MiningClaimError, MiningOutputReceipt, MiningTickPlan, ValidatedMiningClaim, apply_mining_tick,
+    decide_mining_tick, validate_due_mining_output_settlement,
+    validate_ready_mining_output_settlement,
+};
 use crate::production::{
     CompletionApplication, CompletionPlan, ProcessCompletion, ProductionAvailabilityChange,
     apply_completion_plan, decide_due_completions,
@@ -47,7 +51,7 @@ pub struct TickOutcome {
     tick: SimulationTick,
     production_availability_changes: Vec<ProductionAvailabilityChange>,
     production_completions: Vec<ProcessCompletion>,
-    ready_mining_job: Option<MiningJobId>,
+    mining_output: Option<MiningOutputReceipt>,
     player_step: Option<PlayerStepOutcome>,
     surface_gathering: Option<SurfaceGatheringOutcome>,
     manual_power: Option<ManualPowerOutcome>,
@@ -77,10 +81,10 @@ impl TickOutcome {
         &self.production_completions
     }
 
-    /// Returns the mining job whose labor phase finished this tick and can now be claimed.
+    /// Returns mined matter that landed in inventory custody during this tick.
     #[must_use]
-    pub const fn ready_mining_job(&self) -> Option<MiningJobId> {
-        self.ready_mining_job
+    pub const fn mining_output(&self) -> Option<&MiningOutputReceipt> {
+        self.mining_output.as_ref()
     }
 
     /// Returns the adjacent player locality change completed this tick, if any.
@@ -136,7 +140,7 @@ impl TickOutcome {
             tick: _,
             production_availability_changes,
             production_completions,
-            ready_mining_job,
+            mining_output,
             player_step,
             surface_gathering,
             manual_power,
@@ -148,7 +152,7 @@ impl TickOutcome {
         [
             !production_availability_changes.is_empty(),
             !production_completions.is_empty(),
-            ready_mining_job.is_some(),
+            mining_output.is_some(),
             player_step.is_some(),
             surface_gathering.is_some(),
             manual_power.is_some(),
@@ -200,6 +204,48 @@ fn require_revision_capacity(
         return Err(exhausted);
     }
     Ok(())
+}
+
+fn decide_automatic_mining_output(
+    registries: &Registries,
+    state: &AppState,
+    next_tick: SimulationTick,
+    completion_plan: &CompletionPlan,
+    mining_plan: Option<MiningTickPlan>,
+) -> Result<Option<ValidatedMiningClaim>, TickError> {
+    // Production deposits mutate the same inventory and structural-load owners. Rather than
+    // inventing a second same-tick combined deposit transaction, let mining remain in its durable
+    // ready state and retry settlement on the next tick.
+    if completion_plan.has_inventory_deposits() {
+        return Ok(None);
+    }
+
+    let planned = if let Some(plan) = mining_plan {
+        validate_due_mining_output_settlement(registries, state, plan, next_tick)
+    } else if let Some(job) = state
+        .mining()
+        .jobs()
+        .find(|job| job.is_ready_to_claim())
+        .map(|job| job.id())
+    {
+        validate_ready_mining_output_settlement(registries, state, job, next_tick)
+    } else {
+        return Ok(None);
+    };
+    match planned {
+        Ok(claim) => Ok(Some(claim)),
+        // A support can fail after mining admission. Extraction remains authoritative and the
+        // durable ready state retries automatically after the physical blocker is repaired.
+        Err(MiningClaimError::StructuralLoad(_)) => Ok(None),
+        Err(MiningClaimError::LotIdExhausted) => Err(TickError::MaterialLotIdExhausted),
+        Err(MiningClaimError::InventoryRevisionExhausted) => {
+            Err(TickError::InventoryRevisionExhausted)
+        }
+        Err(MiningClaimError::MiningRevisionExhausted) => Err(TickError::MiningRevisionExhausted),
+        Err(MiningClaimError::UnknownJob { .. } | MiningClaimError::NotReady { .. }) => {
+            unreachable!("automatic mining settlement must target current due or ready work")
+        }
+    }
 }
 
 fn decide_storage_dismantling_after_completions(
@@ -261,6 +307,13 @@ pub fn advance_tick(
     let player_step_plan = decide_player_step_tick(state, next_tick)
         .map_err(|_| TickError::LogisticsRevisionExhausted)?;
     let mining_plan = decide_mining_tick(state, next_tick);
+    let automatic_mining_output = decide_automatic_mining_output(
+        registries,
+        state,
+        next_tick,
+        &completion_plan,
+        mining_plan,
+    )?;
     require_revision_capacity(
         state.mining().revision(),
         [mining_plan
@@ -345,7 +398,8 @@ pub fn advance_tick(
         completions: production_completions,
         availability_changes: production_availability_changes,
     } = apply_completion_plan(state, completion_plan)?;
-    let ready_mining_job = apply_mining_tick(state, mining_plan);
+    let _completed_mining_job = apply_mining_tick(state, mining_plan);
+    let mining_output = automatic_mining_output.map(|claim| claim.apply_prechecked(state));
     let surface_gathering = apply_surface_gathering_tick(state, surface_gathering_plan);
     let player_step = apply_player_step_tick(state, player_step_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
@@ -365,7 +419,7 @@ pub fn advance_tick(
         tick: next_tick,
         production_availability_changes,
         production_completions,
-        ready_mining_job,
+        mining_output,
         player_step,
         surface_gathering,
         manual_power,
