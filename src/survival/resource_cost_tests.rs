@@ -4,7 +4,8 @@ use super::*;
 use crate::core::quantity::Mass;
 use crate::core::time::TickSpan;
 use crate::survival::{
-    DirectConsumptionDefinition, HydrationDefinition, MetabolismDefinition, NutritionDefinition,
+    DirectConsumptionDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
+    NutritionDefinition,
 };
 
 fn physiology(
@@ -24,6 +25,11 @@ fn physiology(
             Volume::from_microliters(1),
             Volume::from_microliters(1),
             TickSpan::new(1),
+        ),
+        LocomotionDefinition::new(
+            TickSpan::new(1),
+            SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
+            SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
         ),
         Mass::from_milligrams(1),
         1,

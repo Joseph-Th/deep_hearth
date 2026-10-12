@@ -207,12 +207,21 @@ pub fn validate_disassemble_equipment(
         .unwrap_or_else(|| unreachable!("equipment headroom check includes disassembly revision"));
     let expected_logistics_revision = state.logistics().revision();
     let logistics_removal = match state.logistics().equipment_position(equipment) {
-        Some(position) => Some((
-            expected_logistics_revision
-                .checked_add(1)
-                .ok_or(EquipmentDisassemblyError::LogisticsRevisionExhausted)?,
-            position,
-        )),
+        Some(position) => {
+            if !state.can_spend_logistics_revisions(1) {
+                return Err(EquipmentDisassemblyError::LogisticsRevisionExhausted);
+            }
+            Some((
+                expected_logistics_revision
+                    .checked_add(1)
+                    .unwrap_or_else(|| {
+                        unreachable!(
+                            "logistics headroom check includes equipment disassembly removal"
+                        )
+                    }),
+                position,
+            ))
+        }
         None => None,
     };
 

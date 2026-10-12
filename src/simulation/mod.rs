@@ -23,6 +23,7 @@ use crate::labor::{
     ManualPowerOutcome, apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
     decide_player_work_tick, player_work_exertion,
 };
+use crate::logistics::{PlayerStepOutcome, apply_player_step_tick, decide_player_step_tick};
 use crate::mining::{MiningJobId, apply_mining_tick, decide_mining_tick};
 use crate::production::{
     CompletionApplication, CompletionPlan, ProcessCompletion, ProductionAvailabilityChange,
@@ -47,6 +48,7 @@ pub struct TickOutcome {
     production_availability_changes: Vec<ProductionAvailabilityChange>,
     production_completions: Vec<ProcessCompletion>,
     ready_mining_job: Option<MiningJobId>,
+    player_step: Option<PlayerStepOutcome>,
     surface_gathering: Option<SurfaceGatheringOutcome>,
     manual_power: Option<ManualPowerOutcome>,
     equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
@@ -79,6 +81,12 @@ impl TickOutcome {
     #[must_use]
     pub const fn ready_mining_job(&self) -> Option<MiningJobId> {
         self.ready_mining_job
+    }
+
+    /// Returns the adjacent player locality change completed this tick, if any.
+    #[must_use]
+    pub const fn player_step(&self) -> Option<PlayerStepOutcome> {
+        self.player_step
     }
 
     /// Returns loose surface matter gathered into ordinary inventory on this tick, if any.
@@ -129,6 +137,7 @@ impl TickOutcome {
             production_availability_changes,
             production_completions,
             ready_mining_job,
+            player_step,
             surface_gathering,
             manual_power,
             equipment_maintenance,
@@ -140,6 +149,7 @@ impl TickOutcome {
             !production_availability_changes.is_empty(),
             !production_completions.is_empty(),
             ready_mining_job.is_some(),
+            player_step.is_some(),
             surface_gathering.is_some(),
             manual_power.is_some(),
             equipment_maintenance.is_some(),
@@ -248,6 +258,8 @@ pub fn advance_tick(
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);
     let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)?;
     let manual_power_plan = decide_manual_power_tick(state, next_tick);
+    let player_step_plan = decide_player_step_tick(state, next_tick)
+        .map_err(|_| TickError::LogisticsRevisionExhausted)?;
     let mining_plan = decide_mining_tick(state, next_tick);
     require_revision_capacity(
         state.mining().revision(),
@@ -335,6 +347,7 @@ pub fn advance_tick(
     } = apply_completion_plan(state, completion_plan)?;
     let ready_mining_job = apply_mining_tick(state, mining_plan);
     let surface_gathering = apply_surface_gathering_tick(state, surface_gathering_plan);
+    let player_step = apply_player_step_tick(state, player_step_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
     let equipment_maintenance = apply_equipment_maintenance_tick(state, equipment_maintenance_plan);
     apply_passive_energy_dissipation(state, passive_energy_plan);
@@ -353,6 +366,7 @@ pub fn advance_tick(
         production_availability_changes,
         production_completions,
         ready_mining_job,
+        player_step,
         surface_gathering,
         manual_power,
         equipment_maintenance,

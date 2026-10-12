@@ -162,9 +162,12 @@ pub fn validate_allocate_ground_stockpile(
         }
     })?;
     let expected_logistics_revision = state.logistics().revision();
+    if !state.can_spend_logistics_revisions(1) {
+        return Err(GroundStockpileAllocationError::LogisticsRevisionExhausted);
+    }
     let next_logistics_revision = expected_logistics_revision
         .checked_add(1)
-        .ok_or(GroundStockpileAllocationError::LogisticsRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("logistics headroom check includes ground allocation"));
     Ok(ValidatedGroundStockpileAllocation {
         expected_logistics_revision,
         next_logistics_revision,

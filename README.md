@@ -61,6 +61,7 @@ establish current reachability.
 | Energy and fluids | `src/energy/`, `src/fluid/`; finite stores and owner validators | [Equipment, labor, survival, energy, and fluids](TECHNICAL_DESIGN.md#equipment-labor-survival-energy-and-fluids) |
 | Structures and spatial support | `src/structural/`, `src/spatial/`; structural validators and analysis | [Structures](TECHNICAL_DESIGN.md#structures) |
 | Loose world matter and gathering | `src/world_generation.rs`, `src/surface/`, `src/labor/`, `src/logistics/`; initial wilderness surface generation, exact-local observation, and `validate_start_surface_gathering` | [Runtime owners](TECHNICAL_DESIGN.md#runtime-owners), [cross-owner edge atlas](TECHNICAL_DESIGN.md#cross-owner-edge-atlas) |
+| Player locality and carrying | `src/logistics/movement.rs`, `src/logistics/`, `src/labor/`, `src/survival/`; `validate_start_player_step` -> `advance_tick` | [cross-owner edge atlas](TECHNICAL_DESIGN.md#cross-owner-edge-atlas) |
 | Textures and shaders | `src/texture/`, `src/shader/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` | [Spatial and presentation boundaries](TECHNICAL_DESIGN.md#spatial-and-presentation-boundaries), [shader contract](assets/shaders/README.md) |
 | Gameplay evaluation | `tests/gameplay_harness/`; production APIs after controlled setup | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) |
 | Verification tooling | `ci.py`, `.cargo/config.toml`, `tools/` | [`TESTING.md`](TESTING.md) |

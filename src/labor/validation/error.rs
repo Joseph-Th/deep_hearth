@@ -18,6 +18,17 @@ pub enum PlayerWorkValidationError {
     WorkWithoutPlayer,
     RevisionExhausted,
     SurvivalRevisionExhausted,
+    StepPlayerNotLocated,
+    StepOriginMismatch {
+        expected: VoxelCoord,
+        actual: VoxelCoord,
+    },
+    StepDestinationNotAdjacent {
+        origin: VoxelCoord,
+        destination: VoxelCoord,
+    },
+    StepScheduleInvalid,
+    StepDurationMismatch,
     SurfaceGatheringMethodMissing,
     SurfaceGatheringResourceMissing,
     SurfaceGatheringResourceDepleted,

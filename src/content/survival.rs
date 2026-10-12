@@ -6,8 +6,8 @@ use crate::core::time::TickSpan;
 use crate::material::CommodityKey;
 use crate::survival::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
-    FoodDefinition, HydrationDefinition, MetabolismDefinition, NutritionDefinition,
-    PhysiologyDefinition, SurvivalRegistry,
+    FoodDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
+    NutritionDefinition, PhysiologyDefinition, SurvivalExertion, SurvivalRegistry,
 };
 
 use super::{
@@ -58,6 +58,17 @@ fn physiology() -> PhysiologyDefinition {
             Volume::from_microliters(MINIMUM_DRINK_VOLUME_UL),
             Volume::from_microliters(MAXIMUM_DRINK_VOLUME_UL),
             TickSpan::new(MAXIMUM_DRINK_DURATION_TICKS),
+        ),
+        LocomotionDefinition::new(
+            TickSpan::new(1),
+            SurvivalExertion::new(
+                Energy::from_nanojoules(600_000_000_000),
+                Volume::from_microliters(150),
+            ),
+            SurvivalExertion::new(
+                Energy::from_nanojoules(1_200_000_000_000),
+                Volume::from_microliters(300),
+            ),
         ),
         Mass::from_milligrams(PLAYER_CARRIED_MASS_CAPACITY_MG),
         25,

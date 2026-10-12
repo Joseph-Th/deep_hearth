@@ -9,8 +9,8 @@ pub use intake::{
     calculate_food_hydration_offer,
 };
 pub use physiology::{
-    DirectConsumptionDefinition, HydrationDefinition, MetabolismDefinition, NutritionDefinition,
-    PhysiologyDefinition,
+    DirectConsumptionDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
+    NutritionDefinition, PhysiologyDefinition,
 };
 pub use registry::SurvivalRegistry;
 

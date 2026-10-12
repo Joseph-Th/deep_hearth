@@ -3,6 +3,16 @@
 use super::*;
 
 #[test]
+fn voxel_face_adjacency_is_exact_and_overflow_safe() {
+    let origin = VoxelCoord::new(0, 0, 0);
+    assert!(origin.is_face_adjacent_to(VoxelCoord::new(1, 0, 0)));
+    assert!(origin.is_face_adjacent_to(VoxelCoord::new(0, -1, 0)));
+    assert!(!origin.is_face_adjacent_to(origin));
+    assert!(!origin.is_face_adjacent_to(VoxelCoord::new(1, 1, 0)));
+    assert!(!VoxelCoord::new(i64::MIN, 0, 0).is_face_adjacent_to(VoxelCoord::new(i64::MAX, 0, 0)));
+}
+
+#[test]
 fn bounds_are_half_open_and_count_voxels_exactly() {
     let bounds = match VoxelBounds::new(VoxelCoord::new(-2, 10, 5), VoxelCoord::new(3, 12, 9)) {
         Ok(bounds) => bounds,

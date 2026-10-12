@@ -3,6 +3,96 @@
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::time::TickSpan;
+use crate::survival::resource_cost::SurvivalExertion;
+
+/// Authored unaided locomotion cost for one open-space voxel step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocomotionDefinition {
+    step_duration: TickSpan,
+    unloaded_exertion: SurvivalExertion,
+    fully_loaded_exertion: SurvivalExertion,
+}
+
+impl LocomotionDefinition {
+    #[must_use]
+    pub fn new(
+        step_duration: TickSpan,
+        unloaded_exertion: SurvivalExertion,
+        fully_loaded_exertion: SurvivalExertion,
+    ) -> Self {
+        assert!(
+            !step_duration.is_zero(),
+            "player step duration must be nonzero"
+        );
+        unloaded_exertion.assert_active_player_work();
+        fully_loaded_exertion.assert_active_player_work();
+        assert!(
+            fully_loaded_exertion.energy_cost_per_tick()
+                >= unloaded_exertion.energy_cost_per_tick(),
+            "fully loaded locomotion cannot cost less metabolic energy than unloaded locomotion"
+        );
+        assert!(
+            fully_loaded_exertion.hydration_loss_per_tick()
+                >= unloaded_exertion.hydration_loss_per_tick(),
+            "fully loaded locomotion cannot lose less hydration than unloaded locomotion"
+        );
+        Self {
+            step_duration,
+            unloaded_exertion,
+            fully_loaded_exertion,
+        }
+    }
+
+    #[must_use]
+    pub const fn step_duration(self) -> TickSpan {
+        self.step_duration
+    }
+
+    #[must_use]
+    pub fn exertion_for_load(self, carried: Mass, capacity: Mass) -> SurvivalExertion {
+        assert!(
+            !capacity.is_zero(),
+            "locomotion carrying capacity must be nonzero"
+        );
+        assert!(
+            carried <= capacity,
+            "locomotion carried mass cannot exceed body capacity"
+        );
+        let numerator = u128::from(carried.milligrams());
+        let denominator = u128::from(capacity.milligrams());
+        let scale = |low: u128, high: u128| {
+            let delta = high.checked_sub(low).unwrap_or_else(|| {
+                unreachable!("locomotion upper cost is validated above lower cost")
+            });
+            low + delta / denominator * numerator + (delta % denominator) * numerator / denominator
+        };
+        let energy = scale(
+            self.unloaded_exertion.energy_cost_per_tick().nanojoules(),
+            self.fully_loaded_exertion
+                .energy_cost_per_tick()
+                .nanojoules(),
+        );
+        let hydration = scale(
+            u128::from(
+                self.unloaded_exertion
+                    .hydration_loss_per_tick()
+                    .microliters(),
+            ),
+            u128::from(
+                self.fully_loaded_exertion
+                    .hydration_loss_per_tick()
+                    .microliters(),
+            ),
+        );
+        SurvivalExertion::new(
+            Energy::from_nanojoules(energy),
+            Volume::from_microliters(
+                u64::try_from(hydration)
+                    .unwrap_or_else(|_| unreachable!("interpolated locomotion hydration fits u64")),
+            ),
+        )
+    }
+}
 
 /// Authored rate at which recent dietary balance fades and can support vitality recovery.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,6 +326,7 @@ pub struct PhysiologyDefinition {
     hydration: HydrationDefinition,
     nutrition: NutritionDefinition,
     direct_consumption: DirectConsumptionDefinition,
+    locomotion: LocomotionDefinition,
     carried_mass_capacity: Mass,
     starvation_vitality_loss_ppm_per_tick: u32,
     dehydration_vitality_loss_ppm_per_tick: u32,
@@ -248,6 +339,7 @@ impl PhysiologyDefinition {
         hydration: HydrationDefinition,
         nutrition: NutritionDefinition,
         direct_consumption: DirectConsumptionDefinition,
+        locomotion: LocomotionDefinition,
         carried_mass_capacity: Mass,
         starvation_vitality_loss_ppm_per_tick: u32,
         dehydration_vitality_loss_ppm_per_tick: u32,
@@ -277,6 +369,7 @@ impl PhysiologyDefinition {
             hydration,
             nutrition,
             direct_consumption,
+            locomotion,
             carried_mass_capacity,
             starvation_vitality_loss_ppm_per_tick,
             dehydration_vitality_loss_ppm_per_tick,
@@ -321,6 +414,11 @@ impl PhysiologyDefinition {
     #[must_use]
     pub const fn direct_consumption(self) -> DirectConsumptionDefinition {
         self.direct_consumption
+    }
+
+    #[must_use]
+    pub const fn locomotion(self) -> LocomotionDefinition {
+        self.locomotion
     }
 
     /// Maximum solid-matter custody the unaided player can carry at once.

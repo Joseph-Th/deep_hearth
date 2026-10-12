@@ -64,6 +64,10 @@ Build world-space action on the existing custody/location model. Logistics owns 
 delivery, access, path cost, and transport resource cost while inventory retains matter custody. Use the same
 model for movement, source acquisition, mounted-production geometry, fluid transport, and equipment transport.
 
+The current timed face-adjacent open-space step establishes ordinary locality change and load-sensitive body
+cost. It deliberately does not claim terrain collision/access, route selection, path cost, or haulage; those
+remaining world authorities should extend this same movement boundary rather than add a teleporting shortcut.
+
 The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
 secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,
 encumbrance, path, exertion, temperature, spoilage, reservations, and commit boundaries remain underneath those
@@ -84,8 +88,8 @@ the entry point; exact physical consequences should remain consequences of those
 prerequisites for learning a special interaction language.
 
 The current explicit-seed spawn generator closes only the initial same-voxel loose stone/timber/forage source
-edge. Treat it as substrate for this slice, not as terrain, ecology, movement/discovery, or hydrology; those
-missing authorities must still make the opening spatially legible and self-sufficient without controlled water.
+edge. Adjacent open-space stepping supplies a real locality transition, but terrain, route/discovery, ecology,
+and hydrology are still missing; those authorities must make the opening spatially legible and self-sufficient.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a

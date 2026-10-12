@@ -321,12 +321,21 @@ pub fn validate_assemble_equipment(
         .unwrap_or_else(|| unreachable!("equipment headroom check includes assembly revision"));
     let expected_logistics_revision = state.logistics().revision();
     let logistics_placement = match state.logistics().player().map(|player| player.position()) {
-        Some(position) => Some((
-            expected_logistics_revision
-                .checked_add(1)
-                .ok_or(EquipmentAssemblyError::LogisticsRevisionExhausted)?,
-            position,
-        )),
+        Some(position) => {
+            if !state.can_spend_logistics_revisions(1) {
+                return Err(EquipmentAssemblyError::LogisticsRevisionExhausted);
+            }
+            Some((
+                expected_logistics_revision
+                    .checked_add(1)
+                    .unwrap_or_else(|| {
+                        unreachable!(
+                            "logistics headroom check includes equipment assembly placement"
+                        )
+                    }),
+                position,
+            ))
+        }
         None => None,
     };
     Ok(ValidatedEquipmentAssembly {

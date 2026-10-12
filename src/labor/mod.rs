@@ -35,8 +35,8 @@ pub use prospecting_projection::{
 pub use state::PlayerWorkState;
 pub use validation::PlayerWorkValidationError;
 pub use work::{
-    DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerWork,
-    ProspectingWork, StorageEnclosureDismantlingWork, SurfaceGatheringWork,
+    DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerStepWork,
+    PlayerWork, ProspectingWork, StorageEnclosureDismantlingWork, SurfaceGatheringWork,
 };
 pub use work_resources::PlayerWorkResourceBudget;
 

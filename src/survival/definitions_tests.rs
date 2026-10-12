@@ -5,6 +5,7 @@ use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volum
 use crate::core::time::TickSpan;
 use crate::fluid::FluidDefinitionId;
 use crate::material::{CommodityKey, FormId, MaterialId};
+use crate::survival::SurvivalExertion;
 
 fn physiology_with_carry(
     carried_mass_capacity: Mass,
@@ -31,6 +32,11 @@ fn physiology_with_carry(
             Volume::from_microliters(1),
             TickSpan::new(1),
         ),
+        LocomotionDefinition::new(
+            TickSpan::new(1),
+            SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
+            SurvivalExertion::new(Energy::from_nanojoules(2), Volume::from_microliters(1)),
+        ),
         carried_mass_capacity,
         starvation_loss,
         dehydration_loss,
@@ -52,6 +58,18 @@ fn physiology_requires_nonzero_carried_mass_capacity_and_exposes_it() {
         std::panic::catch_unwind(|| physiology_with_carry(Mass::ZERO, 1, 1)).is_err(),
         "unaided carrying must remain an authored nonzero body capability"
     );
+}
+
+#[test]
+fn locomotion_cost_scales_with_carried_mass() {
+    let definition = physiology_with_carry(Mass::from_milligrams(10), 1, 1).locomotion();
+    let unloaded = definition.exertion_for_load(Mass::ZERO, Mass::from_milligrams(10));
+    let half = definition.exertion_for_load(Mass::from_milligrams(5), Mass::from_milligrams(10));
+    let full = definition.exertion_for_load(Mass::from_milligrams(10), Mass::from_milligrams(10));
+    assert_eq!(unloaded.energy_cost_per_tick(), Energy::from_nanojoules(1));
+    assert_eq!(half.energy_cost_per_tick(), Energy::from_nanojoules(1));
+    assert_eq!(full.energy_cost_per_tick(), Energy::from_nanojoules(2));
+    assert_eq!(full.hydration_loss_per_tick(), Volume::from_microliters(1));
 }
 
 #[test]

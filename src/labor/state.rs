@@ -38,6 +38,24 @@ impl PlayerWorkState {
     }
 
     #[must_use]
+    pub(crate) const fn future_logistics_revision_demand(&self) -> u64 {
+        match self.active {
+            Some(work) => work.future_logistics_revision_demand(),
+            None => 0,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn player_step_due_at(
+        &self,
+        tick: SimulationTick,
+    ) -> Option<crate::labor::PlayerStepWork> {
+        self.active
+            .and_then(PlayerWork::step)
+            .filter(|work| work.completes_at() == tick)
+    }
+
+    #[must_use]
     pub(crate) fn get_prospecting_equipment_occupant(
         &self,
         equipment: EquipmentId,

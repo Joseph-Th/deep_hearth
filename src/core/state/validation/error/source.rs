@@ -189,6 +189,8 @@ impl Error for StateValidationError {
             | Self::ProductionStructureRevisionCapacityExhausted { .. }
             | Self::FutureMaterialLotIdCapacityExhausted { .. }
             | Self::FutureMaterialLotIdDemandOverflow
+            | Self::FutureLogisticsRevisionCapacityExhausted { .. }
+            | Self::FutureLogisticsRevisionDemandOverflow
             | Self::FutureInventoryRevisionCapacityExhausted { .. }
             | Self::FutureInventoryRevisionDemandOverflow
             | Self::FutureEnergyRevisionCapacityExhausted { .. }

@@ -43,6 +43,17 @@ fn assert_player_work_fits_reserves(
 
 pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: &RegistryDomains) {
     let physiology = domains.survival.physiology();
+    let locomotion = physiology.locomotion();
+    assert_player_work_fits_reserves(
+        physiology,
+        locomotion.exertion_for_load(
+            physiology.carried_mass_capacity(),
+            physiology.carried_mass_capacity(),
+        ),
+        locomotion.step_duration(),
+        "player locomotion",
+        1,
+    );
     validate_manual_power_operability(core, domains, physiology);
     validate_mining_operability(core, domains, physiology);
     validate_manual_craft_operability(core, domains, physiology);

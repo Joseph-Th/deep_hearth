@@ -39,6 +39,17 @@ impl VoxelCoord {
     pub const fn z(self) -> i64 {
         self.z
     }
+
+    /// Reports whether another voxel shares exactly one face with this voxel.
+    ///
+    /// The widened subtraction avoids signed-coordinate overflow at world-coordinate extremes.
+    #[must_use]
+    pub fn is_face_adjacent_to(self, other: Self) -> bool {
+        let dx = (i128::from(other.x) - i128::from(self.x)).abs();
+        let dy = (i128::from(other.y) - i128::from(self.y)).abs();
+        let dz = (i128::from(other.z) - i128::from(self.z)).abs();
+        dx + dy + dz == 1
+    }
 }
 
 #[derive(Deserialize)]

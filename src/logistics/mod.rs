@@ -2,8 +2,8 @@
 //!
 //! Logistics owns *where* the player and carried custody are. Inventory remains authoritative for
 //! the carried stockpile's lots, capacity, temperature, preservation, and matter accounting.
-//! Logistics intentionally does not expose movement or arbitrary stockpile transfer: those need
-//! world access/path authorization rather than inventory-level teleportation.
+//! Logistics exposes only a face-adjacent open-space player step. Terrain/path authorization and
+//! arbitrary stockpile transport remain separate missing world-space responsibilities.
 
 mod access;
 #[cfg(feature = "test-gameplay")]
@@ -11,6 +11,7 @@ mod fixture;
 mod fluid;
 mod ground;
 mod initialization;
+mod movement;
 mod state;
 mod validation;
 
@@ -41,6 +42,11 @@ pub(crate) use initialization::{
     InitializePlayerLogisticsCommitError, InitializePlayerLogisticsError,
     ValidatedPlayerLogisticsInitialization, validate_player_logistics_initialization,
 };
+pub use movement::{
+    PlayerStepCommitError, PlayerStepError, PlayerStepOutcome, ValidatedPlayerStepStart,
+    validate_start_player_step,
+};
+pub(crate) use movement::{apply_player_step_tick, decide_player_step_tick};
 pub use state::{
     LogisticsState, PlayerCarryingAssessment, PlayerLogisticsRecord, assess_player_carrying,
 };

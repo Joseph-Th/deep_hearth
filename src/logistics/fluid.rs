@@ -208,9 +208,12 @@ pub fn validate_place_fluid_store(
         });
     }
     let expected_logistics_revision = state.logistics().revision();
+    if !state.can_spend_logistics_revisions(1) {
+        return Err(FluidStorePlacementError::LogisticsRevisionExhausted);
+    }
     let next_logistics_revision = expected_logistics_revision
         .checked_add(1)
-        .ok_or(FluidStorePlacementError::LogisticsRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("logistics headroom check includes fluid placement"));
     Ok(ValidatedFluidStorePlacement {
         store,
         position,

@@ -240,12 +240,21 @@ pub fn validate_disassemble_energy_store(
     });
     let expected_logistics_revision = state.logistics().revision();
     let logistics_removal = match state.logistics().energy_store_position(store) {
-        Some(position) => Some((
-            expected_logistics_revision
-                .checked_add(1)
-                .ok_or(EnergyStoreDisassemblyError::LogisticsRevisionExhausted)?,
-            position,
-        )),
+        Some(position) => {
+            if !state.can_spend_logistics_revisions(1) {
+                return Err(EnergyStoreDisassemblyError::LogisticsRevisionExhausted);
+            }
+            Some((
+                expected_logistics_revision
+                    .checked_add(1)
+                    .unwrap_or_else(|| {
+                        unreachable!(
+                            "logistics headroom check includes energy-store disassembly removal"
+                        )
+                    }),
+                position,
+            ))
+        }
         None => None,
     };
 

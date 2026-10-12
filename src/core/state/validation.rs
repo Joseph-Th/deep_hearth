@@ -125,6 +125,18 @@ pub fn validate_loaded_state(
 }
 
 fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidationError> {
+    let logistics_required = state
+        .checked_future_logistics_revision_demand()
+        .ok_or(StateValidationError::FutureLogisticsRevisionDemandOverflow)?;
+    let logistics_revision = state.logistics().revision();
+    if logistics_revision.checked_add(logistics_required).is_none() {
+        return Err(
+            StateValidationError::FutureLogisticsRevisionCapacityExhausted {
+                revision: logistics_revision,
+                required: logistics_required,
+            },
+        );
+    }
     let material_lot_ids_required = state
         .checked_future_material_lot_id_demand()
         .ok_or(StateValidationError::FutureMaterialLotIdDemandOverflow)?;

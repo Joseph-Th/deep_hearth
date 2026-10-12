@@ -21,6 +21,11 @@ impl Error for PlayerWorkValidationError {
             Self::WorkWithoutPlayer
             | Self::RevisionExhausted
             | Self::SurvivalRevisionExhausted
+            | Self::StepPlayerNotLocated
+            | Self::StepOriginMismatch { .. }
+            | Self::StepDestinationNotAdjacent { .. }
+            | Self::StepScheduleInvalid
+            | Self::StepDurationMismatch
             | Self::SurfaceGatheringMethodMissing
             | Self::SurfaceGatheringResourceMissing
             | Self::SurfaceGatheringResourceDepleted

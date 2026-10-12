@@ -313,12 +313,21 @@ pub fn validate_assemble_energy_store(
         .unwrap_or_else(|| unreachable!("energy headroom check includes store assembly revision"));
     let expected_logistics_revision = state.logistics().revision();
     let logistics_placement = match state.logistics().player().map(|player| player.position()) {
-        Some(position) => Some((
-            expected_logistics_revision
-                .checked_add(1)
-                .ok_or(EnergyStoreAssemblyError::LogisticsRevisionExhausted)?,
-            position,
-        )),
+        Some(position) => {
+            if !state.can_spend_logistics_revisions(1) {
+                return Err(EnergyStoreAssemblyError::LogisticsRevisionExhausted);
+            }
+            Some((
+                expected_logistics_revision
+                    .checked_add(1)
+                    .unwrap_or_else(|| {
+                        unreachable!(
+                            "logistics headroom check includes energy-store assembly placement"
+                        )
+                    }),
+                position,
+            ))
+        }
         None => None,
     };
     Ok(ValidatedEnergyStoreAssembly {

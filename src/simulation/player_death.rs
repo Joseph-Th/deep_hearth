@@ -131,7 +131,8 @@ pub(super) fn decide_player_death_effects(
             Ok(decide_equipment_maintenance_interruption(state, next_tick)
                 .map(PlayerDeathEffectPlan::EquipmentMaintenance))
         }
-        PlayerWork::ManualProduction { .. }
+        PlayerWork::Step { .. }
+        | PlayerWork::ManualProduction { .. }
         | PlayerWork::Eating { .. }
         | PlayerWork::Drinking { .. } => Ok(None),
     }

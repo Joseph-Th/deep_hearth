@@ -3,7 +3,7 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::logistics::validate_player_stockpile_access;
+use crate::logistics::{assess_player_carrying, validate_player_stockpile_access};
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
@@ -108,6 +108,14 @@ pub(crate) fn validate_loaded_player_work(
     let available_energy = player.metabolic_energy();
     let available_hydration = player.hydration();
     match work {
+        PlayerWork::Step { work } => validate_player_step_work(
+            registries,
+            state,
+            &active_jobs,
+            work,
+            available_energy,
+            available_hydration,
+        ),
         PlayerWork::SurfaceGathering { work } => validate_surface_gathering_work(
             registries,
             state,
@@ -172,6 +180,48 @@ pub(crate) fn validate_loaded_player_work(
         }
     }?;
     validate_direct_consumption_binding(state, Some(work))
+}
+
+fn validate_player_step_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    work: crate::labor::PlayerStepWork,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    if active_jobs.has_any() {
+        return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+    }
+    let carrying =
+        assess_player_carrying(state).ok_or(PlayerWorkValidationError::StepPlayerNotLocated)?;
+    if carrying.position() != work.origin() {
+        return Err(PlayerWorkValidationError::StepOriginMismatch {
+            expected: work.origin(),
+            actual: carrying.position(),
+        });
+    }
+    if !work.origin().is_face_adjacent_to(work.destination()) {
+        return Err(PlayerWorkValidationError::StepDestinationNotAdjacent {
+            origin: work.origin(),
+            destination: work.destination(),
+        });
+    }
+    let schedule =
+        project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
+            .ok_or(PlayerWorkValidationError::StepScheduleInvalid)?;
+    let locomotion = registries.survival().physiology().locomotion();
+    if schedule.duration != locomotion.step_duration() {
+        return Err(PlayerWorkValidationError::StepDurationMismatch);
+    }
+    validate_remaining_resources(
+        registries,
+        state,
+        available_energy,
+        available_hydration,
+        locomotion.exertion_for_load(carrying.stored(), carrying.capacity()),
+        schedule.remaining,
+    )
 }
 
 fn collect_active_player_jobs(registries: &Registries, state: &AppState) -> ActivePlayerJobs {
