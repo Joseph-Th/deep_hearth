@@ -25,6 +25,7 @@ impl Error for PlayerWorkValidationError {
             | Self::StepOriginMismatch { .. }
             | Self::StepDestinationNotAdjacent { .. }
             | Self::StepDestinationInaccessible { .. }
+            | Self::StepProductionSiteConflict { .. }
             | Self::StepMiningSettlementPending { .. }
             | Self::StepScheduleInvalid
             | Self::StepDurationMismatch

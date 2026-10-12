@@ -31,6 +31,11 @@ impl Display for PlayerWorkValidationError {
                 "player step from ({},{},{}) to ({},{},{}) lacks persisted traversal authorization",
                 origin.x(), origin.y(), origin.z(), destination.x(), destination.y(), destination.z()
             ),
+            Self::StepProductionSiteConflict { job } => write!(
+                formatter,
+                "player step cannot persist while production job {} retains carried output custody at the step origin",
+                job.value()
+            ),
             Self::StepMiningSettlementPending { job } => write!(
                 formatter,
                 "player step cannot persist while mining job {} still awaits settlement into carried custody",

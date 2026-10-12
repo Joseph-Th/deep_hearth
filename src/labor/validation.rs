@@ -4,6 +4,7 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::logistics::{assess_player_carrying, validate_player_stockpile_access};
+use crate::production::player_move_production_site_conflict;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
@@ -215,6 +216,11 @@ fn validate_player_step_work(
             origin: work.origin(),
             destination: work.destination(),
         });
+    }
+    if let Some(job) =
+        player_move_production_site_conflict(state, carrying.stockpile(), work.destination())
+    {
+        return Err(PlayerWorkValidationError::StepProductionSiteConflict { job });
     }
     if let Some(job) = state
         .mining()
