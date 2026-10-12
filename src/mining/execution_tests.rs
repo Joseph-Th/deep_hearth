@@ -11,7 +11,9 @@ use crate::content::{
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Pressure, Temperature, Volume};
-use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+use crate::core::state::{
+    AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
+};
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::crafting::{
     ManualCraftStartRequest, StartManualCraftError, validate_start_manual_craft,
@@ -33,13 +35,15 @@ use crate::inventory::{
     validate_start_storage_enclosure_dismantling, validate_unmount_stockpile,
 };
 use crate::labor::{
-    PlayerWork, PlayerWorkStartError, PlayerWorkValidationError,
-    calculate_player_work_resource_budget,
+    PlayerWork, PlayerWorkStartError, PlayerWorkValidationError, apply_player_work_tick,
+    calculate_player_work_resource_budget, decide_player_work_tick,
 };
 use crate::logistics::{
-    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_allocate_ground_stockpile,
+    PlayerEquipmentAccessError, PlayerStepError, PlayerStockpileAccessError,
+    add_traversable_edge_for_test, validate_allocate_ground_stockpile,
     validate_allocate_player_ground_stockpile, validate_initialize_player_logistics,
     validate_place_ground_stockpile, validate_player_logistics_initialization,
+    validate_start_player_step,
 };
 use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
@@ -1120,6 +1124,153 @@ fn ordinary_unstarted_mining_fixture() -> (
         &[pick],
     );
     (registries, state, deposit, destination, pick)
+}
+
+fn awaiting_carried_mining_settlement_fixture()
+-> (Registries, AppState, MiningJobId, StockpileId, VoxelCoord) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("carried-settlement survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("carried-settlement deposit failed: {error}"));
+    let position = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds().min())
+        .unwrap_or_else(|| panic!("carried-settlement deposit disappeared"));
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("carried-settlement logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("carried-settlement logistics commit failed: {error}"));
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| panic!("carried-settlement player disappeared"));
+    let logistics_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        logistics_revision,
+        logistics_revision + 1,
+        pick,
+        position,
+    );
+    let step_destination = VoxelCoord::new(position.x() + 1, position.y(), position.z());
+    add_traversable_edge_for_test(&mut state, position, step_destination);
+
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        carried,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("carried-settlement mining start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("carried-settlement mining start commit failed: {error}"));
+    let completes_at = state
+        .mining()
+        .get_job(job)
+        .map(MiningJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("carried-settlement mining job disappeared"));
+    while state.tick().value() + 1 < completes_at.value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("carried-settlement setup tick failed: {error}"));
+        assert_eq!(outcome.mining_output(), None);
+    }
+
+    let mining_plan = decide_mining_tick(&state, completes_at);
+    let player_work_plan = decide_player_work_tick(&registries, &state, completes_at, &[], false)
+        .unwrap_or_else(|error| panic!("carried-settlement player-work release failed: {error:?}"));
+    assert_eq!(apply_mining_tick(&mut state, mining_plan), Some(job));
+    apply_player_work_tick(&mut state, player_work_plan);
+    apply_clock_advance(&mut state, completes_at);
+    assert!(
+        state
+            .mining()
+            .get_job(job)
+            .is_some_and(MiningJobRecord::is_awaiting_settlement)
+    );
+    assert_eq!(state.player_work().active(), None);
+    (registries, state, job, carried, step_destination)
+}
+
+#[test]
+fn player_cannot_move_carried_custody_before_pending_mining_settlement() {
+    let (registries, mut state, job, carried, step_destination) =
+        awaiting_carried_mining_settlement_fixture();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_player_step(&registries, &state, step_destination).err(),
+        Some(PlayerStepError::MiningSettlementPending {
+            stockpile: carried,
+            job,
+        })
+    );
+    assert_eq!(state, before);
+
+    let settled = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("carried-settlement retry tick failed: {error}"));
+    assert_eq!(
+        settled.mining_output().map(|output| output.job()),
+        Some(job)
+    );
+    assert!(state.mining().get_job(job).is_none());
+    assert!(
+        validate_start_player_step(&registries, &state, step_destination).is_ok(),
+        "movement should become available as soon as pending carried output settles"
+    );
+}
+
+#[test]
+fn trusted_load_rejects_player_step_during_pending_carried_mining_settlement() {
+    let (registries, state, job, _carried, step_destination) =
+        awaiting_carried_mining_settlement_fixture();
+    let origin = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("carried-settlement load fixture lost player"));
+    let started_at = state.tick();
+    let completes_at = started_at
+        .checked_add_span(
+            registries
+                .survival()
+                .physiology()
+                .locomotion()
+                .step_duration(),
+        )
+        .unwrap_or_else(|| panic!("carried-settlement load step schedule overflowed"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("carried-settlement load serialization failed: {error}"));
+    encoded["state"]["systems"]["player_work"]["active"] = serde_json::json!({
+        "Step": {
+            "work": {
+                "origin": {"x": origin.x(), "y": origin.y(), "z": origin.z()},
+                "destination": {
+                    "x": step_destination.x(),
+                    "y": step_destination.y(),
+                    "z": step_destination.z()
+                },
+                "started_at": started_at.value(),
+                "completes_at": completes_at.value()
+            }
+        }
+    });
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("carried-settlement load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::StepMiningSettlementPending { job }
+        )))
+    );
 }
 
 #[test]

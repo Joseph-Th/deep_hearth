@@ -8,6 +8,7 @@ use crate::logistics::{
 };
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::{CommodityKey, MaterialId};
+use crate::mining::MiningJobId;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
 mod display;
@@ -30,6 +31,9 @@ pub enum PlayerWorkValidationError {
     StepDestinationInaccessible {
         origin: VoxelCoord,
         destination: VoxelCoord,
+    },
+    StepMiningSettlementPending {
+        job: MiningJobId,
     },
     StepScheduleInvalid,
     StepDurationMismatch,

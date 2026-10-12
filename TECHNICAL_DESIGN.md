@@ -226,7 +226,7 @@ semantic entry point; inspect its implementation and adjacent tests before readi
 | Hidden geology -> acquired knowledge | `validate_start_field_prospecting` -> tick | Player work owns the timed action; completion records bounded actor-safe observations in `GeologicalKnowledgeState`. Hidden deposit identity never enters the observation. |
 | Acquired knowledge -> extraction authorization | `resolve_mining_target` | Produces actor-safe `MiningTargetResolution` from legitimate evidence without transferring custody or exposing hidden deposit identity. |
 | Geology + equipment + labor -> mining work -> inventory | `validate_start_mining` -> `advance_tick` | Admission binds requested effort, tool, destination, labor, logistics, and output reservation in `MiningJobRecord`. Completion extracts the bound matter and ordinarily settles it directly into the reserved inventory destination; `MiningOutputReceipt` on `TickOutcome::mining_output()` reports the exact contribution plus its merge-aware surviving lot identity. |
-| Mining recovery custody -> inventory | crate-owned `advance_tick` settlement retry | If a post-admission physical blocker prevents landing, extracted matter remains in durable mining-owned awaiting-settlement custody with its reservation and future headroom. Later ticks retry the internal settlement automatically after the blocker clears. Recovery yields for that tick when production, surface gathering, enclosure dismantling, or fatal-work cancellation already owns an inventory mutation, then retries afterward rather than invalidating another owner's revision-bound plan. This boundary is not a second player command. |
+| Mining recovery custody -> inventory | crate-owned `advance_tick` settlement retry | If a post-admission physical blocker or same-tick inventory owner prevents landing, extracted matter remains in durable mining-owned awaiting-settlement custody with its reservation and future headroom. Later ticks retry the internal settlement automatically after the blocker clears. Recovery yields for that tick when production, surface gathering, enclosure dismantling, or fatal-work cancellation already owns an inventory mutation, then retries afterward rather than invalidating another owner's revision-bound plan. If the reserved destination is carried custody, player movement waits for that retry so unsettled matter cannot change world locality or enter the moving load after locomotion cost was projected. This boundary is not a second player command. |
 | Local ground storage <-> player-carried inventory | `validate_place_player_storage` / `AppState::available_local_ground_stockpiles` -> `validate_pickup_from_ground` / `validate_drop_to_ground` | Finished authored storage placement consumes its exact enclosure body from carried custody, derives authored capacity, allocates the target at the admitted player's exact voxel, and applies the storage profile as one player action; the empty target allocation is an internal transaction rather than a visible placement step. Observation exposes stationary stockpiles only at that voxel and excludes carried custody. Logistics proves same-voxel transfer access; inventory owns exact selected-lot relocation and storage semantics. Coordinate-taking and empty-loose-stockpile allocators remain lower-level world/bootstrap boundaries. |
 | Local equipment -> player operation | `AppState::available_local_equipment` -> operation-specific resolver/validator | Observation exposes equipment only at the admitted player's exact voxel and does not authorize use. Actor policy may select a local tool or machine from current definition/condition state without retaining a fixture or assembly identity; the owning operation rechecks locality, occupancy, condition, support, and capability at admission. |
 | Inventory + providers -> production work | resolver-specific `Resolved*` / `ProcessResolution` -> `validate_start_process*` | Start moves exact input into production work-in-process and binds output reservations, provider occupancy, finite-energy consequences, and site coherence in the durable job. |
@@ -351,7 +351,9 @@ and destination store. Production uses an actor-independent same-site rule: ever
 endpoint in one admitted job must agree on a voxel. Validation tokens bind logistics revision where location can
 invalidate admission. Player movement projects carried output destinations at the destination voxel and rejects a
 step that would split an admitted production site; process admission and commit likewise cannot add a new output
-reservation to carried custody while that custody is already in transit.
+reservation to carried custody while that custody is already in transit. Movement also rejects carried custody
+with completed mining output still awaiting automatic settlement, preserving both extraction locality and the
+load-sensitive locomotion budget until the reserved parcel has actually landed.
 
 Movement, pathing, haulage cost, automatic proximity search, generic stockpile/equipment/energy/fluid transport,
 and mounted-production site/contact geometry are absent.
@@ -394,9 +396,10 @@ admission permits only a destination whose containment accepts every representab
 temperature limit cannot be used as a read-only probe of hidden geology. Geology retains matter custody during
 labor. Completion extracts the slice and ordinarily settles it directly into the reserved inventory destination,
 returning the exact contribution and merge-aware landing identity through `TickOutcome::mining_output()`. If a
-post-admission structural condition prevents that landing, the slice remains in mining-owned awaiting-settlement custody with
-its reservation and future headroom until a later tick can retry the crate-owned settlement. The recovery phase
-is durable for continuation safety but is not exposed as a separate player action.
+post-admission structural condition or same-tick inventory owner prevents that landing, the slice remains in
+mining-owned awaiting-settlement custody with its reservation and future headroom until a later tick can retry the
+crate-owned settlement. Carried destinations cannot move during that interval. The recovery phase is durable for
+continuation safety but is not exposed as a separate player action.
 
 ## Production and processing
 

@@ -59,6 +59,18 @@ impl MiningState {
         })
     }
 
+    /// Returns the lowest-ID completed mining job still awaiting automatic settlement into one
+    /// destination.
+    pub(crate) fn awaiting_settlement_destination_occupant(
+        &self,
+        destination: StockpileId,
+    ) -> Option<MiningJobId> {
+        self.jobs
+            .values()
+            .find(|job| job.destination() == destination && job.is_awaiting_settlement())
+            .map(|job| job.id())
+    }
+
     /// Returns retained outputs whose current destination support makes settlement structurally mutating.
     ///
     /// An unmounted stockpile can receive its reserved matter without changing structure state.

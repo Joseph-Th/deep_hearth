@@ -10,6 +10,7 @@ use crate::labor::{
     PlayerStepWork, PlayerWork, PlayerWorkCommitError, PlayerWorkStartError,
     ValidatedPlayerWorkStart, validate_player_work_start,
 };
+use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, player_move_production_site_conflict};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -32,6 +33,10 @@ pub enum PlayerStepError {
     ProductionSiteConflict {
         stockpile: StockpileId,
         job: ProductionJobId,
+    },
+    MiningSettlementPending {
+        stockpile: StockpileId,
+        job: MiningJobId,
     },
     PlayerWork(PlayerWorkStartError),
 }
@@ -80,6 +85,12 @@ impl Display for PlayerStepError {
                 stockpile.value(),
                 job.value()
             ),
+            Self::MiningSettlementPending { stockpile, job } => write!(
+                formatter,
+                "player step cannot move carried stockpile {} while mining job {} still awaits automatic settlement into it",
+                stockpile.value(),
+                job.value()
+            ),
             Self::PlayerWork(error) => {
                 write!(formatter, "player step cannot reserve labor: {error}")
             }
@@ -96,7 +107,8 @@ impl Error for PlayerStepError {
             | Self::DestinationInaccessible { .. }
             | Self::CompletionTickOverflow
             | Self::LogisticsRevisionExhausted
-            | Self::ProductionSiteConflict { .. } => None,
+            | Self::ProductionSiteConflict { .. }
+            | Self::MiningSettlementPending { .. } => None,
         }
     }
 }
@@ -116,6 +128,10 @@ pub enum PlayerStepCommitError {
         stockpile: StockpileId,
         job: ProductionJobId,
     },
+    MiningSettlementPending {
+        stockpile: StockpileId,
+        job: MiningJobId,
+    },
     PlayerWork(PlayerWorkCommitError),
 }
 
@@ -132,7 +148,8 @@ impl Error for PlayerStepCommitError {
             Self::StaleLogisticsRevision { .. }
             | Self::PlayerPositionChanged { .. }
             | Self::PlayerDisappeared
-            | Self::ProductionSiteConflict { .. } => None,
+            | Self::ProductionSiteConflict { .. }
+            | Self::MiningSettlementPending { .. } => None,
         }
     }
 }
@@ -178,6 +195,15 @@ impl ValidatedPlayerStepStart {
                 job,
             });
         }
+        if let Some(job) = state
+            .mining()
+            .awaiting_settlement_destination_occupant(player.carried_stockpile())
+        {
+            return Err(PlayerStepCommitError::MiningSettlementPending {
+                stockpile: player.carried_stockpile(),
+                job,
+            });
+        }
         self.player_work
             .precheck(state)
             .map_err(PlayerStepCommitError::PlayerWork)?;
@@ -213,6 +239,15 @@ pub fn validate_start_player_step(
         player_move_production_site_conflict(state, carrying.stockpile(), destination)
     {
         return Err(PlayerStepError::ProductionSiteConflict {
+            stockpile: carrying.stockpile(),
+            job,
+        });
+    }
+    if let Some(job) = state
+        .mining()
+        .awaiting_settlement_destination_occupant(carrying.stockpile())
+    {
+        return Err(PlayerStepError::MiningSettlementPending {
             stockpile: carrying.stockpile(),
             job,
         });
@@ -293,6 +328,13 @@ pub(crate) fn decide_player_step_tick(
     assert!(
         player_move_production_site_conflict(state, carried, work.destination()).is_none(),
         "runtime invariant broken: active player step would split a retained production site"
+    );
+    assert!(
+        state
+            .mining()
+            .awaiting_settlement_destination_occupant(carried)
+            .is_none(),
+        "runtime invariant broken: active player step would move carried custody before mining settlement"
     );
     let expected_logistics_revision = state.logistics().revision();
     let next_logistics_revision = expected_logistics_revision.checked_add(1).ok_or(())?;

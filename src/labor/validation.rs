@@ -216,6 +216,12 @@ fn validate_player_step_work(
             destination: work.destination(),
         });
     }
+    if let Some(job) = state
+        .mining()
+        .awaiting_settlement_destination_occupant(carrying.stockpile())
+    {
+        return Err(PlayerWorkValidationError::StepMiningSettlementPending { job });
+    }
     let schedule =
         project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
             .ok_or(PlayerWorkValidationError::StepScheduleInvalid)?;
