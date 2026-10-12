@@ -2,7 +2,7 @@
 
 use crate::content::build_registries;
 use crate::content::{FORM_LOG, MATERIAL_WOOD};
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::inventory::deposit_lot_for_test;
 use crate::labor::PlayerWorkValidationError;
@@ -15,7 +15,7 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
-use crate::survival::project_survival_resource_budget;
+use crate::survival::{Vitality, player_record, project_survival_resource_budget};
 
 use super::*;
 
@@ -54,6 +54,29 @@ fn admitted_state(
     (registries, state)
 }
 
+fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut AppState) {
+    let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("movement fatality fixture lost survival player"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+}
+
 #[test]
 fn adjacent_player_step_without_access_edge_is_rejected_without_mutation() {
     let registries = build_registries();
@@ -74,6 +97,36 @@ fn adjacent_player_step_without_access_edge_is_rejected_without_mutation() {
         })
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn player_step_due_on_fatal_tick_completes_before_attention_release() {
+    let origin = VoxelCoord::new(0, 0, 0);
+    let destination = VoxelCoord::new(1, 0, 0);
+    let (registries, mut state) = admitted_state(origin, destination);
+    validate_start_player_step(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("fatal movement validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fatal movement commit failed: {error}"));
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal movement tick failed: {error}"));
+
+    assert_eq!(
+        outcome.player_step().map(PlayerStepOutcome::destination),
+        Some(destination)
+    );
+    assert_eq!(
+        state.logistics().player().map(|player| player.position()),
+        Some(destination)
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
