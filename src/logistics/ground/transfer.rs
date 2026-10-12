@@ -9,6 +9,7 @@ use crate::inventory::{
     MaterialRelocationError, StockpileId, ValidatedMaterialRelocation,
     validate_explicit_consumption_selection, validate_material_relocation_from_selection,
 };
+use crate::labor::PlayerWork;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -26,6 +27,7 @@ pub enum GroundMaterialTransferError {
         ground: VoxelCoord,
         player: VoxelCoord,
     },
+    PickupDuringPlayerStep,
     Selection(ExplicitConsumptionSelectionError),
     Inventory(MaterialRelocationError),
 }
@@ -56,6 +58,9 @@ impl Display for GroundMaterialTransferError {
                 player.y(),
                 player.z()
             ),
+            Self::PickupDuringPlayerStep => formatter.write_str(
+                "ground pickup cannot increase carried load while a player step is in progress",
+            ),
             Self::Selection(error) => {
                 write!(formatter, "ground transfer selection failed: {error}")
             }
@@ -73,7 +78,8 @@ impl Error for GroundMaterialTransferError {
             Self::Inventory(error) => Some(error),
             Self::PlayerUninitialized
             | Self::GroundStockpileNotLocated { .. }
-            | Self::GroundStockpileNotAtPlayer { .. } => None,
+            | Self::GroundStockpileNotAtPlayer { .. }
+            | Self::PickupDuringPlayerStep => None,
         }
     }
 }
@@ -82,6 +88,7 @@ impl Error for GroundMaterialTransferError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GroundMaterialTransferCommitError {
     StaleLogisticsRevision { expected: u64, actual: u64 },
+    PickupDuringPlayerStep,
     Inventory(MaterialRelocationCommitError),
 }
 
@@ -92,6 +99,8 @@ impl Display for GroundMaterialTransferCommitError {
                 formatter,
                 "ground transfer expected logistics revision {expected} but current revision is {actual}"
             ),
+            Self::PickupDuringPlayerStep => formatter
+                .write_str("validated ground pickup cannot commit after a player step has started"),
             Self::Inventory(error) => write!(formatter, "ground transfer commit failed: {error}"),
         }
     }
@@ -101,9 +110,15 @@ impl Error for GroundMaterialTransferCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Inventory(error) => Some(error),
-            Self::StaleLogisticsRevision { .. } => None,
+            Self::StaleLogisticsRevision { .. } | Self::PickupDuringPlayerStep => None,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GroundMaterialTransferDirection {
+    Pickup,
+    Drop,
 }
 
 /// Revision-bound exact material movement between the player and one co-located ground stockpile.
@@ -111,6 +126,7 @@ impl Error for GroundMaterialTransferCommitError {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedGroundMaterialTransfer {
     expected_logistics_revision: u64,
+    direction: GroundMaterialTransferDirection,
     relocation: ValidatedMaterialRelocation,
 }
 
@@ -122,6 +138,11 @@ impl ValidatedGroundMaterialTransfer {
                 expected: self.expected_logistics_revision,
                 actual,
             });
+        }
+        if self.direction == GroundMaterialTransferDirection::Pickup
+            && matches!(state.player_work().active(), Some(PlayerWork::Step { .. }))
+        {
+            return Err(GroundMaterialTransferCommitError::PickupDuringPlayerStep);
         }
         self.relocation
             .commit(state)
@@ -162,6 +183,9 @@ pub fn validate_pickup_from_ground(
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
     let player = validate_ground_access(state, source)?;
+    if matches!(state.player_work().active(), Some(PlayerWork::Step { .. })) {
+        return Err(GroundMaterialTransferError::PickupDuringPlayerStep);
+    }
     let selection = validate_explicit_consumption_selection(state.inventory(), source, selections)
         .map_err(GroundMaterialTransferError::Selection)?;
     let relocation = validate_material_relocation_from_selection(
@@ -173,6 +197,7 @@ pub fn validate_pickup_from_ground(
     .map_err(GroundMaterialTransferError::Inventory)?;
     Ok(ValidatedGroundMaterialTransfer {
         expected_logistics_revision: state.logistics().revision(),
+        direction: GroundMaterialTransferDirection::Pickup,
         relocation,
     })
 }
@@ -196,6 +221,7 @@ pub fn validate_drop_to_ground(
             .map_err(GroundMaterialTransferError::Inventory)?;
     Ok(ValidatedGroundMaterialTransfer {
         expected_logistics_revision: state.logistics().revision(),
+        direction: GroundMaterialTransferDirection::Drop,
         relocation,
     })
 }
