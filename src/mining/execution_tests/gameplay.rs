@@ -810,6 +810,157 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
+fn blocked_ready_mining_with_local_stone(
+    context: &'static str,
+) -> (
+    Registries,
+    AppState,
+    MiningJobId,
+    StockpileId,
+    StructuralElementId,
+    crate::surface::SurfaceResourceId,
+) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("{context} survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("{context} mining destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("{context} mining deposit failed: {error}"));
+    let position = complete_known_mining_player_logistics(
+        &registries,
+        &mut state,
+        deposit,
+        &[destination],
+        &[pick],
+    );
+    let stone = insert_generated_surface_resource(
+        &registries,
+        &mut state,
+        GeneratedSurfaceResourceSpec::new(
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(100_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap_or_else(|error| panic!("{context} surface stone spec failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("{context} surface stone insertion failed: {error}"));
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("{context} mining start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("{context} mining start commit failed: {error}"));
+    let support = complete_mining_into_blocked_ready_state(
+        &registries,
+        &mut state,
+        job,
+        destination,
+        context,
+    );
+    (registries, state, job, destination, support, stone)
+}
+
+#[test]
+fn ready_mining_retry_defers_to_due_surface_gathering_inventory_mutation() {
+    let (registries, mut state, job, destination, _support, stone) =
+        blocked_ready_mining_with_local_stone("mining retry versus gathering completion");
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE,
+        stone,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("surface gathering start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("surface gathering start commit failed: {error}"));
+    let completes_at = match state.player_work().active() {
+        Some(PlayerWork::SurfaceGathering { work }) => work.completes_at(),
+        other => panic!("surface gathering did not own player work: {other:?}"),
+    };
+    while state.tick().value() + 1 < completes_at.value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("surface gathering setup tick failed: {error}"));
+        assert_eq!(outcome.mining_output(), None);
+    }
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("mining retry destination unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining retry destination unmount commit failed: {error}"));
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("shared inventory completion tick failed: {error}"));
+    assert!(outcome.surface_gathering().is_some());
+    assert_eq!(outcome.mining_output(), None);
+    assert!(
+        state
+            .mining()
+            .get_job(job)
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    );
+
+    let retry = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("deferred mining retry tick failed: {error}"));
+    assert_eq!(retry.mining_output().map(|output| output.job()), Some(job));
+    assert!(state.mining().get_job(job).is_none());
+}
+
+#[test]
+fn ready_mining_retry_defers_to_fatal_surface_gathering_cancellation() {
+    let (registries, mut state, job, destination, _support, stone) =
+        blocked_ready_mining_with_local_stone("mining retry versus gathering cancellation");
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE,
+        stone,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("cancelable surface gathering start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("cancelable surface gathering commit failed: {error}"));
+    let completes_at = match state.player_work().active() {
+        Some(PlayerWork::SurfaceGathering { work }) => work.completes_at(),
+        other => panic!("cancelable surface gathering did not own player work: {other:?}"),
+    };
+    assert!(
+        completes_at.value() > state.tick().value() + 1,
+        "fatal cancellation proof requires gathering unfinished after the next tick"
+    );
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("fatal retry destination unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fatal retry destination unmount commit failed: {error}"));
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal cancellation tick failed: {error}"));
+    assert_eq!(outcome.mining_output(), None);
+    assert_eq!(state.player_work().active(), None);
+    assert!(
+        state
+            .mining()
+            .get_job(job)
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    );
+
+    let retry = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("post-fatal mining retry tick failed: {error}"));
+    assert_eq!(retry.mining_output().map(|output| output.job()), Some(job));
+    assert!(state.mining().get_job(job).is_none());
+}
+
 #[cfg(feature = "test-soak")]
 #[path = "gameplay/soak.rs"]
 mod soak;

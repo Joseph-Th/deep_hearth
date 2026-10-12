@@ -8,7 +8,7 @@ use crate::content::{
     MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_DIGGING, MINING_METHOD_HAND_PICK,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY,
     PROSPECTING_FIELD_INSPECTION, STORAGE_TIMBER_PROVISIONS_CHEST,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
@@ -56,6 +56,10 @@ use crate::structural::{
     StructuralElementId, StructuralLifecycle, StructuralLoadKind, add_structural_element,
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_set_structural_load,
+};
+use crate::surface::{
+    GeneratedSurfaceResourceSpec, insert_generated_surface_resource,
+    validate_start_player_surface_gathering,
 };
 use crate::survival::{Vitality, assess_survival, initialize_player_survival, player_record};
 

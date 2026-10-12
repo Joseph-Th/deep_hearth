@@ -210,13 +210,13 @@ fn decide_automatic_mining_output(
     registries: &Registries,
     state: &AppState,
     next_tick: SimulationTick,
-    completion_plan: &CompletionPlan,
     mining_plan: Option<MiningTickPlan>,
+    inventory_owner_busy: bool,
 ) -> Result<Option<ValidatedMiningClaim>, TickError> {
-    // Production deposits mutate the same inventory and structural-load owners. Rather than
-    // inventing a second same-tick combined deposit transaction, let mining remain in its durable
-    // ready state and retry settlement on the next tick.
-    if completion_plan.has_inventory_deposits() {
+    // Mining recovery is incidental to the current player action. If another scheduled phase owns
+    // an inventory mutation this tick, preserve the durable ready state and retry next tick rather
+    // than invalidating that phase's revision-bound plan or inventing a combined transaction.
+    if inventory_owner_busy {
         return Ok(None);
     }
 
@@ -307,13 +307,6 @@ pub fn advance_tick(
     let player_step_plan = decide_player_step_tick(state, next_tick)
         .map_err(|_| TickError::LogisticsRevisionExhausted)?;
     let mining_plan = decide_mining_tick(state, next_tick);
-    let automatic_mining_output = decide_automatic_mining_output(
-        registries,
-        state,
-        next_tick,
-        &completion_plan,
-        mining_plan,
-    )?;
     require_revision_capacity(
         state.mining().revision(),
         [mining_plan
@@ -363,6 +356,19 @@ pub fn advance_tick(
         next_tick,
         player_dead_after_tick,
         &mut completion_plan,
+    )?;
+    let inventory_owner_busy = completion_plan.has_inventory_deposits()
+        || surface_gathering_plan.is_some()
+        || storage_enclosure_dismantling_plan.is_some()
+        || player_death_effects
+            .as_ref()
+            .is_some_and(|plan| plan.mutates_inventory());
+    let automatic_mining_output = decide_automatic_mining_output(
+        registries,
+        state,
+        next_tick,
+        mining_plan,
+        inventory_owner_busy,
     )?;
     require_revision_capacity(
         state.equipment().revision(),

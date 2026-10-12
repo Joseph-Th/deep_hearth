@@ -51,6 +51,17 @@ impl PlayerDeathEffectPlan {
             Self::StorageDismantling(_) => 0,
         }
     }
+
+    /// Returns whether applying this death consequence mutates inventory custody or reservations.
+    ///
+    /// Deferred mining-output settlement yields to these already-scheduled owner transitions so
+    /// their revision-bound plans cannot be invalidated by an unrelated recovery retry.
+    pub(super) const fn mutates_inventory(&self) -> bool {
+        matches!(
+            self,
+            Self::SurfaceGathering(_) | Self::Mining(_) | Self::StorageDismantling(_)
+        )
+    }
 }
 
 /// Plans all durable consequences of survival ending unfinished direct player work.
