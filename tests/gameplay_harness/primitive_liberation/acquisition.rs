@@ -23,18 +23,19 @@ use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
-    assess_player_carrying, validate_admit_player_logistics, validate_allocate_ground_stockpile,
+    assess_player_carrying, validate_allocate_ground_stockpile,
     validate_allocate_player_ground_stockpile,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
+use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::surface::{
     SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
 };
-use deep_hearth::survival::{assess_survival, initialize_player_survival};
+use deep_hearth::survival::assess_survival;
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::exact_local_runtime::{unique_local_energy_store, unique_local_equipment};
@@ -441,13 +442,11 @@ pub(super) fn acquire_raw_kit<T>(
     let inherited =
         seed_inherited_progression_infrastructure(registries, &mut state, case, player_position);
     let bootstrap = bootstrap_before_admission(&mut state);
-    let raw = validate_admit_player_logistics(registries, &state, player_position)
-        .unwrap_or_else(|error| panic!("liberation carried-custody setup failed: {error}"))
+    let raw = validate_admit_player(registries, &state, player_position)
+        .unwrap_or_else(|error| panic!("liberation player admission failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("liberation carried-custody commit failed: {error}"))
+        .unwrap_or_else(|error| panic!("liberation player admission commit failed: {error}"))
         .carried_stockpile();
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("liberation kit survival setup failed: {error}"));
     super::super::exact_local_runtime::assert_exact_local_runtime_ready(
         registries,
         &state,

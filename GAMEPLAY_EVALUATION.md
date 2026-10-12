@@ -29,8 +29,9 @@ authorization, or comparison-branch outcomes.
 controlled events. Pre-admission ends when the survival or logistics player is initialized. After that boundary,
 all consequential changes use canonical runtime operations. Fixture authorization is never actor-visible evidence.
 Ordinary exact-local episodes locate every disclosed pre-existing stationary endpoint before that boundary, then
-initialize both survival and player logistics before actor work begins. The runtime's no-logistics-player locality
-fallback is valid only for controlled-capability fixtures or explicitly movement-abstracted evidence; it cannot
+atomically admit the player, establishing survival, world position, and carried custody before actor work begins.
+The runtime's no-logistics-player locality fallback is valid only for controlled-capability fixtures or explicitly
+movement-abstracted evidence; it cannot
 support an exact-local ordinary-play claim. After admission, route-driving inherited equipment and finite energy
 stores are reacquired through exact-local actor observation rather than fixture-retained identities. Shared
 admission checks require actor-visible local equipment, energy stores, fluid stores, and ground stockpiles to agree

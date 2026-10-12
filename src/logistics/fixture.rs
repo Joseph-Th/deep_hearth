@@ -15,8 +15,8 @@ pub(crate) fn place_equipment_for_fixture(
     position: VoxelCoord,
 ) {
     assert!(
-        state.logistics().player().is_none(),
-        "equipment fixture placement is only valid before player logistics admission"
+        state.survival().player().is_none() && state.logistics().player().is_none(),
+        "equipment fixture placement is only valid before actor admission"
     );
     assert!(
         state.equipment().get_equipment(equipment).is_some(),
@@ -45,8 +45,8 @@ pub(crate) fn place_energy_store_for_fixture(
     position: VoxelCoord,
 ) {
     assert!(
-        state.logistics().player().is_none(),
-        "energy-store fixture placement is only valid before player logistics admission"
+        state.survival().player().is_none() && state.logistics().player().is_none(),
+        "energy-store fixture placement is only valid before actor admission"
     );
     assert!(
         state.energy().get_store(store).is_some(),

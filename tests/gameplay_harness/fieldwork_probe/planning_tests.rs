@@ -1,7 +1,6 @@
 //! Fieldwork planning and tool-choice economics contracts.
 
-use deep_hearth::content::gameplay_fixture::seed_lot;
-use deep_hearth::survival::initialize_player_survival;
+use deep_hearth::content::gameplay_fixture::{seed_lot, seed_player_survival_at_full_reserve};
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::focused_case::FocusedProbeRole;
@@ -189,8 +188,7 @@ fn fieldwork_planning_fixture(
         }
     }
     let parts = add_solid_stockpile(&mut state, parts_capacity);
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("fieldwork planning survival failed: {error}"));
+    seed_player_survival_at_full_reserve(registries, &mut state);
     (state, raw, parts)
 }
 

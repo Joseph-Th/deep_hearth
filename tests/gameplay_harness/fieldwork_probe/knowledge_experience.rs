@@ -1,5 +1,6 @@
 //! Player-facing evidence that specialist geological information changes a real follow-up choice.
 
+use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;
 use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
@@ -16,7 +17,6 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{MiningTargetRequest, resolve_mining_target};
 use deep_hearth::registry::Registries;
-use deep_hearth::survival::initialize_player_survival;
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::inventory_support::add_solid_stockpile;
@@ -166,8 +166,7 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
         );
     }
     let planning_parts = add_solid_stockpile(&mut planning_state, parts_capacity);
-    initialize_player_survival(registries, &mut planning_state)
-        .unwrap_or_else(|error| panic!("fieldwork knowledge planning survival failed: {error}"));
+    seed_player_survival_at_full_reserve(registries, &mut planning_state);
     let sampled_crossover = fieldwork_bulk_crossover(
         registries,
         &planning_state,
@@ -280,8 +279,7 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("fieldwork knowledge matter setup failed: {error}"))
         .total();
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("fieldwork knowledge survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(registries, &mut state);
 
     let first_coarse_outcome = run_survey(
         registries,

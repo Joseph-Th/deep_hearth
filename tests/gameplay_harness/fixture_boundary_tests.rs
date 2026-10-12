@@ -4,8 +4,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, commit_controlled_material_delivery,
-    seed_assembled_equipment_at, seed_lot, seed_preused_assembled_equipment_at, seed_stockpile,
-    seed_surface_resource,
+    seed_assembled_equipment_at, seed_lot, seed_player_survival_at_full_reserve,
+    seed_preused_assembled_equipment_at, seed_stockpile, seed_surface_resource,
 };
 use deep_hearth::content::{
     EQUIPMENT_STONE_PICK, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD,
@@ -15,13 +15,12 @@ use deep_hearth::core::quantity::{Mass, Temperature};
 use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 use deep_hearth::labor::PlayerWork;
-use deep_hearth::logistics::validate_admit_player_logistics;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
+use deep_hearth::player::validate_admit_player;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::surface::{SurfaceGatheringRequest, validate_start_surface_gathering};
-use deep_hearth::survival::initialize_player_survival;
 
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::{exact_local_runtime, world_admission};
@@ -64,9 +63,14 @@ fn exact_local_admission_rejects_a_forgotten_unlocated_stockpile() {
         StockpileStorageProfile::unbounded_solid_only(),
     );
     exact_local_runtime::locate_stationary_endpoints(&mut state, &[located], &[]);
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("exact-local guard survival setup failed: {error}"));
-    exact_local_runtime::initialize_stationary_player_logistics(&registries, &mut state);
+    validate_admit_player(
+        &registries,
+        &state,
+        exact_local_runtime::STATIONARY_PLAYER_ORIGIN,
+    )
+    .unwrap_or_else(|error| panic!("exact-local guard player admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("exact-local guard player admission commit failed: {error}"));
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         exact_local_runtime::assert_exact_local_runtime_ready(
@@ -198,8 +202,7 @@ fn seed_delivery_endpoints(
 fn preused_material_backed_equipment_fixture_rejects_post_admission_condition_seeding() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("fixture-boundary survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(&registries, &mut state);
     let condition = Condition::new(900_000)
         .unwrap_or_else(|error| panic!("fixture-boundary condition failed: {error}"));
 
@@ -219,8 +222,7 @@ fn preused_material_backed_equipment_fixture_rejects_post_admission_condition_se
 fn material_backed_equipment_fixture_rejects_post_admission_placement_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("fixture-boundary survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(&registries, &mut state);
 
     assert_fixture_rejected_without_mutation(&mut state, |state| {
         let _ = seed_assembled_equipment_at(
@@ -234,13 +236,13 @@ fn material_backed_equipment_fixture_rejects_post_admission_placement_without_mu
 }
 
 #[test]
-fn gameplay_bootstrap_rejects_world_seeding_after_logistics_admission() {
+fn gameplay_bootstrap_rejects_world_seeding_after_player_admission() {
     let registries = build_registries();
     let mut state = AppState::new();
-    validate_admit_player_logistics(&registries, &state, VoxelCoord::new(0, 0, 0))
-        .unwrap_or_else(|error| panic!("fixture-boundary logistics setup failed: {error}"))
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("fixture-boundary player admission failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("fixture-boundary logistics commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("fixture-boundary player admission commit failed: {error}"));
 
     assert_fixture_rejected_without_mutation(&mut state, |state| {
         let _ = seed_stockpile(
@@ -271,8 +273,7 @@ fn assert_fixture_rejected_without_mutation(
 fn gameplay_bootstrap_rejects_world_seeding_after_actor_admission() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("fixture-boundary survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(&registries, &mut state);
 
     assert_fixture_rejected_without_mutation(&mut state, |state| {
         let _ = seed_stockpile(
@@ -288,8 +289,7 @@ fn controlled_delivery_cannot_be_authorized_after_actor_admission() {
     let registries = build_registries();
     let mut state = AppState::new();
     let (source, destination) = seed_delivery_endpoints(&registries, &mut state);
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("fixture-boundary survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(&registries, &mut state);
 
     assert_fixture_rejected_without_mutation(&mut state, |state| {
         let _ = authorize_controlled_material_delivery(

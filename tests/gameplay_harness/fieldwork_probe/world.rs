@@ -1,5 +1,6 @@
 //! Deterministic fixture construction for an ordinary-system spatial-proxy fieldwork episode.
 
+use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;
 use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
@@ -12,7 +13,6 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
-use deep_hearth::survival::initialize_player_survival;
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::inventory_support::add_solid_stockpile;
@@ -371,8 +371,7 @@ fn build_fieldwork_world_inner(
             followup_profile,
         );
     }
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("fieldwork survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(registries, &mut state);
     super::spatial_proxy_runtime::assert_spatial_proxy_runtime_ready(
         registries,
         &state,

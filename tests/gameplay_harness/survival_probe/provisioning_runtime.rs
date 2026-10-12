@@ -251,18 +251,33 @@ pub(super) fn prepare_provisioning_world(
     // Actor admission follows all fixture-only mutations; canonical ticks create subsequent
     // survival pressure.
     match world.start_profile {
-        SurvivalStartProfile::FullReserve => initialize_player_survival(registries, &mut state)
-            .unwrap_or_else(|error| panic!("survival probe player initialization failed: {error}")),
+        SurvivalStartProfile::FullReserve => {
+            validate_admit_player(
+                registries,
+                &state,
+                super::super::exact_local_runtime::STATIONARY_PLAYER_ORIGIN,
+            )
+            .unwrap_or_else(|error| panic!("survival probe player admission failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("survival probe player admission commit failed: {error}")
+            });
+        }
         SurvivalStartProfile::HungerWarningBoundary => {
-            seed_player_survival_at_hunger_warning_boundary(registries, &mut state)
+            let _ = admit_player_at_hunger_warning_boundary(
+                registries,
+                &mut state,
+                super::super::exact_local_runtime::STATIONARY_PLAYER_ORIGIN,
+            );
         }
         SurvivalStartProfile::HydrationWarningBoundary => {
-            seed_player_survival_at_hydration_warning_boundary(registries, &mut state)
+            let _ = admit_player_at_hydration_warning_boundary(
+                registries,
+                &mut state,
+                super::super::exact_local_runtime::STATIONARY_PLAYER_ORIGIN,
+            );
         }
     }
-    super::super::exact_local_runtime::initialize_stationary_player_logistics(
-        registries, &mut state,
-    );
     super::super::exact_local_runtime::assert_exact_local_runtime_ready(
         registries,
         &state,

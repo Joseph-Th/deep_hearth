@@ -26,7 +26,6 @@ pub use definitions::{
     FoodDefinition, HydrationDefinition, MetabolismDefinition, NutritionDefinition,
     PhysiologyDefinition, SurvivalRegistry, calculate_food_hydration_offer,
 };
-pub use lifecycle::{InitializeSurvivalError, initialize_player_survival};
 pub use resource_cost::{
     SurvivalExertion, SurvivalResourceBudget, SurvivalResourceProjectionError,
     project_survival_resource_budget,
@@ -36,7 +35,15 @@ pub use state::{
 };
 pub use validation::SurvivalValidationError;
 
-pub(crate) use lifecycle::{SurvivalTickError, apply_survival_tick, decide_survival_tick};
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use lifecycle::initialize_player_survival;
+#[cfg(feature = "test-gameplay")]
+pub(crate) use lifecycle::validate_player_survival_initialization_with_reserves;
+pub(crate) use lifecycle::{
+    InitializeSurvivalError, PlayerSurvivalInitializationCommitError, SurvivalTickError,
+    ValidatedPlayerSurvivalInitialization, apply_survival_tick, decide_survival_tick,
+    validate_player_survival_initialization,
+};
 #[cfg(feature = "test-gameplay")]
 pub(crate) use lifecycle::{
     initialize_player_survival_at_hunger_warning_boundary_for_fixture,

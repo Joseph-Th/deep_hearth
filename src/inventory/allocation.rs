@@ -66,10 +66,10 @@ impl ValidatedEmptyStockpileAllocation {
         self.id
     }
 
-    pub(crate) fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<StockpileId, EmptyStockpileAllocationCommitError> {
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
+    ) -> Result<(), EmptyStockpileAllocationCommitError> {
         let actual = state.inventory().revision();
         if actual != self.expected_revision {
             return Err(
@@ -79,6 +79,10 @@ impl ValidatedEmptyStockpileAllocation {
                 },
             );
         }
+        Ok(())
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) -> StockpileId {
         let record = StockpileRecord {
             id: self.id,
             capacity: self.capacity,
@@ -92,7 +96,15 @@ impl ValidatedEmptyStockpileAllocation {
         state
             .inventory_state_mut()
             .insert_stockpile(record, self.next_id, self.next_revision);
-        Ok(self.id)
+        self.id
+    }
+
+    pub(crate) fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<StockpileId, EmptyStockpileAllocationCommitError> {
+        self.precheck(state)?;
+        Ok(self.apply(state))
     }
 }
 

@@ -227,8 +227,10 @@ fn current_manual_craft_planning_ignores_unowned_salvage_inputs() {
         Mass::from_milligrams(10_000_000),
         ROOM_TEMPERATURE,
     );
-    deep_hearth::survival::initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("manual-craft planning player setup failed: {error}"));
+    deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve(
+        &registries,
+        &mut state,
+    );
     let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
     let one_batch = authored_manual_output_mass(&registries, PROCESS_SHAPE_WOOD_BOARDS, boards);
     let two_batches = one_batch
@@ -263,8 +265,10 @@ fn current_manual_craft_planning_checks_each_actor_visible_source() {
         Mass::from_milligrams(10_000_000),
         ROOM_TEMPERATURE,
     );
-    deep_hearth::survival::initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("manual-craft multisource player setup failed: {error}"));
+    deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve(
+        &registries,
+        &mut state,
+    );
     let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
     let one_batch = authored_manual_output_mass(&registries, PROCESS_SHAPE_WOOD_BOARDS, boards);
     let two_batches = one_batch

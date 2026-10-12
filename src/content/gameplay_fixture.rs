@@ -16,9 +16,12 @@ use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
     deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
 };
-use crate::logistics::{place_energy_store_for_fixture, place_equipment_for_fixture};
+use crate::logistics::{
+    PlayerLogisticsRecord, place_energy_store_for_fixture, place_equipment_for_fixture,
+};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId};
+use crate::player::validate_admit_player_with_reserves_for_fixture;
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
@@ -28,7 +31,7 @@ use crate::structural::{
 };
 use crate::surface::{GeneratedSurfaceResourceSpec, insert_generated_surface_resource};
 use crate::survival::{
-    initialize_player_survival_at_hunger_warning_boundary_for_fixture,
+    initialize_player_survival, initialize_player_survival_at_hunger_warning_boundary_for_fixture,
     initialize_player_survival_at_hydration_warning_boundary_for_fixture,
 };
 
@@ -44,6 +47,73 @@ pub(super) fn assert_pre_admission(state: &AppState, operation: &str) {
         state.survival().player().is_none() && state.logistics().player().is_none(),
         "gameplay bootstrap {operation} must occur before actor admission"
     );
+}
+
+/// Seeds a capability-only player at authored full reserves without claiming world locality.
+///
+/// Use this only for gameplay probes that explicitly operate as spatial proxies because movement
+/// and path ownership are outside their evidence scope. Exact-local ordinary play must use player
+/// admission instead.
+pub fn seed_player_survival_at_full_reserve(registries: &Registries, state: &mut AppState) {
+    assert_pre_admission(state, "full-reserve player seed");
+    initialize_player_survival(registries, state).unwrap_or_else(|error| {
+        panic!("gameplay bootstrap full-reserve player seed failed: {error}")
+    });
+}
+
+fn admit_player_with_reserves(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+    metabolic_energy: Energy,
+    hydration: Volume,
+    context: &str,
+) -> PlayerLogisticsRecord {
+    assert_pre_admission(state, context);
+    validate_admit_player_with_reserves_for_fixture(
+        registries,
+        state,
+        position,
+        metabolic_energy,
+        hydration,
+    )
+    .unwrap_or_else(|error| panic!("gameplay bootstrap {context} admission failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("gameplay bootstrap {context} admission commit failed: {error}"))
+}
+
+/// Atomically admits an exact-local player at the authored hunger warning boundary.
+pub fn admit_player_at_hunger_warning_boundary(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+) -> PlayerLogisticsRecord {
+    let physiology = registries.survival().physiology();
+    admit_player_with_reserves(
+        registries,
+        state,
+        position,
+        physiology.hungry_below(),
+        physiology.maximum_hydration(),
+        "hunger-warning-boundary player",
+    )
+}
+
+/// Atomically admits an exact-local player at the authored hydration warning boundary.
+pub fn admit_player_at_hydration_warning_boundary(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+) -> PlayerLogisticsRecord {
+    let physiology = registries.survival().physiology();
+    admit_player_with_reserves(
+        registries,
+        state,
+        position,
+        physiology.maximum_metabolic_energy(),
+        physiology.thirsty_below(),
+        "hydration-warning-boundary player",
+    )
 }
 
 /// Seeds finite loose matter at one world voxel for controlled pre-admission world setup.

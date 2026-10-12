@@ -25,6 +25,7 @@ use super::progression_generation::{
 use super::progression_upgrade_planning::{equipment_upgrade_additions, native_input_for_upgrade};
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
+use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;
 use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
@@ -82,7 +83,7 @@ use deep_hearth::production::{
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
-use deep_hearth::survival::{assess_survival, initialize_player_survival};
+use deep_hearth::survival::assess_survival;
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;

@@ -35,7 +35,8 @@ use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use deep_hearth::content::gameplay_fixture::{
     ControlledMaterialDelivery, authorize_controlled_material_delivery,
     commit_controlled_material_delivery, seed_composed_lot, seed_grounded_active_structure,
-    seed_lot, seed_player_survival_at_hydration_warning_boundary,
+    seed_lot, seed_player_survival_at_full_reserve,
+    seed_player_survival_at_hydration_warning_boundary,
 };
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
@@ -82,7 +83,7 @@ use deep_hearth::structural::{
     StructuralAssessment, StructuralElementGeometry, StructuralElementId, StructuralLifecycle,
     StructuralLoadKind, StructuralStage, analyze_structure,
 };
-use deep_hearth::survival::{assess_survival, initialize_player_survival};
+use deep_hearth::survival::assess_survival;
 use deep_hearth::thermal::{
     MeltingBatchError, MeltingRequest, MeltingResolutionError, resolve_melting_process,
 };
@@ -494,8 +495,7 @@ fn setup_workshop(
     if variation.survival.start_at_hydration_warning_boundary {
         seed_player_survival_at_hydration_warning_boundary(registries, &mut state);
     } else {
-        initialize_player_survival(registries, &mut state)
-            .unwrap_or_else(|error| panic!("workshop survival initialization failed: {error}"));
+        seed_player_survival_at_full_reserve(registries, &mut state);
     }
 
     (

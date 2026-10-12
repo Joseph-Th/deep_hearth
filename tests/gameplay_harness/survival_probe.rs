@@ -1,8 +1,9 @@
 //! Bounded survival-provisioning gameplay probe over authored food, preservation, and finite drink.
 
 use deep_hearth::content::gameplay_fixture::{
-    GeologicalDepositSeed, seed_fluid_store, seed_geological_deposit, seed_lot,
-    seed_player_survival_at_hunger_warning_boundary,
+    GeologicalDepositSeed, admit_player_at_hunger_warning_boundary,
+    admit_player_at_hydration_warning_boundary, seed_fluid_store, seed_geological_deposit,
+    seed_lot, seed_player_survival_at_hunger_warning_boundary,
     seed_player_survival_at_hydration_warning_boundary, seed_preexisting_world_age, seed_stockpile,
 };
 use deep_hearth::content::{
@@ -27,15 +28,16 @@ use deep_hearth::labor::{
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
+use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
     DrinkOutcome, EatOutcome, FoodDefinition, FoodFreshness, LocalDrinkSource, SurvivalExertion,
     ValidatedDrink, assess_food_freshness, assess_survival, available_local_drink_sources,
-    initialize_player_survival, project_food_freshness_after_storage_transition,
-    project_survival_resource_budget, validate_drink, validate_drink_store_to_full,
-    validate_drink_store_to_hydration_target, validate_eat,
+    project_food_freshness_after_storage_transition, project_survival_resource_budget,
+    validate_drink, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
+    validate_eat,
 };
 
 use super::environment::ROOM_TEMPERATURE;

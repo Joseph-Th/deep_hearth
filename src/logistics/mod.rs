@@ -37,9 +37,9 @@ pub use ground::{
 };
 #[cfg(test)]
 pub(crate) use initialization::validate_initialize_player_logistics;
-pub use initialization::{
+pub(crate) use initialization::{
     InitializePlayerLogisticsCommitError, InitializePlayerLogisticsError,
-    ValidatedPlayerLogisticsInitialization, validate_admit_player_logistics,
+    ValidatedPlayerLogisticsInitialization, validate_player_logistics_initialization,
 };
 pub use state::{
     LogisticsState, PlayerCarryingAssessment, PlayerLogisticsRecord, assess_player_carrying,

@@ -5,11 +5,13 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+#[cfg(test)]
+use crate::inventory::StockpileId;
+use crate::inventory::StockpileStorageProfile;
 use crate::inventory::allocation::{
     EmptyStockpileAllocationCommitError, EmptyStockpileAllocationError,
     ValidatedEmptyStockpileAllocation, validate_empty_stockpile_allocation,
 };
-use crate::inventory::{StockpileId, StockpileStorageProfile};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -85,14 +87,15 @@ pub struct ValidatedPlayerLogisticsInitialization {
 
 impl ValidatedPlayerLogisticsInitialization {
     #[must_use]
+    #[cfg(test)]
     pub const fn carried_stockpile(&self) -> StockpileId {
         self.carried.stockpile()
     }
 
-    pub fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<PlayerLogisticsRecord, InitializePlayerLogisticsCommitError> {
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
+    ) -> Result<(), InitializePlayerLogisticsCommitError> {
         let actual_logistics_revision = state.logistics().revision();
         if actual_logistics_revision != self.expected_logistics_revision {
             return Err(
@@ -102,18 +105,31 @@ impl ValidatedPlayerLogisticsInitialization {
                 },
             );
         }
-        let carried_stockpile = self.carried.commit(state).map_err(|error| match error {
+        self.carried.precheck(state).map_err(|error| match error {
             EmptyStockpileAllocationCommitError::StaleInventoryRevision { expected, actual } => {
                 InitializePlayerLogisticsCommitError::StaleInventoryRevision { expected, actual }
             }
-        })?;
+        })
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) -> PlayerLogisticsRecord {
+        let carried_stockpile = self.carried.apply(state);
         let player = PlayerLogisticsRecord::new(self.position, carried_stockpile);
         state.logistics_state_mut().apply_initialization(
             self.expected_logistics_revision,
             self.next_logistics_revision,
             player,
         );
-        Ok(player)
+        player
+    }
+
+    #[cfg(test)]
+    pub(crate) fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<PlayerLogisticsRecord, InitializePlayerLogisticsCommitError> {
+        self.precheck(state)?;
+        Ok(self.apply(state))
     }
 }
 
@@ -153,13 +169,14 @@ fn validate_initialization_with_capacity(
     })
 }
 
-/// Validates ordinary player admission using the body-authored carried-mass capacity.
+/// Prepares the logistics/inventory component of ordinary player admission.
 ///
-/// The caller chooses only the admitted world position. Carried capacity is physical player
-/// capability owned by physiology, so ordinary gameplay cannot resize inventory to fit the next
-/// task. This operation intentionally creates no movement authority: later pickup, drop, haulage,
-/// and movement actions must prove world access/path cost before changing custody or position.
-pub fn validate_admit_player_logistics(
+/// The cross-owner `player` boundary owns ordinary admission. This owner-level helper contributes
+/// only the initial world position and physiology-sized carried stockpile so callers cannot admit a
+/// location/custody half-state as ordinary play. It intentionally creates no movement authority:
+/// later pickup, drop, haulage, and movement actions must prove world access/path cost before
+/// changing custody or position.
+pub(crate) fn validate_player_logistics_initialization(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
@@ -171,10 +188,10 @@ pub fn validate_admit_player_logistics(
     )
 }
 
-/// Test-only admission boundary for contracts that intentionally exercise arbitrary capacity.
+/// Test-only owner initialization for contracts that intentionally exercise arbitrary capacity.
 ///
-/// Gameplay probes should use [`validate_admit_player_logistics`] unless the capacity itself is the
-/// fixture variable under test.
+/// Gameplay probes should use the ordinary cross-owner player admission boundary unless the
+/// capacity itself is the fixture variable under test.
 #[cfg(test)]
 pub(crate) fn validate_initialize_player_logistics(
     state: &AppState,

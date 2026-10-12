@@ -278,8 +278,7 @@ pub(super) fn setup_progression_world(
     // point onward the episode may only use production-visible observations and canonical runtime
     // actions. Logistics stays deliberately absent because production has no movement/path owner;
     // this episode therefore proves system behavior, not locality or travel behavior.
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("primitive progression survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(registries, &mut state);
     super::super::spatial_proxy_runtime::assert_spatial_proxy_runtime_ready(
         registries,
         &state,

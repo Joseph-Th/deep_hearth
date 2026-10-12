@@ -7,9 +7,7 @@ use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::logistics::{
-    validate_admit_player_logistics, validate_place_fluid_store, validate_place_ground_stockpile,
-};
+use deep_hearth::logistics::{validate_place_fluid_store, validate_place_ground_stockpile};
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 
@@ -109,30 +107,11 @@ pub(super) fn locate_stationary_endpoints(
     }
 }
 
-/// Initializes the real player logistics owner at the stationary workshop voxel.
-#[allow(
-    dead_code,
-    reason = "some focused targets only validate exact-local state and do not perform stationary fixture admission"
-)]
-pub(super) fn initialize_stationary_player_logistics(
-    registries: &Registries,
-    state: &mut AppState,
-) {
-    validate_admit_player_logistics(registries, state, STATIONARY_PLAYER_ORIGIN)
-        .unwrap_or_else(|error| {
-            panic!("stationary gameplay logistics initialization failed: {error}")
-        })
-        .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("stationary gameplay logistics initialization commit failed: {error}")
-        });
-}
-
 /// Verifies that one exact-local ordinary world is fully admitted to runtime state the player can
 /// actually act on.
 ///
 /// Controlled setup may create endpoints before the actor exists, but none may remain locationless
-/// once ordinary player logistics is initialized.
+/// once ordinary player admission commits.
 pub(super) fn assert_exact_local_runtime_ready(
     registries: &Registries,
     state: &AppState,

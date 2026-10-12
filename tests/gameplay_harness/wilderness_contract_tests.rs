@@ -21,20 +21,17 @@ use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
-use deep_hearth::logistics::{
-    assess_player_carrying, validate_admit_player_logistics, validate_place_fluid_store,
-};
+use deep_hearth::logistics::{assess_player_carrying, validate_place_fluid_store};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
+use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::surface::{
     SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
 };
-use deep_hearth::survival::{
-    assess_survival, available_local_drink_sources, initialize_player_survival, validate_eat,
-};
+use deep_hearth::survival::{assess_survival, available_local_drink_sources, validate_eat};
 
 use super::exact_local_runtime::{STATIONARY_PLAYER_ORIGIN, assert_exact_local_runtime_ready};
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
@@ -281,9 +278,6 @@ pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningRevie
             .unwrap_or_else(|error| panic!("wilderness water placement commit failed: {error}"));
     }
 
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("wilderness survival admission failed: {error}"));
-
     // Ordinary admission owns a fixed body-scale carrying limit. The opening must adapt to that
     // capability instead of resizing the player to whatever the current script intends to gather.
     let forage_mass = Mass::from_milligrams(500_000);
@@ -329,10 +323,10 @@ pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningRevie
     let carried_food_after_meal = forage_mass
         .checked_sub(meal_mass)
         .unwrap_or_else(|| unreachable!("opening meal is smaller than gathered forage"));
-    let carried = validate_admit_player_logistics(&registries, &state, STATIONARY_PLAYER_ORIGIN)
-        .unwrap_or_else(|error| panic!("wilderness carrying admission failed: {error}"))
+    let carried = validate_admit_player(&registries, &state, STATIONARY_PLAYER_ORIGIN)
+        .unwrap_or_else(|error| panic!("wilderness player admission failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("wilderness carrying commit failed: {error}"))
+        .unwrap_or_else(|error| panic!("wilderness player admission commit failed: {error}"))
         .carried_stockpile();
     assert_eq!(
         assess_player_carrying(&state).map(|assessment| assessment.capacity()),

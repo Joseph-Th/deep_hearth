@@ -3,6 +3,7 @@
 use std::num::NonZeroU64;
 
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
+use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE,
     FORM_REINFORCEMENT, MATERIAL_COPPER, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
@@ -22,7 +23,7 @@ use deep_hearth::ore_processing::{
     validate_start_manual_constituent_separation,
 };
 use deep_hearth::registry::Registries;
-use deep_hearth::survival::{assess_survival, initialize_player_survival};
+use deep_hearth::survival::assess_survival;
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::inventory_support::add_solid_stockpile;
@@ -269,9 +270,7 @@ pub(super) fn evaluate_manual_processing_fallback(
         composition.clone(),
     );
     // All route-fixture starting matter exists before actor admission.
-    initialize_player_survival(registries, &mut state).unwrap_or_else(|error| {
-        panic!("manual processing fallback survival setup failed: {error}")
-    });
+    seed_player_survival_at_full_reserve(registries, &mut state);
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("manual processing fallback matter setup failed: {error}"))
         .total();

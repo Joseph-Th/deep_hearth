@@ -1,5 +1,6 @@
 //! Material-backed prospecting-instrument and channel-survey contracts.
 
+use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;
 use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
@@ -28,7 +29,6 @@ use deep_hearth::mining::{
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
-use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::inventory_support::add_solid_stockpile;
@@ -102,8 +102,7 @@ fn channel_sampling_frame_buys_precise_aggregate_grade_without_spoofing_mining_a
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("channel-composite matter setup failed: {error}"))
         .total();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("channel-composite survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(&registries, &mut state);
     let frame = validate_assemble_equipment(
         &registries,
         &state,
@@ -214,8 +213,7 @@ fn shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_ev
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("shallow-core matter setup failed: {error}"))
         .total();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("shallow-core survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(&registries, &mut state);
 
     let drill = validate_assemble_equipment(
         &registries,
@@ -461,8 +459,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .unwrap_or_else(|error| panic!("prospecting-instrument matter setup failed: {error}"))
         .total();
 
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("prospecting-instrument survival setup failed: {error}"));
+    seed_player_survival_at_full_reserve(&registries, &mut state);
     let hammer = validate_assemble_equipment(
         &registries,
         &state,
