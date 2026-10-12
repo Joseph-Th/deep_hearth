@@ -6,7 +6,11 @@ use crate::core::time::TickSpan;
 use crate::fluid::FluidDefinitionId;
 use crate::material::{CommodityKey, FormId, MaterialId};
 
-fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
+fn physiology_with_carry(
+    carried_mass_capacity: Mass,
+    starvation_loss: u32,
+    dehydration_loss: u32,
+) -> PhysiologyDefinition {
     PhysiologyDefinition::new(
         MetabolismDefinition::new(
             Energy::from_nanojoules(10),
@@ -27,9 +31,27 @@ fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefiniti
             Volume::from_microliters(1),
             TickSpan::new(1),
         ),
+        carried_mass_capacity,
         starvation_loss,
         dehydration_loss,
     )
+}
+
+fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
+    physiology_with_carry(Mass::from_milligrams(1), starvation_loss, dehydration_loss)
+}
+
+#[test]
+fn physiology_requires_nonzero_carried_mass_capacity_and_exposes_it() {
+    let capacity = Mass::from_milligrams(25_000_000);
+    assert_eq!(
+        physiology_with_carry(capacity, 1, 1).carried_mass_capacity(),
+        capacity
+    );
+    assert!(
+        std::panic::catch_unwind(|| physiology_with_carry(Mass::ZERO, 1, 1)).is_err(),
+        "unaided carrying must remain an authored nonzero body capability"
+    );
 }
 
 #[test]

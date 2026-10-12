@@ -194,12 +194,17 @@ not mandatory tier gates.
 
 The opening should spend real time in a useful stone-age economy rather than treating stone tools as disposable
 tutorial prerequisites for copper. The player's first problems are immediate physical ones: obtain water and
-food, make a safe place to work and sleep, establish fire and warmth, improvise storage, and turn nearby stone,
-wood, earth, and plant matter into a small working toolkit. Making a tool should matter because it improves a
-repeated task the player is already doing, not because a technology ladder demands that item once.
+food, make a safe place to work and sleep, establish fire and warmth, and turn nearby stone, wood, earth, and plant
+matter into useful capability. Storage and tools are investments, not opening checklist items: make them when
+carried capacity, perishability, safety, or a repeated workload creates a reason to pay their embodied matter and
+attention cost. Making a tool should matter because it improves a repeated task the player is already doing, not
+because a technology ladder demands that item once.
 
-The first roughly fifteen minutes are a pacing target, not a scripted sequence. In an ordinary start they should
-still be dominated by orientation, gathering, provisioning, fire/shelter work, and basic stone-tool fabrication.
+The first roughly fifteen minutes are a pacing envelope, not a quota of infrastructure to fill. In an ordinary
+start they should still be dominated by orientation, gathering, provisioning, fire/shelter work when those
+pressures apply, and whichever first improvements the local situation actually justifies. A player who has enough
+carried capacity, several days of fresh food, and no repeated cutting workload should be correct to defer a box or
+an adze rather than spend resources merely to satisfy opening pacing.
 A visible copper clue may give the player a future objective, but the default opening should not already be
 delivering useful copper, copper upgrades, or ore-processing machinery. First useful copper should normally come
 after the player has a functional wilderness baseline and has spent additional attention locating, extracting,
@@ -229,7 +234,11 @@ matter and better information should open further physical capability.
 ### Pacing constraints
 
 - The wilderness phase is a real progression era. Ordinary copper progression begins after, not instead of, the
-  basic food/water, fire/shelter, storage, and stone-tool loop.
+  basic food/water baseline and the situationally relevant fire/shelter, storage, or stone-tool work that makes the
+  local start genuinely sustainable. Do not require infrastructure whose current benefit does not justify its cost.
+- Unaided carried mass is a body capability, not a scenario-sized inventory parameter. Early storage and later
+  transport should become valuable because real loads exceed or compete with that capability, not because an
+  episode resizes the player's pockets to manufacture pressure.
 - A rested start should accumulate visible food/water pressure through ordinary work without being driven into a
   warning state merely to make survival relevant. Provisioning should account for the actual food and drink being
   used, including hydration carried by food, and should not force redundant serving actions just to top off a

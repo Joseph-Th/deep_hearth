@@ -169,6 +169,7 @@ fn minimum_drink_projection_reports_canonical_resource_budget_overflow() {
             Volume::from_microliters(1),
             TickSpan::new(2),
         ),
+        Mass::from_milligrams(1),
         1,
         1,
     );

@@ -27,6 +27,6 @@ pub(super) fn admit_stationary_player(
     initialize_player_survival(registries, state).unwrap_or_else(|error| {
         panic!("stationary gameplay {context} survival initialization failed: {error}")
     });
-    initialize_stationary_player_logistics(state);
+    initialize_stationary_player_logistics(registries, state);
     assert_exact_local_runtime_ready(registries, state, context);
 }

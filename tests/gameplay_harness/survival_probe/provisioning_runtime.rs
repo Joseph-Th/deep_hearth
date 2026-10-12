@@ -260,7 +260,9 @@ pub(super) fn prepare_provisioning_world(
             seed_player_survival_at_hydration_warning_boundary(registries, &mut state)
         }
     }
-    super::super::exact_local_runtime::initialize_stationary_player_logistics(&mut state);
+    super::super::exact_local_runtime::initialize_stationary_player_logistics(
+        registries, &mut state,
+    );
     super::super::exact_local_runtime::assert_exact_local_runtime_ready(
         registries,
         &state,

@@ -8,27 +8,25 @@ use std::num::NonZeroU64;
 
 use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_surface_resource};
 use deep_hearth::content::{
-    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_SHAPE_WOOD_BOARDS,
-    STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_TIMBER,
-    SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP,
+    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_STONE,
+    SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use deep_hearth::core::quantity::{Mass, Temperature, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::SimulationTick;
-use deep_hearth::crafting::{
-    ManualCraftStartRequest, plan_manual_craft_from_stockpile, validate_start_manual_craft,
-};
+use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
-use deep_hearth::inventory::{MaterialLotSelection, StockpileId, validate_place_player_storage};
+use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
-    assess_player_carrying, validate_drop_to_ground, validate_initialize_player_logistics,
-    validate_place_fluid_store,
+    assess_player_carrying, validate_admit_player_logistics, validate_place_fluid_store,
 };
+use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::surface::{
@@ -42,6 +40,120 @@ use super::exact_local_runtime::{STATIONARY_PLAYER_ORIGIN, assert_exact_local_ru
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct WildernessOpeningReview {
+    pub(super) first_meal_ticks: u64,
+    pub(super) camp_ticks: u64,
+    pub(super) meal_mass_mg: u64,
+    pub(super) retained_food_mass_mg: u64,
+    pub(super) peak_carried_mass_mg: u64,
+    pub(super) carried_capacity_mg: u64,
+    pub(super) water_observed_ul: u64,
+    pub(super) water_consumed_ul: u64,
+    pub(super) remaining_stone_mg: u64,
+    pub(super) remaining_timber_mg: u64,
+    pub(super) field_box_build_ticks: u64,
+    pub(super) field_box_capacity_mg: u64,
+    pub(super) ambient_food_shelf_ticks: u64,
+    pub(super) field_box_food_shelf_ticks: u64,
+    pub(super) field_box_board_batches: u64,
+    pub(super) adze_setup_ticks: u64,
+    pub(super) bare_board_ticks: u64,
+    pub(super) adze_board_ticks: u64,
+    pub(super) adze_crossover_batches: u64,
+    pub(super) final_warning_safe: bool,
+}
+
+fn project_wilderness_adze_decision(
+    registries: &Registries,
+    board_batches: u64,
+) -> (u64, u64, u64, u64) {
+    let one = NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one batch is nonzero"));
+    let board_batches = NonZeroU64::new(board_batches)
+        .unwrap_or_else(|| panic!("wilderness field-box board count must be nonzero"));
+    let knapping = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("wilderness stone-tool knapping disappeared"));
+    let handle = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_HANDLE)
+        .unwrap_or_else(|| panic!("wilderness handle shaping disappeared"));
+    let stone_gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_STONE)
+        .copied()
+        .unwrap_or_else(|| panic!("wilderness stone gathering disappeared"));
+    let timber_gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_TIMBER)
+        .copied()
+        .unwrap_or_else(|| panic!("wilderness timber gathering disappeared"));
+    let stone_gather_ticks = stone_gathering
+        .duration_for_mass(knapping.input_mass())
+        .unwrap_or_else(|| panic!("wilderness stone gathering cannot schedule adze input"))
+        .value();
+    let timber_gather_ticks = timber_gathering
+        .duration_for_mass(handle.input_mass())
+        .unwrap_or_else(|| panic!("wilderness timber gathering cannot schedule adze input"))
+        .value();
+    let knap_ticks = project_manual_craft_hand_work(registries, PROCESS_KNAP_STONE_TOOL, one)
+        .unwrap_or_else(|error| panic!("wilderness stone-tool projection failed: {error}"))
+        .duration()
+        .value();
+    let handle_ticks = project_manual_craft_hand_work(registries, PROCESS_SHAPE_WOOD_HANDLE, one)
+        .unwrap_or_else(|error| panic!("wilderness handle projection failed: {error}"))
+        .duration()
+        .value();
+    let setup_ticks = stone_gather_ticks
+        .checked_add(timber_gather_ticks)
+        .and_then(|ticks| ticks.checked_add(knap_ticks))
+        .and_then(|ticks| ticks.checked_add(handle_ticks))
+        .unwrap_or_else(|| panic!("wilderness adze acquisition projection overflowed"));
+    let bare_ticks =
+        project_manual_craft_hand_work(registries, PROCESS_SHAPE_WOOD_BOARDS, board_batches)
+            .unwrap_or_else(|error| panic!("wilderness bare board projection failed: {error}"))
+            .duration()
+            .value();
+    let adze_ticks = project_manual_craft_equipment(
+        registries,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        board_batches,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("wilderness adze board projection failed: {error}"))
+    .duration()
+    .value();
+    let crossover = (1_u64..=64)
+        .find(|batches| {
+            let batches = NonZeroU64::new(*batches)
+                .unwrap_or_else(|| unreachable!("wilderness crossover candidates are nonzero"));
+            let bare =
+                project_manual_craft_hand_work(registries, PROCESS_SHAPE_WOOD_BOARDS, batches)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness crossover hand projection failed: {error}")
+                    })
+                    .duration()
+                    .value();
+            let assisted = project_manual_craft_equipment(
+                registries,
+                PROCESS_SHAPE_WOOD_BOARDS,
+                batches,
+                EQUIPMENT_STONE_WOODWORKING_ADZE,
+                Condition::PRISTINE,
+            )
+            .unwrap_or_else(|error| panic!("wilderness crossover adze projection failed: {error}"))
+            .duration()
+            .value();
+            setup_ticks
+                .checked_add(assisted)
+                .is_some_and(|with_setup| with_setup < bare)
+        })
+        .unwrap_or_else(|| panic!("wilderness adze never repays within 64 board batches"));
+    (setup_ticks, bare_ticks, adze_ticks, crossover)
+}
 
 fn advance_to(
     registries: &Registries,
@@ -121,49 +233,7 @@ fn gather(
     assert_eq!(state.player_work().active(), None);
 }
 
-fn craft_batches(
-    registries: &Registries,
-    state: &mut AppState,
-    process: ProcessId,
-    source: StockpileId,
-    destination: StockpileId,
-    batches: u64,
-    context: &str,
-) {
-    let batches = NonZeroU64::new(batches)
-        .unwrap_or_else(|| panic!("wilderness {context} batch count must be nonzero"));
-    let request = plan_manual_craft_from_stockpile(registries, state, process, source, batches)
-        .unwrap_or_else(|error| panic!("wilderness {context} input planning failed: {error}"));
-    let start = if source == destination {
-        ManualCraftStartRequest::in_place(request)
-    } else {
-        ManualCraftStartRequest::new(request, destination)
-    };
-    let job = validate_start_manual_craft(registries, state, start)
-        .unwrap_or_else(|error| panic!("wilderness {context} craft admission failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("wilderness {context} craft commit failed: {error}"));
-    let completes_at = state
-        .production()
-        .get_job(job)
-        .map(|record| record.completes_at())
-        .unwrap_or_else(|| panic!("wilderness {context} craft job disappeared after admission"));
-    advance_to(
-        registries,
-        state,
-        completes_at,
-        TickEventAllowance {
-            production_jobs: &[job],
-            ..TickEventAllowance::default()
-        },
-        context,
-    );
-    assert!(state.production().get_job(job).is_none());
-    assert_eq!(state.player_work().active(), None);
-}
-
-#[test]
-fn controlled_wilderness_opening_establishes_food_storage_and_water_before_copper() {
+pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningReview {
     let registries = build_registries();
     let mut state = AppState::new();
     for (commodity, mass, material) in [
@@ -214,9 +284,8 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("wilderness survival admission failed: {error}"));
 
-    // Player carry capacity is still a world/bootstrap parameter rather than authored body
-    // equipment. Size this controlled episode to its actual peak carried mass instead of granting
-    // arbitrary headroom and accidentally hiding capacity pressure.
+    // Ordinary admission owns a fixed body-scale carrying limit. The opening must adapt to that
+    // capability instead of resizing the player to whatever the current script intends to gather.
     let forage_mass = Mass::from_milligrams(500_000);
     let meal_mass = Mass::from_milligrams(250_000);
     let board_craft = registries
@@ -238,6 +307,18 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         .input_mass()
         .milligrams()
         .div_ceil(board_output.milligrams());
+    let (adze_setup_ticks, bare_board_ticks, adze_board_ticks, adze_crossover_batches) =
+        project_wilderness_adze_decision(&registries, board_batches);
+    assert!(
+        board_batches < adze_crossover_batches,
+        "the first field-box board workload should remain below the full wilderness adze payback crossover"
+    );
+    assert!(
+        adze_setup_ticks
+            .checked_add(adze_board_ticks)
+            .is_some_and(|with_setup| with_setup >= bare_board_ticks),
+        "the first field-box board workload should rationally defer a newly acquired stone adze"
+    );
     let field_box_raw_timber = Mass::from_milligrams(
         board_craft
             .input_mass()
@@ -248,22 +329,15 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
     let carried_food_after_meal = forage_mass
         .checked_sub(meal_mass)
         .unwrap_or_else(|| unreachable!("opening meal is smaller than gathered forage"));
-    let opening_carried_capacity = field_box_raw_timber
-        .checked_add(carried_food_after_meal)
-        .unwrap_or_else(|| panic!("wilderness opening carried requirement overflowed"));
-    let carried = validate_initialize_player_logistics(
-        &state,
-        STATIONARY_PLAYER_ORIGIN,
-        opening_carried_capacity,
-    )
-    .unwrap_or_else(|error| panic!("wilderness carrying admission failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("wilderness carrying commit failed: {error}"))
-    .carried_stockpile();
+    let carried = validate_admit_player_logistics(&registries, &state, STATIONARY_PLAYER_ORIGIN)
+        .unwrap_or_else(|error| panic!("wilderness carrying admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("wilderness carrying commit failed: {error}"))
+        .carried_stockpile();
     assert_eq!(
         assess_player_carrying(&state).map(|assessment| assessment.capacity()),
-        Some(opening_carried_capacity),
-        "controlled wilderness carrying should expose exactly the selected plan's peak mass requirement"
+        Some(registries.survival().physiology().carried_mass_capacity()),
+        "controlled wilderness carrying must expose authored body capability"
     );
     assert_exact_local_runtime_ready(&registries, &state, "controlled wilderness opening");
     assert!(
@@ -297,6 +371,9 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         forage_mass,
         "early berry forage",
     );
+    let carrying_after_forage = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared after forage"));
+    assert_eq!(carrying_after_forage.stored(), forage_mass);
     let berry_commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
     let meal_lot = state
         .inventory()
@@ -362,116 +439,80 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         "a normal first serving should be acquired and eaten early instead of waiting behind fabrication or storage construction"
     );
 
-    // The first real woodworking demand is one field box. At that scale, dedicated adze acquisition
-    // would cost more active attention than it returns, so the actor keeps the job bare-handed and
-    // leaves the visible stone/tool opportunity for a later workload that can actually repay it.
-    let timber = local_surface_resource(&state, CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
-    gather(
-        &registries,
-        &mut state,
-        SURFACE_GATHERING_HAND_COLLECT_TIMBER,
-        timber,
-        carried,
-        field_box_raw_timber,
-        "field-box timber",
-    );
-    let carrying_at_peak = assess_player_carrying(&state)
-        .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared at peak load"));
-    assert_eq!(carrying_at_peak.stored(), opening_carried_capacity);
-    assert_eq!(carrying_at_peak.available(), Mass::ZERO);
-    assert_eq!(
-        state
-            .available_surface_resources()
-            .map(|resource| (resource.commodity(), resource.remaining_mass()))
-            .collect::<Vec<_>>(),
-        vec![
-            (
-                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                Mass::from_milligrams(3_000_000),
-            ),
-            (
-                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-                Mass::from_milligrams(6_000_000),
-            ),
-        ],
-        "the short opening should leave finite stone/timber for later tool investment instead of consuming it to manufacture a checklist"
-    );
-    assert!(
-        state.available_local_equipment().next().is_none(),
-        "the short field-box workload should not manufacture a tool whose full wilderness acquisition cost has not paid back"
-    );
-
-    craft_batches(
-        &registries,
-        &mut state,
-        PROCESS_SHAPE_WOOD_BOARDS,
-        carried,
-        carried,
-        board_batches,
-        "bare-hand field-box boards",
-    );
-    let boards_before_box = state
-        .inventory()
-        .get_stockpile(carried)
-        .map(|stockpile| stockpile.get_mass(board_commodity))
-        .unwrap_or_else(|| panic!("wilderness carried inventory disappeared before field box"));
-    assert_eq!(boards_before_box, field_box_joinery.input_mass());
-    craft_batches(
-        &registries,
-        &mut state,
-        PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
-        carried,
-        carried,
-        1,
-        "field-box body",
-    );
-    let boards_after_box = state
-        .inventory()
-        .get_stockpile(carried)
-        .map(|stockpile| stockpile.get_mass(board_commodity))
-        .unwrap_or_else(|| panic!("wilderness carried inventory disappeared after field box"));
-    assert_eq!(
-        boards_after_box,
-        boards_before_box
-            .checked_sub(field_box_joinery.input_mass())
-            .unwrap_or_else(|| unreachable!("field-box input was checked above"))
-    );
-    assert_eq!(boards_after_box, Mass::ZERO);
+    // Storage and tools are investments, not opening checkboxes. The remaining food already fits
+    // comfortably on the player and remains fresh for four ambient days. Building a field box now
+    // would consume two kilograms of timber and the rest of the quarter-hour opening merely to
+    // extend one 250 g serving to seven days. Defer both box and adze until a real workload or
+    // preservation horizon can repay them.
+    let timber_gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_TIMBER)
+        .copied()
+        .unwrap_or_else(|| panic!("wilderness timber gathering disappeared"));
+    let field_box_gather_ticks = timber_gathering
+        .duration_for_mass(field_box_raw_timber)
+        .unwrap_or_else(|| panic!("wilderness field-box timber gathering cannot schedule"))
+        .value();
+    let field_box_build_ticks = field_box_gather_ticks
+        .checked_add(bare_board_ticks)
+        .and_then(|ticks| ticks.checked_add(field_box_joinery.duration().value()))
+        .unwrap_or_else(|| panic!("wilderness field-box build projection overflowed"));
     let field_box_storage = registries
         .storage()
         .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
         .unwrap_or_else(|| panic!("wilderness field-box storage definition disappeared"));
-    let provisions =
-        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
-            .unwrap_or_else(|error| panic!("wilderness field-box placement failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("wilderness field-box placement commit failed: {error}")
-            });
-    let built_provisions = provisions;
-    let provisions = state
-        .available_local_ground_stockpiles()
-        .find(|record| {
-            record
-                .enclosure()
-                .is_some_and(|enclosure| enclosure.definition() == STORAGE_ROUGH_TIMBER_FIELD_BOX)
-        })
-        .map(|record| record.id())
-        .unwrap_or_else(|| panic!("wilderness actor could not rediscover its local field box"));
+    let ambient_food_shelf_ticks = registries
+        .survival()
+        .get_food(berry_commodity)
+        .unwrap_or_else(|| panic!("wilderness berry food definition disappeared"))
+        .shelf_life()
+        .value();
+    let field_box_food_shelf_ticks = u64::try_from(
+        u128::from(ambient_food_shelf_ticks)
+            .checked_mul(u128::from(
+                field_box_storage
+                    .storage_profile()
+                    .preservation_multiplier_ppm(),
+            ))
+            .unwrap_or_else(|| panic!("wilderness field-box shelf-life projection overflowed"))
+            / 1_000_000,
+    )
+    .unwrap_or_else(|_| panic!("wilderness field-box shelf-life projection exceeds u64"));
     assert_eq!(
-        provisions, built_provisions,
-        "local storage observation must rediscover the field box the actor just built"
+        ambient_food_shelf_ticks,
+        registries.core().calendar().ticks_per_day() * 4,
+        "opening berry storage policy assumes the authored four-day ambient shelf life"
     );
     assert_eq!(
-        state.inventory().get_stockpile(provisions).map(|record| (
-            record.capacity(),
-            record.enclosure().map(|enclosure| enclosure.definition())
-        )),
-        Some((
-            field_box_storage.maximum_stockpile_capacity(),
-            Some(STORAGE_ROUGH_TIMBER_FIELD_BOX),
-        ))
+        field_box_food_shelf_ticks,
+        registries.core().calendar().ticks_per_day() * 7,
+        "rough field box should extend opening berries from four to seven days"
     );
+    let carrying_after_meal = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared after meal"));
+    assert_eq!(carrying_after_meal.stored(), carried_food_after_meal);
+    assert!(
+        carrying_after_meal.available() > field_box_raw_timber,
+        "field-box investment should be deferred only while the actor has ample body-custody headroom"
+    );
+    assert!(
+        state.available_local_equipment().next().is_none(),
+        "opening should not manufacture a tool before a workload can repay it"
+    );
+    assert!(
+        state.available_local_ground_stockpiles().next().is_none(),
+        "opening should not manufacture stationary storage before capacity or freshness requires it"
+    );
+    let remaining_stone_mg = state
+        .available_surface_resources()
+        .find(|resource| resource.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_LUMP))
+        .map(|resource| resource.remaining_mass().milligrams())
+        .unwrap_or_else(|| panic!("wilderness remaining stone opportunity disappeared"));
+    let remaining_timber_mg = state
+        .available_surface_resources()
+        .find(|resource| resource.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
+        .map(|resource| resource.remaining_mass().milligrams())
+        .unwrap_or_else(|| panic!("wilderness remaining timber opportunity disappeared"));
     let surplus_berries = state
         .inventory()
         .lot_ids(carried)
@@ -481,34 +522,14 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
                 .get_lot(*lot)
                 .is_some_and(|record| record.commodity() == berry_commodity)
         })
-        .unwrap_or_else(|| panic!("surplus opening berries disappeared before storage"));
+        .unwrap_or_else(|| panic!("surplus opening berries disappeared after meal"));
     assert_eq!(
         state
             .inventory()
             .get_lot(surplus_berries)
             .map(|record| record.mass()),
         Some(carried_food_after_meal),
-        "eating one serving should leave one carried serving for later storage"
-    );
-    validate_drop_to_ground(
-        &registries,
-        &state,
-        provisions,
-        &[MaterialLotSelection::new(
-            surplus_berries,
-            carried_food_after_meal,
-        )],
-    )
-    .unwrap_or_else(|error| panic!("wilderness surplus berry storage failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("wilderness surplus berry storage commit failed: {error}"));
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(provisions)
-            .map(|record| record.get_mass(berry_commodity)),
-        Some(carried_food_after_meal),
-        "the rediscovered field box must preserve the surplus serving rather than forcing an immediate retrieval just to prove storage access"
+        "eating one serving should leave one carried serving without forcing premature storage"
     );
 
     let water = local_drinkable_store(&registries, &state);
@@ -559,15 +580,15 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
         ))
         .unwrap_or_else(|| panic!("wilderness physical duration overflowed"));
     assert!(
-        (12 * minute..=18 * minute).contains(&elapsed_microseconds),
-        "controlled food/storage/water opening should land around the first-quarter-hour target without forcing an uneconomic tool before missing fire, shelter, travel, or ordinary world-source discovery are counted"
+        (3 * minute..=8 * minute).contains(&elapsed_microseconds),
+        "controlled opening should end when immediate provisioning is stable instead of padding the first quarter hour with unneeded infrastructure"
     );
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("wilderness final matter audit failed: {error}"))
             .total(),
         matter_before,
-        "wilderness opening must conserve represented matter across gathering, crafting, storage, and eating"
+        "wilderness opening must conserve represented matter across gathering and eating"
     );
     assert_exact_local_runtime_ready(
         &registries,
@@ -576,4 +597,92 @@ fn controlled_wilderness_opening_establishes_food_storage_and_water_before_coppe
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("wilderness final state invalid: {error}"));
+    let final_survival = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("wilderness player disappeared at final review"));
+    let final_warning_safe = final_survival.metabolic_energy() > physiology.hungry_below()
+        && final_survival.hydration() > physiology.thirsty_below();
+    assert!(
+        final_warning_safe,
+        "the first camp should finish with retained provisions and the player still above hunger/thirst warnings"
+    );
+
+    WildernessOpeningReview {
+        first_meal_ticks,
+        camp_ticks: elapsed_ticks,
+        meal_mass_mg: meal_mass.milligrams(),
+        retained_food_mass_mg: carried_food_after_meal.milligrams(),
+        peak_carried_mass_mg: carrying_after_forage.stored().milligrams(),
+        carried_capacity_mg: carrying_after_forage.capacity().milligrams(),
+        water_observed_ul: water_before.microliters(),
+        water_consumed_ul: 0,
+        remaining_stone_mg,
+        remaining_timber_mg,
+        field_box_build_ticks,
+        field_box_capacity_mg: field_box_storage.maximum_stockpile_capacity().milligrams(),
+        ambient_food_shelf_ticks,
+        field_box_food_shelf_ticks,
+        field_box_board_batches: board_batches,
+        adze_setup_ticks,
+        bare_board_ticks,
+        adze_board_ticks,
+        adze_crossover_batches,
+        final_warning_safe,
+    }
+}
+
+fn physical_minutes_tenths(registries: &Registries, ticks: u64) -> String {
+    let microseconds = u128::from(ticks)
+        .checked_mul(u128::from(
+            registries.core().physical_tick_duration().microseconds(),
+        ))
+        .unwrap_or_else(|| panic!("wilderness report physical duration overflowed"));
+    let tenths = microseconds
+        .checked_add(3_000_000)
+        .unwrap_or_else(|| panic!("wilderness report duration rounding overflowed"))
+        / 6_000_000;
+    format!("{}.{:01}m", tenths / 10, tenths % 10)
+}
+
+pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
+    let registries = build_registries();
+    let ticks_per_day = registries.core().calendar().ticks_per_day();
+    std::println!(
+        "WILDERNESS EXPERIENCE evidence=controlled-local-sources+ordinary-exact-local-after-admission timing=[first-meal:{}t/{} stable:{}t/{}] provisioning=[meal:{}mg retained:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
+        review.first_meal_ticks,
+        physical_minutes_tenths(&registries, review.first_meal_ticks),
+        review.camp_ticks,
+        physical_minutes_tenths(&registries, review.camp_ticks),
+        review.meal_mass_mg,
+        review.retained_food_mass_mg,
+        review.final_warning_safe,
+        review.peak_carried_mass_mg,
+        review.carried_capacity_mg,
+        u128::from(review.peak_carried_mass_mg) * 1_000_000
+            / u128::from(review.carried_capacity_mg),
+        review.water_observed_ul,
+        review.water_consumed_ul,
+        review.field_box_build_ticks,
+        review.field_box_capacity_mg,
+        review.retained_food_mass_mg,
+        review.ambient_food_shelf_ticks / ticks_per_day,
+        review.field_box_food_shelf_ticks / ticks_per_day,
+        review.field_box_board_batches,
+        review.adze_setup_ticks,
+        review.bare_board_ticks,
+        review.adze_board_ticks,
+        review.adze_crossover_batches,
+        review.remaining_stone_mg,
+        review.remaining_timber_mg,
+    );
+}
+
+#[test]
+fn controlled_wilderness_opening_stabilizes_without_premature_investment() {
+    let review = evaluate_controlled_wilderness_opening();
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
+        std::println!(
+            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=n/a behavior_root=unused replay=controlled-local"
+        );
+        print_wilderness_experience(review);
+    }
 }

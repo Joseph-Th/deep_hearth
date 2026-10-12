@@ -22,8 +22,6 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-#[path = "gameplay_harness/wilderness_contract_tests.rs"]
-mod wilderness_contract_tests;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
 

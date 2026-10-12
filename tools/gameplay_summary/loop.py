@@ -10,6 +10,7 @@ from .common import field
 
 @dataclass(frozen=True)
 class _LoopEvidenceLines:
+    wilderness: list[str]
     progression: list[str]
     progression_reviews: list[str]
     liberation: list[str]
@@ -33,6 +34,7 @@ def _lines_with_prefix(lines: list[str], prefix: str) -> list[str]:
 
 def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
     return _LoopEvidenceLines(
+        wilderness=_lines_with_prefix(lines, "WILDERNESS EXPERIENCE "),
         progression=_lines_with_prefix(lines, "PROGRESSION EXPERIENCE "),
         progression_reviews=_lines_with_prefix(lines, "PROGRESSION REVIEW "),
         liberation=_lines_with_prefix(lines, "LIBERATION EXPERIENCE "),
@@ -80,6 +82,7 @@ def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
     )
     return (
         "evidence-shape=["
+        f"wilderness:{len(evidence.wilderness)} "
         f"single-state-progression:{single_state}/{len(evidence.progression_reviews)} "
         f"domain-episodes:survival{len(evidence.survival)}/"
         f"woodworking{len(evidence.woodworking)}/fieldwork{len(evidence.fieldwork)}/"
@@ -188,6 +191,43 @@ def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
         " continuation=settlement-batch-proven" in line for line in first_foundry
     )
     return f"thermal-bootstrap={batch_foundry}/{foundry_builds}"
+
+
+def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
+    self_sufficient_camps = sum(
+        " warning-safe:true]" in line
+        and " water=[observed:" in line
+        and " provisioning=[" in line
+        for line in evidence.wilderness
+    )
+    rational_deferrals = sum(
+        " storage-choice=[selected:defer " in line
+        and " tool-choice=[selected:defer " in line
+        for line in evidence.wilderness
+    )
+    mechanized_processing = sum(
+        "processing-investment=[selected:mechanized" in line
+        for line in evidence.progression
+    )
+    delegated_orders = sum(
+        (match := re.search(r"\bdelegated:(\d+)t", line)) is not None
+        and int(match.group(1)) > 0
+        for line in evidence.settlement
+    )
+    electrical_foundries = sum(
+        " foundry-build=true " in line
+        and "electrical-prime-mover=[base:treadle-built conversion:treadle-dynamo]" in line
+        for line in evidence.first_foundry
+    )
+    foundry_builds = sum(" foundry-build=true " in line for line in evidence.first_foundry)
+    return (
+        "agency-growth=["
+        f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
+        f"rational-deferral:{rational_deferrals}/{len(evidence.wilderness)} "
+        f"mechanized-processing:{mechanized_processing}/{len(evidence.progression)} "
+        f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
+        f"electrical-foundry:{electrical_foundries}/{foundry_builds}]"
+    )
 
 
 def _reserve_knowledge_changed_plan(fieldwork: list[str]) -> int:
@@ -606,6 +646,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
     evidence = _collect_loop_evidence(lines)
     if not any(
         (
+            evidence.wilderness,
             evidence.progression,
             evidence.liberation,
             evidence.first_foundry,
@@ -626,6 +667,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
     return (
         "PLAYER LOOP EVIDENCE "
         f"{_evidence_shape(evidence)} "
+        f"{_agency_growth_evidence(evidence)} "
         f"{_continuity_evidence(evidence)} "
         f"{_bootstrap_boundary_evidence(evidence.liberation_kit)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "

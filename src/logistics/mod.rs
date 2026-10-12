@@ -35,9 +35,11 @@ pub use ground::{
     validate_allocate_ground_stockpile, validate_allocate_player_ground_stockpile,
     validate_drop_to_ground, validate_pickup_from_ground, validate_place_ground_stockpile,
 };
+#[cfg(test)]
+pub(crate) use initialization::validate_initialize_player_logistics;
 pub use initialization::{
     InitializePlayerLogisticsCommitError, InitializePlayerLogisticsError,
-    ValidatedPlayerLogisticsInitialization, validate_initialize_player_logistics,
+    ValidatedPlayerLogisticsInitialization, validate_admit_player_logistics,
 };
 pub use state::{
     LogisticsState, PlayerCarryingAssessment, PlayerLogisticsRecord, assess_player_carrying,

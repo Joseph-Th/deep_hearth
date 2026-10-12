@@ -94,6 +94,11 @@ path = "tests/gameplay_survival.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_wilderness"
+path = "tests/gameplay_wilderness.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_survival_contracts"
 path = "tests/gameplay_survival_contracts.rs"
 required-features = ["test-gameplay"]

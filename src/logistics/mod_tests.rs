@@ -13,13 +13,13 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::VoxelCoord;
 
 #[test]
-fn initialization_binds_player_position_to_inventory_owned_carried_capacity() {
+fn ordinary_admission_binds_player_position_to_authored_body_capacity() {
     let registries = build_registries();
     let mut state = AppState::new();
     let position = VoxelCoord::new(7, -3, 11);
-    let capacity = Mass::from_milligrams(25_000_000);
-    let validated = validate_initialize_player_logistics(&state, position, capacity)
-        .unwrap_or_else(|error| panic!("player logistics initialization failed: {error}"));
+    let capacity = registries.survival().physiology().carried_mass_capacity();
+    let validated = validate_admit_player_logistics(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("player logistics admission failed: {error}"));
     let expected_stockpile = validated.carried_stockpile();
 
     let player = validated

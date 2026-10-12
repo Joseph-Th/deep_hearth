@@ -1487,6 +1487,7 @@ class TestTopologyContractTests(unittest.TestCase):
         probe_modules = {
             "workshop": "workshop",
             "survival": "survival_probe",
+            "wilderness": "wilderness_contract_tests",
             "progression": "progression_probe",
             "liberation": "primitive_liberation",
             "foundry-bootstrap": "first_foundry_probe",
@@ -1581,6 +1582,10 @@ class TestTopologyContractTests(unittest.TestCase):
             },
         )
         self.assertEqual(
+            by_mode[gameplay_targets.EVIDENCE_ORDINARY_CONTROLLED_LOCAL_OPENING],
+            {"wilderness"},
+        )
+        self.assertEqual(
             gameplay_targets.gameplay_evidence_mode("agency"),
             gameplay_targets.EVIDENCE_COUNTERFACTUAL,
         )
@@ -1590,7 +1595,10 @@ class TestTopologyContractTests(unittest.TestCase):
         for scope, spec in ci.GAMEPLAY_SCOPE_SPECS.items():
             sources = run_test.target_source_paths(spec.target, None)
             with self.subTest(scope=scope):
-                if spec.evidence_mode == gameplay_targets.EVIDENCE_ORDINARY_EXACT_LOCAL:
+                if spec.evidence_mode in {
+                    gameplay_targets.EVIDENCE_ORDINARY_EXACT_LOCAL,
+                    gameplay_targets.EVIDENCE_ORDINARY_CONTROLLED_LOCAL_OPENING,
+                }:
                     self.assertIn(exact_local, sources)
                     self.assertNotIn(spatial_proxy, sources)
                 elif spec.evidence_mode == gameplay_targets.EVIDENCE_ORDINARY_SPATIAL_PROXY:
@@ -1614,7 +1622,15 @@ class TestTopologyContractTests(unittest.TestCase):
             "ore": "ore_contract_tests::",
             "foundry": "foundry_contract_tests::",
         }
-        self.assertEqual(set(contract_prefixes), set(ci.GAMEPLAY_SCOPE_SPECS))
+        self.assertEqual(
+            set(contract_prefixes),
+            set(ci.GAMEPLAY_SCOPE_SPECS) - {"wilderness"},
+        )
+        self.assertEqual(
+            set(run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["wilderness"], None)),
+            {ci.GAMEPLAY_TESTS["wilderness"]},
+            "the focused wilderness target is itself the executable whole-opening contract",
+        )
         for scope, prefix in contract_prefixes.items():
             focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)
             expected_probes = {ci.GAMEPLAY_TESTS[scope]}
@@ -3118,6 +3134,8 @@ class GameplayReportContractTests(unittest.TestCase):
             "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4]",
             "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
             "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior",
+            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=n/a behavior_root=unused replay=controlled-local",
+            "WILDERNESS EXPERIENCE evidence=controlled-local-sources+ordinary-exact-local-after-admission timing=[first-meal:85t/5.1m stable:85t/5.1m] provisioning=[meal:250000mg retained:250000mg warning-safe:true] carrying=[peak:500000mg capacity:25000000mg utilization:20000ppm] water=[observed:1500000uL consumed:0uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:161t capacity:10000000mg food:250000mg ambient:4d boxed:7d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:2 setup:110t bare:100t adze:56t crossover:5batches] reason:no-current-workload] remaining-opportunity=[stone:3000000mg timber:8000000mg]",
             "PROBE INPUT name=survival-provisioning mode=explore samples=1 organic=0",
             "SURVIVAL EXPERIENCE seed=0x1 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] storage-policy:decline",
             "PROGRESSION EXPERIENCE seed=0x1 sample=anchor information=surface-resolved local-copper-sequence=pick-first scarcity=[direct-second-upgrade-blocked:true processed-output-playable:true converged-both-upgrades:true] processing-investment=[selected:mechanized preaction-manual:2470t conservative-machine-upper:1800t assembly:320t initial-charge:18t repeated-charge-upper:1400t choice-frozen-before-action:true] counterfactual=[crank-first-tradeoff hard-access-lead:478t] bridge-tradeoff=[manual-second:111t feed:41465mg recovery:650000ppm body:1000000000000nJ/1000uL; powered-line:421t feed:29947mg recovery:900000ppm body:2000000000000nJ/2000uL] disclosed-order-economics=[cycles:12 manual-player-attention:2470t mechanized-player-attention:429t saved:2041t] stockpiling-coverage-delegation=[feed-attention:28t maintenance-prep-overlap:40t productive-attention:68t returned-attention:315t returned:822454ppm overlap/setup:210526ppm unrecovered-setup:255t overlap-equivalent:unreached post-equivalent:0cycles stop:stockpile-order-complete economics:finite-stockpile-order-complete] selected-reinvestment=[completed]",
@@ -3164,11 +3182,11 @@ class GameplayReportContractTests(unittest.TestCase):
         concise_lines = concise.splitlines()
         self.assertLessEqual(
             len(concise_lines),
-            16,
-            "default gameplay digest must stay reviewable without pinning its exact section count",
+            18,
+            "default gameplay digest must stay reviewable while preserving wilderness and fantasy evidence",
         )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
-        self.assertLess(len(concise.encode()), 5_500)
+        self.assertLess(len(concise.encode()), 6_000)
         for prefix in (
             "SIMULATION TIME ",
             "GAMEPLAY primitive-progression scope=spatial-proxy ",
@@ -3179,6 +3197,8 @@ class GameplayReportContractTests(unittest.TestCase):
             "GAMEPLAY settlement ",
             "GAMEPLAY foundry-bootstrap ",
             "GAMEPLAY survival ",
+            "GAMEPLAY wilderness ",
+            "GAMEPLAY fantasy ",
             "GAMEPLAY loop ",
             "GAMEPLAY loop-dynamics ",
             "CAPABILITY probe=workshop ",
@@ -3262,7 +3282,11 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("consumer-projected-batches:1..1", power_summary)
         self.assertNotIn("consumer-projected-charges:", power_summary)
         self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", power_summary)
-        self.assertNotIn("settlement-copper-policy=", concise)
+        self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", concise)
+        self.assertIn(
+            "settlement-frontier=[spend-available:stone-crank>copper-crank]",
+            concise,
+        )
         self.assertNotIn("prior-wear=[", concise)
         self.assertNotIn("power-cycle=[", concise)
         self.assertNotIn("pacing-physical=[", concise)

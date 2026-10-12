@@ -15,7 +15,7 @@ use deep_hearth::core::quantity::{Mass, Temperature};
 use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 use deep_hearth::labor::PlayerWork;
-use deep_hearth::logistics::validate_initialize_player_logistics;
+use deep_hearth::logistics::validate_admit_player_logistics;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::simulation::advance_tick;
@@ -66,7 +66,7 @@ fn exact_local_admission_rejects_a_forgotten_unlocated_stockpile() {
     exact_local_runtime::locate_stationary_endpoints(&mut state, &[located], &[]);
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("exact-local guard survival setup failed: {error}"));
-    exact_local_runtime::initialize_stationary_player_logistics(&mut state);
+    exact_local_runtime::initialize_stationary_player_logistics(&registries, &mut state);
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         exact_local_runtime::assert_exact_local_runtime_ready(
@@ -235,15 +235,12 @@ fn material_backed_equipment_fixture_rejects_post_admission_placement_without_mu
 
 #[test]
 fn gameplay_bootstrap_rejects_world_seeding_after_logistics_admission() {
+    let registries = build_registries();
     let mut state = AppState::new();
-    validate_initialize_player_logistics(
-        &state,
-        VoxelCoord::new(0, 0, 0),
-        Mass::from_milligrams(1),
-    )
-    .unwrap_or_else(|error| panic!("fixture-boundary logistics setup failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("fixture-boundary logistics commit failed: {error}"));
+    validate_admit_player_logistics(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("fixture-boundary logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fixture-boundary logistics commit failed: {error}"));
 
     assert_fixture_rejected_without_mutation(&mut state, |state| {
         let _ = seed_stockpile(

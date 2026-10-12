@@ -10,6 +10,7 @@ use crate::inventory::allocation::{
     ValidatedEmptyStockpileAllocation, validate_empty_stockpile_allocation,
 };
 use crate::inventory::{StockpileId, StockpileStorageProfile};
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::PlayerLogisticsRecord;
@@ -116,12 +117,7 @@ impl ValidatedPlayerLogisticsInitialization {
     }
 }
 
-/// Validates the initial world position and finite solid-matter custody carried by the player.
-///
-/// The capacity is a bootstrap/world-authoring parameter, not an ordinary runtime mutation. This
-/// operation intentionally creates no movement authority: later pickup, drop, haulage, and movement
-/// actions must prove world access/path cost before changing custody or position.
-pub fn validate_initialize_player_logistics(
+fn validate_initialization_with_capacity(
     state: &AppState,
     position: VoxelCoord,
     carried_capacity: Mass,
@@ -155,4 +151,35 @@ pub fn validate_initialize_player_logistics(
         position,
         carried,
     })
+}
+
+/// Validates ordinary player admission using the body-authored carried-mass capacity.
+///
+/// The caller chooses only the admitted world position. Carried capacity is physical player
+/// capability owned by physiology, so ordinary gameplay cannot resize inventory to fit the next
+/// task. This operation intentionally creates no movement authority: later pickup, drop, haulage,
+/// and movement actions must prove world access/path cost before changing custody or position.
+pub fn validate_admit_player_logistics(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> Result<ValidatedPlayerLogisticsInitialization, InitializePlayerLogisticsError> {
+    validate_initialization_with_capacity(
+        state,
+        position,
+        registries.survival().physiology().carried_mass_capacity(),
+    )
+}
+
+/// Test-only admission boundary for contracts that intentionally exercise arbitrary capacity.
+///
+/// Gameplay probes should use [`validate_admit_player_logistics`] unless the capacity itself is the
+/// fixture variable under test.
+#[cfg(test)]
+pub(crate) fn validate_initialize_player_logistics(
+    state: &AppState,
+    position: VoxelCoord,
+    carried_capacity: Mass,
+) -> Result<ValidatedPlayerLogisticsInitialization, InitializePlayerLogisticsError> {
+    validate_initialization_with_capacity(state, position, carried_capacity)
 }

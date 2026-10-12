@@ -28,6 +28,7 @@ fn budget_includes_basal_and_incremental_work_costs() {
             Volume::from_microliters(1),
             TickSpan::new(1),
         ),
+        Mass::from_milligrams(1),
         1,
         1,
     );

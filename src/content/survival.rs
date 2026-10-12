@@ -27,6 +27,9 @@ const MINIMUM_DRINK_VOLUME_UL: u64 = 250_000;
 /// Largest ordinary direct drink: a large bottle-sized serving rather than a litre-scale recovery action.
 const MAXIMUM_DRINK_VOLUME_UL: u64 = 750_000;
 const MAXIMUM_DRINK_DURATION_TICKS: u64 = 18;
+/// Unaided carried custody. Twenty-five kilograms is deliberately useful for camp-scale material
+/// handling without pretending the player can backpack machine-scale stone and timber assemblies.
+const PLAYER_CARRIED_MASS_CAPACITY_MG: u64 = 25_000_000;
 
 fn direct_consumption_temperature() -> ConsumptionTemperatureRange {
     ConsumptionTemperatureRange::new(
@@ -56,6 +59,7 @@ fn physiology() -> PhysiologyDefinition {
             Volume::from_microliters(MAXIMUM_DRINK_VOLUME_UL),
             TickSpan::new(MAXIMUM_DRINK_DURATION_TICKS),
         ),
+        Mass::from_milligrams(PLAYER_CARRIED_MASS_CAPACITY_MG),
         25,
         50,
     )

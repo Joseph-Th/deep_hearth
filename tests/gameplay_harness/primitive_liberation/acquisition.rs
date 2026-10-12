@@ -23,8 +23,8 @@ use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
-    assess_player_carrying, validate_allocate_ground_stockpile,
-    validate_allocate_player_ground_stockpile, validate_initialize_player_logistics,
+    assess_player_carrying, validate_admit_player_logistics, validate_allocate_ground_stockpile,
+    validate_allocate_player_ground_stockpile,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
@@ -441,7 +441,7 @@ pub(super) fn acquire_raw_kit<T>(
     let inherited =
         seed_inherited_progression_infrastructure(registries, &mut state, case, player_position);
     let bootstrap = bootstrap_before_admission(&mut state);
-    let raw = validate_initialize_player_logistics(&state, player_position, raw_mass)
+    let raw = validate_admit_player_logistics(registries, &state, player_position)
         .unwrap_or_else(|error| panic!("liberation carried-custody setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("liberation carried-custody commit failed: {error}"))
@@ -634,7 +634,11 @@ pub(super) fn acquire_raw_kit<T>(
         .unwrap_or_else(|| panic!("liberation carried-custody assessment disappeared"));
     assert_eq!(carrying.position(), player_position);
     assert_eq!(carrying.stockpile(), raw);
-    assert_eq!(carrying.capacity(), raw_mass);
+    assert_eq!(
+        carrying.capacity(),
+        registries.survival().physiology().carried_mass_capacity(),
+        "primitive liberation must use authored body carrying capacity rather than resizing custody to its material plan"
+    );
     assert_eq!(carrying.stored(), remaining_raw);
     assert_eq!(
         calculate_matter_accounting(&state)

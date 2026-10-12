@@ -236,6 +236,7 @@ pub struct PhysiologyDefinition {
     hydration: HydrationDefinition,
     nutrition: NutritionDefinition,
     direct_consumption: DirectConsumptionDefinition,
+    carried_mass_capacity: Mass,
     starvation_vitality_loss_ppm_per_tick: u32,
     dehydration_vitality_loss_ppm_per_tick: u32,
 }
@@ -247,9 +248,14 @@ impl PhysiologyDefinition {
         hydration: HydrationDefinition,
         nutrition: NutritionDefinition,
         direct_consumption: DirectConsumptionDefinition,
+        carried_mass_capacity: Mass,
         starvation_vitality_loss_ppm_per_tick: u32,
         dehydration_vitality_loss_ppm_per_tick: u32,
     ) -> Self {
+        assert!(
+            !carried_mass_capacity.is_zero(),
+            "player carried mass capacity must be nonzero"
+        );
         assert!(
             starvation_vitality_loss_ppm_per_tick > 0,
             "starvation vitality loss must be nonzero"
@@ -271,6 +277,7 @@ impl PhysiologyDefinition {
             hydration,
             nutrition,
             direct_consumption,
+            carried_mass_capacity,
             starvation_vitality_loss_ppm_per_tick,
             dehydration_vitality_loss_ppm_per_tick,
         }
@@ -314,6 +321,16 @@ impl PhysiologyDefinition {
     #[must_use]
     pub const fn direct_consumption(self) -> DirectConsumptionDefinition {
         self.direct_consumption
+    }
+
+    /// Maximum solid-matter custody the unaided player can carry at once.
+    ///
+    /// This is a body capability, not a caller-selected inventory size. Logistics admission uses
+    /// it to allocate the player's carried stockpile; later transport technology should extend
+    /// haulage through distinct physical custody rather than silently enlarging the body limit.
+    #[must_use]
+    pub const fn carried_mass_capacity(self) -> Mass {
+        self.carried_mass_capacity
     }
 
     #[must_use]

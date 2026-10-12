@@ -16,6 +16,7 @@ from tools.gameplay_summary.power import power_provider_summary
 from tools.gameplay_summary.progression import progression_summary
 from tools.gameplay_summary.settlement import settlement_summary
 from tools.gameplay_summary.survival import survival_summary
+from tools.gameplay_summary.wilderness import wilderness_summary
 from tools.gameplay_summary.woodworking import woodworking_summary
 
 
@@ -24,6 +25,7 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
 
     summaries: list[str] = []
     for summary in (
+        wilderness_summary(lines),
         progression_summary(lines),
         liberation_summary(lines),
         woodworking_summary(lines),
@@ -147,6 +149,16 @@ def settlement_specialization_summary(
 
 
 _ORDINARY_DIGEST_FIELDS = {
+    "wilderness": (
+        "evidence",
+        "timing",
+        "provisioning",
+        "carrying",
+        "water",
+        "storage-choice",
+        "tool-choice",
+        "remaining-opportunity",
+    ),
     "primitive-progression": (
         "first-copper",
         "organic-first-copper",
@@ -188,6 +200,8 @@ _ORDINARY_DIGEST_FIELDS = {
         "settlement-choice",
         "organic-settlement-choice",
         "organic-settlement-survival",
+        "settlement-copper-policy",
+        "settlement-frontier",
     ),
     "settlement": (
         "organic-play",
@@ -257,6 +271,7 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
 }
 
 _EXPECTED_ORDINARY_BY_PROBE = {
+    "wilderness": {"wilderness"},
     "primitive-progression": {"primitive-progression"},
     "primitive-liberation": {"primitive-liberation"},
     "woodworking": {"woodworking"},
@@ -481,6 +496,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         return f"GAMEPLAY {probe}{scope} {detail}".rstrip()
 
     if summary.startswith("PLAYER LOOP EVIDENCE "):
+        agency_growth = compact_fields(summary, ("agency-growth",))
         continuity = compact_fields(summary, ("continuity",))
         core = compact_fields(
             summary,
@@ -501,7 +517,9 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             ),
         )
         return (
-            f"GAMEPLAY loop {continuity} {core}".rstrip()
+            f"GAMEPLAY fantasy {agency_growth}".rstrip()
+            + "\n"
+            + f"GAMEPLAY loop {continuity} {core}".rstrip()
             + "\n"
             + f"GAMEPLAY loop-dynamics {dynamics} {investment}".rstrip()
         )

@@ -45,6 +45,6 @@ pub(super) fn admit_stationary_player_with_survival_start(
             seed_player_survival_at_hydration_warning_boundary(registries, state);
         }
     }
-    initialize_stationary_player_logistics(state);
+    initialize_stationary_player_logistics(registries, state);
     assert_exact_local_runtime_ready(registries, state, context);
 }

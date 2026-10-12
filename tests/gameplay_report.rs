@@ -187,6 +187,8 @@ mod survival_world_generation;
 mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[path = "gameplay_harness/wilderness_contract_tests.rs"]
+mod wilderness_contract_tests;
 #[path = "gameplay_harness/woodworking_generation.rs"]
 mod woodworking_generation;
 #[path = "gameplay_harness/woodworking_policy.rs"]
@@ -228,10 +230,16 @@ fn main() {
         MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245,
     );
     std::println!(
-        "DESIGN TARGET scope=ordinary-after-disclosed-bootstrap locality=mixed-exact-local+spatial-proxy loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
+        "DESIGN TARGET fantasy=capable-individual-turning-local-scarcity-into-resilient-technological-agency loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
     );
     std::println!(
-        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap exact-local=[survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] movement-abstracted=[primitive-progression,fieldwork] movement-authority=absent reachability-authority=STATUS.md"
+        "EVALUATION SCOPE kind=ordinary-play evidence=[controlled-local-wilderness+runtime-actions-after-admission,post-bootstrap-domain-episodes] exact-local=[wilderness,survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] movement-abstracted=[primitive-progression,fieldwork] movement-authority=absent reachability-authority=STATUS.md"
+    );
+    std::println!(
+        "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=n/a behavior_root=unused replay=controlled-local"
+    );
+    wilderness_contract_tests::print_wilderness_experience(
+        wilderness_contract_tests::evaluate_controlled_wilderness_opening(),
     );
 
     run_focused_probe_with_registries(
