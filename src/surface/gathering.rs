@@ -385,3 +385,28 @@ pub fn validate_start_surface_gathering(
         player_work,
     })
 }
+
+/// Begins ordinary hand gathering into the admitted player's carried inventory.
+///
+/// Player-facing callers choose the gathering method, visible local resource, and physical amount;
+/// carried custody is derived from authoritative logistics instead of becoming a stockpile-routing
+/// decision. Explicit-destination gathering remains available for deliberate automation and
+/// subsystem tests.
+pub fn validate_start_player_surface_gathering(
+    registries: &Registries,
+    state: &AppState,
+    method: SurfaceGatheringMethodId,
+    resource: SurfaceResourceId,
+    mass: Mass,
+) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
+    let destination = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .ok_or(SurfaceGatheringError::PlayerNotLocated)?;
+    validate_start_surface_gathering(
+        registries,
+        state,
+        SurfaceGatheringRequest::new(method, resource, destination, mass),
+    )
+}

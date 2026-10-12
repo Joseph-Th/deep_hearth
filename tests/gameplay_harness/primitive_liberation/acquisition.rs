@@ -36,9 +36,7 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
-use deep_hearth::surface::{
-    SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
-};
+use deep_hearth::surface::{SurfaceResourceId, validate_start_player_surface_gathering};
 use deep_hearth::survival::assess_survival;
 use deep_hearth::world_generation::{WorldGenerationSeed, validate_generate_initial_wilderness};
 
@@ -92,14 +90,12 @@ fn gather_surface_resource(
     let mut remaining = requested;
     while !remaining.is_zero() {
         let batch = remaining.min(method.maximum_batch_mass());
-        validate_start_surface_gathering(
-            registries,
-            state,
-            SurfaceGatheringRequest::new(method_id, resource, destination, batch),
-        )
-        .unwrap_or_else(|error| panic!("liberation {context} gathering admission failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("liberation {context} gathering start failed: {error}"));
+        validate_start_player_surface_gathering(registries, state, method_id, resource, batch)
+            .unwrap_or_else(|error| {
+                panic!("liberation {context} gathering admission failed: {error}")
+            })
+            .commit(state)
+            .unwrap_or_else(|error| panic!("liberation {context} gathering start failed: {error}"));
         let work = match state.player_work().active() {
             Some(PlayerWork::SurfaceGathering { work }) => work,
             other => panic!(

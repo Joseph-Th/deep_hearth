@@ -41,6 +41,46 @@ fn seed_surface(
 }
 
 #[test]
+fn ordinary_surface_gathering_derives_carried_custody() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(100),
+    );
+    let carried = admit_player(&registries, &mut state, position);
+
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE,
+        stone,
+        Mass::from_milligrams(100),
+    )
+    .unwrap_or_else(|error| panic!("ordinary surface gathering validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("ordinary surface gathering commit failed: {error}"));
+
+    let work = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work,
+        other => panic!("ordinary surface gathering did not own player work: {other:?}"),
+    };
+    assert_eq!(work.destination(), carried);
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("ordinary surface gathering tick failed: {error}"));
+    assert_eq!(
+        outcome
+            .surface_gathering()
+            .map(|gathered| gathered.destination()),
+        Some(carried)
+    );
+}
+
+#[test]
 fn adjacent_surface_observation_requires_persisted_access_and_hides_exact_state() {
     let registries = build_registries();
     let mut state = AppState::new();

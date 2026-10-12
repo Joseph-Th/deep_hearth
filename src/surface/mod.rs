@@ -12,7 +12,8 @@ pub(crate) use gathering::{
 };
 pub use gathering::{
     SurfaceGatheringCommitError, SurfaceGatheringError, SurfaceGatheringOutcome,
-    SurfaceGatheringRequest, ValidatedSurfaceGatheringStart, validate_start_surface_gathering,
+    SurfaceGatheringRequest, ValidatedSurfaceGatheringStart,
+    validate_start_player_surface_gathering, validate_start_surface_gathering,
 };
 #[cfg(test)]
 pub(crate) use generation::insert_generated_surface_resource;

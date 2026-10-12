@@ -20,7 +20,6 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::SimulationTick;
 use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
-use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{PlayerStepError, assess_player_carrying, validate_start_player_step};
 use deep_hearth::maintenance::Condition;
@@ -31,8 +30,8 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::surface::{
-    AdjacentSurfaceResource, SurfaceGatheringRequest, SurfaceResourceId,
-    available_adjacent_surface_resources, validate_start_surface_gathering,
+    AdjacentSurfaceResource, SurfaceResourceId, available_adjacent_surface_resources,
+    validate_start_player_surface_gathering,
 };
 use deep_hearth::survival::{
     AdjacentDrinkSource, assess_survival, available_adjacent_drink_sources,
@@ -261,18 +260,13 @@ fn gather(
     state: &mut AppState,
     method: SurfaceGatheringMethodId,
     resource: SurfaceResourceId,
-    destination: StockpileId,
     mass: Mass,
     context: &str,
 ) {
-    validate_start_surface_gathering(
-        registries,
-        state,
-        SurfaceGatheringRequest::new(method, resource, destination, mass),
-    )
-    .unwrap_or_else(|error| panic!("wilderness {context} gathering admission failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("wilderness {context} gathering commit failed: {error}"));
+    validate_start_player_surface_gathering(registries, state, method, resource, mass)
+        .unwrap_or_else(|error| panic!("wilderness {context} gathering admission failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("wilderness {context} gathering commit failed: {error}"));
     let completes_at = match state.player_work().active() {
         Some(PlayerWork::SurfaceGathering { work }) => work.completes_at(),
         other => panic!("wilderness {context} gathering did not own player work: {other:?}"),
@@ -435,7 +429,6 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
         &mut state,
         SURFACE_GATHERING_HAND_FORAGE_BERRIES,
         berries,
-        carried,
         forage_mass,
         "early berry forage",
     );
