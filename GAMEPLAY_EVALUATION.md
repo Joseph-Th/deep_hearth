@@ -281,9 +281,13 @@ observe/infer/extract evidence, and expose world feedback such as depletion-driv
 than reducing the experience to investment-loop counts. Decision-frontier summaries must label workload entry
 thresholds explicitly instead of presenting frontier order as though it were a universal ranking. Cross-system
 projections must identify themselves as projections when they have not been lived as one canonical episode, even
-when every projected leg uses authoritative physics. Controlled summaries remain labeled as capability evidence
-and never imply ordinary reachability. Blocked selected continuations report their actual resulting state rather
-than a rolled-back decision state.
+when every projected leg uses authoritative physics. When a maintained single-state episode later lives the same
+interaction, summaries prefer that lived evidence and retain any consequential blocker it exposes; aggregate
+delegated-time totals must not hide a shared-resource serialization boundary or imply concurrency the runtime did
+not authorize. If lived operation uses a route justified by a separately executed market/frontier witness, label
+that decision basis instead of implying the route selection itself was lived in the same state. Controlled
+summaries remain labeled as capability evidence and never imply ordinary reachability.
+Blocked selected continuations report their actual resulting state rather than a rolled-back decision state.
 
 Agency exploration may use a bounded deterministic qualification search. Qualification is evaluator sampling
 only, never actor input or prevalence evidence; an incomplete search remains valid bounded evidence.

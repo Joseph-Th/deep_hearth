@@ -3599,6 +3599,23 @@ class GameplayReportContractTests(unittest.TestCase):
             detailed,
         )
 
+    def test_player_loop_prefers_lived_shared_power_portfolio_over_projection(self) -> None:
+        detailed = gameplay_report_summary.player_loop_evidence(
+            [
+                "POWER PROVIDER EXPERIENCE seed=0x1 decision=[selected:crank]",
+                "SETTLEMENT STORAGE EXPERIENCE stages=[stone:[capacity:500nJ portfolio-charges:107 max-packed:10] paired:[capacity:1000nJ portfolio-charges:44 max-packed:20] bank:[capacity:5000nJ portfolio-charges:10 max-packed:32]] portfolio=[families:5 batches-per-family:32 productive-batches:160]",
+                "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle shared-bank=timber-frame-flywheel shared-bank-concurrency=serialized-by-store-occupancy families=5 batches-per-family=32 productive-batches=160 charge-events=10 charge-attention=112t delegated=935t max-packed=32 elapsed=1047t survival=[energy:1nJ hydration:1uL] provider-condition=998320ppm matter=conserved",
+                "POWER SETTLEMENT seed=0x1 copper-policy:preserve-for-other-uses comparison=[market-frontier:1:stone-crank,7:treadle,56:walking-wheel]",
+            ]
+        )
+        self.assertIsNotNone(detailed)
+        assert detailed is not None
+        self.assertIn(
+            "shared-power=[lived:1 families:5 productive-batches:160 charges:10 provider:treadle provider-basis:matched-market-frontier treadle-entry:7 crosses:true active:112t delegated:935t concurrency:serialized-by-store-occupancy]",
+            detailed,
+        )
+        self.assertNotIn("shared-power-projection=[", detailed)
+
     def test_foundry_summary_preserves_powered_recovery_attention_and_autonomy(self) -> None:
         line = (
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=organic continuity=separate-episode "

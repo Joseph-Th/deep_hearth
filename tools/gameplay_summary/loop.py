@@ -139,6 +139,33 @@ def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: in
     )
 
 
+def _lived_shared_power_evidence(
+    lived: list[str], treadle_entry: list[int]
+) -> str | None:
+    if not lived or not treadle_entry:
+        return None
+    assert len(lived) == 1
+    portfolio = lived[0]
+    families = re.search(r"\bfamilies=(\d+)", portfolio)
+    productive_batches = re.search(r"\bproductive-batches=(\d+)", portfolio)
+    charge_events = re.search(r"\bcharge-events=(\d+)", portfolio)
+    active = re.search(r"\bcharge-attention=(\d+)t", portfolio)
+    delegated = re.search(r"\bdelegated=(\d+)t", portfolio)
+    concurrency = re.search(r"\bshared-bank-concurrency=([^ ]+)", portfolio)
+    if None in (families, productive_batches, charge_events, active, delegated):
+        raise AssertionError("settlement lived portfolio lost shared-power telemetry")
+    charges = int(charge_events.group(1))
+    threshold = min(treadle_entry)
+    return (
+        "shared-power=["
+        f"lived:1 families:{families.group(1)} productive-batches:{productive_batches.group(1)} "
+        f"charges:{charges} provider:treadle provider-basis:matched-market-frontier "
+        f"treadle-entry:{threshold} crosses:{str(charges >= threshold).lower()} "
+        f"active:{active.group(1)}t delegated:{delegated.group(1)}t "
+        f"concurrency:{concurrency.group(1) if concurrency is not None else 'unspecified'}]"
+    )
+
+
 def _shared_power_portfolio_evidence(lines: list[str]) -> str:
     """Expose when shared workshop demand crosses a provider-investment threshold.
 
@@ -148,6 +175,7 @@ def _shared_power_portfolio_evidence(lines: list[str]) -> str:
     contradictory across otherwise valid episodes.
     """
 
+    lived = [line for line in lines if line.startswith("SETTLEMENT PORTFOLIO EXPERIENCE ")]
     bank_charge_events: list[int] = []
     for line in lines:
         if not line.startswith("SETTLEMENT STORAGE EXPERIENCE "):
@@ -173,6 +201,9 @@ def _shared_power_portfolio_evidence(lines: list[str]) -> str:
             if separator and provider == "treadle" and charge.isdecimal():
                 treadle_entry.append(int(charge))
                 break
+
+    if lived_evidence := _lived_shared_power_evidence(lived, treadle_entry):
+        return lived_evidence
 
     if not bank_charge_events or not treadle_entry:
         return ""

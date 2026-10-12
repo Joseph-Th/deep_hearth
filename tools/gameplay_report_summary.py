@@ -209,6 +209,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "baseline-crossover",
         "payoff",
         "storage-scale",
+        "shared-portfolio",
     ),
     "foundry-bootstrap": (
         "choice",
@@ -511,6 +512,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             (
                 "bootstrap-boundary",
                 "prepare-invest",
+                "shared-power",
                 "shared-power-projection",
                 "delegate",
                 "reassess-reinvest",

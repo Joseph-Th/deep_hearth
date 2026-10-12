@@ -22,6 +22,9 @@ use deep_hearth::registry::Registries;
 
 use super::powered_craft_planning::{authored_batch, project_powered_craft_sequence};
 
+#[path = "settlement_storage_progression/portfolio.rs"]
+mod portfolio;
+
 const PORTFOLIO_BATCHES_PER_FAMILY: u64 = 32;
 
 #[derive(Clone, Copy)]
@@ -221,5 +224,10 @@ pub(super) fn run_settlement_storage_progression_experience() {
         POWERED_FAMILIES.len(),
         PORTFOLIO_BATCHES_PER_FAMILY,
         PORTFOLIO_BATCHES_PER_FAMILY * POWERED_FAMILIES.len() as u64,
+    );
+    let lived_charge_events = portfolio::execute_lived_portfolio(&registries);
+    assert_eq!(
+        lived_charge_events, bank.charge_events,
+        "lived shared workshop must realize the projected timber-bank charge cadence"
     );
 }

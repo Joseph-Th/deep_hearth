@@ -100,7 +100,10 @@ as a substitute for those opening actions.
 Once world-space movement, the familiar wilderness shell, and infrastructure placement have a coherent
 substrate, extend the same graph to carrier networks: mechanical transmission, electrical distribution, and
 fluid transport. Network state should own topology and losses; endpoint stores remain the authority for stored
-quantities.
+quantities. The current finite-store model intentionally reserves one selected store for a production job, so a
+shared flywheel bank can reduce recharge frequency without acting as a parallel workshop bus. Preserve that
+physical bottleneck until an explicit network owns distribution; do not obtain concurrency by weakening endpoint
+occupancy.
 
 Completion criterion: energy/fluid transfer is a physical routed operation with capacity, loss, occupancy,
 failure, inspection, and recovery rather than generic store-to-store mutation.
