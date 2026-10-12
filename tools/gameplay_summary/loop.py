@@ -178,7 +178,7 @@ def _shared_power_portfolio_evidence(lines: list[str]) -> str:
         return ""
     crosses = max(bank_charge_events) >= min(treadle_entry)
     return (
-        "shared-power=["
+        "shared-power-projection=["
         f"bank-portfolio-charges:{min(bank_charge_events)}..{max(bank_charge_events)} "
         f"treadle-entry:{min(treadle_entry)}..{max(treadle_entry)} "
         f"crosses:{str(crosses).lower()}]"
@@ -667,6 +667,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
     shared_power = _shared_power_portfolio_evidence(lines)
     return (
         "PLAYER LOOP EVIDENCE "
+        "role=self-reliant-field-engineer "
         f"{_evidence_shape(evidence)} "
         f"{_agency_growth_evidence(evidence)} "
         f"{_continuity_evidence(evidence)} "

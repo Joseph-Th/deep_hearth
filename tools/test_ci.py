@@ -3182,11 +3182,11 @@ class GameplayReportContractTests(unittest.TestCase):
         concise_lines = concise.splitlines()
         self.assertLessEqual(
             len(concise_lines),
-            18,
-            "default gameplay digest must stay reviewable while preserving wilderness and fantasy evidence",
+            19,
+            "default gameplay digest must stay reviewable while preserving wilderness, fantasy, and world-interaction evidence",
         )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
-        self.assertLess(len(concise.encode()), 6_100)
+        self.assertLess(len(concise.encode()), 6_600)
         for prefix in (
             "SIMULATION TIME ",
             "GAMEPLAY primitive-progression scope=spatial-proxy ",
@@ -3199,6 +3199,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "GAMEPLAY survival ",
             "GAMEPLAY wilderness ",
             "GAMEPLAY fantasy ",
+            "GAMEPLAY world-interaction ",
             "GAMEPLAY loop ",
             "GAMEPLAY loop-dynamics ",
             "CAPABILITY probe=workshop ",
@@ -3288,7 +3289,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", power_summary)
         self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", concise)
         self.assertIn(
-            "settlement-frontier=[spend-available:stone-crank>copper-crank]",
+            "settlement-frontier=[spend-available:stone-crank@1ch->copper-crank@3ch]",
             concise,
         )
         self.assertNotIn("prior-wear=[", concise)
@@ -3300,9 +3301,14 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("GAMEPLAY loop-dynamics ", concise)
         self.assertIn("thermal-bootstrap=1/1", concise)
         self.assertIn(
-            "GAMEPLAY fantasy agency-growth=[opening-stabilized:1/1 rational-deferral:1/1 workload-sensitive-processing:1/1",
+            "GAMEPLAY fantasy role=self-reliant-field-engineer agency-growth=[opening-stabilized:1/1 rational-deferral:1/1 workload-sensitive-processing:1/1",
             concise,
         )
+        self.assertIn(
+            "GAMEPLAY world-interaction observe-infer=[evidence-gated-extraction:1/1",
+            concise,
+        )
+        self.assertIn("world-feedback=[", concise)
         self.assertIn(
             "GAMEPLAY loop continuity=[progression:1/1 settlement-repeat:0/1 "
             "liberation-carry:1/1 foundry-carry:1/1 cross-era:modeled-handoffs]",
@@ -3397,6 +3403,24 @@ class GameplayReportContractTests(unittest.TestCase):
             "selected-vs-reference-attention-delta:-3..-3t",
             summary,
         )
+
+    def test_power_frontier_reports_workload_entry_thresholds_not_rank_order(self) -> None:
+        lines = [
+            "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor decision=[selected:crank] "
+            "comparison=[market-frontier:1:crank]",
+            "POWER SETTLEMENT seed=0x1 sample=anchor copper-policy:preserve-for-other-uses "
+            "comparison=[market-frontier:1:stone-crank,7:treadle,56:walking-wheel]",
+            "POWER SETTLEMENT seed=0x2 sample=coverage copper-policy:preserve-for-other-uses "
+            "comparison=[market-frontier:1:stone-crank,9:treadle,60:walking-wheel]",
+        ]
+        summary = gameplay_report_summary.power_provider_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn(
+            "settlement-frontier=[preserve-for-other-uses:stone-crank@1ch->treadle@7..9ch->walking-wheel@56..60ch]",
+            summary,
+        )
+        self.assertNotIn("stone-crank>treadle", summary)
 
     def test_scoped_gameplay_report_omits_cross_system_loop_digest(self) -> None:
         with (
@@ -3571,7 +3595,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIsNotNone(detailed)
         self.assertIn(
-            "shared-power=[bank-portfolio-charges:10..10 treadle-entry:7..7 crosses:true]",
+            "shared-power-projection=[bank-portfolio-charges:10..10 treadle-entry:7..7 crosses:true]",
             detailed,
         )
 

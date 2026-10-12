@@ -275,9 +275,15 @@ organic case; broad audits route one fresh case to a single root-selected scope 
 everywhere. Reports reuse the replay contract while generating a broader fresh sample. [`TESTING.md`](TESTING.md) owns command selection;
 command help owns exact option syntax.
 
-Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
-labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their
-actual resulting state rather than a rolled-back decision state.
+Concise and verbose report modes may change diagnostics, not evidence semantics. The default concise report must
+retain enough cross-system evidence to judge the player fantasy directly: name the player role, preserve
+observe/infer/extract evidence, and expose world feedback such as depletion-driven rerouting or retooling rather
+than reducing the experience to investment-loop counts. Decision-frontier summaries must label workload entry
+thresholds explicitly instead of presenting frontier order as though it were a universal ranking. Cross-system
+projections must identify themselves as projections when they have not been lived as one canonical episode, even
+when every projected leg uses authoritative physics. Controlled summaries remain labeled as capability evidence
+and never imply ordinary reachability. Blocked selected continuations report their actual resulting state rather
+than a rolled-back decision state.
 
 Agency exploration may use a bounded deterministic qualification search. Qualification is evaluator sampling
 only, never actor input or prevalence evidence; an incomplete search remains valid bounded evidence.

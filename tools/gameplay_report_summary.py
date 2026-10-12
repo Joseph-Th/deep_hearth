@@ -496,13 +496,22 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         return f"GAMEPLAY {probe}{scope} {detail}".rstrip()
 
     if summary.startswith("PLAYER LOOP EVIDENCE "):
-        agency_growth = compact_fields(summary, ("agency-growth",))
+        fantasy = compact_fields(summary, ("role", "agency-growth"))
+        world_interaction = compact_fields(
+            summary,
+            (
+                "observe-infer",
+                "extract",
+                "world-feedback",
+            ),
+        )
         continuity = compact_fields(summary, ("continuity",))
         core = compact_fields(
             summary,
             (
                 "bootstrap-boundary",
                 "prepare-invest",
+                "shared-power-projection",
                 "delegate",
                 "reassess-reinvest",
             ),
@@ -517,7 +526,9 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             ),
         )
         return (
-            f"GAMEPLAY fantasy {agency_growth}".rstrip()
+            f"GAMEPLAY fantasy {fantasy}".rstrip()
+            + "\n"
+            + f"GAMEPLAY world-interaction {world_interaction}".rstrip()
             + "\n"
             + f"GAMEPLAY loop {continuity} {core}".rstrip()
             + "\n"

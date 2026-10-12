@@ -230,7 +230,7 @@ fn main() {
         MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245,
     );
     std::println!(
-        "DESIGN TARGET fantasy=capable-individual-turning-local-scarcity-into-resilient-technological-agency loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
+        "DESIGN TARGET role=self-reliant-field-engineer fantasy=turn-local-scarcity-and-uncertainty-into-earned-technological-agency loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
     );
     std::println!(
         "EVALUATION SCOPE kind=ordinary-play evidence=[controlled-local-wilderness+runtime-actions-after-admission,post-bootstrap-domain-episodes] exact-local=[wilderness,survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] movement-abstracted=[primitive-progression,fieldwork] movement-authority=absent reachability-authority=STATUS.md"

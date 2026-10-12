@@ -80,23 +80,39 @@ def _provider_market_text(counts: dict[str, int]) -> str:
 def _settlement_frontier_evidence(
     lines: list[str], candidate_counts: dict[str, int]
 ) -> tuple[str, str]:
-    by_policy: dict[str, list[str]] = {}
+    by_policy: dict[str, list[list[tuple[int, str]]]] = {}
     frontier_union: set[str] = set()
     for line in lines:
         policy = re.search(r"\bcopper-policy:([^\s]+)", line)
         frontier = re.search(r"\bmarket-frontier:([a-z0-9,:-]+)", line)
         if policy is None or frontier is None:
             continue
-        choices = [entry.partition(":")[2] for entry in frontier.group(1).split(",")]
-        choices = [choice for choice in choices if choice]
-        frontier_union.update(choices)
-        existing = by_policy.setdefault(policy.group(1), [])
-        if not existing:
-            existing.extend(choices)
-        elif existing != choices:
-            existing[:] = ["varies-with-policy"]
+        entries: list[tuple[int, str]] = []
+        for raw_entry in frontier.group(1).split(","):
+            charge, separator, candidate = raw_entry.partition(":")
+            if separator and charge.isdecimal() and candidate:
+                entries.append((int(charge), candidate))
+                frontier_union.add(candidate)
+        if entries:
+            by_policy.setdefault(policy.group(1), []).append(entries)
+
+    def describe(frontiers: list[list[tuple[int, str]]]) -> str:
+        sequence = [candidate for _, candidate in frontiers[0]]
+        if any([candidate for _, candidate in frontier] != sequence for frontier in frontiers[1:]):
+            return "varies-by-world"
+        transitions: list[str] = []
+        for index, candidate in enumerate(sequence):
+            thresholds = [frontier[index][0] for frontier in frontiers]
+            threshold = (
+                str(thresholds[0])
+                if min(thresholds) == max(thresholds)
+                else f"{min(thresholds)}..{max(thresholds)}"
+            )
+            transitions.append(f"{candidate}@{threshold}ch")
+        return "->".join(transitions)
+
     frontier_text = " ".join(
-        f"{policy}:{'>'.join(choices)}" for policy, choices in sorted(by_policy.items())
+        f"{policy}:{describe(frontiers)}" for policy, frontiers in sorted(by_policy.items())
     ) or "none"
     off_frontier = [candidate for candidate in candidate_counts if candidate not in frontier_union]
     return frontier_text, ",".join(off_frontier) or "none"
