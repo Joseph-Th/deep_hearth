@@ -27,6 +27,10 @@ pub enum PlayerWorkValidationError {
         origin: VoxelCoord,
         destination: VoxelCoord,
     },
+    StepDestinationInaccessible {
+        origin: VoxelCoord,
+        destination: VoxelCoord,
+    },
     StepScheduleInvalid,
     StepDurationMismatch,
     SurfaceGatheringMethodMissing,

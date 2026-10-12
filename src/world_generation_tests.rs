@@ -8,7 +8,7 @@ use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::SimulationTick;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
-use crate::logistics::validate_allocate_ground_stockpile;
+use crate::logistics::{add_traversable_edge_for_test, validate_allocate_ground_stockpile};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -149,6 +149,15 @@ fn initial_wilderness_generation_requires_fresh_pre_admission_world_state() {
         Some(InitialWildernessGenerationError::FluidAlreadyGenerated)
     );
     assert_eq!(fluid_generated, before_fluid);
+
+    let mut access_generated = AppState::new();
+    add_traversable_edge_for_test(&mut access_generated, spawn, VoxelCoord::new(1, 0, 0));
+    let before_access = access_generated.clone();
+    assert_eq!(
+        validate_generate_initial_wilderness(&registries, &access_generated, seed, spawn).err(),
+        Some(InitialWildernessGenerationError::TraversalAccessAlreadyGenerated)
+    );
+    assert_eq!(access_generated, before_access);
 
     let mut admitted = AppState::new();
     validate_admit_player(&registries, &admitted, spawn)
@@ -346,6 +355,8 @@ fn generated_wilderness_persists_with_local_surface_and_adjacent_water_after_loa
         .map(|source| (source.store(), source.fluid(), source.position()))
         .collect::<Vec<_>>();
     assert_eq!(adjacent_before.len(), 1);
+    let steps_before = state.available_player_steps().collect::<Vec<_>>();
+    assert_eq!(steps_before, vec![adjacent_before[0].2]);
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("wilderness generation save failed: {error}"));
@@ -363,6 +374,10 @@ fn generated_wilderness_persists_with_local_surface_and_adjacent_water_after_loa
         .map(|source| (source.store(), source.fluid(), source.position()))
         .collect::<Vec<_>>();
     assert_eq!(adjacent_after, adjacent_before);
+    assert_eq!(
+        loaded.available_player_steps().collect::<Vec<_>>(),
+        steps_before
+    );
     assert_eq!(
         available_local_drink_sources(&registries, &loaded).count(),
         0

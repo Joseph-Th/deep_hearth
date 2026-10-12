@@ -20,7 +20,7 @@ Current progression:
 | Crafting and equipment | Manual shaping, wear, service, recovery, primitive machines, copper upgrades, field instruments, specialist wire drawing, and settlement workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Primitive crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and the ordinary first/settlement foundry route. Compound-ore reduction is absent. |
-| Opening wilderness acquisition | Explicit-seed worlds generate finite same-voxel stone/timber/forage plus one adjacent finite water source. Players can observe that neighbor, pay one load-sensitive step, then drink exact-locally. Terrain/path authority, remote discovery, and general hydrology remain absent. |
+| Opening wilderness acquisition | Explicit-seed worlds generate same-voxel stone/timber/forage, adjacent finite water, and one persisted traversal edge to it. Unknown adjacent moves fail closed; the authorized step pays load-sensitive body cost before exact-local drinking. General terrain/pathfinding, remote discovery, and hydrology remain absent. |
 
 ## Current integration frontier
 
@@ -29,7 +29,7 @@ These are current graph boundaries, not priorities.
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Persistent local custody | Terrain/path authorization, routed travel/haulage, delivery/path cost, and remote/general resource discovery. |
+| Persistent local custody | General terrain/access generation, routed travel/haulage, delivery/path cost, and remote/general discovery. |
 | Structural physics | General player construction/deconstruction authorization. |
 | Equipment maintenance | Maintenance tools and general transport to service sites. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
@@ -49,7 +49,7 @@ incomplete.
 | Core | Deterministic headless simulation, validated immutable registries, generated `AppState`, typed time, checked physical quantities, and explicit tick order. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
-| Logistics | Persistent player/carried custody and world locations; timed face-adjacent open-space player steps with load-sensitive survival cost; exact-local observation, loose-storage allocation, pickup/drop, and access checks. |
+| Logistics | Persistent player/carried custody, world locations, and explicit traversable neighbor edges; timed authorized steps with load-sensitive survival cost; exact-local observation, loose-storage allocation, pickup/drop, and access checks. |
 | Loose surface matter | Persistent finite world-space records, exact-local observation/gathering, reservation, survival cost, depletion, interruption cleanup, and conservation. World creation can generate one deterministic explicit-seed stone/timber/forage spawn patch; terrain/ecology and remote discovery remain absent. |
 | Energy and fluids | Finite typed energy stores with power/loss limits; finite homogeneous fluid stores with exact withdrawal/local observation. Fresh worlds can generate one finite non-refilling adjacent water source with actor-safe neighbor orientation. General hydrology, flow/recharge, and remote fluid-source generation remain absent. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
@@ -71,10 +71,10 @@ ordinarily acquirable.
 
 | Area | Boundary |
 | --- | --- |
-| Wilderness opening | Terrain/path travel and discovery beyond the immediate generated opening, fire/warmth, shelter, and one continuous empty-inventory first-day loop. Generated adjacent water plus open-space stepping is not proof of routed wilderness travel or hydrology. |
+| Wilderness opening | Terrain/path travel and discovery beyond the immediate generated edge, fire/warmth, shelter, and one continuous empty-inventory first-day loop. One authorized neighbor is not routed travel or hydrology. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Voxel/chunk storage, terrain generation, streaming, world-scale indexing, and runtime clue-location discovery. |
-| Logistics | Terrain/path authorization, multi-step routing, haulage, general delivery/transport, remote resource acquisition, container/hotbar presentation, fluid transport, and mounted-production site geometry. |
+| Logistics | General access generation, multi-step routing, haulage, delivery/transport, remote acquisition, container/hotbar presentation, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, reduction/smelting, alloying, forging, machining, and broad recycling. |
 | Maintenance/structures | Maintenance tools, general construction/deconstruction, demolition/salvage physics, bending, shear, torsion, buckling, joints, and terrain support. |

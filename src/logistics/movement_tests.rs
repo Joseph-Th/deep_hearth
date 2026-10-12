@@ -1,13 +1,14 @@
-//! Contracts for ordinary face-adjacent open-space player movement.
+//! Contracts for ordinary face-adjacent player movement through persisted access edges.
 
 use crate::content::build_registries;
 use crate::content::{FORM_LOG, MATERIAL_WOOD};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::inventory::deposit_lot_for_test;
+use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    GroundStockpileAllocationError, PlayerGroundStockpileAllocationError,
-    validate_allocate_player_ground_stockpile,
+    GroundStockpileAllocationError, LogisticsValidationError, PlayerGroundStockpileAllocationError,
+    add_traversable_edge_for_test, validate_allocate_player_ground_stockpile,
 };
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -39,9 +40,13 @@ fn nonadjacent_player_step_is_rejected_without_mutation() {
     assert_eq!(state, before);
 }
 
-fn admitted_state(origin: VoxelCoord) -> (crate::registry::Registries, AppState) {
+fn admitted_state(
+    origin: VoxelCoord,
+    destination: VoxelCoord,
+) -> (crate::registry::Registries, AppState) {
     let registries = build_registries();
     let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, origin, destination);
     validate_admit_player(&registries, &state, origin)
         .unwrap_or_else(|error| panic!("movement fixture admission failed: {error}"))
         .commit(&mut state)
@@ -50,10 +55,36 @@ fn admitted_state(origin: VoxelCoord) -> (crate::registry::Registries, AppState)
 }
 
 #[test]
+fn adjacent_player_step_without_access_edge_is_rejected_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let origin = VoxelCoord::new(0, 0, 0);
+    let destination = VoxelCoord::new(1, 0, 0);
+    validate_admit_player(&registries, &state, origin)
+        .unwrap_or_else(|error| panic!("inaccessible movement admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("inaccessible movement admission commit failed: {error}"));
+    assert!(state.available_player_steps().next().is_none());
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_step(&registries, &state, destination).err(),
+        Some(PlayerStepError::DestinationInaccessible {
+            origin,
+            destination,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn adjacent_player_step_is_delayed_and_pays_canonical_survival_cost() {
     let origin = VoxelCoord::new(0, 0, 0);
     let destination = VoxelCoord::new(1, 0, 0);
-    let (registries, mut state) = admitted_state(origin);
+    let (registries, mut state) = admitted_state(origin, destination);
+    assert_eq!(
+        state.available_player_steps().collect::<Vec<_>>(),
+        vec![destination]
+    );
     let physiology = registries.survival().physiology();
     let carrying = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("movement carrying assessment disappeared"));
@@ -118,7 +149,7 @@ fn adjacent_player_step_is_delayed_and_pays_canonical_survival_cost() {
 fn carried_mass_increases_player_step_survival_cost() {
     let origin = VoxelCoord::new(0, 0, 0);
     let destination = VoxelCoord::new(1, 0, 0);
-    let (registries, mut unloaded) = admitted_state(origin);
+    let (registries, mut unloaded) = admitted_state(origin, destination);
     let mut loaded = unloaded.clone();
     let carried = loaded
         .logistics()
@@ -163,7 +194,7 @@ fn carried_mass_increases_player_step_survival_cost() {
 fn active_player_step_round_trips_and_replays_deterministically() {
     let origin = VoxelCoord::new(-4, 2, 9);
     let destination = VoxelCoord::new(-4, 3, 9);
-    let (registries, mut state) = admitted_state(origin);
+    let (registries, mut state) = admitted_state(origin, destination);
     validate_start_player_step(&registries, &state, destination)
         .unwrap_or_else(|error| panic!("movement replay validation failed: {error}"))
         .commit(&mut state)
@@ -185,10 +216,85 @@ fn active_player_step_round_trips_and_replays_deterministically() {
 }
 
 #[test]
+fn trusted_load_rejects_active_step_without_its_persisted_access_edge() {
+    let origin = VoxelCoord::new(0, 0, 0);
+    let destination = VoxelCoord::new(1, 0, 0);
+    let (registries, mut state) = admitted_state(origin, destination);
+    validate_start_player_step(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("movement access-tamper validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("movement access-tamper commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("movement access-tamper serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["traversable_edges"] = serde_json::json!([]);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("movement access-tamper decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::StepDestinationInaccessible {
+                origin,
+                destination,
+            }
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_noncanonical_traversal_edge() {
+    let origin = VoxelCoord::new(0, 0, 0);
+    let destination = VoxelCoord::new(1, 0, 0);
+    let (registries, state) = admitted_state(origin, destination);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("movement edge-tamper serialization failed: {error}"));
+    let diagonal = VoxelCoord::new(1, 1, 0);
+    encoded["state"]["systems"]["logistics"]["traversable_edges"][0]["second"] =
+        serde_json::json!({"x": diagonal.x(), "y": diagonal.y(), "z": diagonal.z()});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("movement edge-tamper decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::TraversalEdgeNotCanonical {
+                first: origin,
+                second: diagonal,
+            }
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_duplicate_traversal_edges() {
+    let origin = VoxelCoord::new(0, 0, 0);
+    let destination = VoxelCoord::new(1, 0, 0);
+    let (registries, state) = admitted_state(origin, destination);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("movement duplicate-edge serialization failed: {error}"));
+    let duplicate = encoded["state"]["systems"]["logistics"]["traversable_edges"][0].clone();
+    encoded["state"]["systems"]["logistics"]["traversable_edges"]
+        .as_array_mut()
+        .unwrap_or_else(|| panic!("serialized traversal edges are not an array"))
+        .push(duplicate);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("movement duplicate-edge decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::TraversalEdgesNotStrictlyOrdered {
+                previous_first: origin,
+                previous_second: destination,
+                current_first: origin,
+                current_second: destination,
+            }
+        )))
+    );
+}
+
+#[test]
 fn active_player_step_reserves_its_future_logistics_revision() {
     let origin = VoxelCoord::new(0, 0, 0);
     let destination = VoxelCoord::new(1, 0, 0);
-    let (registries, mut state) = admitted_state(origin);
+    let (registries, mut state) = admitted_state(origin, destination);
     validate_start_player_step(&registries, &state, destination)
         .unwrap_or_else(|error| panic!("movement headroom validation failed: {error}"))
         .commit(&mut state)

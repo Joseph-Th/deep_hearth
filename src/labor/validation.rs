@@ -207,6 +207,15 @@ fn validate_player_step_work(
             destination: work.destination(),
         });
     }
+    if !state
+        .logistics()
+        .is_step_authorized(work.origin(), work.destination())
+    {
+        return Err(PlayerWorkValidationError::StepDestinationInaccessible {
+            origin: work.origin(),
+            destination: work.destination(),
+        });
+    }
     let schedule =
         project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
             .ok_or(PlayerWorkValidationError::StepScheduleInvalid)?;

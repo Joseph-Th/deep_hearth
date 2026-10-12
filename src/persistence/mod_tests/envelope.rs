@@ -184,6 +184,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                 "logistics": {
                     "revision": 0,
                     "player": null,
+                    "traversable_edges": [],
                     "stockpile_locations": {},
                     "equipment_locations": {},
                     "energy_store_locations": {},

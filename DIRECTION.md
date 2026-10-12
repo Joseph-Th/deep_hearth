@@ -64,9 +64,11 @@ Build world-space action on the existing custody/location model. Logistics owns 
 delivery, access, path cost, and transport resource cost while inventory retains matter custody. Use the same
 model for movement, source acquisition, mounted-production geometry, fluid transport, and equipment transport.
 
-The current timed face-adjacent open-space step establishes ordinary locality change and load-sensitive body
-cost. It deliberately does not claim terrain collision/access, route selection, path cost, or haulage; those
-remaining world authorities should extend this same movement boundary rather than add a teleporting shortcut.
+The current timed face-adjacent step now fails closed behind persisted logistics-owned traversal edges. Fresh
+world generation authors the opening water edge, while `AppState::available_player_steps` exposes only choices
+from the actor's current voxel. This establishes immediate access authorization plus load-sensitive body cost,
+not terrain geometry, collision shape, slope, route selection, path cost, or haulage; those remaining world
+authorities should extend this movement boundary rather than add a teleporting shortcut.
 
 The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
 secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,
@@ -89,9 +91,10 @@ prerequisites for learning a special interaction language.
 
 The current explicit-seed opening generator closes same-voxel loose stone/timber/forage plus one finite
 non-refilling water opportunity at an immediate horizontal neighbor. The lived wilderness episode orients to
-that source, pays the ordinary load-sensitive step, and then uses exact-local fluid observation. This is enough
-to remove controlled water from the opening, not enough to claim terrain, route/discovery, ecology, or hydrology:
-flow/recharge, broader source generation, and spatially meaningful wilderness travel still need those authorities.
+that source, confirms its generated traversal edge, proves an unlisted adjacent move is rejected, pays the
+ordinary load-sensitive step, and then uses exact-local fluid observation. This closes only immediate opening
+access. Terrain geometry, multi-step routing/discovery, ecology, hydrology/flow/recharge, and broader source
+generation still need their own authorities.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a

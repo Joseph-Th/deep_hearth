@@ -24,6 +24,7 @@ impl Error for PlayerWorkValidationError {
             | Self::StepPlayerNotLocated
             | Self::StepOriginMismatch { .. }
             | Self::StepDestinationNotAdjacent { .. }
+            | Self::StepDestinationInaccessible { .. }
             | Self::StepScheduleInvalid
             | Self::StepDurationMismatch
             | Self::SurfaceGatheringMethodMissing

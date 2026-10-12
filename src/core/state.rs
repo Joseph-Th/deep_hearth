@@ -368,6 +368,22 @@ impl AppState {
         &self.systems.logistics
     }
 
+    /// Iterates immediate player destinations authorized by persisted world-access state.
+    ///
+    /// Callers cannot query an arbitrary origin, so this exposes only movement choices available
+    /// from the admitted player's current voxel rather than the complete traversal graph.
+    pub fn available_player_steps(&self) -> impl Iterator<Item = crate::spatial::VoxelCoord> + '_ {
+        self.systems
+            .logistics
+            .player()
+            .into_iter()
+            .flat_map(|player| {
+                self.systems
+                    .logistics
+                    .traversable_destinations(player.position())
+            })
+    }
+
     pub(crate) fn logistics_state_mut(&mut self) -> &mut LogisticsState {
         &mut self.systems.logistics
     }

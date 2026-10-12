@@ -21,6 +21,10 @@ pub enum PlayerStepError {
         origin: VoxelCoord,
         destination: VoxelCoord,
     },
+    DestinationInaccessible {
+        origin: VoxelCoord,
+        destination: VoxelCoord,
+    },
     CompletionTickOverflow,
     LogisticsRevisionExhausted,
     PlayerWork(PlayerWorkStartError),
@@ -37,7 +41,20 @@ impl Display for PlayerStepError {
                 destination,
             } => write!(
                 formatter,
-                "open-space player step from ({},{},{}) to ({},{},{}) is not face-adjacent",
+                "player step from ({},{},{}) to ({},{},{}) is not face-adjacent",
+                origin.x(),
+                origin.y(),
+                origin.z(),
+                destination.x(),
+                destination.y(),
+                destination.z()
+            ),
+            Self::DestinationInaccessible {
+                origin,
+                destination,
+            } => write!(
+                formatter,
+                "player step from ({},{},{}) to ({},{},{}) has no authorized traversal edge",
                 origin.x(),
                 origin.y(),
                 origin.z(),
@@ -64,6 +81,7 @@ impl Error for PlayerStepError {
             Self::PlayerWork(error) => Some(error),
             Self::PlayerNotInitialized
             | Self::DestinationNotAdjacent { .. }
+            | Self::DestinationInaccessible { .. }
             | Self::CompletionTickOverflow
             | Self::LogisticsRevisionExhausted => None,
         }
@@ -140,10 +158,10 @@ impl ValidatedPlayerStepStart {
     }
 }
 
-/// Begins one face-adjacent step through currently unmodeled open space.
+/// Begins one face-adjacent step authorized by persisted world-access state.
 ///
-/// This proves only direct locality change and load-sensitive body cost. It makes no terrain,
-/// collision, route, slope, or accessibility claim beyond the requested adjacent coordinate.
+/// The traversal edge proves only that this immediate move is accessible. It does not provide
+/// terrain geometry, collision shape, slope, pathfinding, route selection, or multi-step cost.
 pub fn validate_start_player_step(
     registries: &Registries,
     state: &AppState,
@@ -153,6 +171,12 @@ pub fn validate_start_player_step(
     let origin = carrying.position();
     if !origin.is_face_adjacent_to(destination) {
         return Err(PlayerStepError::DestinationNotAdjacent {
+            origin,
+            destination,
+        });
+    }
+    if !state.logistics().is_step_authorized(origin, destination) {
+        return Err(PlayerStepError::DestinationInaccessible {
             origin,
             destination,
         });
@@ -222,6 +246,12 @@ pub(crate) fn decide_player_step_tick(
         player.position(),
         work.origin(),
         "runtime invariant broken: active player step origin changed"
+    );
+    assert!(
+        state
+            .logistics()
+            .is_step_authorized(work.origin(), work.destination()),
+        "runtime invariant broken: active player step lost traversal authorization"
     );
     let expected_logistics_revision = state.logistics().revision();
     let next_logistics_revision = expected_logistics_revision.checked_add(1).ok_or(())?;

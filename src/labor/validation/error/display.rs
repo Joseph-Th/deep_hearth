@@ -26,6 +26,11 @@ impl Display for PlayerWorkValidationError {
                 "player step from ({},{},{}) to ({},{},{}) is not face-adjacent",
                 origin.x(), origin.y(), origin.z(), destination.x(), destination.y(), destination.z()
             ),
+            Self::StepDestinationInaccessible { origin, destination } => write!(
+                formatter,
+                "player step from ({},{},{}) to ({},{},{}) lacks persisted traversal authorization",
+                origin.x(), origin.y(), origin.z(), destination.x(), destination.y(), destination.z()
+            ),
             Self::StepScheduleInvalid => {
                 formatter.write_str("player step has an invalid persisted schedule")
             }

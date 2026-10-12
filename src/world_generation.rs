@@ -17,6 +17,7 @@ use crate::fluid::{
     FluidGenerationCommitError, FluidGenerationError, FluidStoreId, GeneratedFluidStoreSpec,
     ValidatedFluidGeneration, validate_generate_fluid_store,
 };
+use crate::logistics::TraversalEdge;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
@@ -63,6 +64,7 @@ pub enum InitialWildernessGenerationError {
     },
     SurfaceAlreadyGenerated,
     FluidAlreadyGenerated,
+    TraversalAccessAlreadyGenerated,
     SurfaceIdExhausted,
     SurfaceRevisionExhausted,
     FluidStoreIdExhausted,
@@ -92,6 +94,9 @@ impl Display for InitialWildernessGenerationError {
             ),
             Self::FluidAlreadyGenerated => formatter
                 .write_str("initial wilderness water generation requires pristine fluid state"),
+            Self::TraversalAccessAlreadyGenerated => formatter.write_str(
+                "initial wilderness generation requires pristine traversal-access state",
+            ),
             Self::SurfaceIdExhausted => {
                 formatter.write_str("surface resource identifier space is exhausted")
             }
@@ -128,6 +133,7 @@ impl Error for InitialWildernessGenerationError {
             | Self::PlayerAlreadyInitialized { .. }
             | Self::SurfaceAlreadyGenerated
             | Self::FluidAlreadyGenerated
+            | Self::TraversalAccessAlreadyGenerated
             | Self::SurfaceIdExhausted
             | Self::SurfaceRevisionExhausted
             | Self::FluidStoreIdExhausted
@@ -190,6 +196,7 @@ pub struct ValidatedInitialWildernessGeneration {
     surface_generation: ValidatedSurfaceGeneration,
     water_generation: ValidatedFluidGeneration,
     water_position: VoxelCoord,
+    traversal_edges: Vec<TraversalEdge>,
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
 }
@@ -267,11 +274,12 @@ impl ValidatedInitialWildernessGeneration {
 
         self.surface_generation.apply(state);
         self.water_generation.apply(state);
-        state.logistics_state_mut().apply_fluid_store_placement(
+        state.logistics_state_mut().apply_generated_opening_access(
             self.expected_logistics_revision,
             self.next_logistics_revision,
             water_store,
             self.water_position,
+            self.traversal_edges,
         );
         Ok(())
     }
@@ -361,9 +369,11 @@ fn player_initialization_flags(state: &AppState) -> (bool, bool) {
 /// Validates one deterministic opening opportunity for a fresh built-in world.
 ///
 /// This establishes finite loose stone, fallen timber, and forage at spawn plus one finite,
-/// non-refilling drinkable water source at a horizontally adjacent voxel. It does not generate
-/// terrain, routes, flow, recharge, groundwater, shelter, fire, or ecology. The caller supplies the
-/// explicit seed and spawn voxel; generated owner records become ordinary persistent world state.
+/// non-refilling drinkable water source at a horizontally adjacent voxel and one persisted
+/// traversal edge authorizing movement between them. It does not generate terrain geometry,
+/// pathfinding, routes beyond that edge, flow, recharge, groundwater, shelter, fire, or ecology.
+/// The caller supplies the explicit seed and spawn voxel; generated owner records become ordinary
+/// persistent world state.
 pub fn validate_generate_initial_wilderness(
     registries: &Registries,
     state: &AppState,
@@ -385,6 +395,9 @@ pub fn validate_generate_initial_wilderness(
     }
     if !state.fluid().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::FluidAlreadyGenerated);
+    }
+    if state.logistics().traversable_edges().next().is_some() {
+        return Err(InitialWildernessGenerationError::TraversalAccessAlreadyGenerated);
     }
     let specs = [
         generated_spec(
@@ -469,6 +482,10 @@ pub fn validate_generate_initial_wilderness(
             InitialWildernessGenerationError::InvalidGeneratedWater
         }
     })?;
+    let water_position = generated_adjacent_water_position(seed, spawn);
+    let traversal_edge = TraversalEdge::new(spawn, water_position).unwrap_or_else(|| {
+        unreachable!("generated opening water is always one horizontal face-neighbor from spawn")
+    });
     if !state.can_spend_logistics_revisions(1) {
         return Err(InitialWildernessGenerationError::LogisticsRevisionExhausted);
     }
@@ -482,7 +499,8 @@ pub fn validate_generate_initial_wilderness(
         expected_tick: state.tick(),
         surface_generation,
         water_generation,
-        water_position: generated_adjacent_water_position(seed, spawn),
+        water_position,
+        traversal_edges: vec![traversal_edge],
         expected_logistics_revision,
         next_logistics_revision,
     })

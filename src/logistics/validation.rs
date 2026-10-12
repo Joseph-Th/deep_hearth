@@ -10,7 +10,7 @@ use crate::inventory::{InventoryState, StockpileId, StorageDefinitionId};
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralElementId, StructureState};
 
-use super::LogisticsState;
+use super::{LogisticsState, TraversalEdge};
 
 /// Persistent-state validation failure for player logistics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +59,16 @@ pub enum LogisticsValidationError {
         store: FluidStoreId,
         position: VoxelCoord,
         element: StructuralElementId,
+    },
+    TraversalEdgeNotCanonical {
+        first: VoxelCoord,
+        second: VoxelCoord,
+    },
+    TraversalEdgesNotStrictlyOrdered {
+        previous_first: VoxelCoord,
+        previous_second: VoxelCoord,
+        current_first: VoxelCoord,
+        current_second: VoxelCoord,
     },
 }
 
@@ -156,6 +166,37 @@ impl Display for LogisticsValidationError {
                 position.z(),
                 element.value()
             ),
+            Self::TraversalEdgeNotCanonical { first, second } => write!(
+                formatter,
+                "traversal edge ({},{},{}) <-> ({},{},{}) is not a canonical face-adjacent edge",
+                first.x(),
+                first.y(),
+                first.z(),
+                second.x(),
+                second.y(),
+                second.z()
+            ),
+            Self::TraversalEdgesNotStrictlyOrdered {
+                previous_first,
+                previous_second,
+                current_first,
+                current_second,
+            } => write!(
+                formatter,
+                "traversal edges are not strictly ordered: ({},{},{})<->({},{},{}) then ({},{},{})<->({},{},{})",
+                previous_first.x(),
+                previous_first.y(),
+                previous_first.z(),
+                previous_second.x(),
+                previous_second.y(),
+                previous_second.z(),
+                current_first.x(),
+                current_first.y(),
+                current_first.z(),
+                current_second.x(),
+                current_second.y(),
+                current_second.z()
+            ),
         }
     }
 }
@@ -164,6 +205,7 @@ impl Error for LogisticsValidationError {}
 
 fn validate_revision(state: &LogisticsState) -> Result<(), LogisticsValidationError> {
     let populated = state.player().is_some()
+        || state.traversable_edges().next().is_some()
         || state.stockpile_locations().next().is_some()
         || state.equipment_locations().next().is_some()
         || state.energy_store_locations().next().is_some()
@@ -175,6 +217,30 @@ fn validate_revision(state: &LogisticsState) -> Result<(), LogisticsValidationEr
         (true, 0) => Err(LogisticsValidationError::InitializedRevisionZero),
         _ => Ok(()),
     }
+}
+
+fn validate_traversal_edges(state: &LogisticsState) -> Result<(), LogisticsValidationError> {
+    let mut previous: Option<TraversalEdge> = None;
+    for edge in state.traversable_edges() {
+        if !edge.is_canonical() {
+            let (first, second) = edge.endpoints();
+            return Err(LogisticsValidationError::TraversalEdgeNotCanonical { first, second });
+        }
+        if let Some(previous_edge) = previous
+            && previous_edge >= edge
+        {
+            let (previous_first, previous_second) = previous_edge.endpoints();
+            let (current_first, current_second) = edge.endpoints();
+            return Err(LogisticsValidationError::TraversalEdgesNotStrictlyOrdered {
+                previous_first,
+                previous_second,
+                current_first,
+                current_second,
+            });
+        }
+        previous = Some(edge);
+    }
+    Ok(())
 }
 
 fn validate_player_custody(
@@ -302,6 +368,7 @@ pub(crate) fn validate_loaded_logistics(
     structures: &StructureState,
 ) -> Result<(), LogisticsValidationError> {
     validate_revision(state)?;
+    validate_traversal_edges(state)?;
     validate_player_custody(state, inventory)?;
     validate_stockpile_locations(state, inventory, structures)?;
     validate_equipment_locations(state, equipment, structures)?;

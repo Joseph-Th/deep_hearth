@@ -2,8 +2,8 @@
 //!
 //! Logistics owns *where* the player and carried custody are. Inventory remains authoritative for
 //! the carried stockpile's lots, capacity, temperature, preservation, and matter accounting.
-//! Logistics exposes only a face-adjacent open-space player step. Terrain/path authorization and
-//! arbitrary stockpile transport remain separate missing world-space responsibilities.
+//! Logistics also owns explicit persisted face-adjacent traversal authorization. General terrain
+//! geometry, pathfinding, route cost, haulage, and arbitrary stockpile transport remain absent.
 
 mod access;
 #[cfg(feature = "test-gameplay")]
@@ -13,6 +13,7 @@ mod ground;
 mod initialization;
 mod movement;
 mod state;
+mod traversal;
 mod validation;
 
 pub use access::{
@@ -47,9 +48,12 @@ pub use movement::{
     validate_start_player_step,
 };
 pub(crate) use movement::{apply_player_step_tick, decide_player_step_tick};
+#[cfg(test)]
+pub(crate) use state::add_traversable_edge_for_test;
 pub use state::{
     LogisticsState, PlayerCarryingAssessment, PlayerLogisticsRecord, assess_player_carrying,
 };
+pub(crate) use traversal::TraversalEdge;
 pub use validation::LogisticsValidationError;
 pub(crate) use validation::validate_loaded_logistics;
 

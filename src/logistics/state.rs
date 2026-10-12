@@ -12,6 +12,8 @@ use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::spatial::VoxelCoord;
 
+use super::traversal::TraversalEdge;
+
 /// Persistent world/custody record for the single locally controlled player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,6 +47,7 @@ impl PlayerLogisticsRecord {
 pub struct LogisticsState {
     revision: u64,
     player: Option<PlayerLogisticsRecord>,
+    traversable_edges: Vec<TraversalEdge>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -61,6 +64,7 @@ impl LogisticsState {
         Self {
             revision: 0,
             player: None,
+            traversable_edges: Vec::new(),
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
@@ -114,6 +118,25 @@ impl LogisticsState {
     #[must_use]
     pub const fn player(&self) -> Option<&PlayerLogisticsRecord> {
         self.player.as_ref()
+    }
+
+    pub(crate) fn traversable_edges(&self) -> impl Iterator<Item = TraversalEdge> + '_ {
+        self.traversable_edges.iter().copied()
+    }
+
+    #[must_use]
+    pub(crate) fn is_step_authorized(&self, origin: VoxelCoord, destination: VoxelCoord) -> bool {
+        TraversalEdge::new(origin, destination)
+            .is_some_and(|edge| self.traversable_edges.binary_search(&edge).is_ok())
+    }
+
+    pub(crate) fn traversable_destinations(
+        &self,
+        origin: VoxelCoord,
+    ) -> impl Iterator<Item = VoxelCoord> + '_ {
+        self.traversable_edges
+            .iter()
+            .filter_map(move |edge| edge.other(origin))
     }
 
     /// Returns the world voxel of one stationary stockpile managed by logistics.
@@ -303,6 +326,69 @@ impl LogisticsState {
         assert!(previous.is_none());
         self.revision = next_revision;
     }
+
+    pub(crate) fn apply_generated_opening_access(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        water_store: FluidStoreId,
+        water_position: VoxelCoord,
+        traversable_edges: Vec<TraversalEdge>,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            !self.fluid_store_locations.contains_key(&water_store),
+            "generated opening water cannot replace an existing location"
+        );
+        assert!(
+            self.traversable_edges.is_empty(),
+            "initial generated traversal access requires pristine access state"
+        );
+        assert!(
+            !traversable_edges.is_empty(),
+            "initial generated traversal access cannot be empty"
+        );
+        assert!(
+            traversable_edges.iter().all(|edge| edge.is_canonical()),
+            "generated traversal edges must be canonical face neighbors"
+        );
+        assert!(
+            traversable_edges.windows(2).all(|pair| pair[0] < pair[1]),
+            "generated traversal edges must be strictly ordered and unique"
+        );
+        let previous = self
+            .fluid_store_locations
+            .insert(water_store, water_position);
+        assert!(previous.is_none());
+        self.traversable_edges = traversable_edges;
+        self.revision = next_revision;
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn add_traversable_edge_for_test(
+    state: &mut AppState,
+    first: VoxelCoord,
+    second: VoxelCoord,
+) {
+    let edge = TraversalEdge::new(first, second)
+        .unwrap_or_else(|| panic!("test traversal edge must be face-adjacent"));
+    let revision = state.logistics().revision();
+    let next_revision = revision
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("test traversal edge exhausted logistics revision"));
+    let logistics = state.logistics_state_mut();
+    assert!(
+        logistics.traversable_edges.binary_search(&edge).is_err(),
+        "test traversal edge already exists"
+    );
+    let insertion = logistics
+        .traversable_edges
+        .binary_search(&edge)
+        .unwrap_or_else(|index| index);
+    logistics.traversable_edges.insert(insertion, edge);
+    logistics.revision = next_revision;
 }
 
 /// Actor-facing snapshot of current carried material capacity at the player's world position.

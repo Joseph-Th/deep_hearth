@@ -1,9 +1,9 @@
 //! Fresh-world contracts for the executable portion of the wilderness opening.
 //!
 //! Built-in fresh-world generation supplies finite same-voxel stone, timber, and forage plus one
-//! finite adjacent water opportunity before actor admission. Every acquisition, movement,
+//! finite adjacent water opportunity and its traversable opening edge before actor admission. Every acquisition, movement,
 //! fabrication, assembly, storage, consumption, locality, survival, and time consequence after
-//! admission uses its canonical runtime owner. Terrain/path authority and hydrology remain absent.
+//! admission uses its canonical runtime owner. General terrain geometry/pathfinding and hydrology remain absent.
 
 use std::num::NonZeroU64;
 
@@ -21,13 +21,14 @@ use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
-use deep_hearth::logistics::{assess_player_carrying, validate_start_player_step};
+use deep_hearth::logistics::{PlayerStepError, assess_player_carrying, validate_start_player_step};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
+use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::surface::{
     SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
 };
@@ -55,6 +56,8 @@ pub(super) struct WildernessOpeningReview {
     pub(super) water_observed_ul: u64,
     pub(super) water_consumed_ul: u64,
     pub(super) water_steps: u64,
+    pub(super) available_step_choices: u64,
+    pub(super) blocked_adjacent_probes: u64,
     pub(super) remaining_stone_mg: u64,
     pub(super) remaining_timber_mg: u64,
     pub(super) field_box_build_ticks: u64,
@@ -330,6 +333,31 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
         STATIONARY_PLAYER_ORIGIN.is_face_adjacent_to(adjacent_water.position()),
         "generated opening water must be reachable by the ordinary adjacent-step boundary"
     );
+    let available_steps = state.available_player_steps().collect::<Vec<_>>();
+    assert_eq!(
+        available_steps,
+        vec![adjacent_water.position()],
+        "fresh-world access should expose exactly the generated water edge, not every adjacent coordinate"
+    );
+    let blocked_destination = [
+        VoxelCoord::new(1, 0, 0),
+        VoxelCoord::new(-1, 0, 0),
+        VoxelCoord::new(0, 0, 1),
+        VoxelCoord::new(0, 0, -1),
+    ]
+    .into_iter()
+    .find(|candidate| *candidate != adjacent_water.position())
+    .unwrap_or_else(|| unreachable!("opening has more than one horizontal neighbor"));
+    let before_blocked_step = state.clone();
+    assert_eq!(
+        validate_start_player_step(&registries, &state, blocked_destination).err(),
+        Some(PlayerStepError::DestinationInaccessible {
+            origin: STATIONARY_PLAYER_ORIGIN,
+            destination: blocked_destination,
+        }),
+        "ordinary movement must fail closed when the generated world did not authorize an adjacent edge"
+    );
+    assert_eq!(state, before_blocked_step);
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("wilderness initial matter audit failed: {error}"))
         .total();
@@ -621,6 +649,9 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
         water_observed_ul: water_before.microliters(),
         water_consumed_ul: 0,
         water_steps: 1,
+        available_step_choices: u64::try_from(available_steps.len())
+            .unwrap_or_else(|_| panic!("wilderness available-step count exceeds u64")),
+        blocked_adjacent_probes: 1,
         remaining_stone_mg,
         remaining_timber_mg,
         field_box_build_ticks,
@@ -653,8 +684,10 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
     let registries = build_registries();
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     std::println!(
-        "WILDERNESS EXPERIENCE evidence=ordinary-generated-opening+exact-local-after-admission generation=[surface:ordinary water:ordinary] movement=[water:{}step] timing=[first-meal:{}t/{} stable:{}t/{}] provisioning=[meal:{}mg retained:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
+        "WILDERNESS EXPERIENCE evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[water:{}step access:edge choices:{} blocked:{}/1] timing=[first-meal:{}t/{} stable:{}t/{}] provisioning=[meal:{}mg retained:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
         review.water_steps,
+        review.available_step_choices,
+        review.blocked_adjacent_probes,
         review.first_meal_ticks,
         physical_minutes_tenths(&registries, review.first_meal_ticks),
         review.camp_ticks,
@@ -688,7 +721,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
     let review = evaluate_generated_wilderness_opening();
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         std::println!(
-            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=0x{:016X} behavior_root=unused replay=generated-surface+generated-water",
+            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=0x{:016X} behavior_root=unused replay=generated-opening",
             WILDERNESS_WORLD_SEED.value(),
         );
         print_wilderness_experience(review);
