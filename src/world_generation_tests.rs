@@ -217,9 +217,26 @@ fn initial_wilderness_generation_requires_fresh_pre_admission_world_state() {
     let before_access = access_generated.clone();
     assert_eq!(
         validate_generate_initial_wilderness(&registries, &access_generated, seed, spawn).err(),
-        Some(InitialWildernessGenerationError::TraversalAccessAlreadyGenerated)
+        Some(InitialWildernessGenerationError::LogisticsAlreadyPopulated)
     );
     assert_eq!(access_generated, before_access);
+
+    let mut located_stockpile = AppState::new();
+    validate_allocate_ground_stockpile(
+        &located_stockpile,
+        VoxelCoord::new(8, 0, 0),
+        Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("preexisting logistics allocation failed: {error}"))
+    .commit(&mut located_stockpile)
+    .unwrap_or_else(|error| panic!("preexisting logistics allocation commit failed: {error}"));
+    let before_located_stockpile = located_stockpile.clone();
+    assert_eq!(
+        validate_generate_initial_wilderness(&registries, &located_stockpile, seed, spawn).err(),
+        Some(InitialWildernessGenerationError::LogisticsAlreadyPopulated),
+        "fresh-world generation must reject preexisting located custody, not only traversal edges"
+    );
+    assert_eq!(located_stockpile, before_located_stockpile);
 
     let mut admitted = AppState::new();
     validate_admit_player(&registries, &admitted, spawn)

@@ -116,6 +116,17 @@ impl LogisticsState {
     }
 
     #[must_use]
+    pub(crate) fn is_pristine_generation_state(&self) -> bool {
+        self.revision == 0
+            && self.player.is_none()
+            && self.traversable_edges.is_empty()
+            && self.stockpile_locations.is_empty()
+            && self.equipment_locations.is_empty()
+            && self.energy_store_locations.is_empty()
+            && self.fluid_store_locations.is_empty()
+    }
+
+    #[must_use]
     pub const fn player(&self) -> Option<&PlayerLogisticsRecord> {
         self.player.as_ref()
     }

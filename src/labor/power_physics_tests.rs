@@ -38,6 +38,30 @@ fn full_width_manual_power_scaling_does_not_reject_representable_effort() {
 }
 
 #[test]
+fn manual_power_output_capacity_handles_unrepresentable_metabolic_horizon_exactly() {
+    let transfer_power = Power::from_microwatts(1);
+    let tick = PhysicalTickDuration::from_microseconds(1_000_000);
+    let duration = TickSpan::new(2);
+    let maximum = SurvivalExertion::new(
+        Energy::from_nanojoules(u128::MAX),
+        Volume::from_microliters(u64::MAX),
+    );
+    let transfer_capacity = integrate_power_or_saturate(transfer_power, duration, tick);
+
+    assert_eq!(
+        maximum_manual_power_output_for_duration(
+            transfer_power,
+            tick,
+            maximum,
+            NORMALIZED_PARTS_PER_MILLION,
+            duration,
+        ),
+        transfer_capacity,
+        "an overflowing metabolic horizon is above every representable transfer capacity and must not require a saturated physical intermediate"
+    );
+}
+
+#[test]
 fn bottlenecked_manual_power_scales_effort_to_actual_output() {
     let maximum = SurvivalExertion::new(
         Energy::from_nanojoules(1_500_000_000_000),

@@ -72,7 +72,7 @@ pub enum InitialWildernessGenerationError {
     },
     SurfaceAlreadyGenerated,
     FluidAlreadyGenerated,
-    TraversalAccessAlreadyGenerated,
+    LogisticsAlreadyPopulated,
     SurfaceIdExhausted,
     SurfaceRevisionExhausted,
     FluidStoreIdExhausted,
@@ -102,9 +102,8 @@ impl Display for InitialWildernessGenerationError {
             ),
             Self::FluidAlreadyGenerated => formatter
                 .write_str("initial wilderness water generation requires pristine fluid state"),
-            Self::TraversalAccessAlreadyGenerated => formatter.write_str(
-                "initial wilderness generation requires pristine traversal-access state",
-            ),
+            Self::LogisticsAlreadyPopulated => formatter
+                .write_str("initial wilderness generation requires pristine logistics state"),
             Self::SurfaceIdExhausted => {
                 formatter.write_str("surface resource identifier space is exhausted")
             }
@@ -141,7 +140,7 @@ impl Error for InitialWildernessGenerationError {
             | Self::PlayerAlreadyInitialized { .. }
             | Self::SurfaceAlreadyGenerated
             | Self::FluidAlreadyGenerated
-            | Self::TraversalAccessAlreadyGenerated
+            | Self::LogisticsAlreadyPopulated
             | Self::SurfaceIdExhausted
             | Self::SurfaceRevisionExhausted
             | Self::FluidStoreIdExhausted
@@ -231,16 +230,16 @@ impl ValidatedInitialWildernessGeneration {
         self.surface_generation
             .precheck(state)
             .map_err(|error| match error {
-                SurfaceGenerationCommitError::StaleTick { expected, actual } => {
+                SurfaceGenerationCommitError::Tick { expected, actual } => {
                     InitialWildernessGenerationCommitError::TickChanged { expected, actual }
                 }
-                SurfaceGenerationCommitError::StaleRevision { expected, actual } => {
+                SurfaceGenerationCommitError::Revision { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleSurfaceRevision {
                         expected,
                         actual,
                     }
                 }
-                SurfaceGenerationCommitError::StaleNextResourceId { expected, actual } => {
+                SurfaceGenerationCommitError::NextResourceId { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleSurfaceIdentity {
                         expected,
                         actual,
@@ -250,13 +249,13 @@ impl ValidatedInitialWildernessGeneration {
         self.water_generation
             .precheck(state)
             .map_err(|error| match error {
-                FluidGenerationCommitError::StaleTick { expected, actual } => {
+                FluidGenerationCommitError::Tick { expected, actual } => {
                     InitialWildernessGenerationCommitError::TickChanged { expected, actual }
                 }
-                FluidGenerationCommitError::StaleRevision { expected, actual } => {
+                FluidGenerationCommitError::Revision { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleFluidRevision { expected, actual }
                 }
-                FluidGenerationCommitError::StaleNextStoreId { expected, actual } => {
+                FluidGenerationCommitError::NextStoreId { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleFluidIdentity { expected, actual }
                 }
             })?;
@@ -344,11 +343,11 @@ pub fn validate_generate_initial_wilderness(
     if !state.fluid().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::FluidAlreadyGenerated);
     }
-    if state.logistics().traversable_edges().next().is_some() {
-        return Err(InitialWildernessGenerationError::TraversalAccessAlreadyGenerated);
+    if !state.logistics().is_pristine_generation_state() {
+        return Err(InitialWildernessGenerationError::LogisticsAlreadyPopulated);
     }
     let trail = generated_opening_trail(seed, spawn);
-    let stone_first = local_entropy(seed, spawn, OPENING_RESOURCE_ORDER_SALT) % 2 == 0;
+    let stone_first = local_entropy(seed, spawn, OPENING_RESOURCE_ORDER_SALT).is_multiple_of(2);
     let penultimate = INITIAL_WILDERNESS_TRAIL_STEPS - 1;
     let final_step = INITIAL_WILDERNESS_TRAIL_STEPS;
     let stone_position = if stone_first {

@@ -38,8 +38,7 @@ fn physiology_with_carry(
             SurvivalExertion::new(Energy::from_nanojoules(2), Volume::from_microliters(1)),
         ),
         carried_mass_capacity,
-        starvation_loss,
-        dehydration_loss,
+        VitalityLossDefinition::new(starvation_loss, dehydration_loss),
     )
 }
 

@@ -319,6 +319,49 @@ impl DirectConsumptionDefinition {
     }
 }
 
+/// Authored vitality loss applied when survival resources cannot cover a tick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VitalityLossDefinition {
+    starvation_ppm_per_tick: u32,
+    dehydration_ppm_per_tick: u32,
+}
+
+impl VitalityLossDefinition {
+    #[must_use]
+    pub fn new(starvation_ppm_per_tick: u32, dehydration_ppm_per_tick: u32) -> Self {
+        assert!(
+            starvation_ppm_per_tick > 0,
+            "starvation vitality loss must be nonzero"
+        );
+        assert!(
+            starvation_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
+            "starvation vitality loss cannot exceed normalized vitality"
+        );
+        assert!(
+            dehydration_ppm_per_tick > 0,
+            "dehydration vitality loss must be nonzero"
+        );
+        assert!(
+            dehydration_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
+            "dehydration vitality loss cannot exceed normalized vitality"
+        );
+        Self {
+            starvation_ppm_per_tick,
+            dehydration_ppm_per_tick,
+        }
+    }
+
+    #[must_use]
+    pub const fn starvation_ppm_per_tick(self) -> u32 {
+        self.starvation_ppm_per_tick
+    }
+
+    #[must_use]
+    pub const fn dehydration_ppm_per_tick(self) -> u32 {
+        self.dehydration_ppm_per_tick
+    }
+}
+
 /// Immutable physiology parameters for the player survival owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PhysiologyDefinition {
@@ -328,8 +371,7 @@ pub struct PhysiologyDefinition {
     direct_consumption: DirectConsumptionDefinition,
     locomotion: LocomotionDefinition,
     carried_mass_capacity: Mass,
-    starvation_vitality_loss_ppm_per_tick: u32,
-    dehydration_vitality_loss_ppm_per_tick: u32,
+    vitality_loss: VitalityLossDefinition,
 }
 
 impl PhysiologyDefinition {
@@ -341,28 +383,11 @@ impl PhysiologyDefinition {
         direct_consumption: DirectConsumptionDefinition,
         locomotion: LocomotionDefinition,
         carried_mass_capacity: Mass,
-        starvation_vitality_loss_ppm_per_tick: u32,
-        dehydration_vitality_loss_ppm_per_tick: u32,
+        vitality_loss: VitalityLossDefinition,
     ) -> Self {
         assert!(
             !carried_mass_capacity.is_zero(),
             "player carried mass capacity must be nonzero"
-        );
-        assert!(
-            starvation_vitality_loss_ppm_per_tick > 0,
-            "starvation vitality loss must be nonzero"
-        );
-        assert!(
-            starvation_vitality_loss_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
-            "starvation vitality loss cannot exceed normalized vitality"
-        );
-        assert!(
-            dehydration_vitality_loss_ppm_per_tick > 0,
-            "dehydration vitality loss must be nonzero"
-        );
-        assert!(
-            dehydration_vitality_loss_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
-            "dehydration vitality loss cannot exceed normalized vitality"
         );
         Self {
             metabolism,
@@ -371,8 +396,7 @@ impl PhysiologyDefinition {
             direct_consumption,
             locomotion,
             carried_mass_capacity,
-            starvation_vitality_loss_ppm_per_tick,
-            dehydration_vitality_loss_ppm_per_tick,
+            vitality_loss,
         }
     }
 
@@ -433,11 +457,11 @@ impl PhysiologyDefinition {
 
     #[must_use]
     pub const fn starvation_vitality_loss_ppm_per_tick(self) -> u32 {
-        self.starvation_vitality_loss_ppm_per_tick
+        self.vitality_loss.starvation_ppm_per_tick()
     }
 
     #[must_use]
     pub const fn dehydration_vitality_loss_ppm_per_tick(self) -> u32 {
-        self.dehydration_vitality_loss_ppm_per_tick
+        self.vitality_loss.dehydration_ppm_per_tick()
     }
 }

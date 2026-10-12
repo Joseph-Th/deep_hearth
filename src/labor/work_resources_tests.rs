@@ -4,7 +4,7 @@ use super::*;
 use crate::core::quantity::Mass;
 use crate::survival::{
     DirectConsumptionDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
-    NutritionDefinition,
+    NutritionDefinition, VitalityLossDefinition,
 };
 
 #[test]
@@ -35,8 +35,7 @@ fn budget_includes_basal_and_incremental_work_costs() {
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
         ),
         Mass::from_milligrams(1),
-        1,
-        1,
+        VitalityLossDefinition::new(1, 1),
     );
     let exertion = SurvivalExertion::new(Energy::from_nanojoules(30), Volume::from_microliters(3));
 

@@ -20,7 +20,7 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::SimulationTick;
 use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
-use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{PlayerStepError, assess_player_carrying, validate_start_player_step};
 use deep_hearth::maintenance::Condition;
@@ -36,7 +36,7 @@ use deep_hearth::surface::{
 };
 use deep_hearth::survival::{
     AdjacentDrinkSource, assess_survival, available_adjacent_drink_sources,
-    available_local_drink_sources, validate_eat,
+    available_local_drink_sources,
 };
 use deep_hearth::world_generation::{WorldGenerationSeed, validate_generate_initial_wilderness};
 
@@ -49,10 +49,9 @@ const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x57
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct WildernessOpeningReview {
-    pub(super) first_meal_ticks: u64,
+    pub(super) food_secured_ticks: u64,
     pub(super) camp_ticks: u64,
-    pub(super) meal_mass_mg: u64,
-    pub(super) retained_food_mass_mg: u64,
+    pub(super) carried_food_mass_mg: u64,
     pub(super) peak_carried_mass_mg: u64,
     pub(super) carried_capacity_mg: u64,
     pub(super) water_observed_ul: u64,
@@ -307,7 +306,6 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
     // Ordinary admission owns a fixed body-scale carrying limit. The opening must adapt to that
     // capability instead of resizing the player to whatever the current script intends to gather.
     let forage_mass = Mass::from_milligrams(500_000);
-    let meal_mass = Mass::from_milligrams(250_000);
     let board_craft = registries
         .crafting()
         .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
@@ -346,9 +344,6 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
             .checked_mul(board_batches)
             .unwrap_or_else(|| panic!("wilderness field-box timber requirement overflowed")),
     );
-    let carried_food_after_meal = forage_mass
-        .checked_sub(meal_mass)
-        .unwrap_or_else(|| unreachable!("opening meal is smaller than gathered forage"));
     let carried = validate_admit_player(&registries, &state, STATIONARY_PLAYER_ORIGIN)
         .unwrap_or_else(|error| panic!("wilderness player admission failed: {error}"))
         .commit(&mut state)
@@ -419,9 +414,9 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
     let started_at = state.tick();
     let minute = 60_u128 * 1_000_000;
 
-    // Food is an immediate camp problem, not a reward for finishing storage first. Forage and eat
-    // one serving first. Reaching it must use actor-visible adjacent observation plus the canonical
-    // generated trail instead of generation knowledge or a same-voxel bootstrap.
+    // Food is an immediate camp provision, not a reward for finishing storage first. Secure one
+    // useful reserve early. Reaching it must use actor-visible adjacent observation plus the
+    // canonical generated trail instead of generation knowledge or a same-voxel bootstrap.
     step_to(
         &registries,
         &mut state,
@@ -447,74 +442,38 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
     let carrying_after_forage = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared after forage"));
     assert_eq!(carrying_after_forage.stored(), forage_mass);
-    let meal_lot = state
-        .inventory()
-        .lot_ids(carried)
-        .find(|lot| {
-            state
-                .inventory()
-                .get_lot(*lot)
-                .is_some_and(|record| record.commodity() == berry_commodity)
-        })
-        .unwrap_or_else(|| panic!("foraged opening meal disappeared from carried custody"));
-    let before_meal = assess_survival(&registries, &state)
-        .unwrap_or_else(|| panic!("wilderness player disappeared before early meal"));
+    let provisioning_decision = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("wilderness player disappeared after early forage"));
     let physiology = registries.survival().physiology();
     assert!(
-        before_meal.metabolic_energy() > physiology.hungry_below()
-            && before_meal.hydration() > physiology.thirsty_below(),
-        "a rested wilderness opening should create provisioning pressure without forcing the player across hunger or thirst warnings"
+        provisioning_decision.metabolic_energy() > physiology.hungry_below()
+            && provisioning_decision.hydration() > physiology.thirsty_below(),
+        "a rested wilderness opening should secure food before ordinary work forces hunger or thirst warnings"
     );
     assert!(
-        before_meal.metabolic_energy() < physiology.maximum_metabolic_energy()
-            && before_meal.hydration() < physiology.maximum_hydration(),
-        "opening foraging should spend enough reserve for ordinary food to have a real physiological consequence"
+        provisioning_decision.metabolic_energy() < physiology.maximum_metabolic_energy()
+            && provisioning_decision.hydration() < physiology.maximum_hydration(),
+        "opening foraging should spend some reserve without turning a negligible deficit into a forced top-off action"
     );
-    let meal = validate_eat(
-        &registries,
-        &state,
-        carried,
-        &[MaterialLotSelection::new(meal_lot, meal_mass)],
-    )
-    .unwrap_or_else(|error| panic!("wilderness early berry meal validation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("wilderness early berry meal commit failed: {error}"));
-    advance_to(
-        &registries,
-        &mut state,
-        meal.completes_at(),
-        TickEventAllowance::default(),
-        "early berry meal",
-    );
-    let after_meal = assess_survival(&registries, &state)
-        .unwrap_or_else(|| panic!("wilderness player disappeared after early meal"));
-    assert!(
-        after_meal.metabolic_energy() > before_meal.metabolic_energy(),
-        "foraged opening food must replenish some of the energy spent acquiring it"
-    );
-    assert!(
-        after_meal.hydration() > before_meal.hydration(),
-        "water-rich forage should contribute its authored hydration instead of making a separate drink automatically mandatory"
-    );
-    let first_meal_ticks = state
+    let food_secured_ticks = state
         .tick()
         .checked_duration_since(started_at)
-        .unwrap_or_else(|| panic!("wilderness first-meal time reversed"))
+        .unwrap_or_else(|| panic!("wilderness food-provisioning time reversed"))
         .value();
-    let first_meal_microseconds = u128::from(first_meal_ticks)
+    let food_secured_microseconds = u128::from(food_secured_ticks)
         .checked_mul(u128::from(
             registries.core().physical_tick_duration().microseconds(),
         ))
-        .unwrap_or_else(|| panic!("wilderness first-meal physical duration overflowed"));
+        .unwrap_or_else(|| panic!("wilderness food-provisioning duration overflowed"));
     assert!(
-        (3 * minute..=8 * minute).contains(&first_meal_microseconds),
-        "a normal first serving should be acquired and eaten early instead of waiting behind fabrication or storage construction"
+        (3 * minute..=8 * minute).contains(&food_secured_microseconds),
+        "a useful food reserve should be secured early instead of waiting behind fabrication or storage construction"
     );
 
-    // Storage and tools are investments, not opening checkboxes. The remaining food already fits
+    // Storage and tools are investments, not opening checkboxes. The food reserve already fits
     // comfortably on the player and remains fresh for four ambient days. Building a field box now
-    // would consume two kilograms of timber and the rest of the quarter-hour opening merely to
-    // extend one 250 g serving to seven days. Defer both box and adze until a real workload or
+    // would consume two kilograms of timber and much of the short opening merely to extend a small
+    // carried reserve to seven days. Defer both box and adze until a real workload or
     // preservation horizon can repay them.
     let timber_gathering = registries
         .labor()
@@ -560,11 +519,11 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
         registries.core().calendar().ticks_per_day() * 7,
         "rough field box should extend opening berries from four to seven days"
     );
-    let carrying_after_meal = assess_player_carrying(&state)
-        .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared after meal"));
-    assert_eq!(carrying_after_meal.stored(), carried_food_after_meal);
+    let carrying_after_provisioning = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared after provisioning"));
+    assert_eq!(carrying_after_provisioning.stored(), forage_mass);
     assert!(
-        carrying_after_meal.available() > field_box_raw_timber,
+        carrying_after_provisioning.available() > field_box_raw_timber,
         "field-box investment should be deferred only while the actor has ample body-custody headroom"
     );
     assert!(
@@ -575,7 +534,7 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
         state.available_local_ground_stockpiles().next().is_none(),
         "opening should not manufacture stationary storage before capacity or freshness requires it"
     );
-    let surplus_berries = state
+    let provisioned_berries = state
         .inventory()
         .lot_ids(carried)
         .find(|lot| {
@@ -584,14 +543,14 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
                 .get_lot(*lot)
                 .is_some_and(|record| record.commodity() == berry_commodity)
         })
-        .unwrap_or_else(|| panic!("surplus opening berries disappeared after meal"));
+        .unwrap_or_else(|| panic!("provisioned opening berries disappeared from carried custody"));
     assert_eq!(
         state
             .inventory()
-            .get_lot(surplus_berries)
+            .get_lot(provisioned_berries)
             .map(|record| record.mass()),
-        Some(carried_food_after_meal),
-        "eating one serving should leave one carried serving without forcing premature storage"
+        Some(forage_mass),
+        "rested opening should retain the secured food reserve instead of consuming a redundant top-off meal"
     );
 
     let forage_step_choices = u64::try_from(state.available_player_steps().count())
@@ -632,7 +591,7 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
         .unwrap_or_else(|| unreachable!("minimum drink fits inside maximum hydration"));
     assert!(
         water_decision.hydration() >= proactive_drink_below,
-        "the early water-rich forage meal should leave the rested opening too hydrated to justify forcing another minimum cup solely to top off reserves"
+        "the rested opening should remain too hydrated to justify forcing a minimum cup solely to top off reserves"
     );
     assert!(
         water_decision.hydration() > physiology.thirsty_below(),
@@ -742,7 +701,7 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
             .unwrap_or_else(|error| panic!("wilderness final matter audit failed: {error}"))
             .total(),
         matter_before,
-        "wilderness opening must conserve represented matter across gathering and eating"
+        "wilderness opening must conserve represented matter across gathering and movement"
     );
     assert_ordinary_admitted_runtime_ready(
         &registries,
@@ -761,10 +720,9 @@ pub(super) fn evaluate_generated_wilderness_opening() -> WildernessOpeningReview
     );
 
     WildernessOpeningReview {
-        first_meal_ticks,
+        food_secured_ticks,
         camp_ticks: elapsed_ticks,
-        meal_mass_mg: meal_mass.milligrams(),
-        retained_food_mass_mg: carried_food_after_meal.milligrams(),
+        carried_food_mass_mg: forage_mass.milligrams(),
         peak_carried_mass_mg: carrying_after_forage.stored().milligrams(),
         carried_capacity_mg: carrying_after_forage.capacity().milligrams(),
         water_observed_ul: water_before.microliters(),
@@ -808,7 +766,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
     let registries = build_registries();
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     std::println!(
-        "WILDERNESS EXPERIENCE evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[trail:{} forage:1 water:{} stone:{} timber:{} choices:{}-{} blocked:{}/1] timing=[first-meal:{}t/{} stable:{}t/{}] provisioning=[meal:{}mg retained:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-hydrated] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
+        "WILDERNESS EXPERIENCE evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[trail:{} forage:1 water:{} stone:{} timber:{} choices:{}-{} blocked:{}/1] timing=[food-secured:{}t/{} stable:{}t/{}] provisioning=[carried:{}mg meal:defer-rested warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-hydrated] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
         review.total_steps,
         review.water_steps,
         review.stone_steps,
@@ -816,12 +774,11 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
         review.available_step_choices,
         review.max_step_choices,
         review.blocked_adjacent_probes,
-        review.first_meal_ticks,
-        physical_minutes_tenths(&registries, review.first_meal_ticks),
+        review.food_secured_ticks,
+        physical_minutes_tenths(&registries, review.food_secured_ticks),
         review.camp_ticks,
         physical_minutes_tenths(&registries, review.camp_ticks),
-        review.meal_mass_mg,
-        review.retained_food_mass_mg,
+        review.carried_food_mass_mg,
         review.final_warning_safe,
         review.peak_carried_mass_mg,
         review.carried_capacity_mg,
@@ -831,7 +788,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
         review.water_consumed_ul,
         review.field_box_build_ticks,
         review.field_box_capacity_mg,
-        review.retained_food_mass_mg,
+        review.carried_food_mass_mg,
         review.ambient_food_shelf_ticks / ticks_per_day,
         review.field_box_food_shelf_ticks / ticks_per_day,
         review.field_box_board_batches,

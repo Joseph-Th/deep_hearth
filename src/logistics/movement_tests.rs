@@ -166,8 +166,16 @@ fn carried_mass_increases_player_step_survival_cost() {
     )
     .unwrap_or_else(|error| panic!("loaded movement material fixture failed: {error}"));
 
-    let before_unloaded = unloaded.survival().player().copied().unwrap();
-    let before_loaded = loaded.survival().player().copied().unwrap();
+    let before_unloaded = unloaded
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("unloaded movement fixture lost survival player"));
+    let before_loaded = loaded
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded movement fixture lost survival player"));
     for state in [&mut unloaded, &mut loaded] {
         validate_start_player_step(&registries, state, destination)
             .unwrap_or_else(|error| panic!("load-sensitive movement validation failed: {error}"))
@@ -176,8 +184,16 @@ fn carried_mass_increases_player_step_survival_cost() {
         let _ = advance_tick(&registries, state)
             .unwrap_or_else(|error| panic!("load-sensitive movement tick failed: {error}"));
     }
-    let after_unloaded = unloaded.survival().player().copied().unwrap();
-    let after_loaded = loaded.survival().player().copied().unwrap();
+    let after_unloaded = unloaded
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("unloaded movement execution lost survival player"));
+    let after_loaded = loaded
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded movement execution lost survival player"));
     let unloaded_energy = before_unloaded.metabolic_energy().nanojoules()
         - after_unloaded.metabolic_energy().nanojoules();
     let loaded_energy = before_loaded.metabolic_energy().nanojoules()

@@ -30,11 +30,11 @@ pub(crate) fn maximum_manual_power_output_for_duration(
         integrate_power_or_saturate(transfer_power, duration, physical_tick_duration);
     let metabolic_per_tick =
         metabolic_output_per_tick(maximum_exertion.energy_cost_per_tick(), efficiency_ppm);
-    let metabolic_capacity = Energy::from_nanojoules(
-        metabolic_per_tick
-            .nanojoules()
-            .saturating_mul(u128::from(duration.value())),
-    );
+    let metabolic_capacity = metabolic_per_tick
+        .nanojoules()
+        .checked_mul(u128::from(duration.value()))
+        .map(Energy::from_nanojoules)
+        .unwrap_or(transfer_capacity);
     std::cmp::min(transfer_capacity, metabolic_capacity)
 }
 

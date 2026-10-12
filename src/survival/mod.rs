@@ -24,7 +24,8 @@ pub use consumption::{
 pub use definitions::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
     FoodDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
-    NutritionDefinition, PhysiologyDefinition, SurvivalRegistry, calculate_food_hydration_offer,
+    NutritionDefinition, PhysiologyDefinition, SurvivalRegistry, VitalityLossDefinition,
+    calculate_food_hydration_offer,
 };
 pub use resource_cost::{
     SurvivalExertion, SurvivalResourceBudget, SurvivalResourceProjectionError,

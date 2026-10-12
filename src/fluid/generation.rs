@@ -55,15 +55,15 @@ pub(crate) enum FluidGenerationError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FluidGenerationCommitError {
-    StaleTick {
+    Tick {
         expected: SimulationTick,
         actual: SimulationTick,
     },
-    StaleRevision {
+    Revision {
         expected: u64,
         actual: u64,
     },
-    StaleNextStoreId {
+    NextStoreId {
         expected: u64,
         actual: u64,
     },
@@ -88,21 +88,21 @@ impl ValidatedFluidGeneration {
     pub(crate) fn precheck(&self, state: &AppState) -> Result<(), FluidGenerationCommitError> {
         let actual_tick = state.tick();
         if actual_tick != self.expected_tick {
-            return Err(FluidGenerationCommitError::StaleTick {
+            return Err(FluidGenerationCommitError::Tick {
                 expected: self.expected_tick,
                 actual: actual_tick,
             });
         }
         let actual_revision = state.fluid().revision();
         if actual_revision != self.expected_revision {
-            return Err(FluidGenerationCommitError::StaleRevision {
+            return Err(FluidGenerationCommitError::Revision {
                 expected: self.expected_revision,
                 actual: actual_revision,
             });
         }
         let actual_next_store_id = state.fluid().next_store_id();
         if actual_next_store_id != self.expected_next_store_id {
-            return Err(FluidGenerationCommitError::StaleNextStoreId {
+            return Err(FluidGenerationCommitError::NextStoreId {
                 expected: self.expected_next_store_id,
                 actual: actual_next_store_id,
             });

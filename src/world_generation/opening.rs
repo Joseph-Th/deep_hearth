@@ -88,5 +88,10 @@ pub(super) fn generated_mass(
     let width = variation_mg
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("bounded wilderness variation width fits u64"));
-    Mass::from_milligrams(base_mg + local_entropy(seed, spawn, salt) % width)
+    let variation = local_entropy(seed, spawn, salt) % width;
+    Mass::from_milligrams(
+        base_mg
+            .checked_add(variation)
+            .unwrap_or_else(|| panic!("wilderness generated mass overflowed u64")),
+    )
 }

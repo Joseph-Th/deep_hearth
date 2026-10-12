@@ -120,15 +120,15 @@ impl Error for SurfaceGenerationError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SurfaceGenerationCommitError {
-    StaleTick {
+    Tick {
         expected: crate::core::time::SimulationTick,
         actual: crate::core::time::SimulationTick,
     },
-    StaleRevision {
+    Revision {
         expected: u64,
         actual: u64,
     },
-    StaleNextResourceId {
+    NextResourceId {
         expected: u32,
         actual: u32,
     },
@@ -156,21 +156,21 @@ impl ValidatedSurfaceGeneration {
     pub(crate) fn precheck(&self, state: &AppState) -> Result<(), SurfaceGenerationCommitError> {
         let actual_tick = state.tick();
         if actual_tick != self.expected_tick {
-            return Err(SurfaceGenerationCommitError::StaleTick {
+            return Err(SurfaceGenerationCommitError::Tick {
                 expected: self.expected_tick,
                 actual: actual_tick,
             });
         }
         let actual_revision = state.surface().revision();
         if actual_revision != self.expected_revision {
-            return Err(SurfaceGenerationCommitError::StaleRevision {
+            return Err(SurfaceGenerationCommitError::Revision {
                 expected: self.expected_revision,
                 actual: actual_revision,
             });
         }
         let actual_next_resource_id = state.surface().next_resource_id();
         if actual_next_resource_id != self.expected_next_resource_id {
-            return Err(SurfaceGenerationCommitError::StaleNextResourceId {
+            return Err(SurfaceGenerationCommitError::NextResourceId {
                 expected: self.expected_next_resource_id,
                 actual: actual_next_resource_id,
             });
