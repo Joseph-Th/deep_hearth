@@ -29,7 +29,7 @@ use crate::structural::{
     bind_structural_construction_selection, resolve_structural_material_requirement,
     validate_activate_structural_element, validate_structural_construction,
 };
-use crate::surface::{GeneratedSurfaceResourceSpec, insert_generated_surface_resource};
+use crate::surface::{GeneratedSurfaceResourceSpec, validate_generate_surface_resources};
 use crate::survival::{
     initialize_player_survival, initialize_player_survival_at_hunger_warning_boundary_for_fixture,
     initialize_player_survival_at_hydration_warning_boundary_for_fixture,
@@ -136,8 +136,12 @@ pub fn seed_surface_resource(
             .unwrap_or_else(|error| {
                 panic!("gameplay bootstrap surface-resource specification failed: {error}")
             });
-    let _resource = insert_generated_surface_resource(registries, state, spec)
-        .unwrap_or_else(|error| panic!("gameplay bootstrap surface-resource seed failed: {error}"));
+    validate_generate_surface_resources(registries, state, [spec])
+        .unwrap_or_else(|error| panic!("gameplay bootstrap surface-resource seed failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap surface-resource seed commit failed: {error}")
+        });
 }
 
 /// Establishes one material-backed, already-existing equipment instance at a disclosed location.

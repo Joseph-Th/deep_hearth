@@ -83,6 +83,10 @@ crafting, equipment, storage, survival, fluid, thermal, and structural owners. F
 the entry point; exact physical consequences should remain consequences of those actions rather than
 prerequisites for learning a special interaction language.
 
+The current explicit-seed spawn generator closes only the initial same-voxel loose stone/timber/forage source
+edge. Treat it as substrate for this slice, not as terrain, ecology, movement/discovery, or hydrology; those
+missing authorities must still make the opening spatially legible and self-sufficient without controlled water.
+
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a
 small stone-and-timber toolkit. Geological clues may establish a future objective, but copper extraction and ore

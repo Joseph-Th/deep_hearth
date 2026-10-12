@@ -20,6 +20,7 @@ Current progression:
 | Crafting and equipment | Manual shaping, wear, service, recovery, primitive machines, copper upgrades, field instruments, specialist wire drawing, and settlement workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Primitive crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and the ordinary first/settlement foundry route. Compound-ore reduction is absent. |
+| Opening surface acquisition | Fresh explicit-seed worlds generate finite same-voxel stone, timber, and forage for ordinary exact-local gathering. Water generation, movement, discovery, and terrain remain absent. |
 
 ## Current integration frontier
 
@@ -28,7 +29,7 @@ These are current graph boundaries, not priorities.
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Persistent local custody | Player movement, haulage, delivery/path cost, and ordinary world-source acquisition. |
+| Persistent local custody | Player movement, haulage, delivery/path cost, remote/world-scale resource discovery, and ordinary water-source acquisition. |
 | Structural physics | General player construction/deconstruction authorization. |
 | Equipment maintenance | Maintenance tools and general transport to service sites. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
@@ -49,7 +50,7 @@ incomplete.
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
 | Logistics | Persistent player/carried custody and world locations for stockpiles, equipment, energy stores, and fluid stores; exact-player-local ground-storage and equipment observation, player-local loose-storage allocation, pickup/drop, and access checks. |
-| Loose surface matter | Persistent finite world-space resource records, exact-local actor observation, commodity-bound timed same-voxel gathering, destination reservation, survival cost, depletion, interruption cleanup, persistence, and conservation. Built-in methods distinguish loose stone, fallen timber, berry foraging, and clay-rich earth. Source generation remains controlled-fixture-only rather than ordinary world generation. |
+| Loose surface matter | Persistent finite world-space records, exact-local observation/gathering, reservation, survival cost, depletion, interruption cleanup, and conservation. World creation can generate one deterministic explicit-seed stone/timber/forage spawn patch; terrain/ecology and remote discovery remain absent. |
 | Energy and fluids | Finite typed energy stores with power/loss limits; finite homogeneous fluid stores with exact withdrawal, exact-player-local observation, and survival-filtered local drink-source discovery. Hydrology and ordinary fluid-source generation remain absent. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Material-backed members, support topology, loads, damage, and failure cascades. |
@@ -70,10 +71,10 @@ ordinarily acquirable.
 
 | Area | Boundary |
 | --- | --- |
-| Wilderness opening | Ordinary fresh-world wood/stone/forage/water acquisition, fire and warmth, shelter construction, and one continuous empty-inventory first-day loop. Existing survival, gathering, crafting, storage, thermal, and structural owners are supporting infrastructure, not proof that this opening is reachable. |
+| Wilderness opening | Ordinary water acquisition, movement/discovery beyond the spawn patch, fire/warmth, shelter, and one continuous empty-inventory first-day loop. Initial stone/timber/forage generation is not proof of the complete opening. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Voxel/chunk storage, terrain generation, streaming, world-scale indexing, and runtime clue-location discovery. |
-| Logistics | Movement/pathing, haulage, general delivery/transport, ordinary resource-source acquisition, container/hotbar presentation, fluid transport, and mounted-production transport/site geometry. |
+| Logistics | Movement/pathing, haulage, general delivery/transport, remote/general resource-source acquisition, container/hotbar presentation, fluid transport, and mounted-production transport/site geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, reduction/smelting, alloying, forging, machining, and broad recycling. |
 | Maintenance/structures | Maintenance tools, general construction/deconstruction, demolition/salvage physics, bending, shear, torsion, buckling, joints, and terrain support. |

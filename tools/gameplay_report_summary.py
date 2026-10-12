@@ -151,6 +151,7 @@ def settlement_specialization_summary(
 _ORDINARY_DIGEST_FIELDS = {
     "wilderness": (
         "evidence",
+        "generation",
         "timing",
         "provisioning",
         "carrying",

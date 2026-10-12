@@ -20,6 +20,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         experience,
         (
             "evidence",
+            "generation",
             "timing",
             "provisioning",
             "carrying",

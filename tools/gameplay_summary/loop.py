@@ -55,7 +55,15 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
     )
 
 
-def _bootstrap_boundary_evidence(liberation_kit: list[str]) -> str:
+def _bootstrap_boundary_evidence(
+    wilderness: list[str], liberation_kit: list[str]
+) -> str:
+    opening_surface_generation = sum(
+        " generation=[surface:ordinary " in line for line in wilderness
+    )
+    opening_water_generation = sum(
+        " water:ordinary]" in line for line in wilderness
+    )
     selected = [line for line in liberation_kit if " branch=selected " in line]
     surface_source = sum(
         " raw-origin=controlled-finite-surface " in line for line in selected
@@ -69,10 +77,12 @@ def _bootstrap_boundary_evidence(liberation_kit: list[str]) -> str:
     )
     return (
         "bootstrap-boundary=["
-        f"selected-builds:{len(selected)}/{len(liberation_kit)} "
+        f"opening=[surface:{opening_surface_generation}/{len(wilderness)} "
+        f"water:{opening_water_generation}/{len(wilderness)}] "
+        f"liberation=[selected-builds:{len(selected)}/{len(liberation_kit)} "
         f"fixture-surface:{surface_source}/{len(selected)} "
         f"gather:{runtime_gathering}/{len(selected)} "
-        f"world-gen:{ordinary_generation}/{len(selected)}]"
+        f"world-gen:{ordinary_generation}/{len(selected)}]]"
     )
 
 
@@ -702,7 +712,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_evidence_shape(evidence)} "
         f"{_agency_growth_evidence(evidence)} "
         f"{_continuity_evidence(evidence)} "
-        f"{_bootstrap_boundary_evidence(evidence.liberation_kit)} "
+        f"{_bootstrap_boundary_evidence(evidence.wilderness, evidence.liberation_kit)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
         f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries, evidence.preservation_paths)} "
         f"{shared_power + ' ' if shared_power else ''}"

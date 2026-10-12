@@ -1,23 +1,13 @@
 //! Persistent finite loose surface-resource ownership.
 
 use std::collections::BTreeMap;
-#[cfg(any(test, feature = "test-gameplay"))]
-use std::error::Error;
 use std::fmt::Debug;
-#[cfg(any(test, feature = "test-gameplay"))]
-use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::core::quantity::{Mass, Temperature};
-#[cfg(any(test, feature = "test-gameplay"))]
-use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialComposition};
-#[cfg(any(test, feature = "test-gameplay"))]
-use crate::material::{CompositionError, MaterialId};
-#[cfg(any(test, feature = "test-gameplay"))]
-use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -58,6 +48,29 @@ pub struct SurfaceResourceRecord {
 }
 
 impl SurfaceResourceRecord {
+    pub(super) fn generated(
+        id: SurfaceResourceId,
+        position: VoxelCoord,
+        commodity: CommodityKey,
+        mass: Mass,
+        temperature: Temperature,
+        composition: MaterialComposition,
+        generated_at: SimulationTick,
+    ) -> Self {
+        Self {
+            id,
+            position,
+            commodity,
+            initial_mass: mass,
+            remaining_mass: mass,
+            temperature,
+            composition,
+            lifecycle: SurfaceResourceLifecycle::Available,
+            generated_at,
+            depleted_at: None,
+        }
+    }
+
     #[must_use]
     pub const fn id(&self) -> SurfaceResourceId {
         self.id
@@ -183,22 +196,32 @@ impl SurfaceResourceState {
                 .is_none_or(|highest| highest.value() < self.next_resource_id)
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
-    const fn next_resource_id(&self) -> u32 {
+    pub(crate) const fn next_resource_id(&self) -> u32 {
         self.next_resource_id
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
-    fn insert_generated(
+    #[must_use]
+    pub(crate) fn is_pristine_generation_state(&self) -> bool {
+        self.revision == 0 && self.next_resource_id == 1 && self.resources.is_empty()
+    }
+
+    pub(crate) fn apply_generated_batch(
         &mut self,
-        record: SurfaceResourceRecord,
+        records: Vec<SurfaceResourceRecord>,
         next_resource_id: u32,
         next_revision: u64,
     ) {
-        assert_eq!(record.id.value(), self.next_resource_id);
-        assert_eq!(self.next_resource_id.checked_add(1), Some(next_resource_id));
         assert_eq!(self.revision.checked_add(1), Some(next_revision));
-        assert!(self.resources.insert(record.id, record).is_none());
+        assert!(!records.is_empty());
+        let mut expected_id = self.next_resource_id;
+        for record in records {
+            assert_eq!(record.id.value(), expected_id);
+            assert!(self.resources.insert(record.id, record).is_none());
+            expected_id = expected_id.checked_add(1).unwrap_or_else(|| {
+                unreachable!("validated surface generation reserved the next id")
+            });
+        }
+        assert_eq!(expected_id, next_resource_id);
         self.next_resource_id = next_resource_id;
         self.revision = next_revision;
     }
@@ -231,132 +254,7 @@ impl SurfaceResourceState {
     }
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct GeneratedSurfaceResourceSpec {
-    position: VoxelCoord,
-    commodity: CommodityKey,
-    mass: Mass,
-    temperature: Temperature,
-    composition: MaterialComposition,
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl GeneratedSurfaceResourceSpec {
-    pub(crate) fn new(
-        position: VoxelCoord,
-        commodity: CommodityKey,
-        mass: Mass,
-        temperature: Temperature,
-        composition: MaterialComposition,
-    ) -> Result<Self, GeneratedSurfaceResourceSpecError> {
-        if mass.is_zero() {
-            return Err(GeneratedSurfaceResourceSpecError::ZeroMass);
-        }
-        composition
-            .validate()
-            .map_err(GeneratedSurfaceResourceSpecError::InvalidComposition)?;
-        if composition.parts_per_million(commodity.material()) == 0 {
-            return Err(GeneratedSurfaceResourceSpecError::MissingHostMaterial {
-                host: commodity.material(),
-            });
-        }
-        Ok(Self {
-            position,
-            commodity,
-            mass,
-            temperature,
-            composition,
-        })
-    }
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum GeneratedSurfaceResourceSpecError {
-    ZeroMass,
-    InvalidComposition(CompositionError),
-    MissingHostMaterial { host: MaterialId },
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Display for GeneratedSurfaceResourceSpecError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ZeroMass => {
-                formatter.write_str("generated surface resource mass must be nonzero")
-            }
-            Self::InvalidComposition(error) => {
-                write!(formatter, "invalid generated surface composition: {error}")
-            }
-            Self::MissingHostMaterial { host } => write!(
-                formatter,
-                "generated surface composition omits host material {}",
-                host.value()
-            ),
-        }
-    }
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Error for GeneratedSurfaceResourceSpecError {}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum InsertGeneratedSurfaceResourceError {
-    InvalidState(SurfaceResourceValidationError),
-    IdExhausted,
-    RevisionExhausted,
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Display for InsertGeneratedSurfaceResourceError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{self:?}")
-    }
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Error for InsertGeneratedSurfaceResourceError {}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn insert_generated_surface_resource(
-    registries: &Registries,
-    state: &mut AppState,
-    spec: GeneratedSurfaceResourceSpec,
-) -> Result<SurfaceResourceId, InsertGeneratedSurfaceResourceError> {
-    let id = SurfaceResourceId::new(state.surface().next_resource_id());
-    let next_id = state
-        .surface()
-        .next_resource_id()
-        .checked_add(1)
-        .ok_or(InsertGeneratedSurfaceResourceError::IdExhausted)?;
-    let next_revision = state
-        .surface()
-        .revision()
-        .checked_add(1)
-        .ok_or(InsertGeneratedSurfaceResourceError::RevisionExhausted)?;
-    let record = SurfaceResourceRecord {
-        id,
-        position: spec.position,
-        commodity: spec.commodity,
-        initial_mass: spec.mass,
-        remaining_mass: spec.mass,
-        temperature: spec.temperature,
-        composition: spec.composition,
-        lifecycle: SurfaceResourceLifecycle::Available,
-        generated_at: state.tick(),
-        depleted_at: None,
-    };
-    validation::validate_surface_resource_record(registries.materials(), id, &record, state.tick())
-        .map_err(InsertGeneratedSurfaceResourceError::InvalidState)?;
-    state
-        .surface_state_mut()
-        .insert_generated(record, next_id, next_revision);
-    Ok(id)
-}
-
-mod validation;
+pub(super) mod validation;
 
 pub use validation::SurfaceResourceValidationError;
 pub(crate) use validation::validate_loaded_surface_resources;

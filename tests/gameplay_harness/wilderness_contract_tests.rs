@@ -1,12 +1,13 @@
-//! Controlled-source contracts for the executable portion of the wilderness opening.
+//! Fresh-world contracts for the executable portion of the wilderness opening.
 //!
-//! Terrain/ecology generation is still absent, so the fixture creates only finite local source
-//! matter before actor admission. Every acquisition, fabrication, assembly, storage, consumption,
-//! locality, survival, and time consequence after admission uses its canonical runtime owner.
+//! Built-in fresh-world generation supplies finite same-voxel stone, timber, and forage before
+//! actor admission. Hydrology is still absent, so only water remains a controlled local fixture.
+//! Every acquisition, fabrication, assembly, storage, consumption, locality, survival, and time
+//! consequence after admission uses its canonical runtime owner.
 
 use std::num::NonZeroU64;
 
-use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_surface_resource};
+use deep_hearth::content::gameplay_fixture::seed_fluid_store;
 use deep_hearth::content::{
     EQUIPMENT_STONE_WOODWORKING_ADZE, FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP,
     MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
@@ -23,7 +24,7 @@ use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{assess_player_carrying, validate_place_fluid_store};
 use deep_hearth::maintenance::Condition;
-use deep_hearth::material::{CommodityKey, MaterialComposition};
+use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
@@ -32,11 +33,15 @@ use deep_hearth::surface::{
     SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
 };
 use deep_hearth::survival::{assess_survival, available_local_drink_sources, validate_eat};
+use deep_hearth::world_generation::{
+    WorldGenerationSeed, validate_generate_initial_wilderness_surface,
+};
 
 use super::exact_local_runtime::{STATIONARY_PLAYER_ORIGIN, assert_exact_local_runtime_ready};
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
+const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct WildernessOpeningReview {
@@ -233,33 +238,15 @@ fn gather(
 pub(super) fn evaluate_controlled_wilderness_opening() -> WildernessOpeningReview {
     let registries = build_registries();
     let mut state = AppState::new();
-    for (commodity, mass, material) in [
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(3_000_000),
-            MATERIAL_STONE,
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(8_000_000),
-            MATERIAL_WOOD,
-        ),
-        (
-            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-            Mass::from_milligrams(500_000),
-            MATERIAL_BERRIES,
-        ),
-    ] {
-        seed_surface_resource(
-            &registries,
-            &mut state,
-            STATIONARY_PLAYER_ORIGIN,
-            commodity,
-            mass,
-            ROOM_TEMPERATURE,
-            MaterialComposition::pure(material),
-        );
-    }
+    validate_generate_initial_wilderness_surface(
+        &registries,
+        &state,
+        WILDERNESS_WORLD_SEED,
+        STATIONARY_PLAYER_ORIGIN,
+    )
+    .unwrap_or_else(|error| panic!("wilderness initial surface generation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("wilderness initial surface generation commit failed: {error}"));
     {
         // The controlled fixture supplies only the still-missing hydrology/world-source edge. Its
         // store identity stays inside setup; ordinary play must rediscover the local finite water
@@ -641,7 +628,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
     let registries = build_registries();
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     std::println!(
-        "WILDERNESS EXPERIENCE evidence=controlled-local-sources+ordinary-exact-local-after-admission timing=[first-meal:{}t/{} stable:{}t/{}] provisioning=[meal:{}mg retained:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
+        "WILDERNESS EXPERIENCE evidence=ordinary-spawn-surface+controlled-water+exact-local-after-admission generation=[surface:ordinary water:controlled] timing=[first-meal:{}t/{} stable:{}t/{}] provisioning=[meal:{}mg retained:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{}uL consumed:{}uL decision:defer-after-hydrating-food] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-current-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] remaining-opportunity=[stone:{}mg timber:{}mg]",
         review.first_meal_ticks,
         physical_minutes_tenths(&registries, review.first_meal_ticks),
         review.camp_ticks,
@@ -675,7 +662,8 @@ fn controlled_wilderness_opening_stabilizes_without_premature_investment() {
     let review = evaluate_controlled_wilderness_opening();
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         std::println!(
-            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=n/a behavior_root=unused replay=controlled-local"
+            "PROBE INPUT name=wilderness mode=explore samples=1 organic=0 world_root=0x{:016X} behavior_root=unused replay=generated-surface+controlled-water",
+            WILDERNESS_WORLD_SEED.value(),
         );
         print_wilderness_experience(review);
     }

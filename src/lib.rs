@@ -39,6 +39,7 @@ pub mod matter;
 // Trusted-load promotion and top-level deterministic orchestration.
 pub mod persistence;
 pub mod simulation;
+pub mod world_generation;
 
 // Renderer-neutral presentation definitions and deterministic assembly.
 pub mod shader;

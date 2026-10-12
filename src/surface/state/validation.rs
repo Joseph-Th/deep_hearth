@@ -156,7 +156,7 @@ fn validate_material_profile(
     .map_err(|error| SurfaceResourceValidationError::InvalidPhaseState { resource, error })
 }
 
-pub(super) fn validate_surface_resource_record(
+pub(in crate::surface) fn validate_surface_resource_record(
     materials: &MaterialRegistry,
     key: SurfaceResourceId,
     record: &SurfaceResourceRecord,
