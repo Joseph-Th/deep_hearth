@@ -16,6 +16,7 @@ mod state;
 mod traversal;
 mod validation;
 
+pub(crate) use access::player_step_blocks_carried_load_increase;
 pub use access::{
     PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, PlayerFluidStoreAccessError,
     PlayerStockpileAccessError, validate_player_energy_store_access,

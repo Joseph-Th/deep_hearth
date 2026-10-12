@@ -6,7 +6,10 @@ use crate::inventory::{
     StockpileStoredMassChange, validate_material_ingress, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
-use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
+use crate::logistics::{
+    player_step_blocks_carried_load_increase, validate_player_equipment_access,
+    validate_player_stockpile_access,
+};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId};
 use crate::registry::Registries;
@@ -167,6 +170,13 @@ pub fn validate_disassemble_equipment(
     }
     if let Some(error) = validation_occupancy_error(state, equipment) {
         return Err(error);
+    }
+    if player_step_blocks_carried_load_increase(state, destination) {
+        return Err(
+            EquipmentDisassemblyError::DestinationWouldIncreaseActiveStepLoad {
+                stockpile: destination,
+            },
+        );
     }
 
     let ingress = validate_material_ingress(

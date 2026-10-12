@@ -128,6 +128,10 @@ pub(crate) struct ValidatedMaterialIngress {
 }
 
 impl ValidatedMaterialIngress {
+    pub(crate) const fn destination(&self) -> StockpileId {
+        self.destination
+    }
+
     pub(crate) const fn expected_revision(&self) -> u64 {
         self.expected_revision
     }

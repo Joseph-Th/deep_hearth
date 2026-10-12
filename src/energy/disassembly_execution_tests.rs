@@ -11,7 +11,9 @@ use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_ener
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
-use crate::logistics::validate_initialize_player_logistics;
+use crate::logistics::{
+    add_traversable_edge_for_test, validate_initialize_player_logistics, validate_start_player_step,
+};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::spatial::VoxelCoord;
@@ -44,6 +46,82 @@ fn assembled_store(registries: &Registries, state: &mut AppState) -> EnergyStore
         .unwrap_or_else(|error| panic!("store disassembly assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("store disassembly assembly commit failed: {error}"))
+}
+
+fn moving_store_disassembly_fixture() -> (
+    crate::registry::Registries,
+    AppState,
+    EnergyStoreId,
+    crate::inventory::StockpileId,
+    VoxelCoord,
+) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = assembled_store(&registries, &mut state);
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("moving store disassembly survival setup failed: {error}"));
+    let origin = VoxelCoord::new(0, 0, 0);
+    let destination = VoxelCoord::new(1, 0, 0);
+    add_traversable_edge_for_test(&mut state, origin, destination);
+    let carried =
+        validate_initialize_player_logistics(&state, origin, Mass::from_milligrams(2_000_000))
+            .unwrap_or_else(|error| {
+                panic!("moving store disassembly logistics setup failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("moving store disassembly logistics commit failed: {error}")
+            })
+            .carried_stockpile();
+    let revision = state.logistics().revision();
+    state
+        .logistics_state_mut()
+        .apply_energy_store_placement(revision, revision + 1, store, origin);
+    (registries, state, store, carried, destination)
+}
+
+#[test]
+fn store_disassembly_rejects_carried_recovery_during_active_step() {
+    let (registries, mut state, store, carried, destination) = moving_store_disassembly_fixture();
+    validate_start_player_step(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("moving store disassembly step validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("moving store disassembly step commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_disassemble_energy_store(&registries, &state, store, carried).err(),
+        Some(
+            EnergyStoreDisassemblyError::DestinationWouldIncreaseActiveStepLoad {
+                stockpile: carried,
+            }
+        )
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn validated_store_disassembly_rechecks_carried_recovery_step_before_commit() {
+    let (registries, mut state, store, carried, destination) = moving_store_disassembly_fixture();
+    let disassembly = validate_disassemble_energy_store(&registries, &state, store, carried)
+        .unwrap_or_else(|error| panic!("moving store disassembly race validation failed: {error}"));
+    validate_start_player_step(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("moving store disassembly race step failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("moving store disassembly race step commit failed: {error}")
+        });
+    let before = state.clone();
+
+    assert_eq!(
+        disassembly.commit(&mut state),
+        Err(
+            EnergyStoreDisassemblyCommitError::DestinationWouldIncreaseActiveStepLoad {
+                stockpile: carried,
+            }
+        )
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

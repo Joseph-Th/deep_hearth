@@ -8,6 +8,7 @@ use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
+use crate::labor::PlayerWork;
 use crate::spatial::VoxelCoord;
 
 /// Failure when a player action cannot prove local access to a stockpile.
@@ -21,6 +22,18 @@ pub enum PlayerStockpileAccessError {
         stockpile_position: VoxelCoord,
         player_position: VoxelCoord,
     },
+}
+
+/// Returns whether an instantaneous material ingress would increase the admitted moving load.
+pub(crate) fn player_step_blocks_carried_load_increase(
+    state: &AppState,
+    destination: StockpileId,
+) -> bool {
+    state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.carried_stockpile() == destination)
+        && matches!(state.player_work().active(), Some(PlayerWork::Step { .. }))
 }
 
 impl Display for PlayerStockpileAccessError {

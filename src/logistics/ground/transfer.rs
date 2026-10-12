@@ -9,11 +9,10 @@ use crate::inventory::{
     MaterialRelocationError, StockpileId, ValidatedMaterialRelocation,
     validate_explicit_consumption_selection, validate_material_relocation_from_selection,
 };
-use crate::labor::PlayerWork;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::super::PlayerLogisticsRecord;
+use super::super::{PlayerLogisticsRecord, player_step_blocks_carried_load_increase};
 
 /// Failure while authorizing material movement between carried custody and a ground stockpile.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,6 +126,7 @@ enum GroundMaterialTransferDirection {
 pub struct ValidatedGroundMaterialTransfer {
     expected_logistics_revision: u64,
     direction: GroundMaterialTransferDirection,
+    destination: StockpileId,
     relocation: ValidatedMaterialRelocation,
 }
 
@@ -140,7 +140,7 @@ impl ValidatedGroundMaterialTransfer {
             });
         }
         if self.direction == GroundMaterialTransferDirection::Pickup
-            && matches!(state.player_work().active(), Some(PlayerWork::Step { .. }))
+            && player_step_blocks_carried_load_increase(state, self.destination)
         {
             return Err(GroundMaterialTransferCommitError::PickupDuringPlayerStep);
         }
@@ -183,7 +183,7 @@ pub fn validate_pickup_from_ground(
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
     let player = validate_ground_access(state, source)?;
-    if matches!(state.player_work().active(), Some(PlayerWork::Step { .. })) {
+    if player_step_blocks_carried_load_increase(state, player.carried_stockpile()) {
         return Err(GroundMaterialTransferError::PickupDuringPlayerStep);
     }
     let selection = validate_explicit_consumption_selection(state.inventory(), source, selections)
@@ -198,6 +198,7 @@ pub fn validate_pickup_from_ground(
     Ok(ValidatedGroundMaterialTransfer {
         expected_logistics_revision: state.logistics().revision(),
         direction: GroundMaterialTransferDirection::Pickup,
+        destination: player.carried_stockpile(),
         relocation,
     })
 }
@@ -222,6 +223,7 @@ pub fn validate_drop_to_ground(
     Ok(ValidatedGroundMaterialTransfer {
         expected_logistics_revision: state.logistics().revision(),
         direction: GroundMaterialTransferDirection::Drop,
+        destination,
         relocation,
     })
 }

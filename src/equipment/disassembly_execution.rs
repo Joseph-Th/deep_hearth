@@ -10,6 +10,7 @@ use crate::inventory::{
     MaterialLotId, ValidatedMaterialIngress, ValidatedStockpileStructuralLoad,
     apply_material_ingress,
 };
+use crate::logistics::player_step_blocks_carried_load_increase;
 use crate::maintenance::Condition;
 
 use super::{EquipmentId, EquipmentOccupancy, equipment_occupancy};
@@ -120,6 +121,14 @@ impl ValidatedEquipmentDisassembly {
         }
         if let Some(occupancy) = occupancy {
             return Err(commit_occupancy_error(self.equipment, occupancy));
+        }
+        let destination = self.ingress.destination();
+        if player_step_blocks_carried_load_increase(state, destination) {
+            return Err(
+                EquipmentDisassemblyCommitError::DestinationWouldIncreaseActiveStepLoad {
+                    stockpile: destination,
+                },
+            );
         }
         self.ingress.assert_matches_state(state.inventory());
         state.equipment().assert_removal_available(

@@ -11,7 +11,10 @@ use crate::inventory::{
     apply_material_ingress, validate_material_ingress, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
-use crate::logistics::{validate_player_energy_store_access, validate_player_stockpile_access};
+use crate::logistics::{
+    player_step_blocks_carried_load_increase, validate_player_energy_store_access,
+    validate_player_stockpile_access,
+};
 use crate::registry::Registries;
 
 use super::{EnergyStoreId, EnergyStoreOccupancy, energy_store_occupancy};
@@ -134,6 +137,14 @@ impl ValidatedEnergyStoreDisassembly {
             }
             None => {}
         }
+        let destination = self.ingress.destination();
+        if player_step_blocks_carried_load_increase(state, destination) {
+            return Err(
+                EnergyStoreDisassemblyCommitError::DestinationWouldIncreaseActiveStepLoad {
+                    stockpile: destination,
+                },
+            );
+        }
         self.ingress.assert_matches_state(state.inventory());
         state.energy().assert_removal_available(
             self.store,
@@ -200,6 +211,13 @@ pub fn validate_disassemble_energy_store(
             return Err(EnergyStoreDisassemblyError::StoreBusyManualPower { store });
         }
         None => {}
+    }
+    if player_step_blocks_carried_load_increase(state, destination) {
+        return Err(
+            EnergyStoreDisassemblyError::DestinationWouldIncreaseActiveStepLoad {
+                stockpile: destination,
+            },
+        );
     }
 
     let ingress = validate_material_ingress(

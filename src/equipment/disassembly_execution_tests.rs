@@ -18,7 +18,9 @@ use crate::equipment::{
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
-use crate::logistics::validate_initialize_player_logistics;
+use crate::logistics::{
+    add_traversable_edge_for_test, validate_initialize_player_logistics, validate_start_player_step,
+};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::registry::Registries;
@@ -52,6 +54,81 @@ fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId 
         .unwrap_or_else(|error| panic!("disassembly pick assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("disassembly pick assembly commit failed: {error}"))
+}
+
+fn moving_equipment_disassembly_fixture() -> (
+    Registries,
+    AppState,
+    EquipmentId,
+    crate::inventory::StockpileId,
+    VoxelCoord,
+) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let equipment = assembled_pick(&registries, &mut state);
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("moving disassembly survival setup failed: {error}"));
+    let origin = VoxelCoord::new(0, 0, 0);
+    let destination = VoxelCoord::new(1, 0, 0);
+    add_traversable_edge_for_test(&mut state, origin, destination);
+    let carried =
+        validate_initialize_player_logistics(&state, origin, Mass::from_milligrams(2_000_000))
+            .unwrap_or_else(|error| panic!("moving disassembly logistics setup failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("moving disassembly logistics commit failed: {error}"))
+            .carried_stockpile();
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        equipment,
+        origin,
+    );
+    (registries, state, equipment, carried, destination)
+}
+
+#[test]
+fn disassembly_rejects_carried_recovery_during_active_step() {
+    let (registries, mut state, equipment, carried, destination) =
+        moving_equipment_disassembly_fixture();
+    validate_start_player_step(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("moving disassembly step validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("moving disassembly step commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_disassemble_equipment(&registries, &state, equipment, carried).err(),
+        Some(
+            EquipmentDisassemblyError::DestinationWouldIncreaseActiveStepLoad {
+                stockpile: carried,
+            }
+        )
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn validated_disassembly_rechecks_carried_recovery_step_before_commit() {
+    let (registries, mut state, equipment, carried, destination) =
+        moving_equipment_disassembly_fixture();
+    let disassembly = validate_disassemble_equipment(&registries, &state, equipment, carried)
+        .unwrap_or_else(|error| panic!("moving disassembly race validation failed: {error}"));
+    validate_start_player_step(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("moving disassembly race step failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("moving disassembly race step commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        disassembly.commit(&mut state),
+        Err(
+            EquipmentDisassemblyCommitError::DestinationWouldIncreaseActiveStepLoad {
+                stockpile: carried,
+            }
+        )
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
