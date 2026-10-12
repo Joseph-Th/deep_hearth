@@ -13,7 +13,10 @@ use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
-use crate::surface::{GeneratedSurfaceResourceSpec, validate_generate_surface_resources};
+use crate::surface::{
+    GeneratedSurfaceResourceSpec, available_adjacent_surface_resources,
+    validate_generate_surface_resources,
+};
 use crate::survival::{available_adjacent_drink_sources, available_local_drink_sources};
 
 use super::*;
@@ -54,9 +57,26 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
     );
     assert_eq!(generated_profile(&first), generated_profile(&replay));
 
+    let trail = generated_opening_trail(seed, spawn);
     let profile = generated_profile(&first);
     assert_eq!(profile.len(), 3);
-    assert!(profile.iter().all(|(_, _, position)| *position == spawn));
+    assert_eq!(
+        first.logistics().traversable_edges().count(),
+        INITIAL_WILDERNESS_TRAIL_STEPS
+    );
+    assert!(
+        trail
+            .windows(2)
+            .all(|pair| first.logistics().is_step_authorized(pair[0], pair[1]))
+    );
+    assert!(trail.iter().all(|position| position.y() == spawn.y()));
+    assert!(
+        first
+            .surface()
+            .available_resources_at(Some(spawn))
+            .next()
+            .is_none()
+    );
     let water = first
         .fluid()
         .stores()
@@ -80,8 +100,7 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         .logistics()
         .fluid_store_position(water.id())
         .unwrap_or_else(|| panic!("generated wilderness water has no world location"));
-    assert!(spawn.is_face_adjacent_to(water_position));
-    assert_eq!(water_position.y(), spawn.y());
+    assert_eq!(water_position, trail[2]);
     let mass_for = |commodity| {
         profile
             .iter()
@@ -104,6 +123,25 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
             ..=Mass::from_milligrams(BERRIES_BASE_MASS_MG + BERRIES_VARIATION_MG))
             .contains(&mass_for(CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)))
     );
+    let position_for = |commodity| {
+        profile
+            .iter()
+            .find(|(found, _, _)| *found == commodity)
+            .map(|(_, _, position)| *position)
+            .unwrap_or_else(|| panic!("generated wilderness commodity {commodity:?} disappeared"))
+    };
+    assert_eq!(
+        position_for(CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)),
+        trail[1]
+    );
+    let stone_position = position_for(CommodityKey::new(MATERIAL_STONE, FORM_LUMP));
+    let timber_position = position_for(CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
+    let penultimate = INITIAL_WILDERNESS_TRAIL_STEPS - 1;
+    let final_step = INITIAL_WILDERNESS_TRAIL_STEPS;
+    assert!(
+        (stone_position == trail[penultimate] && timber_position == trail[final_step])
+            || (stone_position == trail[final_step] && timber_position == trail[penultimate])
+    );
 
     let mut alternate = AppState::new();
     generate(
@@ -116,6 +154,30 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         generated_profile(&alternate),
         "different explicit world seeds should change at least one opening opportunity"
     );
+}
+
+#[test]
+fn initial_wilderness_generation_handles_coordinate_extremes_without_overflow() {
+    let seed = WorldGenerationSeed::new(0xDEAD_BEEF);
+    for spawn in [
+        VoxelCoord::new(i64::MIN, 7, i64::MIN),
+        VoxelCoord::new(i64::MAX, -7, i64::MAX),
+    ] {
+        let mut state = AppState::new();
+        generate(&mut state, seed, spawn);
+        let trail = generated_opening_trail(seed, spawn);
+        assert_eq!(trail[0], spawn);
+        assert!(
+            trail
+                .windows(2)
+                .all(|pair| pair[0].is_face_adjacent_to(pair[1]))
+        );
+        assert!(trail.iter().all(|position| position.y() == spawn.y()));
+        assert_eq!(
+            state.logistics().traversable_edges().count(),
+            INITIAL_WILDERNESS_TRAIL_STEPS
+        );
+    }
 }
 
 #[test]
@@ -330,7 +392,7 @@ fn initial_wilderness_generation_rejects_admission_or_time_change_before_commit(
 }
 
 #[test]
-fn generated_wilderness_persists_with_local_surface_and_adjacent_water_after_load() {
+fn generated_wilderness_persists_with_distributed_opening_and_access_after_load() {
     let registries = build_registries();
     let spawn = VoxelCoord::new(-3, 1, 5);
     let seed = WorldGenerationSeed::new(0xCAFE_BABE);
@@ -343,10 +405,27 @@ fn generated_wilderness_persists_with_local_surface_and_adjacent_water_after_loa
         .unwrap_or_else(|error| panic!("persistent wilderness admission failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("persistent wilderness admission commit failed: {error}"));
+    let trail = generated_opening_trail(seed, spawn);
     let visible_before = state
         .available_surface_resources()
         .map(|record| (record.commodity(), record.remaining_mass()))
         .collect::<Vec<_>>();
+    assert!(visible_before.is_empty());
+    let adjacent_surface_before = available_adjacent_surface_resources(&state)
+        .map(|resource| {
+            (
+                resource.resource(),
+                resource.commodity(),
+                resource.position(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(adjacent_surface_before.len(), 1);
+    assert_eq!(
+        adjacent_surface_before[0].1,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)
+    );
+    assert_eq!(adjacent_surface_before[0].2, trail[1]);
     assert_eq!(
         available_local_drink_sources(&registries, &state).count(),
         0
@@ -354,9 +433,9 @@ fn generated_wilderness_persists_with_local_surface_and_adjacent_water_after_loa
     let adjacent_before = available_adjacent_drink_sources(&registries, &state)
         .map(|source| (source.store(), source.fluid(), source.position()))
         .collect::<Vec<_>>();
-    assert_eq!(adjacent_before.len(), 1);
+    assert!(adjacent_before.is_empty());
     let steps_before = state.available_player_steps().collect::<Vec<_>>();
-    assert_eq!(steps_before, vec![adjacent_before[0].2]);
+    assert_eq!(steps_before, vec![trail[1]]);
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("wilderness generation save failed: {error}"));
@@ -370,6 +449,16 @@ fn generated_wilderness_persists_with_local_surface_and_adjacent_water_after_loa
         .map(|record| (record.commodity(), record.remaining_mass()))
         .collect::<Vec<_>>();
     assert_eq!(visible_after, visible_before);
+    assert_eq!(
+        available_adjacent_surface_resources(&loaded)
+            .map(|resource| (
+                resource.resource(),
+                resource.commodity(),
+                resource.position()
+            ))
+            .collect::<Vec<_>>(),
+        adjacent_surface_before
+    );
     let adjacent_after = available_adjacent_drink_sources(&registries, &loaded)
         .map(|source| (source.store(), source.fluid(), source.position()))
         .collect::<Vec<_>>();

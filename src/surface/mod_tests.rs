@@ -12,7 +12,7 @@ use crate::core::state::{
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::StockpileStorageError;
 use crate::labor::PlayerWorkValidationError;
-use crate::logistics::validate_initialize_player_logistics;
+use crate::logistics::{add_traversable_edge_for_test, validate_initialize_player_logistics};
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
@@ -38,6 +38,57 @@ fn seed_surface(
     .unwrap_or_else(|error| panic!("surface test resource specification failed: {error}"));
     insert_generated_surface_resource(registries, state, spec)
         .unwrap_or_else(|error| panic!("surface test resource generation failed: {error}"))
+}
+
+#[test]
+fn adjacent_surface_observation_requires_persisted_access_and_hides_exact_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player_position = VoxelCoord::new(0, 0, 0);
+    let reachable_position = VoxelCoord::new(1, 0, 0);
+    let blocked_position = VoxelCoord::new(0, 0, 1);
+    let reachable = seed_surface(
+        &registries,
+        &mut state,
+        reachable_position,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(123_456),
+    );
+    let blocked = seed_surface(
+        &registries,
+        &mut state,
+        blocked_position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(654_321),
+    );
+    assert!(
+        available_adjacent_surface_resources(&state)
+            .next()
+            .is_none()
+    );
+    let _ = admit_player(&registries, &mut state, player_position);
+    assert!(
+        available_adjacent_surface_resources(&state)
+            .next()
+            .is_none(),
+        "geometric adjacency without persisted traversal authorization must stay hidden"
+    );
+    add_traversable_edge_for_test(&mut state, player_position, reachable_position);
+    assert_eq!(
+        available_adjacent_surface_resources(&state)
+            .map(|resource| (
+                resource.resource(),
+                resource.commodity(),
+                resource.position()
+            ))
+            .collect::<Vec<_>>(),
+        vec![(
+            reachable,
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            reachable_position,
+        )]
+    );
+    assert_ne!(reachable, blocked);
 }
 
 fn admit_player(

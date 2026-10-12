@@ -17,6 +17,7 @@ use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
+use deep_hearth::world_generation::INITIAL_WILDERNESS_TRAIL_STEPS;
 
 use super::manual_craft_equipment_topology_planning::manual_craft_topology_plan_with_equipment;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
@@ -35,6 +36,7 @@ pub(super) struct RawKitMaterialPlan {
 
 #[derive(Clone, Copy)]
 pub(super) struct RawKitAttentionProjection {
+    pub(super) travel_ticks: u64,
     pub(super) gathering_ticks: u64,
     pub(super) fabrication_ticks: u64,
     pub(super) total_ticks: u64,
@@ -232,6 +234,22 @@ pub(super) fn project_incremental_kit_acquisition_attention(
     registries: &Registries,
 ) -> RawKitAttentionProjection {
     let plan = raw_kit_material_plan(registries);
+    // The extension is assembled beside the inherited processing line at spawn, so the selected
+    // build route pays the authored opening trail once outward and once back before fabrication.
+    let round_trip_steps = u64::try_from(
+        INITIAL_WILDERNESS_TRAIL_STEPS
+            .checked_mul(2)
+            .unwrap_or_else(|| panic!("liberation opening-trail step count overflowed")),
+    )
+    .unwrap_or_else(|_| panic!("liberation opening-trail step count exceeds u64"));
+    let travel_ticks = registries
+        .survival()
+        .physiology()
+        .locomotion()
+        .step_duration()
+        .value()
+        .checked_mul(round_trip_steps)
+        .unwrap_or_else(|| panic!("liberation opening-trail travel projection overflowed"));
     let mut gathering_ticks = 0_u64;
     for (commodity, mass) in &plan.raw_requirements {
         let method_id = gathering_method_for(*commodity);
@@ -377,10 +395,12 @@ pub(super) fn project_incremental_kit_acquisition_attention(
         "riddle-panel projection",
     );
     RawKitAttentionProjection {
+        travel_ticks,
         gathering_ticks,
         fabrication_ticks,
-        total_ticks: gathering_ticks
-            .checked_add(fabrication_ticks)
+        total_ticks: travel_ticks
+            .checked_add(gathering_ticks)
+            .and_then(|ticks| ticks.checked_add(fabrication_ticks))
             .unwrap_or_else(|| panic!("liberation acquisition projection overflowed")),
     }
 }

@@ -81,8 +81,8 @@ pub struct LocalDrinkSource {
 
 /// Iterates drinkable sources located exactly one face-adjacent voxel from the admitted player.
 ///
-/// Empty, non-drinkable, temperature-incompatible, local, diagonal, and more distant stores are
-/// omitted. Callers cannot supply an arbitrary observation coordinate.
+/// Empty, inaccessible, non-drinkable, temperature-incompatible, local, diagonal, and more distant
+/// stores are omitted. Callers cannot supply an arbitrary observation coordinate.
 pub fn available_adjacent_drink_sources<'a>(
     registries: &'a Registries,
     state: &'a AppState,
@@ -92,7 +92,8 @@ pub fn available_adjacent_drink_sources<'a>(
         .logistics()
         .fluid_store_locations()
         .filter(move |(_, position)| {
-            player_position.is_some_and(|player| player.is_face_adjacent_to(*position))
+            player_position
+                .is_some_and(|player| state.logistics().is_step_authorized(player, *position))
         })
         .filter_map(move |(store, position)| {
             let contents = state.fluid().get_store(store)?.contents()?;

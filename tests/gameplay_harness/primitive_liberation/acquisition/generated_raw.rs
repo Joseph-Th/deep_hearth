@@ -1,0 +1,199 @@
+//! Ordinary generated-trail acquisition for the primitive liberation extension.
+
+use deep_hearth::content::{
+    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+};
+use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::state::AppState;
+use deep_hearth::inventory::StockpileId;
+use deep_hearth::logistics::validate_start_player_step;
+use deep_hearth::material::CommodityKey;
+use deep_hearth::registry::Registries;
+use deep_hearth::simulation::advance_tick;
+use deep_hearth::spatial::VoxelCoord;
+use deep_hearth::surface::available_adjacent_surface_resources;
+use deep_hearth::survival::available_adjacent_drink_sources;
+
+use super::super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
+use super::gather_surface_resource;
+
+#[derive(Clone, Copy)]
+pub(super) struct GeneratedRawAcquisition {
+    pub(super) travel_ticks: u64,
+    pub(super) gathering_ticks: u64,
+}
+
+fn move_player(
+    registries: &Registries,
+    state: &mut AppState,
+    destination: VoxelCoord,
+    context: &'static str,
+) -> u64 {
+    let started_at = state.tick().value();
+    let work = validate_start_player_step(registries, state, destination)
+        .unwrap_or_else(|error| panic!("liberation {context} movement admission failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("liberation {context} movement commit failed: {error}"));
+    let expected_ticks = work
+        .completes_at()
+        .value()
+        .checked_sub(started_at)
+        .unwrap_or_else(|| panic!("liberation {context} movement completion precedes start"));
+    for elapsed in 1..=expected_ticks {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("liberation {context} movement tick failed: {error}"));
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                player_step: elapsed == expected_ticks,
+                ..TickEventAllowance::default()
+            },
+            context,
+        );
+    }
+    assert_eq!(
+        state.logistics().player().map(|player| player.position()),
+        Some(destination),
+        "liberation {context} movement did not update authoritative player locality"
+    );
+    expected_ticks
+}
+
+pub(super) fn acquire_generated_opening_raw(
+    registries: &Registries,
+    state: &mut AppState,
+    destination: StockpileId,
+    stone_required: Mass,
+    wood_required: Mass,
+) -> GeneratedRawAcquisition {
+    let spawn = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("liberation generated raw acquisition requires admitted player"));
+    let mut route = vec![spawn];
+    let mut travel_ticks = 0_u64;
+    let mut gathering_ticks = 0_u64;
+
+    let forage = available_adjacent_surface_resources(state)
+        .filter(|resource| resource.commodity() == CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        forage.len(),
+        1,
+        "liberation generated opening must expose exactly one first-step forage landmark"
+    );
+    travel_ticks = travel_ticks
+        .checked_add(move_player(
+            registries,
+            state,
+            forage[0].position(),
+            "forage-landmark approach",
+        ))
+        .unwrap_or_else(|| panic!("liberation outward travel attention overflowed"));
+    route.push(forage[0].position());
+
+    let water = available_adjacent_drink_sources(registries, state).collect::<Vec<_>>();
+    assert_eq!(
+        water.len(),
+        1,
+        "liberation generated opening must expose exactly one second-step water landmark"
+    );
+    travel_ticks = travel_ticks
+        .checked_add(move_player(
+            registries,
+            state,
+            water[0].position(),
+            "water-landmark approach",
+        ))
+        .unwrap_or_else(|| panic!("liberation outward travel attention overflowed"));
+    route.push(water[0].position());
+
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let mut gathered_stone = false;
+    let mut gathered_wood = false;
+    for material_step in 0..2 {
+        let candidates = available_adjacent_surface_resources(state)
+            .filter(|resource| resource.commodity() == stone || resource.commodity() == wood)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            candidates.len(),
+            1,
+            "liberation material waypoint {material_step} must expose exactly one new raw source"
+        );
+        let target = candidates[0];
+        let required = if target.commodity() == stone {
+            assert!(
+                !gathered_stone,
+                "liberation generated trail repeated stone site"
+            );
+            gathered_stone = true;
+            stone_required
+        } else {
+            assert!(
+                !gathered_wood,
+                "liberation generated trail repeated timber site"
+            );
+            gathered_wood = true;
+            wood_required
+        };
+        travel_ticks = travel_ticks
+            .checked_add(move_player(
+                registries,
+                state,
+                target.position(),
+                "raw-material approach",
+            ))
+            .unwrap_or_else(|| panic!("liberation outward travel attention overflowed"));
+        route.push(target.position());
+        let local = state
+            .available_surface_resources()
+            .find(|resource| resource.id() == target.resource())
+            .unwrap_or_else(|| {
+                panic!("liberation adjacent raw source disappeared after reaching its voxel")
+            });
+        assert!(
+            local.remaining_mass() >= required,
+            "ordinary generated opening must contain the full disclosed liberation raw requirement"
+        );
+        gathering_ticks = gathering_ticks
+            .checked_add(gather_surface_resource(
+                registries,
+                state,
+                local.id(),
+                destination,
+                required,
+                if target.commodity() == stone {
+                    "stone"
+                } else {
+                    "fallen timber"
+                },
+            ))
+            .unwrap_or_else(|| panic!("liberation raw gathering attention overflowed"));
+    }
+    assert!(
+        gathered_stone && gathered_wood,
+        "liberation opening trail must expose both required raw commodities"
+    );
+
+    for destination in route[..route.len() - 1].iter().rev().copied() {
+        travel_ticks = travel_ticks
+            .checked_add(move_player(
+                registries,
+                state,
+                destination,
+                "loaded return to workshop",
+            ))
+            .unwrap_or_else(|| panic!("liberation return travel attention overflowed"));
+    }
+    assert_eq!(
+        state.logistics().player().map(|player| player.position()),
+        Some(spawn),
+        "liberation raw acquisition must return to the inherited workshop before fabrication"
+    );
+    GeneratedRawAcquisition {
+        travel_ticks,
+        gathering_ticks,
+    }
+}

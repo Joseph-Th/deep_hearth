@@ -1,14 +1,18 @@
 //! Executed raw-material-to-kit fabrication witness for the reusable primitive liberation kit.
 //!
-//! Raw stone and fallen timber are generated only by the disclosed controlled pre-admission fixture.
-//! After admission the player discovers them through exact-local observation and gathers them through
-//! canonical same-voxel labor into finite carried custody; all subsequent work uses runtime boundaries.
+//! Raw stone and fallen timber come from the ordinary explicit-seed wilderness opening. After
+//! admission the player follows traversal-gated immediate observations out to both material sites,
+//! gathers exact-locally into finite carried custody, returns to the inherited processing line, and
+//! performs all subsequent fabrication through runtime boundaries.
+
+#[path = "acquisition/generated_raw.rs"]
+mod generated_raw;
 
 use std::collections::BTreeMap;
 
 use deep_hearth::content::gameplay_fixture::{
     seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_lot,
-    seed_preused_assembled_equipment_at, seed_surface_resource,
+    seed_preused_assembled_equipment_at,
 };
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
@@ -27,7 +31,7 @@ use deep_hearth::logistics::{
     validate_allocate_player_ground_stockpile,
 };
 use deep_hearth::maintenance::Condition;
-use deep_hearth::material::{CommodityKey, MaterialComposition};
+use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
@@ -36,9 +40,12 @@ use deep_hearth::surface::{
     SurfaceGatheringRequest, SurfaceResourceId, validate_start_surface_gathering,
 };
 use deep_hearth::survival::assess_survival;
+use deep_hearth::world_generation::{WorldGenerationSeed, validate_generate_initial_wilderness};
 
 use super::super::environment::ROOM_TEMPERATURE;
-use super::super::exact_local_runtime::{unique_local_energy_store, unique_local_equipment};
+use super::super::exact_local_runtime::{
+    assert_ordinary_admitted_runtime_ready, unique_local_energy_store, unique_local_equipment,
+};
 use super::super::focused_case::FocusedProbeCase;
 use super::super::manual_craft_batches::execute_manual_craft_batches;
 use super::super::manual_craft_equipment_planning::manual_craft_plan_with_equipment;
@@ -51,6 +58,7 @@ use super::super::primitive_liberation_kit_planning::{
     project_incremental_kit_acquisition_attention, raw_kit_material_plan, raw_requirement_mass,
 };
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
+use generated_raw::acquire_generated_opening_raw;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RawKitAcquisitionReview {
@@ -58,6 +66,8 @@ pub(super) struct RawKitAcquisitionReview {
     pub(super) metabolic_cost_nj: u128,
     pub(super) hydration_cost_ul: u64,
 }
+
+const LIBERATION_OPENING_WORLD_SALT: u64 = 0x4C49_4245_5241_5445;
 
 fn gather_surface_resource(
     registries: &Registries,
@@ -421,24 +431,11 @@ pub(super) fn acquire_raw_kit<T>(
     let mut state = AppState::new();
     let player_position = super::PRIMITIVE_LIBERATION_ORIGIN;
     assert!(!stone_raw.is_zero() && !wood_raw.is_zero());
-    seed_surface_resource(
-        registries,
-        &mut state,
-        player_position,
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        stone_raw,
-        ROOM_TEMPERATURE,
-        MaterialComposition::pure(MATERIAL_STONE),
-    );
-    seed_surface_resource(
-        registries,
-        &mut state,
-        player_position,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        wood_raw,
-        ROOM_TEMPERATURE,
-        MaterialComposition::pure(MATERIAL_WOOD),
-    );
+    let opening_seed = WorldGenerationSeed::new(seed ^ LIBERATION_OPENING_WORLD_SALT);
+    validate_generate_initial_wilderness(registries, &state, opening_seed, player_position)
+        .unwrap_or_else(|error| panic!("liberation opening generation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation opening generation commit failed: {error}"));
     let inherited =
         seed_inherited_progression_infrastructure(registries, &mut state, case, player_position);
     let bootstrap = bootstrap_before_admission(&mut state);
@@ -447,11 +444,7 @@ pub(super) fn acquire_raw_kit<T>(
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("liberation player admission commit failed: {error}"))
         .carried_stockpile();
-    super::super::exact_local_runtime::assert_exact_local_runtime_ready(
-        registries,
-        &state,
-        "primitive liberation",
-    );
+    assert_ordinary_admitted_runtime_ready(registries, &state, "primitive liberation moving world");
     let crusher = unique_local_equipment(
         &state,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
@@ -484,6 +477,22 @@ pub(super) fn acquire_raw_kit<T>(
     );
     let decision_state = state.clone();
     let mut state = decision_state.clone();
+    let survival_before = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("liberation kit player survival disappeared"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("liberation kit matter setup failed: {error}"))
+        .total();
+    let started_at = state.tick().value();
+    let generated_raw =
+        acquire_generated_opening_raw(registries, &mut state, raw, stone_raw, wood_raw);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(raw)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(raw_mass),
+        "liberation generated opening must deliver exactly the disclosed raw kit demand into carried custody"
+    );
     let parts = validate_allocate_player_ground_stockpile(&state, raw_mass)
         .unwrap_or_else(|error| panic!("liberation parts allocation failed: {error}"))
         .commit(&mut state)
@@ -492,59 +501,7 @@ pub(super) fn acquire_raw_kit<T>(
         .unwrap_or_else(|error| panic!("liberation panel-feed allocation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("liberation panel-feed allocation commit failed: {error}"));
-    let find_local_surface = |commodity: CommodityKey| {
-        let matches = state
-            .available_surface_resources()
-            .filter(|resource| resource.commodity() == commodity)
-            .map(|resource| resource.id())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            matches.len(),
-            1,
-            "liberation actor must observe exactly one local resource for commodity {commodity:?}"
-        );
-        matches[0]
-    };
-    let stone_surface = find_local_surface(CommodityKey::new(MATERIAL_STONE, FORM_LUMP));
-    let wood_surface = find_local_surface(CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
-    let survival_before = assess_survival(registries, &state)
-        .unwrap_or_else(|| panic!("liberation kit player survival disappeared"));
-    let matter_before = calculate_matter_accounting(&state)
-        .unwrap_or_else(|error| panic!("liberation kit matter setup failed: {error}"))
-        .total();
-    let started_at = state.tick().value();
-    let stone_gathering = gather_surface_resource(
-        registries,
-        &mut state,
-        stone_surface,
-        raw,
-        stone_raw,
-        "stone",
-    );
-    let wood_gathering = gather_surface_resource(
-        registries,
-        &mut state,
-        wood_surface,
-        raw,
-        wood_raw,
-        "fallen timber",
-    );
-    let gathering_attention = stone_gathering
-        .checked_add(wood_gathering)
-        .unwrap_or_else(|| panic!("liberation raw gathering attention overflowed"));
-    let remaining_local = state
-        .available_surface_resources()
-        .map(|resource| resource.id())
-        .collect::<Vec<_>>();
-    assert!(
-        !remaining_local.contains(&stone_surface),
-        "liberation loose-stone opportunity must be depleted by canonical gathering",
-    );
-    assert!(
-        !remaining_local.contains(&wood_surface),
-        "liberation fallen-timber opportunity must be depleted by canonical gathering",
-    );
-    let gathering_completed_at = state.tick().value();
+    let fabrication_started_at = state.tick().value();
     let projected_attention = project_incremental_kit_acquisition_attention(registries);
 
     for (commodity, required) in adze_requirements {
@@ -650,8 +607,8 @@ pub(super) fn acquire_raw_kit<T>(
     let survival_after = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("liberation kit final survival disappeared"));
     let attention = state.tick().value() - started_at;
-    let fabrication_attention = state.tick().value() - gathering_completed_at;
-    let adze_attention = adze_ready_at - gathering_completed_at;
+    let fabrication_attention = state.tick().value() - fabrication_started_at;
+    let adze_attention = adze_ready_at - fabrication_started_at;
     let extension_component_attention = extension_components_ready_at - adze_ready_at;
     let riddle_attention = riddle_ready_at - extension_components_ready_at;
     assert_eq!(
@@ -660,19 +617,25 @@ pub(super) fn acquire_raw_kit<T>(
         "liberation fabrication phases must account for the full post-gathering fabrication wall"
     );
     assert_eq!(
+        generated_raw.travel_ticks, projected_attention.travel_ticks,
+        "liberation opening-trail travel diverged from the pre-action projection"
+    );
+    assert_eq!(
+        generated_raw.gathering_ticks, projected_attention.gathering_ticks,
+        "liberation kit executed gathering attention diverged from the pre-action projection"
+    );
+    assert_eq!(
         fabrication_attention, projected_attention.fabrication_ticks,
         "liberation kit executed fabrication attention diverged from the pre-action projection"
     );
     assert_eq!(
-        gathering_attention, projected_attention.gathering_ticks,
-        "liberation kit executed gathering attention diverged from the pre-action projection"
-    );
-    assert_eq!(
-        gathering_attention
-            .checked_add(fabrication_attention)
+        generated_raw
+            .travel_ticks
+            .checked_add(generated_raw.gathering_ticks)
+            .and_then(|ticks| ticks.checked_add(fabrication_attention))
             .unwrap_or_else(|| panic!("liberation acquisition attention overflowed")),
         attention,
-        "liberation gathering plus fabrication must account for the complete acquisition wall"
+        "liberation travel, gathering, and fabrication must account for the complete acquisition wall"
     );
     assert_eq!(
         attention, projected_attention.total_ticks,
@@ -687,7 +650,7 @@ pub(super) fn acquire_raw_kit<T>(
         .checked_sub(survival_after.hydration())
         .unwrap_or_else(|| panic!("liberation kit hydration reserve increased"));
     reviewln!(
-        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} evidence={} scope=progression-carryover->incremental-liberation-kit branch={} continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=controlled-finite-surface acquisition=canonical-same-voxel-gather carried-custody=finite@voxel runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=false disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t gathering:{}t fabrication=[total:{}t adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} evidence={} scope=progression-carryover->incremental-liberation-kit branch={} continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=ordinary-generated-opening-trail acquisition=canonical-edge-travel+local-gather carried-custody=finite@moving-player runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=true disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t travel:{}t gathering:{}t fabrication=[total:{}t adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
         if selected_build {
             "actor-selected"
         } else {
@@ -708,7 +671,8 @@ pub(super) fn acquire_raw_kit<T>(
         consumed_raw.milligrams(),
         remaining_raw.milligrams(),
         attention,
-        gathering_attention,
+        generated_raw.travel_ticks,
+        generated_raw.gathering_ticks,
         fabrication_attention,
         adze_attention,
         extension_component_attention,

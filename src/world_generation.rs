@@ -4,6 +4,8 @@
 //! owners. This module owns only fresh-world authorization and deterministic authored generation
 //! inputs; it is not a terrain, chunk, ecology, hydrology, or movement owner.
 
+mod opening;
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -28,6 +30,10 @@ use crate::surface::{
     validate_generate_surface_resources,
 };
 
+use opening::{
+    OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_trail, local_entropy,
+};
+
 const WILDERNESS_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const STONE_BASE_MASS_MG: u64 = 3_000_000;
 const STONE_VARIATION_MG: u64 = 1_500_000;
@@ -36,7 +42,9 @@ const TIMBER_VARIATION_MG: u64 = 4_000_000;
 const BERRIES_BASE_MASS_MG: u64 = 500_000;
 const BERRIES_VARIATION_MG: u64 = 300_000;
 const OPENING_WATER_VOLUME_UL: u64 = 1_500_000;
-const OPENING_WATER_DIRECTION_SALT: u64 = 0x5741_5445_525F_4144;
+
+/// Number of authorized face-adjacent steps from spawn to the end of the built-in opening trail.
+pub const INITIAL_WILDERNESS_TRAIL_STEPS: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WorldGenerationSeed(u64);
@@ -285,66 +293,6 @@ impl ValidatedInitialWildernessGeneration {
     }
 }
 
-fn mix64(mut value: u64) -> u64 {
-    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    value ^ (value >> 31)
-}
-
-fn generated_adjacent_water_position(seed: WorldGenerationSeed, spawn: VoxelCoord) -> VoxelCoord {
-    let first = usize::try_from(local_entropy(seed, spawn, OPENING_WATER_DIRECTION_SALT) % 4)
-        .unwrap_or_else(|_| unreachable!("bounded water direction fits usize"));
-    for offset in 0..4 {
-        let candidate = match (first + offset) % 4 {
-            0 => spawn
-                .x()
-                .checked_add(1)
-                .map(|x| VoxelCoord::new(x, spawn.y(), spawn.z())),
-            1 => spawn
-                .z()
-                .checked_add(1)
-                .map(|z| VoxelCoord::new(spawn.x(), spawn.y(), z)),
-            2 => spawn
-                .x()
-                .checked_sub(1)
-                .map(|x| VoxelCoord::new(x, spawn.y(), spawn.z())),
-            3 => spawn
-                .z()
-                .checked_sub(1)
-                .map(|z| VoxelCoord::new(spawn.x(), spawn.y(), z)),
-            _ => unreachable!("water direction is reduced modulo four"),
-        };
-        if let Some(candidate) = candidate {
-            return candidate;
-        }
-    }
-    unreachable!("every finite voxel has at least one representable horizontal neighbor")
-}
-
-fn local_entropy(seed: WorldGenerationSeed, spawn: VoxelCoord, salt: u64) -> u64 {
-    mix64(
-        seed.value()
-            ^ (spawn.x() as u64).wrapping_mul(0xD1B5_4A32_D192_ED03)
-            ^ (spawn.y() as u64).wrapping_mul(0x94D0_49BB_1331_11EB)
-            ^ (spawn.z() as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9)
-            ^ salt,
-    )
-}
-
-fn generated_mass(
-    seed: WorldGenerationSeed,
-    spawn: VoxelCoord,
-    salt: u64,
-    base_mg: u64,
-    variation_mg: u64,
-) -> Mass {
-    let width = variation_mg
-        .checked_add(1)
-        .unwrap_or_else(|| unreachable!("bounded wilderness variation width fits u64"));
-    Mass::from_milligrams(base_mg + local_entropy(seed, spawn, salt) % width)
-}
-
 fn generated_spec(
     position: VoxelCoord,
     commodity: CommodityKey,
@@ -368,12 +316,12 @@ fn player_initialization_flags(state: &AppState) -> (bool, bool) {
 
 /// Validates one deterministic opening opportunity for a fresh built-in world.
 ///
-/// This establishes finite loose stone, fallen timber, and forage at spawn plus one finite,
-/// non-refilling drinkable water source at a horizontally adjacent voxel and one persisted
-/// traversal edge authorizing movement between them. It does not generate terrain geometry,
-/// pathfinding, routes beyond that edge, flow, recharge, groundwater, shelter, fire, or ecology.
-/// The caller supplies the explicit seed and spawn voxel; generated owner records become ordinary
-/// persistent world state.
+/// This establishes one short connected horizontal opening trail. Forage is one step from spawn,
+/// finite non-refilling drinkable water is two steps away, and loose stone/timber occupy the final
+/// two trail voxels in seed-selected order. Persisted traversal edges authorize only that trail.
+/// This does not generate terrain geometry, pathfinding, routes beyond the generated trail, flow,
+/// recharge, groundwater, shelter, fire, or ecology. The caller supplies the explicit seed and
+/// spawn voxel; generated owner records become ordinary persistent world state.
 pub fn validate_generate_initial_wilderness(
     registries: &Registries,
     state: &AppState,
@@ -399,9 +347,23 @@ pub fn validate_generate_initial_wilderness(
     if state.logistics().traversable_edges().next().is_some() {
         return Err(InitialWildernessGenerationError::TraversalAccessAlreadyGenerated);
     }
+    let trail = generated_opening_trail(seed, spawn);
+    let stone_first = local_entropy(seed, spawn, OPENING_RESOURCE_ORDER_SALT) % 2 == 0;
+    let penultimate = INITIAL_WILDERNESS_TRAIL_STEPS - 1;
+    let final_step = INITIAL_WILDERNESS_TRAIL_STEPS;
+    let stone_position = if stone_first {
+        trail[penultimate]
+    } else {
+        trail[final_step]
+    };
+    let timber_position = if stone_first {
+        trail[final_step]
+    } else {
+        trail[penultimate]
+    };
     let specs = [
         generated_spec(
-            spawn,
+            stone_position,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             generated_mass(
                 seed,
@@ -412,7 +374,7 @@ pub fn validate_generate_initial_wilderness(
             ),
         ),
         generated_spec(
-            spawn,
+            timber_position,
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
             generated_mass(
                 seed,
@@ -423,7 +385,7 @@ pub fn validate_generate_initial_wilderness(
             ),
         ),
         generated_spec(
-            spawn,
+            trail[1],
             CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
             generated_mass(
                 seed,
@@ -482,10 +444,15 @@ pub fn validate_generate_initial_wilderness(
             InitialWildernessGenerationError::InvalidGeneratedWater
         }
     })?;
-    let water_position = generated_adjacent_water_position(seed, spawn);
-    let traversal_edge = TraversalEdge::new(spawn, water_position).unwrap_or_else(|| {
-        unreachable!("generated opening water is always one horizontal face-neighbor from spawn")
-    });
+    let water_position = trail[2];
+    let mut traversal_edges = trail
+        .windows(2)
+        .map(|pair| {
+            TraversalEdge::new(pair[0], pair[1])
+                .unwrap_or_else(|| unreachable!("generated trail positions are face-neighbors"))
+        })
+        .collect::<Vec<_>>();
+    traversal_edges.sort_unstable();
     if !state.can_spend_logistics_revisions(1) {
         return Err(InitialWildernessGenerationError::LogisticsRevisionExhausted);
     }
@@ -500,7 +467,7 @@ pub fn validate_generate_initial_wilderness(
         surface_generation,
         water_generation,
         water_position,
-        traversal_edges: vec![traversal_edge],
+        traversal_edges,
         expected_logistics_revision,
         next_logistics_revision,
     })

@@ -65,9 +65,6 @@ def _bootstrap_boundary_evidence(
         " water:ordinary]" in line for line in wilderness
     )
     selected = [line for line in liberation_kit if " branch=selected " in line]
-    surface_source = sum(
-        " raw-origin=controlled-finite-surface " in line for line in selected
-    )
     runtime_gathering = sum(
         " runtime-surface-gathering-proved=true " in line for line in selected
     )
@@ -80,7 +77,6 @@ def _bootstrap_boundary_evidence(
         f"opening=[surface:{opening_surface_generation}/{len(wilderness)} "
         f"water:{opening_water_generation}/{len(wilderness)}] "
         f"liberation=[selected-builds:{len(selected)}/{len(liberation_kit)} "
-        f"fixture-surface:{surface_source}/{len(selected)} "
         f"gather:{runtime_gathering}/{len(selected)} "
         f"world-gen:{ordinary_generation}/{len(selected)}]]"
     )

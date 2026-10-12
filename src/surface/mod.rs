@@ -2,6 +2,7 @@
 
 mod gathering;
 mod generation;
+mod observation;
 mod state;
 
 pub(crate) use gathering::{
@@ -19,6 +20,7 @@ pub(crate) use generation::{
     GeneratedSurfaceResourceSpec, GeneratedSurfaceResourceSpecError, SurfaceGenerationCommitError,
     SurfaceGenerationError, ValidatedSurfaceGeneration, validate_generate_surface_resources,
 };
+pub use observation::{AdjacentSurfaceResource, available_adjacent_surface_resources};
 pub use state::{
     SurfaceResourceId, SurfaceResourceLifecycle, SurfaceResourceRecord,
     SurfaceResourceValidationError,

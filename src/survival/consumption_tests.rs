@@ -19,8 +19,9 @@ use crate::inventory::{
 };
 use crate::labor::{PlayerWork, PlayerWorkValidationError};
 use crate::logistics::{
-    PlayerFluidStoreAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
-    validate_place_fluid_store, validate_place_ground_stockpile,
+    PlayerFluidStoreAccessError, PlayerStockpileAccessError, add_traversable_edge_for_test,
+    validate_initialize_player_logistics, validate_place_fluid_store,
+    validate_place_ground_stockpile,
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -119,6 +120,13 @@ fn local_drink_source_observation_exposes_only_currently_usable_colocated_fluid(
         .unwrap_or_else(|error| panic!("drink-source actor admission failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("drink-source actor admission commit failed: {error}"));
+    assert!(
+        available_adjacent_drink_sources(&registries, &state)
+            .next()
+            .is_none(),
+        "geometrically adjacent water must stay hidden until traversal is authorized"
+    );
+    add_traversable_edge_for_test(&mut state, player_position, VoxelCoord::new(1, 0, 0));
     assert_eq!(
         available_local_drink_sources(&registries, &state)
             .map(|source| (
