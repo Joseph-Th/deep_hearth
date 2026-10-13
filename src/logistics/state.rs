@@ -127,6 +127,36 @@ impl LogisticsState {
         self.carried_equipment.iter().copied()
     }
 
+    /// Iterates equipment present at the admitted player's voxel in stable equipment-ID order.
+    ///
+    /// Stationary equipment at the player voxel and player-carried equipment are both local. The
+    /// merge stays inside logistics custody so actor observation does not need to scan unrelated
+    /// equipment-owner records or inspect remote logistics references.
+    pub(crate) fn player_local_equipment(&self) -> impl Iterator<Item = EquipmentId> + '_ {
+        let player_position = self.player.map(PlayerLogisticsRecord::position);
+        let mut stationary = self
+            .equipment_locations()
+            .filter(move |(_, position)| Some(*position) == player_position)
+            .map(|(equipment, _)| equipment)
+            .peekable();
+        let mut carried = self
+            .carried_equipment()
+            .filter(move |_| player_position.is_some())
+            .peekable();
+
+        std::iter::from_fn(
+            move || match (stationary.peek().copied(), carried.peek().copied()) {
+                (Some(stationary_id), Some(carried_id)) if stationary_id <= carried_id => {
+                    stationary.next()
+                }
+                (Some(_), Some(_)) => carried.next(),
+                (Some(_), None) => stationary.next(),
+                (None, Some(_)) => carried.next(),
+                (None, None) => None,
+            },
+        )
+    }
+
     #[must_use]
     pub fn is_equipment_carried(&self, equipment: EquipmentId) -> bool {
         self.carried_equipment.binary_search(&equipment).is_ok()

@@ -85,6 +85,14 @@ fn portable_equipment_shares_body_capacity_and_round_trips_persistence() {
     assert_eq!(carried.equipment(), Mass::from_milligrams(1_000_000));
     assert_eq!(carried.available(), Mass::from_milligrams(24_000_000));
     assert_eq!(state.logistics().equipment_position(pick), Some(ORIGIN));
+    assert_eq!(
+        state
+            .available_local_equipment()
+            .map(|record| record.id())
+            .collect::<Vec<_>>(),
+        vec![pick],
+        "carried equipment must remain visible through exact-local actor observation"
+    );
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("carried equipment serialization failed: {error}"));

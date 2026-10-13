@@ -236,43 +236,26 @@ impl AppState {
         &self.systems.equipment
     }
 
-    /// Iterates equipment explicitly located at the admitted player's exact voxel.
+    /// Iterates stationary or player-carried equipment at the admitted player's exact voxel.
     ///
     /// No equipment is observable before logistics admission. Callers cannot supply an arbitrary
     /// voxel, so ordinary actor policy can rediscover local tools and machines without enumerating
     /// remote equipment custody or retaining setup identities.
     pub fn available_local_equipment(&self) -> impl Iterator<Item = &EquipmentRecord> {
-        let player_position = self
-            .systems
+        self.systems
             .logistics
-            .player()
-            .map(|player| player.position());
-        for (equipment, _) in self.systems.logistics.equipment_locations() {
-            self.systems
-                .equipment
-                .get_equipment(equipment)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "runtime invariant broken: logistics references missing equipment {}",
-                        equipment.value()
-                    )
-                });
-        }
-        for equipment in self.systems.logistics.carried_equipment() {
-            self.systems
-                .equipment
-                .get_equipment(equipment)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "runtime invariant broken: logistics references missing carried equipment {}",
-                        equipment.value()
-                    )
-                });
-        }
-        self.systems.equipment.equipment().filter(move |record| {
-            player_position.is_some()
-                && self.systems.logistics.equipment_position(record.id()) == player_position
-        })
+            .player_local_equipment()
+            .map(|equipment| {
+                self.systems
+                    .equipment
+                    .get_equipment(equipment)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "runtime invariant broken: local logistics references missing equipment {}",
+                            equipment.value()
+                        )
+                    })
+            })
     }
 
     pub(crate) fn equipment_state_mut(&mut self) -> &mut EquipmentState {

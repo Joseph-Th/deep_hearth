@@ -43,6 +43,26 @@ fn built_in_direct_drinking_uses_a_meaningful_serving_floor() {
     );
 }
 
+#[test]
+fn uninstalled_equipment_fits_the_current_unaided_carrying_envelope() {
+    let registries = build_registries();
+    let carrying_capacity = registries.survival().physiology().carried_mass_capacity();
+
+    for definition in registries
+        .equipment()
+        .definitions()
+        .filter(|definition| !definition.requires_structural_support())
+    {
+        assert!(
+            definition.mass() < carrying_capacity,
+            "equipment {} is eligible for player carrying at {} mg but the body envelope is only {} mg",
+            definition.id().value(),
+            definition.mass().milligrams(),
+            carrying_capacity.milligrams()
+        );
+    }
+}
+
 fn wilderness_tool_acquisition_microseconds(
     registries: &Registries,
     equipment: impl IntoIterator<Item = EquipmentDefinitionId>,

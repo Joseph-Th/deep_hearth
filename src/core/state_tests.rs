@@ -71,6 +71,27 @@ fn local_asset_observation_rejects_dangling_logistics_references() {
 }
 
 #[test]
+fn local_equipment_observation_does_not_traverse_remote_dangling_custody() {
+    let mut state = AppState::new();
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-dangling observation player setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-dangling observation player setup commit failed: {error}")
+        });
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        EquipmentId::new(u32::MAX),
+        VoxelCoord::new(1, 0, 0),
+    );
+
+    assert_eq!(state.available_local_equipment().count(), 0);
+}
+
+#[test]
 fn app_state_debug_does_not_expose_hidden_geology() {
     let state = AppState::new();
 
