@@ -57,19 +57,25 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
     );
     assert_eq!(generated_profile(&first), generated_profile(&replay));
 
-    let trail = generated_opening_trail(seed, spawn);
+    let layout = generated_opening_layout(seed, spawn);
     let profile = generated_profile(&first);
     assert_eq!(profile.len(), 3);
     assert_eq!(
         first.logistics().traversable_edges().count(),
-        INITIAL_WILDERNESS_TRAIL_STEPS
+        INITIAL_WILDERNESS_ACCESS_EDGES
     );
     assert!(
-        trail
-            .windows(2)
-            .all(|pair| first.logistics().is_step_authorized(pair[0], pair[1]))
+        layout
+            .edge_pairs()
+            .into_iter()
+            .all(|(from, to)| first.logistics().is_step_authorized(from, to))
     );
-    assert!(trail.iter().all(|position| position.y() == spawn.y()));
+    assert!(
+        layout
+            .positions()
+            .iter()
+            .all(|position| position.y() == spawn.y())
+    );
     assert!(
         first
             .surface()
@@ -100,7 +106,7 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         .logistics()
         .fluid_store_position(water.id())
         .unwrap_or_else(|| panic!("generated wilderness water has no world location"));
-    assert_eq!(water_position, trail[2]);
+    assert_eq!(water_position, layout.water);
     let mass_for = |commodity| {
         profile
             .iter()
@@ -132,15 +138,14 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
     };
     assert_eq!(
         position_for(CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)),
-        trail[1]
+        layout.forage
     );
     let stone_position = position_for(CommodityKey::new(MATERIAL_STONE, FORM_LUMP));
     let timber_position = position_for(CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
-    let penultimate = INITIAL_WILDERNESS_TRAIL_STEPS - 1;
-    let final_step = INITIAL_WILDERNESS_TRAIL_STEPS;
     assert!(
-        (stone_position == trail[penultimate] && timber_position == trail[final_step])
-            || (stone_position == trail[final_step] && timber_position == trail[penultimate])
+        (stone_position == layout.material_forward && timber_position == layout.material_branch)
+            || (stone_position == layout.material_branch
+                && timber_position == layout.material_forward)
     );
 
     let mut alternate = AppState::new();
@@ -165,17 +170,23 @@ fn initial_wilderness_generation_handles_coordinate_extremes_without_overflow() 
     ] {
         let mut state = AppState::new();
         generate(&mut state, seed, spawn);
-        let trail = generated_opening_trail(seed, spawn);
-        assert_eq!(trail[0], spawn);
+        let layout = generated_opening_layout(seed, spawn);
+        assert_eq!(layout.spawn, spawn);
         assert!(
-            trail
-                .windows(2)
-                .all(|pair| pair[0].is_face_adjacent_to(pair[1]))
+            layout
+                .edge_pairs()
+                .into_iter()
+                .all(|(from, to)| from.is_face_adjacent_to(to))
         );
-        assert!(trail.iter().all(|position| position.y() == spawn.y()));
+        assert!(
+            layout
+                .positions()
+                .iter()
+                .all(|position| position.y() == spawn.y())
+        );
         assert_eq!(
             state.logistics().traversable_edges().count(),
-            INITIAL_WILDERNESS_TRAIL_STEPS
+            INITIAL_WILDERNESS_ACCESS_EDGES
         );
     }
 }
@@ -422,7 +433,7 @@ fn generated_wilderness_persists_with_distributed_opening_and_access_after_load(
         .unwrap_or_else(|error| panic!("persistent wilderness admission failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("persistent wilderness admission commit failed: {error}"));
-    let trail = generated_opening_trail(seed, spawn);
+    let layout = generated_opening_layout(seed, spawn);
     let visible_before = state
         .available_surface_resources()
         .map(|record| (record.commodity(), record.remaining_mass()))
@@ -442,7 +453,7 @@ fn generated_wilderness_persists_with_distributed_opening_and_access_after_load(
         adjacent_surface_before[0].1,
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)
     );
-    assert_eq!(adjacent_surface_before[0].2, trail[1]);
+    assert_eq!(adjacent_surface_before[0].2, layout.forage);
     assert_eq!(
         available_local_drink_sources(&registries, &state).count(),
         0
@@ -452,7 +463,7 @@ fn generated_wilderness_persists_with_distributed_opening_and_access_after_load(
         .collect::<Vec<_>>();
     assert!(adjacent_before.is_empty());
     let steps_before = state.available_player_steps().collect::<Vec<_>>();
-    assert_eq!(steps_before, vec![trail[1]]);
+    assert_eq!(steps_before, vec![layout.forage]);
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("wilderness generation save failed: {error}"));

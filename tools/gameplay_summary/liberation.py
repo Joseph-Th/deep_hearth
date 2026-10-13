@@ -119,10 +119,10 @@ def _kit_acquisition(lines: list[str]) -> str:
         )
     witnesses = selected_witnesses
     generated_sources = sum(
-        " raw-origin=ordinary-generated-opening-trail " in line for line in witnesses
+        " raw-origin=ordinary-generated-opening-graph " in line for line in witnesses
     )
     if witnesses and generated_sources != len(witnesses):
-        raise ValueError("primitive liberation kit acquisition lost ordinary generated trail sourcing")
+        raise ValueError("primitive liberation kit acquisition lost ordinary generated opening-graph sourcing")
     runtime_gathering = sum(
         " runtime-surface-gathering-proved=true " in line for line in witnesses
     )
@@ -132,7 +132,7 @@ def _kit_acquisition(lines: list[str]) -> str:
         " ordinary-world-source-generation-proved=true " in line for line in witnesses
     )
     if witnesses and ordinary_generation != len(witnesses):
-        raise ValueError("primitive liberation generated trail lost ordinary world-source evidence")
+        raise ValueError("primitive liberation generated opening graph lost ordinary world-source evidence")
     incremental = [line for line in witnesses if " incremental-attention:" in line]
     if incremental:
         if len(incremental) != len(witnesses):

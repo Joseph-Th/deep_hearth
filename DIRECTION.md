@@ -65,7 +65,7 @@ delivery, access, path cost, and transport resource cost while inventory retains
 model for movement, source acquisition, mounted-production geometry, fluid transport, and equipment transport.
 
 The current timed face-adjacent step fails closed behind persisted logistics-owned traversal edges. Fresh world
-generation now authors a short four-edge opening trail, while `AppState::available_player_steps` exposes only
+generation now authors a short five-edge opening opportunity graph, while `AppState::available_player_steps` exposes only
 choices from the actor's current voxel and immediate source observation is gated by those same edges. This
 establishes bounded access authorization plus load-sensitive body cost, not terrain geometry, collision shape,
 slope, general route generation, path cost, or haulage; those remaining world authorities should extend this
@@ -90,12 +90,14 @@ crafting, equipment, storage, survival, fluid, thermal, and structural owners. F
 the entry point; exact physical consequences should remain consequences of those actions rather than
 prerequisites for learning a special interaction language.
 
-The current explicit-seed opening generator closes a bounded four-step horizontal trail: forage appears one
-step from spawn, finite non-refilling water at step two, and loose stone/timber at steps three and four in
-seed-selected order. The lived wilderness episode discovers each next opportunity only through traversal-gated
-immediate observation, proves an unlisted adjacent move is rejected, pays every load-sensitive step, and reads
-exact quantities only after arrival. This closes a real distributed opening slice without claiming terrain
-geometry, general route generation/pathfinding, ecology, hydrology/flow/recharge, or broader world discovery.
+The current explicit-seed opening generator closes a bounded five-edge horizontal opportunity graph. Forage
+appears one step from spawn. From forage, a finite non-refilling water branch competes with a continuation to a
+material junction, where loose stone and timber are simultaneously visible on two adjacent leaves. The lived
+wilderness episode proves that current physiology changes route choice: a rested actor skips the water detour,
+while a hydration-pressure actor chooses it and drinks before returning to the work path. Both reach the material
+junction through traversal-gated immediate observation and pay every load-sensitive step. This closes a real
+distributed opening slice without claiming terrain geometry, general route generation/pathfinding, ecology,
+hydrology/flow/recharge, or broader world discovery.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a

@@ -31,7 +31,7 @@ use crate::surface::{
 };
 
 use opening::{
-    OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_trail, local_entropy,
+    OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_layout, local_entropy,
 };
 
 const WILDERNESS_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -43,8 +43,12 @@ const BERRIES_BASE_MASS_MG: u64 = 500_000;
 const BERRIES_VARIATION_MG: u64 = 300_000;
 const OPENING_WATER_VOLUME_UL: u64 = 1_500_000;
 
-/// Number of authorized face-adjacent steps from spawn to the end of the built-in opening trail.
-pub const INITIAL_WILDERNESS_TRAIL_STEPS: usize = 4;
+/// Number of persisted traversal edges in the built-in opening opportunity graph.
+pub const INITIAL_WILDERNESS_ACCESS_EDGES: usize = 5;
+/// Minimum movement steps to visit both opening material leaves from spawn and return to spawn.
+///
+/// The optional water branch is not part of this material-acquisition route.
+pub const INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_STEPS: u64 = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WorldGenerationSeed(u64);
@@ -315,10 +319,11 @@ fn player_initialization_flags(state: &AppState) -> (bool, bool) {
 
 /// Validates one deterministic opening opportunity for a fresh built-in world.
 ///
-/// This establishes one short connected horizontal opening trail. Forage is one step from spawn,
-/// finite non-refilling drinkable water is two steps away, and loose stone/timber occupy the final
-/// two trail voxels in seed-selected order. Persisted traversal edges authorize only that trail.
-/// This does not generate terrain geometry, pathfinding, routes beyond the generated trail, flow,
+/// This establishes one short connected horizontal opening graph. Forage is one step from spawn;
+/// from there the actor may branch to finite non-refilling drinkable water or continue to a work
+/// junction whose two adjacent leaves hold loose stone/timber in seed-selected order. Persisted
+/// traversal edges authorize only that graph. This does not generate terrain geometry, pathfinding,
+/// routes beyond the generated graph, flow,
 /// recharge, groundwater, shelter, fire, or ecology. The caller supplies the explicit seed and
 /// spawn voxel; generated owner records become ordinary persistent world state.
 pub fn validate_generate_initial_wilderness(
@@ -346,19 +351,17 @@ pub fn validate_generate_initial_wilderness(
     if !state.logistics().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::LogisticsAlreadyPopulated);
     }
-    let trail = generated_opening_trail(seed, spawn);
+    let layout = generated_opening_layout(seed, spawn);
     let stone_first = local_entropy(seed, spawn, OPENING_RESOURCE_ORDER_SALT).is_multiple_of(2);
-    let penultimate = INITIAL_WILDERNESS_TRAIL_STEPS - 1;
-    let final_step = INITIAL_WILDERNESS_TRAIL_STEPS;
     let stone_position = if stone_first {
-        trail[penultimate]
+        layout.material_forward
     } else {
-        trail[final_step]
+        layout.material_branch
     };
     let timber_position = if stone_first {
-        trail[final_step]
+        layout.material_branch
     } else {
-        trail[penultimate]
+        layout.material_forward
     };
     let specs = [
         generated_spec(
@@ -384,7 +387,7 @@ pub fn validate_generate_initial_wilderness(
             ),
         ),
         generated_spec(
-            trail[1],
+            layout.forage,
             CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
             generated_mass(
                 seed,
@@ -443,12 +446,14 @@ pub fn validate_generate_initial_wilderness(
             InitialWildernessGenerationError::InvalidGeneratedWater
         }
     })?;
-    let water_position = trail[2];
-    let mut traversal_edges = trail
-        .windows(2)
-        .map(|pair| {
-            TraversalEdge::new(pair[0], pair[1])
-                .unwrap_or_else(|| unreachable!("generated trail positions are face-neighbors"))
+    let water_position = layout.water;
+    let mut traversal_edges = layout
+        .edge_pairs()
+        .into_iter()
+        .map(|(from, to)| {
+            TraversalEdge::new(from, to).unwrap_or_else(|| {
+                unreachable!("generated opening graph positions are face-neighbors")
+            })
         })
         .collect::<Vec<_>>();
     traversal_edges.sort_unstable();

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from .common import compact_fields
 
 
@@ -11,13 +13,14 @@ def wilderness_summary(lines: list[str]) -> str | None:
     ]
     if not experiences:
         return None
-    if len(experiences) != 1:
+    maintained = [line for line in experiences if " sample=maintained " in line]
+    coverage = [line for line in experiences if " sample=coverage " in line]
+    if len(maintained) != 1 or len(coverage) != 1:
         raise ValueError(
-            f"wilderness report expected one opening experience, found {len(experiences)}"
+            "wilderness report requires one maintained rested experience and one pressure coverage experience"
         )
-    experience = experiences[0]
-    detail = compact_fields(
-        experience,
+    baseline = compact_fields(
+        maintained[0],
         (
             "evidence",
             "generation",
@@ -28,11 +31,18 @@ def wilderness_summary(lines: list[str]) -> str | None:
             "water",
             "storage-choice",
             "tool-choice",
-            "remaining-opportunity",
+            "material-choice",
         ),
     )
+    pressure_steps = re.search(r"\bmovement=\[.*?\bsteps:(\d+)", coverage[0])
+    pressure_drink = re.search(r"\bwater=\[.*?\bconsumed:(\d+)uL", coverage[0])
+    if pressure_steps is None or pressure_drink is None:
+        raise ValueError("wilderness pressure experience lost route or drink telemetry")
     return (
-        "ORDINARY SUMMARY probe=wilderness samples=1 "
-        "sample-shape=[maintained:1] "
-        f"{detail}"
+        "ORDINARY SUMMARY probe=wilderness samples=2 "
+        "sample-shape=[maintained:1 coverage:1] "
+        f"{baseline} "
+        f"pressure-route=[steps:{pressure_steps.group(1)} water:visited "
+        f"consumed:{pressure_drink.group(1)}uL] "
+        "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
     )

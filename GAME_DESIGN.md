@@ -201,6 +201,12 @@ carried capacity, perishability, safety, or a repeated workload creates a reason
 attention cost. Making a tool should matter because it improves a repeated task the player is already doing, not
 because a technology ladder demands that item once.
 
+Opening locality should present a small problem space rather than march the player through a resource checklist.
+Visible opportunity is not obligation. If drinkable water is nearby but current hydration is secure, continuing
+toward useful material work should be correct; under thirst pressure, taking the water detour should be correct.
+Likewise, visible stone or timber should become valuable because a real project, carrying constraint, preservation
+need, or repeated workload creates demand, not because discovery itself requires immediate collection.
+
 The first roughly fifteen minutes are a pacing envelope, not a quota of infrastructure to fill. In an ordinary
 start they should still be dominated by orientation, gathering, provisioning, fire/shelter work when those
 pressures apply, and whichever first improvements the local situation actually justifies. A player who has enough

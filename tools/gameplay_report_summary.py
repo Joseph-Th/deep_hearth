@@ -150,16 +150,14 @@ def settlement_specialization_summary(
 
 _ORDINARY_DIGEST_FIELDS = {
     "wilderness": (
-        "evidence",
         "generation",
         "movement",
-        "timing",
-        "provisioning",
-        "carrying",
         "water",
+        "pressure-route",
+        "adaptation",
         "storage-choice",
         "tool-choice",
-        "remaining-opportunity",
+        "material-choice",
     ),
     "primitive-progression": (
         "first-copper",
@@ -233,6 +231,13 @@ _ORDINARY_DIGEST_FIELDS = {
 }
 
 _SCOPED_ORDINARY_DIGEST_FIELDS = {
+    "wilderness": (
+        "evidence",
+        *_ORDINARY_DIGEST_FIELDS["wilderness"],
+        "timing",
+        "provisioning",
+        "carrying",
+    ),
     "primitive-progression": (
         *_ORDINARY_DIGEST_FIELDS["primitive-progression"],
         "sequencing-consequence",

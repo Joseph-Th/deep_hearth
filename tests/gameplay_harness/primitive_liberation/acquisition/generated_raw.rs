@@ -71,7 +71,6 @@ pub(super) fn acquire_generated_opening_raw(
         .player()
         .map(|player| player.position())
         .unwrap_or_else(|| panic!("liberation generated raw acquisition requires admitted player"));
-    let mut route = vec![spawn];
     let mut travel_ticks = 0_u64;
     let mut gathering_ticks = 0_u64;
 
@@ -91,38 +90,48 @@ pub(super) fn acquire_generated_opening_raw(
             "forage-landmark approach",
         ))
         .unwrap_or_else(|| panic!("liberation outward travel attention overflowed"));
-    route.push(forage[0].position());
+    let forage_position = forage[0].position();
 
     let water = available_adjacent_drink_sources(registries, state).collect::<Vec<_>>();
     assert_eq!(
         water.len(),
         1,
-        "liberation generated opening must expose exactly one second-step water landmark"
+        "liberation generated opening must expose exactly one optional water branch from forage"
+    );
+    let water_position = water[0].position();
+    let junction = state
+        .available_player_steps()
+        .filter(|position| *position != spawn && *position != water_position)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        junction.len(),
+        1,
+        "liberation actor should have one non-water continuation from the forage landmark"
     );
     travel_ticks = travel_ticks
         .checked_add(move_player(
             registries,
             state,
-            water[0].position(),
-            "water-landmark approach",
+            junction[0],
+            "material-junction approach",
         ))
         .unwrap_or_else(|| panic!("liberation outward travel attention overflowed"));
-    route.push(water[0].position());
+    let junction = junction[0];
 
     let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
     let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
     let mut gathered_stone = false;
     let mut gathered_wood = false;
-    for material_step in 0..2 {
-        let candidates = available_adjacent_surface_resources(state)
-            .filter(|resource| resource.commodity() == stone || resource.commodity() == wood)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            candidates.len(),
-            1,
-            "liberation material waypoint {material_step} must expose exactly one new raw source"
-        );
-        let target = candidates[0];
+    let mut candidates = available_adjacent_surface_resources(state)
+        .filter(|resource| resource.commodity() == stone || resource.commodity() == wood)
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|resource| resource.commodity());
+    assert_eq!(
+        candidates.len(),
+        2,
+        "liberation material junction must expose stone and timber as simultaneous actor choices"
+    );
+    for target in candidates {
         let required = if target.commodity() == stone {
             assert!(
                 !gathered_stone,
@@ -146,7 +155,6 @@ pub(super) fn acquire_generated_opening_raw(
                 "raw-material approach",
             ))
             .unwrap_or_else(|| panic!("liberation outward travel attention overflowed"));
-        route.push(target.position());
         let local = state
             .available_surface_resources()
             .find(|resource| resource.id() == target.resource())
@@ -171,22 +179,36 @@ pub(super) fn acquire_generated_opening_raw(
                 },
             ))
             .unwrap_or_else(|| panic!("liberation raw gathering attention overflowed"));
-    }
-    assert!(
-        gathered_stone && gathered_wood,
-        "liberation opening trail must expose both required raw commodities"
-    );
-
-    for destination in route[..route.len() - 1].iter().rev().copied() {
         travel_ticks = travel_ticks
             .checked_add(move_player(
                 registries,
                 state,
-                destination,
+                junction,
+                "return to material junction",
+            ))
+            .unwrap_or_else(|| panic!("liberation branch-return travel attention overflowed"));
+    }
+    assert!(
+        gathered_stone && gathered_wood,
+        "liberation opening graph must expose both required raw commodities"
+    );
+
+    travel_ticks = travel_ticks
+        .checked_add(move_player(
+            registries,
+            state,
+            forage_position,
+            "loaded return through forage landmark",
+        ))
+        .and_then(|ticks| {
+            ticks.checked_add(move_player(
+                registries,
+                state,
+                spawn,
                 "loaded return to workshop",
             ))
-            .unwrap_or_else(|| panic!("liberation return travel attention overflowed"));
-    }
+        })
+        .unwrap_or_else(|| panic!("liberation return travel attention overflowed"));
     assert_eq!(
         state.logistics().player().map(|player| player.position()),
         Some(spawn),

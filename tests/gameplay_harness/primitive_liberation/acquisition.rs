@@ -614,7 +614,7 @@ pub(super) fn acquire_raw_kit<T>(
     );
     assert_eq!(
         generated_raw.travel_ticks, projected_attention.travel_ticks,
-        "liberation opening-trail travel diverged from the pre-action projection"
+        "liberation opening-graph travel diverged from the pre-action projection"
     );
     assert_eq!(
         generated_raw.gathering_ticks, projected_attention.gathering_ticks,
@@ -646,7 +646,7 @@ pub(super) fn acquire_raw_kit<T>(
         .checked_sub(survival_after.hydration())
         .unwrap_or_else(|| panic!("liberation kit hydration reserve increased"));
     reviewln!(
-        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} evidence={} scope=progression-carryover->incremental-liberation-kit branch={} continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=ordinary-generated-opening-trail acquisition=canonical-edge-travel+local-gather carried-custody=finite@moving-player runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=true disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t travel:{}t gathering:{}t fabrication=[total:{}t adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} evidence={} scope=progression-carryover->incremental-liberation-kit branch={} continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=ordinary-generated-opening-graph acquisition=canonical-edge-travel+local-gather carried-custody=finite@moving-player runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=true disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t travel:{}t gathering:{}t fabrication=[total:{}t adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
         if selected_build {
             "actor-selected"
         } else {

@@ -20,7 +20,7 @@ Current progression:
 | Crafting and equipment | Manual shaping, wear, service, recovery, primitive machines, copper upgrades, field instruments, specialist wire drawing, and settlement workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Primitive crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and the ordinary first/settlement foundry route. Compound-ore reduction is absent. |
-| Opening wilderness acquisition | Explicit-seed worlds generate a four-step trail: forage at step 1, finite water at step 2, stone/timber at steps 3-4. Immediate observation is traversal-gated, unknown moves fail closed, and steps pay load-sensitive body cost. General terrain/pathfinding, remote discovery, and hydrology remain absent. |
+| Opening wilderness acquisition | Explicit-seed worlds generate a five-edge choice graph: forage at one step, an optional water branch, then a junction with separate stone/timber leaves. Observation is traversal-gated, unknown moves fail closed, physiology changes routing, and movement has load-sensitive body cost. General terrain/pathfinding, remote discovery, and hydrology remain absent. |
 
 ## Current integration frontier
 
@@ -50,7 +50,7 @@ incomplete.
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
 | Logistics | Persistent player/carried custody, world locations, and explicit traversable neighbor edges; timed authorized steps with load-sensitive survival cost; exact-local observation, loose-storage allocation, pickup/drop, and access checks. |
-| Loose surface matter | Persistent finite world-space records, traversal-gated neighbor orientation, exact-local gathering, reservation, survival cost, depletion, interruption cleanup, and conservation. Fresh worlds distribute forage/stone/timber across the opening trail; terrain/ecology and remote discovery remain absent. |
+| Loose surface matter | Persistent finite world-space records, traversal-gated neighbor orientation, exact-local gathering, reservation, survival cost, depletion, interruption cleanup, and conservation. Fresh worlds distribute forage/stone/timber across the opening graph; terrain/ecology and remote discovery remain absent. |
 | Energy and fluids | Finite typed energy stores with power/loss limits; finite homogeneous fluid stores with exact withdrawal/local observation. Fresh worlds place finite non-refilling water two authorized steps from spawn. General hydrology, flow/recharge, and remote fluid-source generation remain absent. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Material-backed members, support topology, loads, damage, and failure cascades. |
@@ -71,7 +71,7 @@ ordinarily acquirable.
 
 | Area | Boundary |
 | --- | --- |
-| Wilderness opening | Terrain/path travel and discovery beyond the bounded generated opening trail, fire/warmth, shelter, and one continuous empty-inventory first-day loop. A four-edge authored trail is not general route generation, pathfinding, or hydrology. |
+| Wilderness opening | Terrain/path travel and discovery beyond the bounded generated opening graph, fire/warmth, shelter, and one continuous empty-inventory first-day loop. A five-edge authored graph is not general route generation, pathfinding, or hydrology. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Voxel/chunk storage, terrain generation, streaming, world-scale indexing, and runtime clue-location discovery. |
 | Logistics | General access generation, multi-step routing, haulage, delivery/transport, remote acquisition, container/hotbar presentation, fluid transport, and mounted-production geometry. |

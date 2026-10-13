@@ -17,7 +17,7 @@ use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
-use deep_hearth::world_generation::INITIAL_WILDERNESS_TRAIL_STEPS;
+use deep_hearth::world_generation::INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_STEPS;
 
 use super::manual_craft_equipment_topology_planning::manual_craft_topology_plan_with_equipment;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
@@ -234,14 +234,10 @@ pub(super) fn project_incremental_kit_acquisition_attention(
     registries: &Registries,
 ) -> RawKitAttentionProjection {
     let plan = raw_kit_material_plan(registries);
-    // The extension is assembled beside the inherited processing line at spawn, so the selected
-    // build route pays the authored opening trail once outward and once back before fabrication.
-    let round_trip_steps = u64::try_from(
-        INITIAL_WILDERNESS_TRAIL_STEPS
-            .checked_mul(2)
-            .unwrap_or_else(|| panic!("liberation opening-trail step count overflowed")),
-    )
-    .unwrap_or_else(|_| panic!("liberation opening-trail step count exceeds u64"));
+    // The extension is assembled beside the inherited processing line at spawn. Production owns
+    // the bounded opening topology, including the minimum route that visits both material leaves
+    // and returns without detouring through optional water.
+    let round_trip_steps = INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_STEPS;
     let travel_ticks = registries
         .survival()
         .physiology()
@@ -249,7 +245,7 @@ pub(super) fn project_incremental_kit_acquisition_attention(
         .step_duration()
         .value()
         .checked_mul(round_trip_steps)
-        .unwrap_or_else(|| panic!("liberation opening-trail travel projection overflowed"));
+        .unwrap_or_else(|| panic!("liberation opening-graph travel projection overflowed"));
     let mut gathering_ticks = 0_u64;
     for (commodity, mass) in &plan.raw_requirements {
         let method_id = gathering_method_for(*commodity);
