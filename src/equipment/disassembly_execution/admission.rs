@@ -12,6 +12,7 @@ use crate::logistics::{
 };
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId};
+use crate::player::validate_optional_player_action;
 use crate::registry::Registries;
 
 use super::super::{EquipmentId, EquipmentOccupancy, EquipmentRecord, equipment_occupancy};
@@ -153,6 +154,8 @@ pub fn validate_disassemble_equipment(
     equipment: EquipmentId,
     destination: StockpileId,
 ) -> Result<ValidatedEquipmentDisassembly, EquipmentDisassemblyError> {
+    let player_action = validate_optional_player_action(state)
+        .map_err(|_| EquipmentDisassemblyError::PlayerDead)?;
     let record = state
         .equipment()
         .get_equipment(equipment)
@@ -236,6 +239,7 @@ pub fn validate_disassemble_equipment(
     };
 
     Ok(ValidatedEquipmentDisassembly {
+        player_action,
         equipment,
         expected_equipment_revision,
         next_equipment_revision,

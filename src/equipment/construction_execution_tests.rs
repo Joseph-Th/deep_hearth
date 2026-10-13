@@ -18,6 +18,8 @@ use crate::logistics::{
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
+use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
 fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::StockpileId) {
@@ -46,6 +48,69 @@ fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::Stockp
         .unwrap_or_else(|error| panic!("assembly exhaustion material fixture failed: {error}"));
     }
     (registries, state, source)
+}
+
+#[test]
+fn validated_equipment_assembly_rejects_survival_change_before_commit() {
+    let (registries, mut state, source) = unassembled_pick_fixture();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_place_ground_stockpile(&state, source, position)
+        .unwrap_or_else(|error| panic!("stale-survival assembly source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("stale-survival assembly source placement commit failed: {error}")
+        });
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("stale-survival assembly player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("stale-survival assembly player admission commit failed: {error}")
+        });
+    let validated = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
+        .unwrap_or_else(|error| panic!("stale-survival assembly validation failed: {error}"));
+    let expected = state.survival().revision();
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stale-survival assembly tick failed: {error}"));
+    let actual = state.survival().revision();
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(EquipmentAssemblyCommitError::StaleSurvival { expected, actual })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn dead_admitted_player_cannot_assemble_equipment() {
+    let (registries, mut state, source) = unassembled_pick_fixture();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_place_ground_stockpile(&state, source, position)
+        .unwrap_or_else(|error| panic!("dead assembly source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dead assembly source placement commit failed: {error}"));
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("dead assembly player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dead assembly player admission commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("dead assembly serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("dead assembly decode failed: {error}"));
+    let dead = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("idle dead assembly player should load: {error}"));
+    let before = dead.clone();
+
+    assert!(
+        matches!(
+            validate_assemble_equipment(&registries, &dead, EQUIPMENT_STONE_PICK, source).err(),
+            Some(EquipmentAssemblyError::PlayerDead)
+        ),
+        "dead admitted player must receive the typed assembly rejection"
+    );
+    assert_eq!(dead, before);
 }
 
 #[test]

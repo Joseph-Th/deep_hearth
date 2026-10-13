@@ -9,6 +9,7 @@ use crate::inventory::{
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{validate_player_energy_store_access, validate_player_stockpile_access};
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
 use super::state::EnergyStoreUpgradeMutation;
@@ -20,6 +21,7 @@ pub use errors::{EnergyStoreUpgradeCommitError, EnergyStoreUpgradeError};
 
 #[must_use]
 pub struct ValidatedEnergyStoreUpgrade {
+    player_action: PlayerActionGuard,
     store: EnergyStoreId,
     expected_definition: EnergyStoreDefinitionId,
     target_definition: EnergyStoreDefinitionId,
@@ -44,6 +46,12 @@ impl ValidatedEnergyStoreUpgrade {
                 actual: actual_logistics_revision,
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            EnergyStoreUpgradeCommitError::StaleSurvival {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EnergyStoreUpgradeCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -115,6 +123,8 @@ pub fn validate_upgrade_energy_store(
     target: EnergyStoreDefinitionId,
     source: StockpileId,
 ) -> Result<ValidatedEnergyStoreUpgrade, EnergyStoreUpgradeError> {
+    let player_action =
+        validate_optional_player_action(state).map_err(|_| EnergyStoreUpgradeError::PlayerDead)?;
     let record = state
         .energy()
         .get_store(store)
@@ -209,6 +219,7 @@ pub fn validate_upgrade_energy_store(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("energy headroom check includes store upgrade revision"));
     Ok(ValidatedEnergyStoreUpgrade {
+        player_action,
         store,
         expected_definition: record.definition(),
         target_definition: target,

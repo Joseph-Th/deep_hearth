@@ -14,6 +14,7 @@ use crate::inventory::{
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -22,6 +23,7 @@ use super::state::{EquipmentId, EquipmentRecord};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyError {
+    PlayerDead,
     Access(PlayerStockpileAccessError),
     UnknownDefinition {
         definition: EquipmentDefinitionId,
@@ -55,6 +57,7 @@ pub enum EquipmentAssemblyError {
 impl Display for EquipmentAssemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot assemble equipment"),
             Self::Access(error) => write!(formatter, "equipment assembly access failed: {error}"),
             Self::UnknownDefinition { definition } => write!(
                 formatter,
@@ -117,7 +120,8 @@ impl Error for EquipmentAssemblyError {
         match self {
             Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownDefinition { definition: _ }
+            Self::PlayerDead
+            | Self::UnknownDefinition { definition: _ }
             | Self::NoAssemblyProfile { definition: _ }
             | Self::UnknownSource { stockpile: _ }
             | Self::InsufficientMaterial {
@@ -141,6 +145,7 @@ impl Error for EquipmentAssemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyCommitError {
+    StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
     StaleEquipment { expected: u64, actual: u64 },
@@ -150,6 +155,10 @@ pub enum EquipmentAssemblyCommitError {
 impl Display for EquipmentAssemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvival { expected, actual } => write!(
+                formatter,
+                "equipment assembly expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogistics { expected, actual } => write!(
                 formatter,
                 "equipment assembly expected logistics revision {expected} but current revision is {actual}"
@@ -173,7 +182,8 @@ impl Error for EquipmentAssemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogistics { .. }
+            Self::StaleSurvival { .. }
+            | Self::StaleLogistics { .. }
             | Self::StaleInventory {
                 expected: _,
                 actual: _,
@@ -188,6 +198,7 @@ impl Error for EquipmentAssemblyCommitError {
 
 #[must_use]
 pub struct ValidatedEquipmentAssembly {
+    player_action: PlayerActionGuard,
     record: EquipmentRecord,
     next_equipment_id: u32,
     expected_equipment_revision: u64,
@@ -206,6 +217,12 @@ impl ValidatedEquipmentAssembly {
                 actual: state.logistics().revision(),
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            EquipmentAssemblyCommitError::StaleSurvival {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EquipmentAssemblyCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -254,6 +271,8 @@ pub fn validate_assemble_equipment(
     definition: EquipmentDefinitionId,
     source: StockpileId,
 ) -> Result<ValidatedEquipmentAssembly, EquipmentAssemblyError> {
+    let player_action =
+        validate_optional_player_action(state).map_err(|_| EquipmentAssemblyError::PlayerDead)?;
     let definition_record = registries
         .equipment()
         .get_equipment(definition)
@@ -339,6 +358,7 @@ pub fn validate_assemble_equipment(
         None => None,
     };
     Ok(ValidatedEquipmentAssembly {
+        player_action,
         record: EquipmentRecord {
             id,
             definition,

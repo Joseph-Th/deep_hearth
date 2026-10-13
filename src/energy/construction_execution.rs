@@ -13,6 +13,7 @@ use crate::inventory::{
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::material::CommodityKey;
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -21,6 +22,7 @@ use super::{EnergyStoreDefinitionId, EnergyStoreId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreAssemblyError {
+    PlayerDead,
     Access(PlayerStockpileAccessError),
     UnknownDefinition {
         definition: EnergyStoreDefinitionId,
@@ -54,6 +56,7 @@ pub enum EnergyStoreAssemblyError {
 impl Display for EnergyStoreAssemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot assemble an energy store"),
             Self::Access(error) => {
                 write!(formatter, "energy-store assembly access failed: {error}")
             }
@@ -119,7 +122,8 @@ impl Error for EnergyStoreAssemblyError {
         match self {
             Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownDefinition { .. }
+            Self::PlayerDead
+            | Self::UnknownDefinition { .. }
             | Self::NoAssemblyProfile { .. }
             | Self::UnknownSource { .. }
             | Self::InsufficientMaterial { .. }
@@ -135,6 +139,7 @@ impl Error for EnergyStoreAssemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreAssemblyCommitError {
+    StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
     StaleEnergy { expected: u64, actual: u64 },
@@ -144,6 +149,10 @@ pub enum EnergyStoreAssemblyCommitError {
 impl Display for EnergyStoreAssemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvival { expected, actual } => write!(
+                formatter,
+                "energy-store construction expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogistics { expected, actual } => write!(
                 formatter,
                 "energy-store construction expected logistics revision {expected} but current revision is {actual}"
@@ -168,7 +177,8 @@ impl Error for EnergyStoreAssemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogistics { .. }
+            Self::StaleSurvival { .. }
+            | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. } => None,
         }
@@ -177,6 +187,7 @@ impl Error for EnergyStoreAssemblyCommitError {
 
 #[must_use]
 pub struct ValidatedEnergyStoreAssembly {
+    player_action: PlayerActionGuard,
     record: EnergyStoreRecord,
     next_store_id: u64,
     expected_energy_revision: u64,
@@ -198,6 +209,12 @@ impl ValidatedEnergyStoreAssembly {
                 actual: state.logistics().revision(),
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            EnergyStoreAssemblyCommitError::StaleSurvival {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EnergyStoreAssemblyCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -246,6 +263,8 @@ pub fn validate_assemble_energy_store(
     definition: EnergyStoreDefinitionId,
     source: StockpileId,
 ) -> Result<ValidatedEnergyStoreAssembly, EnergyStoreAssemblyError> {
+    let player_action =
+        validate_optional_player_action(state).map_err(|_| EnergyStoreAssemblyError::PlayerDead)?;
     let definition_record = registries
         .energy()
         .get_store(definition)
@@ -331,6 +350,7 @@ pub fn validate_assemble_energy_store(
         None => None,
     };
     Ok(ValidatedEnergyStoreAssembly {
+        player_action,
         record: EnergyStoreRecord {
             id,
             definition,

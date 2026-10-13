@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use crate::core::quantity::AggregateMass;
 use crate::core::state::AppState;
 use crate::logistics::validate_player_stockpile_access;
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralElementId, StructuralLifecycle, StructuralMutationError,
@@ -93,6 +94,7 @@ impl StockpileSupportOutcome {
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedStockpileSupportChange {
+    player_action: PlayerActionGuard,
     stockpile: StockpileId,
     before: Option<StructuralElementId>,
     after: Option<StructuralElementId>,
@@ -114,6 +116,12 @@ impl ValidatedStockpileSupportChange {
                 actual: actual_logistics_revision,
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            StockpileSupportCommitError::StaleSurvivalRevision {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         let actual_revision = state.inventory().revision();
         if actual_revision != self.expected_inventory_revision {
             return Err(StockpileSupportCommitError::StaleInventoryRevision {
@@ -155,6 +163,10 @@ impl ValidatedStockpileSupportChange {
         );
         Ok(StockpileSupportOutcome { structural })
     }
+}
+
+fn validate_direct_action(state: &AppState) -> Result<PlayerActionGuard, StockpileSupportError> {
+    validate_optional_player_action(state).map_err(|_| StockpileSupportError::PlayerDead)
 }
 
 fn next_inventory_revision(state: &AppState) -> Result<(u64, u64), StockpileSupportError> {
@@ -201,6 +213,7 @@ pub fn validate_mount_stockpile(
     stockpile: StockpileId,
     element: StructuralElementId,
 ) -> Result<ValidatedStockpileSupportChange, StockpileSupportError> {
+    let player_action = validate_direct_action(state)?;
     let record = state
         .inventory()
         .get_stockpile(stockpile)
@@ -281,6 +294,7 @@ pub fn validate_mount_stockpile(
     )?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {
+        player_action,
         stockpile,
         before: None,
         after: Some(element),
@@ -297,6 +311,7 @@ pub fn validate_unmount_stockpile(
     state: &AppState,
     stockpile: StockpileId,
 ) -> Result<ValidatedStockpileSupportChange, StockpileSupportError> {
+    let player_action = validate_direct_action(state)?;
     let record = state
         .inventory()
         .get_stockpile(stockpile)
@@ -337,6 +352,7 @@ pub fn validate_unmount_stockpile(
     )?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {
+        player_action,
         stockpile,
         before: Some(element),
         after: None,

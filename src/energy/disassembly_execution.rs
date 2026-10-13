@@ -15,6 +15,7 @@ use crate::logistics::{
     player_step_blocks_carried_load_increase, validate_player_energy_store_access,
     validate_player_stockpile_access,
 };
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
 use super::{EnergyStoreId, EnergyStoreOccupancy, energy_store_occupancy};
@@ -81,6 +82,7 @@ impl EnergyStoreDisassemblyOutcome {
 
 #[must_use]
 pub struct ValidatedEnergyStoreDisassembly {
+    player_action: PlayerActionGuard,
     store: EnergyStoreId,
     expected_energy_revision: u64,
     next_energy_revision: u64,
@@ -103,6 +105,12 @@ impl ValidatedEnergyStoreDisassembly {
                 actual: actual_logistics_revision,
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            EnergyStoreDisassemblyCommitError::StaleSurvival {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         if state.inventory().revision() != self.ingress.expected_revision() {
             return Err(EnergyStoreDisassemblyCommitError::StaleInventory {
                 expected: self.ingress.expected_revision(),
@@ -182,6 +190,8 @@ pub fn validate_disassemble_energy_store(
     store: EnergyStoreId,
     destination: StockpileId,
 ) -> Result<ValidatedEnergyStoreDisassembly, EnergyStoreDisassemblyError> {
+    let player_action = validate_optional_player_action(state)
+        .map_err(|_| EnergyStoreDisassemblyError::PlayerDead)?;
     let record = state
         .energy()
         .get_store(store)
@@ -277,6 +287,7 @@ pub fn validate_disassemble_energy_store(
     };
 
     Ok(ValidatedEnergyStoreDisassembly {
+        player_action,
         store,
         expected_energy_revision,
         next_energy_revision,

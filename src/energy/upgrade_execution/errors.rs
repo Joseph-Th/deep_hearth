@@ -14,6 +14,7 @@ use super::super::{EnergyStoreDefinitionId, EnergyStoreId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreUpgradeError {
+    PlayerDead,
     StoreAccess(PlayerEnergyStoreAccessError),
     SourceAccess(PlayerStockpileAccessError),
     UnknownStore {
@@ -66,6 +67,7 @@ pub enum EnergyStoreUpgradeError {
 impl Display for EnergyStoreUpgradeError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot upgrade an energy store"),
             Self::StoreAccess(error) => {
                 write!(formatter, "energy-store upgrade access failed: {error}")
             }
@@ -165,7 +167,8 @@ impl Error for EnergyStoreUpgradeError {
             Self::StoreAccess(error) => Some(error),
             Self::SourceAccess(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownStore { .. }
+            Self::PlayerDead
+            | Self::UnknownStore { .. }
             | Self::UnknownTargetDefinition { .. }
             | Self::NoUpgradeProfile { .. }
             | Self::WrongBaseDefinition { .. }
@@ -184,6 +187,10 @@ impl Error for EnergyStoreUpgradeError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreUpgradeCommitError {
+    StaleSurvival {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogistics {
         expected: u64,
         actual: u64,
@@ -215,6 +222,10 @@ pub enum EnergyStoreUpgradeCommitError {
 impl Display for EnergyStoreUpgradeCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvival { expected, actual } => write!(
+                formatter,
+                "energy-store upgrade expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogistics { expected, actual } => write!(
                 formatter,
                 "energy-store upgrade expected logistics revision {expected} but current revision is {actual}"
@@ -259,7 +270,8 @@ impl Error for EnergyStoreUpgradeCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogistics { .. }
+            Self::StaleSurvival { .. }
+            | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. }
             | Self::UnknownStore { .. }

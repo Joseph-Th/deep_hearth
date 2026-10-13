@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
+use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -137,6 +138,7 @@ impl GroundedStructuralElementPlan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlanPlayerStructuralElementError {
     PlayerNotAdmitted,
+    PlayerDead,
     TargetOverlapsPlayer { player: VoxelCoord },
     TargetNotSingleVoxel,
     TargetNotAdjacent { player: VoxelCoord },
@@ -149,6 +151,7 @@ impl Display for PlanPlayerStructuralElementError {
             Self::PlayerNotAdmitted => {
                 formatter.write_str("structural planning requires an admitted player")
             }
+            Self::PlayerDead => formatter.write_str("dead player cannot plan structural work"),
             Self::TargetOverlapsPlayer { player } => write!(
                 formatter,
                 "grounded structural target overlaps player voxel ({}, {}, {})",
@@ -175,6 +178,7 @@ impl Error for PlanPlayerStructuralElementError {
         match self {
             Self::Element(error) => Some(error),
             Self::PlayerNotAdmitted
+            | Self::PlayerDead
             | Self::TargetOverlapsPlayer { .. }
             | Self::TargetNotSingleVoxel
             | Self::TargetNotAdjacent { .. } => None,
@@ -184,6 +188,10 @@ impl Error for PlanPlayerStructuralElementError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlanPlayerStructuralElementCommitError {
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
     TickChanged {
         expected: SimulationTick,
         actual: SimulationTick,
@@ -220,6 +228,7 @@ impl Error for PlanPlayerStructuralElementCommitError {}
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedPlayerStructuralElementPlan {
+    player_action: PlayerActionGuard,
     record: StructuralElementRecord,
     expected_tick: SimulationTick,
     expected_structure_revision: u64,
@@ -254,6 +263,12 @@ impl ValidatedPlayerStructuralElementPlan {
                 },
             );
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            PlanPlayerStructuralElementCommitError::StaleSurvivalRevision {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         if state.logistics().revision() != self.expected_logistics_revision {
             return Err(
                 PlanPlayerStructuralElementCommitError::StaleLogisticsRevision {
@@ -324,6 +339,12 @@ pub fn validate_plan_player_grounded_structural_element(
     state: &AppState,
     plan: GroundedStructuralElementPlan,
 ) -> Result<ValidatedPlayerStructuralElementPlan, PlanPlayerStructuralElementError> {
+    let player_action = validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => {
+            PlanPlayerStructuralElementError::PlayerNotAdmitted
+        }
+        PlayerActionValidationError::PlayerDead => PlanPlayerStructuralElementError::PlayerDead,
+    })?;
     let player = state
         .logistics()
         .player()
@@ -356,6 +377,7 @@ pub fn validate_plan_player_grounded_structural_element(
         PlanPlayerStructuralElementError::Element(AddStructuralElementError::RevisionExhausted),
     )?;
     Ok(ValidatedPlayerStructuralElementPlan {
+        player_action,
         record: build_record(state, id, plan.profile, plan.material, plan.geometry, true),
         expected_tick: state.tick(),
         expected_structure_revision: state.structures().revision(),

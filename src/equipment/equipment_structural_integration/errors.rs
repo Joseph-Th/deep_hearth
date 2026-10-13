@@ -18,6 +18,7 @@ use crate::equipment::EquipmentId;
 /// Failure while resolving one equipment support assignment before any owner mutates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentSupportError {
+    PlayerDead,
     UnknownEquipment {
         equipment: EquipmentId,
     },
@@ -76,6 +77,7 @@ pub enum EquipmentSupportError {
 impl Display for EquipmentSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot move equipment support"),
             Self::UnknownEquipment { equipment } => {
                 write!(formatter, "unknown equipment id {}", equipment.value())
             }
@@ -185,7 +187,8 @@ impl Error for EquipmentSupportError {
         match self {
             Self::Structure(error) => Some(error),
             Self::Access(error) => Some(error),
-            Self::UnknownEquipment { .. }
+            Self::PlayerDead
+            | Self::UnknownEquipment { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
             | Self::TargetNotActive { .. }
@@ -206,6 +209,10 @@ impl Error for EquipmentSupportError {
 /// Failure to commit a revision-bound equipment/support transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentSupportCommitError {
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogisticsRevision {
         expected: u64,
         actual: u64,
@@ -248,6 +255,10 @@ pub enum EquipmentSupportCommitError {
 impl Display for EquipmentSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "validated equipment support change expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment support change expected logistics revision {expected} but current revision is {actual}"
@@ -321,7 +332,8 @@ impl Error for EquipmentSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogisticsRevision { .. }
+            Self::StaleSurvivalRevision { .. }
+            | Self::StaleLogisticsRevision { .. }
             | Self::StaleEquipmentRevision { .. }
             | Self::UnknownEquipment { .. }
             | Self::SupportChanged { .. }

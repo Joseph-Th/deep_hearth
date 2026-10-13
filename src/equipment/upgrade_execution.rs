@@ -9,6 +9,7 @@ use crate::inventory::{
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
 use super::state::EquipmentUpgradeMutation;
@@ -82,6 +83,7 @@ fn commit_occupancy_error(
 
 #[must_use]
 pub struct ValidatedEquipmentUpgrade {
+    player_action: PlayerActionGuard,
     equipment: EquipmentId,
     expected_definition: EquipmentDefinitionId,
     target_definition: EquipmentDefinitionId,
@@ -104,6 +106,12 @@ impl ValidatedEquipmentUpgrade {
                 actual: actual_logistics_revision,
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            EquipmentUpgradeCommitError::StaleSurvival {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EquipmentUpgradeCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -173,6 +181,8 @@ pub fn validate_upgrade_equipment(
     target: EquipmentDefinitionId,
     source: StockpileId,
 ) -> Result<ValidatedEquipmentUpgrade, EquipmentUpgradeError> {
+    let player_action =
+        validate_optional_player_action(state).map_err(|_| EquipmentUpgradeError::PlayerDead)?;
     let record = state
         .equipment()
         .get_equipment(equipment)
@@ -255,6 +265,7 @@ pub fn validate_upgrade_equipment(
         .unwrap_or_else(|| unreachable!("equipment headroom check includes upgrade revision"));
 
     Ok(ValidatedEquipmentUpgrade {
+        player_action,
         equipment,
         expected_definition: record.definition(),
         target_definition: target,

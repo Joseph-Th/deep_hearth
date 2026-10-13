@@ -12,6 +12,7 @@ use crate::inventory::{
 };
 use crate::logistics::player_step_blocks_carried_load_increase;
 use crate::maintenance::Condition;
+use crate::player::PlayerActionGuard;
 
 use super::{EquipmentId, EquipmentOccupancy, equipment_occupancy};
 
@@ -65,6 +66,7 @@ impl EquipmentDisassemblyOutcome {
 
 #[must_use]
 pub struct ValidatedEquipmentDisassembly {
+    pub(super) player_action: PlayerActionGuard,
     equipment: EquipmentId,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
@@ -88,6 +90,12 @@ impl ValidatedEquipmentDisassembly {
                 actual: actual_logistics_revision,
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            EquipmentDisassemblyCommitError::StaleSurvival {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         if state.inventory().revision() != self.ingress.expected_revision() {
             return Err(EquipmentDisassemblyCommitError::StaleInventory {
                 expected: self.ingress.expected_revision(),

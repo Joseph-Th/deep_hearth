@@ -111,6 +111,7 @@ impl Error for FluidStructuralLoadError {
 /// Failure while assigning or removing a fluid store's structural support.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidSupportError {
+    PlayerDead,
     UnknownStore {
         store: FluidStoreId,
     },
@@ -138,6 +139,7 @@ pub enum FluidSupportError {
 impl Display for FluidSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot move fluid-store support"),
             Self::UnknownStore { store } => {
                 write!(formatter, "unknown fluid store {}", store.value())
             }
@@ -184,7 +186,8 @@ impl Error for FluidSupportError {
         match self {
             Self::Load(error) => Some(error),
             Self::Access(error) => Some(error),
-            Self::UnknownStore { .. }
+            Self::PlayerDead
+            | Self::UnknownStore { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
             | Self::TargetNotActive { .. }
@@ -197,6 +200,10 @@ impl Error for FluidSupportError {
 /// Failure to commit a revision-bound fluid-store support transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidSupportCommitError {
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogisticsRevision {
         expected: u64,
         actual: u64,
@@ -219,6 +226,10 @@ pub enum FluidSupportCommitError {
 impl Display for FluidSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "validated fluid support change expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated fluid support change expected logistics revision {expected} but current revision is {actual}"
@@ -253,7 +264,8 @@ impl Error for FluidSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogisticsRevision { .. }
+            Self::StaleSurvivalRevision { .. }
+            | Self::StaleLogisticsRevision { .. }
             | Self::StaleFluidRevision { .. }
             | Self::UnknownStore { .. }
             | Self::SupportChanged { .. } => None,

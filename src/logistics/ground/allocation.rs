@@ -10,6 +10,7 @@ use crate::inventory::allocation::{
     ValidatedEmptyStockpileAllocation, validate_empty_stockpile_allocation,
 };
 use crate::inventory::{StockpileId, StockpileStorageProfile};
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::spatial::VoxelCoord;
 
 /// Failure while allocating one empty loose ground stockpile.
@@ -25,6 +26,7 @@ pub enum GroundStockpileAllocationError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerGroundStockpileAllocationError {
     PlayerNotInitialized,
+    PlayerDead,
     Allocation(GroundStockpileAllocationError),
 }
 
@@ -34,6 +36,7 @@ impl Display for PlayerGroundStockpileAllocationError {
             Self::PlayerNotInitialized => {
                 formatter.write_str("player logistics is not initialized")
             }
+            Self::PlayerDead => formatter.write_str("dead player cannot allocate ground storage"),
             Self::Allocation(error) => {
                 write!(formatter, "local ground storage allocation failed: {error}")
             }
@@ -45,7 +48,7 @@ impl Error for PlayerGroundStockpileAllocationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Allocation(error) => Some(error),
-            Self::PlayerNotInitialized => None,
+            Self::PlayerNotInitialized | Self::PlayerDead => None,
         }
     }
 }
@@ -72,6 +75,7 @@ impl Error for GroundStockpileAllocationError {}
 /// Failure when an empty-ground allocation is committed against changed owner state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroundStockpileAllocationCommitError {
+    StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
 }
@@ -79,6 +83,10 @@ pub enum GroundStockpileAllocationCommitError {
 impl Display for GroundStockpileAllocationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "ground stockpile allocation expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "ground stockpile allocation expected logistics revision {expected} but current revision is {actual}"
@@ -97,6 +105,7 @@ impl Error for GroundStockpileAllocationCommitError {}
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedGroundStockpileAllocation {
+    player_action: Option<PlayerActionGuard>,
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
     position: VoxelCoord,
@@ -121,6 +130,14 @@ impl ValidatedGroundStockpileAllocation {
                     actual: actual_logistics_revision,
                 },
             );
+        }
+        if let Some(player_action) = self.player_action {
+            player_action.precheck(state).map_err(|stale| {
+                GroundStockpileAllocationCommitError::StaleSurvivalRevision {
+                    expected: stale.expected,
+                    actual: stale.actual,
+                }
+            })?;
         }
         let stockpile = self.allocation.commit(state).map_err(|error| match error {
             EmptyStockpileAllocationCommitError::StaleInventoryRevision { expected, actual } => {
@@ -172,6 +189,7 @@ pub fn validate_allocate_ground_stockpile(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("logistics headroom check includes ground allocation"));
     Ok(ValidatedGroundStockpileAllocation {
+        player_action: None,
         expected_logistics_revision,
         next_logistics_revision,
         position,
@@ -188,11 +206,15 @@ pub fn validate_allocate_player_ground_stockpile(
     state: &AppState,
     capacity: Mass,
 ) -> Result<ValidatedGroundStockpileAllocation, PlayerGroundStockpileAllocationError> {
+    let player_action = validate_optional_player_action(state)
+        .map_err(|_| PlayerGroundStockpileAllocationError::PlayerDead)?;
     let position = state
         .logistics()
         .player()
         .map(|player| player.position())
         .ok_or(PlayerGroundStockpileAllocationError::PlayerNotInitialized)?;
-    validate_allocate_ground_stockpile(state, position, capacity)
-        .map_err(PlayerGroundStockpileAllocationError::Allocation)
+    let mut validated = validate_allocate_ground_stockpile(state, position, capacity)
+        .map_err(PlayerGroundStockpileAllocationError::Allocation)?;
+    validated.player_action = Some(player_action);
+    Ok(validated)
 }

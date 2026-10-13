@@ -330,6 +330,35 @@ fn active_step_ground_transfer_fixture() -> (
 }
 
 #[test]
+fn dead_admitted_player_cannot_pick_up_ground_material() {
+    let (registries, state, ground, lot, _) = active_step_ground_transfer_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("dead pickup serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("dead pickup decode failed: {error}"));
+    let dead = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("idle dead pickup player should load: {error}"));
+    let before = dead.clone();
+
+    assert_eq!(
+        validate_pickup_from_ground(
+            &registries,
+            &dead,
+            ground,
+            &[MaterialLotSelection::new(
+                lot,
+                Mass::from_milligrams(12_500_000),
+            )],
+        )
+        .err(),
+        Some(GroundMaterialTransferError::PlayerDead)
+    );
+    assert_eq!(dead, before);
+}
+
+#[test]
 fn ground_pickup_rejects_carried_load_increase_during_active_step() {
     let (registries, mut state, ground, lot, destination) = active_step_ground_transfer_fixture();
     validate_start_player_step(&registries, &state, destination)

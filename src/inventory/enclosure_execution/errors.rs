@@ -19,6 +19,7 @@ use crate::structural::{StructuralCommitError, StructuralElementId};
 /// Failure while validating construction of one authored storage enclosure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureConstructionError {
+    PlayerDead,
     UnknownDefinition {
         definition: StorageDefinitionId,
     },
@@ -143,6 +144,7 @@ impl Error for PlayerStoragePlacementCommitError {
 impl Display for StorageEnclosureConstructionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot build storage"),
             Self::UnknownDefinition { definition } => write!(
                 formatter,
                 "unknown storage enclosure definition {}",
@@ -285,7 +287,8 @@ impl Error for StorageEnclosureConstructionError {
             Self::TargetContentsIncompatible { error, .. } => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::TargetAccess(error) | Self::SourceAccess(error) => Some(error),
-            Self::UnknownDefinition { .. }
+            Self::PlayerDead
+            | Self::UnknownDefinition { .. }
             | Self::UnknownTarget { .. }
             | Self::UnknownSource { .. }
             | Self::AlreadyEnclosed { .. }
@@ -307,6 +310,7 @@ impl Error for StorageEnclosureConstructionError {
 /// Failure to commit a validated storage-enclosure construction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureCommitError {
+    StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     UnknownTarget { stockpile: StockpileId },
@@ -318,6 +322,10 @@ pub enum StorageEnclosureCommitError {
 impl Display for StorageEnclosureCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "storage construction expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "storage construction expected inventory revision {expected} but current revision is {actual}"
@@ -353,7 +361,8 @@ impl Error for StorageEnclosureCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision { .. }
+            Self::StaleSurvivalRevision { .. }
+            | Self::StaleInventoryRevision { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::UnknownTarget { .. }
             | Self::TargetProfileChanged { .. }

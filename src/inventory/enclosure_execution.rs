@@ -5,6 +5,7 @@ use crate::logistics::{
     ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile,
     validate_player_stockpile_access,
 };
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
 use super::storage_validation::validate_stockpile_storage_profile;
@@ -27,6 +28,7 @@ pub use errors::{
 /// Revision-bound proof that exact construction matter can become one stockpile enclosure.
 #[must_use]
 pub struct ValidatedStorageEnclosureConstruction {
+    player_action: PlayerActionGuard,
     target: StockpileId,
     expected_inventory_revision: u64,
     expected_logistics_revision: u64,
@@ -119,6 +121,11 @@ pub fn validate_place_player_storage(
     validate_player_stockpile_access(state, source)
         .map_err(StorageEnclosureConstructionError::SourceAccess)
         .map_err(PlayerStoragePlacementError::Construction)?;
+    let allocation = validate_allocate_player_ground_stockpile(
+        state,
+        definition_record.maximum_stockpile_capacity(),
+    )
+    .map_err(PlayerStoragePlacementError::Allocation)?;
     let selection = select_enclosure_material(state, definition_record, source)
         .map_err(PlayerStoragePlacementError::Construction)?;
     let material_plan = plan_enclosure_materials(registries, state, source, selection)
@@ -143,11 +150,6 @@ pub fn validate_place_player_storage(
                 unreachable!("current enclosure selection cannot be stale before placement")
             }
         })?;
-    let allocation = validate_allocate_player_ground_stockpile(
-        state,
-        definition_record.maximum_stockpile_capacity(),
-    )
-    .map_err(PlayerStoragePlacementError::Allocation)?;
     let next_inventory_revision = state
         .inventory()
         .revision()
@@ -176,6 +178,12 @@ impl ValidatedStorageEnclosureConstruction {
                 actual: actual_revision,
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            StorageEnclosureCommitError::StaleSurvivalRevision {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         let actual_logistics_revision = state.logistics().revision();
         if actual_logistics_revision != self.expected_logistics_revision {
             return Err(StorageEnclosureCommitError::StaleLogisticsRevision {
@@ -230,6 +238,8 @@ pub fn validate_build_storage_enclosure(
     target: StockpileId,
     source: StockpileId,
 ) -> Result<ValidatedStorageEnclosureConstruction, StorageEnclosureConstructionError> {
+    let player_action = validate_optional_player_action(state)
+        .map_err(|_| StorageEnclosureConstructionError::PlayerDead)?;
     let definition_record = registries
         .storage()
         .get(definition)
@@ -280,6 +290,7 @@ pub fn validate_build_storage_enclosure(
             unreachable!("inventory headroom check includes enclosure construction revisions")
         });
     Ok(ValidatedStorageEnclosureConstruction {
+        player_action,
         target,
         expected_inventory_revision,
         expected_logistics_revision: state.logistics().revision(),

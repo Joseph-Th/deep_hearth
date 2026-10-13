@@ -16,6 +16,7 @@ use super::super::{EquipmentDefinitionId, EquipmentId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentUpgradeError {
+    PlayerDead,
     EquipmentAccess(PlayerEquipmentAccessError),
     SourceAccess(PlayerStockpileAccessError),
     UnknownEquipment {
@@ -80,6 +81,7 @@ pub enum EquipmentUpgradeError {
 impl Display for EquipmentUpgradeError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot upgrade equipment"),
             Self::EquipmentAccess(error) => {
                 write!(formatter, "equipment upgrade access failed: {error}")
             }
@@ -202,7 +204,8 @@ impl Error for EquipmentUpgradeError {
             Self::EquipmentAccess(error) => Some(error),
             Self::SourceAccess(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownEquipment { .. }
+            Self::PlayerDead
+            | Self::UnknownEquipment { .. }
             | Self::UnknownTargetDefinition { .. }
             | Self::NoUpgradeProfile { .. }
             | Self::WrongBaseDefinition { .. }
@@ -224,6 +227,10 @@ impl Error for EquipmentUpgradeError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentUpgradeCommitError {
+    StaleSurvival {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogistics {
         expected: u64,
         actual: u64,
@@ -273,6 +280,10 @@ pub enum EquipmentUpgradeCommitError {
 impl Display for EquipmentUpgradeCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvival { expected, actual } => write!(
+                formatter,
+                "equipment upgrade expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogistics { expected, actual } => write!(
                 formatter,
                 "equipment upgrade expected logistics revision {expected} but current revision is {actual}"
@@ -353,7 +364,8 @@ impl Error for EquipmentUpgradeCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogistics { .. }
+            Self::StaleSurvival { .. }
+            | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::UnknownEquipment { .. }

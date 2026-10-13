@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use crate::core::quantity::{AggregateMass, Force};
 use crate::core::state::AppState;
 use crate::logistics::validate_player_equipment_access;
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralElementId, StructuralLifecycle, StructuralLoadKind,
@@ -45,6 +46,7 @@ impl EquipmentSupportOutcome {
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEquipmentSupportChange {
+    player_action: PlayerActionGuard,
     equipment: EquipmentId,
     before: Option<StructuralElementId>,
     after: Option<StructuralElementId>,
@@ -97,6 +99,12 @@ impl ValidatedEquipmentSupportChange {
                 actual: actual_logistics_revision,
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            EquipmentSupportCommitError::StaleSurvivalRevision {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         let actual_revision = state.equipment().revision();
         if actual_revision != self.expected_equipment_revision {
             return Err(EquipmentSupportCommitError::StaleEquipmentRevision {
@@ -141,6 +149,10 @@ impl ValidatedEquipmentSupportChange {
     }
 }
 
+fn validate_direct_action(state: &AppState) -> Result<PlayerActionGuard, EquipmentSupportError> {
+    validate_optional_player_action(state).map_err(|_| EquipmentSupportError::PlayerDead)
+}
+
 fn validate_not_busy(
     state: &AppState,
     equipment: EquipmentId,
@@ -167,6 +179,7 @@ pub fn validate_mount_equipment(
     equipment: EquipmentId,
     element: StructuralElementId,
 ) -> Result<ValidatedEquipmentSupportChange, EquipmentSupportError> {
+    let player_action = validate_direct_action(state)?;
     let record = state
         .equipment()
         .get_equipment(equipment)
@@ -217,6 +230,7 @@ pub fn validate_mount_equipment(
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {
+        player_action,
         equipment,
         before: None,
         after: Some(element),
@@ -234,6 +248,7 @@ pub fn validate_unmount_equipment(
     state: &AppState,
     equipment: EquipmentId,
 ) -> Result<ValidatedEquipmentSupportChange, EquipmentSupportError> {
+    let player_action = validate_direct_action(state)?;
     let record = state
         .equipment()
         .get_equipment(equipment)
@@ -261,6 +276,7 @@ pub fn validate_unmount_equipment(
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {
+        player_action,
         equipment,
         before: Some(element),
         after: None,
@@ -281,6 +297,7 @@ pub fn validate_relocate_equipment(
     equipment: EquipmentId,
     target: StructuralElementId,
 ) -> Result<ValidatedEquipmentSupportChange, EquipmentSupportError> {
+    let player_action = validate_direct_action(state)?;
     let record = state
         .equipment()
         .get_equipment(equipment)
@@ -338,6 +355,7 @@ pub fn validate_relocate_equipment(
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {
+        player_action,
         equipment,
         before: Some(source),
         after: Some(target),

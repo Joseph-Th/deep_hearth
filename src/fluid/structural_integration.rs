@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use crate::core::quantity::Force;
 use crate::core::state::AppState;
 use crate::logistics::validate_player_fluid_store_access;
+use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralElementId, StructuralLifecycle, StructuralMutationError,
@@ -47,6 +48,7 @@ impl FluidSupportOutcome {
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedFluidSupportChange {
+    player_action: PlayerActionGuard,
     store: FluidStoreId,
     before: Option<StructuralElementId>,
     after: Option<StructuralElementId>,
@@ -74,6 +76,12 @@ impl ValidatedFluidSupportChange {
                 actual: actual_logistics_revision,
             });
         }
+        self.player_action.precheck(state).map_err(|stale| {
+            FluidSupportCommitError::StaleSurvivalRevision {
+                expected: stale.expected,
+                actual: stale.actual,
+            }
+        })?;
         let actual_revision = state.fluid().revision();
         if actual_revision != self.expected_fluid_revision {
             return Err(FluidSupportCommitError::StaleFluidRevision {
@@ -111,6 +119,10 @@ impl ValidatedFluidSupportChange {
     }
 }
 
+fn validate_direct_action(state: &AppState) -> Result<PlayerActionGuard, FluidSupportError> {
+    validate_optional_player_action(state).map_err(|_| FluidSupportError::PlayerDead)
+}
+
 fn next_fluid_revision(state: &AppState) -> Result<(u64, u64), FluidSupportError> {
     let current = state.fluid().revision();
     let next = current
@@ -126,6 +138,7 @@ pub fn validate_mount_fluid_store(
     store: FluidStoreId,
     element: StructuralElementId,
 ) -> Result<ValidatedFluidSupportChange, FluidSupportError> {
+    let player_action = validate_direct_action(state)?;
     let record = state
         .fluid()
         .get_store(store)
@@ -175,6 +188,7 @@ pub fn validate_mount_fluid_store(
         .map_err(FluidSupportError::Load)?;
     let (expected_fluid_revision, next_fluid_revision) = next_fluid_revision(state)?;
     Ok(ValidatedFluidSupportChange {
+        player_action,
         store,
         before: None,
         after: Some(element),
@@ -191,6 +205,7 @@ pub fn validate_unmount_fluid_store(
     state: &AppState,
     store: FluidStoreId,
 ) -> Result<ValidatedFluidSupportChange, FluidSupportError> {
+    let player_action = validate_direct_action(state)?;
     let record = state
         .fluid()
         .get_store(store)
@@ -216,6 +231,7 @@ pub fn validate_unmount_fluid_store(
         .map_err(FluidSupportError::Load)?;
     let (expected_fluid_revision, next_fluid_revision) = next_fluid_revision(state)?;
     Ok(ValidatedFluidSupportChange {
+        player_action,
         store,
         before: Some(element),
         after: None,

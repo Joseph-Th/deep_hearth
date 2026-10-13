@@ -16,6 +16,7 @@ use super::super::EquipmentId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentDisassemblyError {
+    PlayerDead,
     EquipmentAccess(PlayerEquipmentAccessError),
     DestinationAccess(PlayerStockpileAccessError),
     UnknownEquipment {
@@ -81,6 +82,7 @@ pub enum EquipmentDisassemblyError {
 impl Display for EquipmentDisassemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot disassemble equipment"),
             Self::EquipmentAccess(error) => write!(formatter, "equipment access failed: {error}"),
             Self::DestinationAccess(error) => {
                 write!(
@@ -214,7 +216,8 @@ impl Error for EquipmentDisassemblyError {
             Self::DestinationAccess(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
-            Self::UnknownEquipment { .. }
+            Self::PlayerDead
+            | Self::UnknownEquipment { .. }
             | Self::NoEmbodiedMatter { .. }
             | Self::WornComponentRecoveryUnavailable { .. }
             | Self::EquipmentMounted { .. }
@@ -238,6 +241,10 @@ impl Error for EquipmentDisassemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentDisassemblyCommitError {
+    StaleSurvival {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogistics {
         expected: u64,
         actual: u64,
@@ -288,6 +295,10 @@ pub enum EquipmentDisassemblyCommitError {
 impl Display for EquipmentDisassemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvival { expected, actual } => write!(
+                formatter,
+                "equipment disassembly expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogistics { expected, actual } => write!(
                 formatter,
                 "equipment disassembly expected logistics revision {expected} but current revision is {actual}"
@@ -367,7 +378,8 @@ impl Error for EquipmentDisassemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogistics { .. }
+            Self::StaleSurvival { .. }
+            | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::UnknownEquipment { .. }

@@ -108,6 +108,7 @@ impl Error for StockpileStructuralLoadError {
 /// Failure while assigning or removing a stockpile's structural support.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StockpileSupportError {
+    PlayerDead,
     UnknownStockpile {
         stockpile: StockpileId,
     },
@@ -149,6 +150,7 @@ pub enum StockpileSupportError {
 impl Display for StockpileSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot move stockpile support"),
             Self::UnknownStockpile { stockpile } => {
                 write!(formatter, "unknown stockpile id {}", stockpile.value())
             }
@@ -220,7 +222,8 @@ impl Error for StockpileSupportError {
         match self {
             Self::Load(error) => Some(error),
             Self::Access(error) => Some(error),
-            Self::UnknownStockpile { .. }
+            Self::PlayerDead
+            | Self::UnknownStockpile { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
             | Self::PlayerCarried { .. }
@@ -237,6 +240,10 @@ impl Error for StockpileSupportError {
 /// Failure to commit a revision-bound stockpile support change.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StockpileSupportCommitError {
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogisticsRevision {
         expected: u64,
         actual: u64,
@@ -270,6 +277,10 @@ pub enum StockpileSupportCommitError {
 impl Display for StockpileSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "validated stockpile support change expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated stockpile support change expected logistics revision {expected} but current revision is {actual}"
@@ -324,7 +335,8 @@ impl Error for StockpileSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogisticsRevision { .. }
+            Self::StaleSurvivalRevision { .. }
+            | Self::StaleLogisticsRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::UnknownStockpile { .. }
             | Self::SupportChanged { .. }

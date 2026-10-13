@@ -34,6 +34,38 @@ fn local_member_geometry() -> StructuralElementGeometry {
     .unwrap_or_else(|error| panic!("player construction geometry failed: {error}"))
 }
 
+#[test]
+fn dead_admitted_player_cannot_plan_structural_work() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("dead planning admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dead planning admission commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("dead planning serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("dead planning decode failed: {error}"));
+    let dead = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("idle dead planning player should load: {error}"));
+
+    assert_eq!(
+        validate_plan_player_grounded_structural_element(
+            &registries,
+            &dead,
+            GroundedStructuralElementPlan::new(
+                STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+                MATERIAL_WOOD,
+                local_member_geometry(),
+            ),
+        )
+        .err(),
+        Some(PlanPlayerStructuralElementError::PlayerDead)
+    );
+}
+
 fn admitted_player_with_planned_member() -> (
     crate::registry::Registries,
     AppState,

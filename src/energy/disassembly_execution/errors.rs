@@ -13,6 +13,7 @@ use super::super::EnergyStoreId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreDisassemblyError {
+    PlayerDead,
     StoreAccess(PlayerEnergyStoreAccessError),
     DestinationAccess(PlayerStockpileAccessError),
     UnknownStore {
@@ -62,6 +63,9 @@ pub enum EnergyStoreDisassemblyError {
 impl Display for EnergyStoreDisassemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => {
+                formatter.write_str("dead player cannot disassemble an energy store")
+            }
             Self::StoreAccess(error) => write!(formatter, "energy-store access failed: {error}"),
             Self::DestinationAccess(error) => write!(
                 formatter,
@@ -157,7 +161,8 @@ impl Error for EnergyStoreDisassemblyError {
             Self::DestinationAccess(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
-            Self::UnknownStore { .. }
+            Self::PlayerDead
+            | Self::UnknownStore { .. }
             | Self::NoEmbodiedMatter { .. }
             | Self::StoreNotEmpty { .. }
             | Self::StoreBusyProduction { .. }
@@ -177,6 +182,10 @@ impl Error for EnergyStoreDisassemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreDisassemblyCommitError {
+    StaleSurvival {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogistics {
         expected: u64,
         actual: u64,
@@ -211,6 +220,10 @@ pub enum EnergyStoreDisassemblyCommitError {
 impl Display for EnergyStoreDisassemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvival { expected, actual } => write!(
+                formatter,
+                "energy-store disassembly expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogistics { expected, actual } => write!(
                 formatter,
                 "energy-store disassembly expected logistics revision {expected} but current revision is {actual}"
@@ -261,7 +274,8 @@ impl Error for EnergyStoreDisassemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogistics { .. }
+            Self::StaleSurvival { .. }
+            | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. }
             | Self::UnknownStore { .. }
