@@ -42,8 +42,7 @@ use crate::logistics::{
     PlayerEquipmentAccessError, PlayerStepError, PlayerStockpileAccessError,
     add_traversable_edge_for_test, validate_allocate_ground_stockpile,
     validate_allocate_player_ground_stockpile, validate_initialize_player_logistics,
-    validate_place_ground_stockpile, validate_player_logistics_initialization,
-    validate_start_player_step,
+    validate_place_ground_stockpile, validate_start_player_step,
 };
 use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
@@ -53,6 +52,7 @@ use crate::mining::{
     MiningTargetRequest, MiningValidationError, resolve_mining_target,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -1090,7 +1090,7 @@ fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> St
     active_stockpile_support_at(registries, state, VoxelCoord::new(8, 0, 0))
 }
 
-fn complete_known_mining_player_logistics(
+fn admit_known_mining_player_at_deposit(
     registries: &Registries,
     state: &mut AppState,
     deposit: GeologicalDepositId,
@@ -1111,18 +1111,21 @@ fn complete_known_mining_player_logistics(
             });
     }
     for &item in equipment {
-        let revision = state.logistics().revision();
+        let expected_revision = state.logistics().revision();
+        let next_revision = expected_revision
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("ordinary mining fixture exhausted logistics revision"));
         state.logistics_state_mut().apply_equipment_placement(
-            revision,
-            revision + 1,
+            expected_revision,
+            next_revision,
             item,
             position,
         );
     }
-    validate_player_logistics_initialization(registries, state, position)
-        .unwrap_or_else(|error| panic!("ordinary mining player logistics failed: {error}"))
+    validate_admit_player(registries, state, position)
+        .unwrap_or_else(|error| panic!("ordinary mining player admission failed: {error}"))
         .commit(state)
-        .unwrap_or_else(|error| panic!("ordinary mining player logistics commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("ordinary mining player admission commit failed: {error}"));
     position
 }
 
@@ -1158,7 +1161,11 @@ fn validate_known_mining(
     )
 }
 
-fn unstarted_mining_fixture() -> (
+/// Capability-level fixture with survival initialized but no logistics player.
+///
+/// This intentionally represents a partial actor boundary for tests that verify operations before
+/// ordinary world admission. Persisted or ordinary gameplay fixtures must use atomic admission.
+fn survival_only_mining_fixture() -> (
     Registries,
     AppState,
     GeologicalDepositId,
@@ -1184,14 +1191,14 @@ fn ordinary_unstarted_mining_fixture() -> (
     StockpileId,
     EquipmentId,
 ) {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
-    complete_known_mining_player_logistics(
-        &registries,
-        &mut state,
-        deposit,
-        &[destination],
-        &[pick],
-    );
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("ordinary mining destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("ordinary mining deposit failed: {error}"));
+    admit_known_mining_player_at_deposit(&registries, &mut state, deposit, &[destination], &[pick]);
     (registries, state, deposit, destination, pick)
 }
 
@@ -1344,7 +1351,7 @@ fn trusted_load_rejects_player_step_during_pending_carried_mining_settlement() {
 
 #[test]
 fn mining_rejects_player_outside_acquired_target_without_revealing_hidden_deposit() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let bounds = state
         .geology()
         .get_deposit(deposit)
@@ -1388,7 +1395,7 @@ fn mining_rejects_player_outside_acquired_target_without_revealing_hidden_deposi
 
 #[test]
 fn remote_mounted_mining_equipment_rejects_access_before_mount_state() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let support = active_stockpile_support(&registries, &mut state);
     let _ = validate_mount_equipment(&registries, &state, pick, support)
         .unwrap_or_else(|error| panic!("remote mounted mining pick mount failed: {error}"))
@@ -1437,7 +1444,7 @@ fn remote_mounted_mining_equipment_rejects_access_before_mount_state() {
 
 #[test]
 fn mining_rejects_known_remote_equipment() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let player_position = state
         .geology()
         .get_deposit(deposit)
@@ -1485,7 +1492,7 @@ fn mining_rejects_known_remote_equipment() {
 
 #[test]
 fn mining_rejects_known_remote_output_destination() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let player_position = state
         .geology()
         .get_deposit(deposit)
@@ -1541,7 +1548,7 @@ fn mining_rejects_known_remote_output_destination() {
 
 #[test]
 fn mining_token_rejects_logistics_change_before_commit() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let player_position = state
         .geology()
         .get_deposit(deposit)
@@ -1591,7 +1598,7 @@ fn mining_token_rejects_logistics_change_before_commit() {
 
 #[test]
 fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let bounds = state
         .geology()
         .get_deposit(deposit)
@@ -1651,7 +1658,7 @@ fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
 
 #[test]
 fn trusted_load_rejects_remote_mining_equipment_before_condition_state() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let player_position = state
         .geology()
         .get_deposit(deposit)

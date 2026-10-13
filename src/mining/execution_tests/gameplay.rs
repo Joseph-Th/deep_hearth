@@ -175,22 +175,7 @@ fn unsampled_hard_target_reports_failed_tool_without_revealing_hidden_resistance
 
 #[test]
 fn mining_requires_enough_hydration_reserve_to_finish() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining reserve survival setup failed: {error}"));
-    let pick = assemble_pick_for_test(&registries, &mut state);
-    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("mining reserve destination failed: {error}"));
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining reserve deposit failed: {error}"));
-    complete_known_mining_player_logistics(
-        &registries,
-        &mut state,
-        deposit,
-        &[destination],
-        &[pick],
-    );
+    let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("mining reserve serialization failed: {error}"));
     encoded["state"]["systems"]["survival"]["player"]["hydration"] = serde_json::json!(1_u64);
@@ -220,22 +205,7 @@ fn mining_requires_enough_hydration_reserve_to_finish() {
 
 #[test]
 fn active_mining_save_requires_enough_hydration_to_finish_remaining_work() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining save reserve survival setup failed: {error}"));
-    let pick = assemble_pick_for_test(&registries, &mut state);
-    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("mining save reserve destination failed: {error}"));
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining save reserve deposit failed: {error}"));
-    complete_known_mining_player_logistics(
-        &registries,
-        &mut state,
-        deposit,
-        &[destination],
-        &[pick],
-    );
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let token = validate_known_mining(
         &registries,
         &state,
@@ -414,8 +384,6 @@ fn missing_mining_capability_reports_the_exact_authored_requirement() {
 fn knap_assemble_mine_loop_auto_settles_conserves_exclusivity_and_persists() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining survival initialization failed: {error}"));
 
     let stone_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_000_000))
         .unwrap_or_else(|error| panic!("mining primitive-material source failed: {error}"));
@@ -442,6 +410,15 @@ fn knap_assemble_mine_loop_auto_settles_conserves_exclusivity_and_persists() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("mining handle wood ingress failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("mining copper deposit insertion failed: {error}"));
+    admit_known_mining_player_at_deposit(
+        &registries,
+        &mut state,
+        deposit,
+        &[stone_source, shaped, ore_destination],
+        &[],
+    );
 
     validate_start_manual_craft(
         &registries,
@@ -509,15 +486,6 @@ fn knap_assemble_mine_loop_auto_settles_conserves_exclusivity_and_persists() {
             && trace.mass() == Mass::from_milligrams(200_000)
     }));
 
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining copper deposit insertion failed: {error}"));
-    complete_known_mining_player_logistics(
-        &registries,
-        &mut state,
-        deposit,
-        &[stone_source, shaped, ore_destination],
-        &[pick],
-    );
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("mining initial matter accounting failed: {error}"))
         .total();
@@ -740,22 +708,7 @@ fn knap_assemble_mine_loop_auto_settles_conserves_exclusivity_and_persists() {
 
 #[test]
 fn awaiting_mining_output_waits_for_destination_support_recovery() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining support-recovery survival setup failed: {error}"));
-    let pick = assemble_pick_for_test(&registries, &mut state);
-    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("mining support-recovery destination failed: {error}"));
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining support-recovery deposit failed: {error}"));
-    complete_known_mining_player_logistics(
-        &registries,
-        &mut state,
-        deposit,
-        &[destination],
-        &[pick],
-    );
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -822,14 +775,12 @@ fn blocked_unsettled_mining_with_local_stone(
 ) {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("{context} survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("{context} mining destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("{context} mining deposit failed: {error}"));
-    let position = complete_known_mining_player_logistics(
+    let position = admit_known_mining_player_at_deposit(
         &registries,
         &mut state,
         deposit,

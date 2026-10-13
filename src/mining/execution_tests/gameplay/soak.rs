@@ -6,13 +6,12 @@ use super::*;
 fn run_mining_soak() -> AppState {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining soak survival initialization failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("mining soak destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining soak deposit failed: {error}"));
+    admit_known_mining_player_at_deposit(&registries, &mut state, deposit, &[destination], &[pick]);
     let initial_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("mining soak matter accounting failed: {error}"))
         .total();

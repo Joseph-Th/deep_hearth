@@ -129,7 +129,7 @@ fn mining_destination_validation_does_not_probe_hidden_output_temperature() {
 
 #[test]
 fn mining_cannot_reserve_output_into_an_active_dismantling_target() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let construction = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_400_000))
         .unwrap_or_else(|error| panic!("mining dismantle construction stockpile failed: {error}"));
     deposit_lot_for_test(
@@ -180,7 +180,7 @@ fn mining_cannot_reserve_output_into_an_active_dismantling_target() {
 
 #[test]
 fn public_mining_debug_does_not_expose_hidden_source_or_reserved_output() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -447,7 +447,7 @@ fn unmounted_mining_start_does_not_reserve_impossible_structural_work() {
 
 #[test]
 fn trusted_load_rejects_working_mining_without_scheduled_completion_revisions() {
-    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,

@@ -406,22 +406,7 @@ fn mining_rejects_work_that_would_continue_after_tool_failure() {
 
 #[test]
 fn loaded_mining_job_reconstructs_authored_condition_outcome() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining wear-audit survival setup failed: {error}"));
-    let pick = assemble_pick_for_test(&registries, &mut state);
-    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("mining wear-audit destination failed: {error}"));
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining wear-audit deposit failed: {error}"));
-    complete_known_mining_player_logistics(
-        &registries,
-        &mut state,
-        deposit,
-        &[destination],
-        &[pick],
-    );
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -464,22 +449,7 @@ fn loaded_mining_job_reconstructs_authored_condition_outcome() {
 
 #[test]
 fn loaded_mining_state_rejects_job_map_key_identity_mismatch() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining key-audit survival setup failed: {error}"));
-    let pick = assemble_pick_for_test(&registries, &mut state);
-    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("mining key-audit destination failed: {error}"));
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining key-audit deposit failed: {error}"));
-    complete_known_mining_player_logistics(
-        &registries,
-        &mut state,
-        deposit,
-        &[destination],
-        &[pick],
-    );
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
@@ -521,14 +491,12 @@ fn loaded_mining_state_rejects_job_map_key_identity_mismatch() {
 fn loaded_mining_state_rejects_equipment_double_booking_after_index_rebuild() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining double-book survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200_000))
         .unwrap_or_else(|error| panic!("mining double-book destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining double-book deposit failed: {error}"));
-    complete_known_mining_player_logistics(
+    admit_known_mining_player_at_deposit(
         &registries,
         &mut state,
         deposit,
@@ -773,8 +741,6 @@ fn loaded_working_mining_job_rejects_forged_requested_mass() {
 fn blocked_unsettled_output_allows_follow_on_extraction_from_the_same_deposit() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("follow-on mining survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
     let first_destination =
         add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
@@ -784,7 +750,7 @@ fn blocked_unsettled_output_allows_follow_on_extraction_from_the_same_deposit() 
             .unwrap_or_else(|error| panic!("second follow-on mining destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("follow-on mining deposit failed: {error}"));
-    complete_known_mining_player_logistics(
+    admit_known_mining_player_at_deposit(
         &registries,
         &mut state,
         deposit,
@@ -1020,22 +986,7 @@ fn trusted_load_rejects_multiple_working_mining_jobs_before_single_extraction_ti
 
 #[test]
 fn loaded_awaiting_settlement_mining_job_reconstructs_authored_duration() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("mining duration-audit survival setup failed: {error}"));
-    let pick = assemble_pick_for_test(&registries, &mut state);
-    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("mining duration-audit destination failed: {error}"));
-    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("mining duration-audit deposit failed: {error}"));
-    complete_known_mining_player_logistics(
-        &registries,
-        &mut state,
-        deposit,
-        &[destination],
-        &[pick],
-    );
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let job = validate_known_mining(
         &registries,
         &state,
