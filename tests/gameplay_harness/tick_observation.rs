@@ -3,6 +3,7 @@
 use deep_hearth::mining::MiningJobId;
 use deep_hearth::production::ProductionJobId;
 use deep_hearth::simulation::TickOutcome;
+use deep_hearth::structural::StructuralElementId;
 use deep_hearth::surface::SurfaceResourceId;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -15,6 +16,7 @@ pub(super) struct TickEventAllowance<'a> {
     pub(super) manual_power: bool,
     pub(super) equipment_maintenance: bool,
     pub(super) storage_enclosure_dismantling: bool,
+    pub(super) structural_construction: Option<StructuralElementId>,
     pub(super) field_prospecting: bool,
 }
 
@@ -36,6 +38,7 @@ pub(super) fn assert_tick_events_within(
         outcome.manual_power().is_some(),
         outcome.equipment_maintenance().is_some(),
         outcome.storage_enclosure_dismantling().is_some(),
+        outcome.structural_construction().is_some(),
         outcome.field_prospecting().is_some(),
     ]
     .into_iter()
@@ -123,6 +126,12 @@ fn assert_player_work_events_within(
         allowance.storage_enclosure_dismantling
             || outcome.storage_enclosure_dismantling().is_none(),
         "gameplay harness {context} crossed unrelated storage-dismantling work"
+    );
+    assert!(
+        outcome
+            .structural_construction()
+            .is_none_or(|element| allowance.structural_construction == Some(element)),
+        "gameplay harness {context} crossed unrelated structural-construction work"
     );
     assert!(
         allowance.field_prospecting || outcome.field_prospecting().is_none(),

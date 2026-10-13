@@ -16,10 +16,11 @@ use deep_hearth::content::{
     MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
-    STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_STONE,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE,
     SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
+use deep_hearth::core::quantity::{Area, Energy, Force, Length, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::{SimulationTick, TickSpan};
 use deep_hearth::crafting::{
@@ -28,7 +29,8 @@ use deep_hearth::crafting::{
 };
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{
-    MaterialLotSelection, StorageDefinitionId, validate_place_player_storage,
+    MaterialLotSelection, StockpileId, StorageDefinitionId, validate_mount_stockpile,
+    validate_place_player_storage,
 };
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
@@ -40,7 +42,13 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
-use deep_hearth::spatial::VoxelCoord;
+use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
+use deep_hearth::structural::{
+    GroundedStructuralElementPlan, PrismaticMemberLoadRequest, StructuralElementGeometry,
+    StructuralLifecycle, StructuralLoadKind, project_prismatic_member_load,
+    validate_plan_player_grounded_structural_element,
+    validate_start_player_structural_construction,
+};
 use deep_hearth::surface::{
     AdjacentSurfaceResource, SurfaceResourceId, available_adjacent_surface_resources,
     validate_start_player_surface_gathering,
@@ -65,6 +73,40 @@ pub(super) enum WildernessStartProfile {
     Rested,
     HungerPressure,
     HydrationPressure,
+}
+
+fn select_stockpile_commodity_mass(
+    state: &AppState,
+    stockpile: StockpileId,
+    commodity: CommodityKey,
+    mass: Mass,
+    context: &str,
+) -> Vec<MaterialLotSelection> {
+    let mut remaining = mass;
+    let mut selections = Vec::new();
+    for lot in state.inventory().lot_ids(stockpile) {
+        if remaining.is_zero() {
+            break;
+        }
+        let Some(record) = state.inventory().get_lot(lot) else {
+            continue;
+        };
+        if record.commodity() != commodity {
+            continue;
+        }
+        let selected = remaining.min(record.mass());
+        selections.push(MaterialLotSelection::new(lot, selected));
+        remaining = remaining
+            .checked_sub(selected)
+            .unwrap_or_else(|| unreachable!("wilderness material selection is bounded by demand"));
+    }
+    assert!(
+        remaining.is_zero(),
+        "wilderness {context} is missing {}mg of commodity {} in local custody",
+        remaining.milligrams(),
+        commodity.value()
+    );
+    selections
 }
 
 impl WildernessStartProfile {
@@ -133,6 +175,10 @@ pub(super) struct WildernessOpeningReview {
     pub(super) cached_food_mass_mg: u64,
     pub(super) cached_total_mass_mg: u64,
     pub(super) staged_worksite_timber_mg: u64,
+    pub(super) worksite_construction_residue_mg: u64,
+    pub(super) worksite_support_built: bool,
+    pub(super) worksite_support_mass_mg: u64,
+    pub(super) worksite_support_ticks: u64,
     pub(super) selected_source_opportunity_mg: u64,
     pub(super) selected_source_remaining_mg: u64,
     pub(super) camp_logistics_steps: u64,
@@ -154,6 +200,54 @@ pub(super) struct WildernessOpeningReview {
     pub(super) adze_board_ticks: u64,
     pub(super) adze_crossover_batches: u64,
     pub(super) final_warning_safe: bool,
+}
+
+fn worksite_support_projection(registries: &Registries) -> (Mass, TickSpan) {
+    let projection = project_prismatic_member_load(
+        registries,
+        PrismaticMemberLoadRequest::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            Length::from_micrometers(500_000),
+            Area::from_square_millimeters(5_000),
+            Force::ZERO,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("wilderness worksite-support projection failed: {error}"));
+    let definition = registries
+        .labor()
+        .get_structural_construction(STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER)
+        .copied()
+        .unwrap_or_else(|| panic!("wilderness worksite structural labor disappeared"));
+    let duration = definition
+        .duration_for_mass(projection.material_mass())
+        .unwrap_or_else(|| panic!("wilderness worksite support exceeds hand-setting envelope"));
+    (projection.material_mass(), duration)
+}
+
+fn worksite_support_geometry(junction: VoxelCoord) -> StructuralElementGeometry {
+    let maximum = VoxelCoord::new(
+        junction
+            .x()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("wilderness support x-bound overflowed")),
+        junction
+            .y()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("wilderness support y-bound overflowed")),
+        junction
+            .z()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("wilderness support z-bound overflowed")),
+    );
+    let bounds = VoxelBounds::new(junction, maximum)
+        .unwrap_or_else(|error| panic!("wilderness support bounds failed: {error}"));
+    StructuralElementGeometry::new(
+        bounds,
+        Length::from_micrometers(500_000),
+        Area::from_square_millimeters(5_000),
+    )
+    .unwrap_or_else(|error| panic!("wilderness worksite-support geometry failed: {error}"))
 }
 
 fn adjacent_surface_resource(state: &AppState, commodity: CommodityKey) -> AdjacentSurfaceResource {
@@ -835,21 +929,28 @@ pub(super) fn evaluate_generated_wilderness_opening(
         )
     };
     let worksite_staged_timber = Mass::from_milligrams(6_000_000);
-    let mut worksite_staging_remaining = worksite_staged_timber;
-    let mut worksite_staging_ticks = 0_u64;
-    while !worksite_staging_remaining.is_zero() {
-        let batch = worksite_staging_remaining.min(timber_gathering.maximum_batch_mass());
+    let (worksite_support_mass, worksite_support_duration) =
+        worksite_support_projection(&registries);
+    let worksite_second_trip_timber = worksite_staged_timber
+        .checked_add(worksite_support_mass)
+        .unwrap_or_else(|| panic!("wilderness worksite second-trip timber overflowed"));
+    let mut worksite_second_trip_remaining = worksite_second_trip_timber;
+    let mut worksite_second_trip_gather_ticks = 0_u64;
+    while !worksite_second_trip_remaining.is_zero() {
+        let batch = worksite_second_trip_remaining.min(timber_gathering.maximum_batch_mass());
         let ticks = timber_gathering
             .duration_for_mass(batch)
-            .unwrap_or_else(|| panic!("wilderness worksite-staging timber batch cannot schedule"))
+            .unwrap_or_else(|| {
+                panic!("wilderness worksite second-trip timber batch cannot schedule")
+            })
             .value();
-        worksite_staging_ticks = worksite_staging_ticks
+        worksite_second_trip_gather_ticks = worksite_second_trip_gather_ticks
             .checked_add(ticks)
-            .unwrap_or_else(|| panic!("wilderness worksite-staging duration overflowed"));
-        worksite_staging_remaining = worksite_staging_remaining
+            .unwrap_or_else(|| panic!("wilderness worksite second-trip gathering overflowed"));
+        worksite_second_trip_remaining = worksite_second_trip_remaining
             .checked_sub(batch)
             .unwrap_or_else(|| {
-                unreachable!("bounded worksite-staging batch cannot exceed remainder")
+                unreachable!("bounded worksite second-trip batch cannot exceed remainder")
             });
     }
     let camp_project_budget = match camp_goal {
@@ -862,12 +963,12 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 timber_gathering.exertion(),
                 TickSpan::new(
                     field_box_gather_ticks
-                        .checked_add(worksite_staging_ticks)
+                        .checked_add(worksite_second_trip_gather_ticks)
                         .unwrap_or_else(|| {
                             panic!("wilderness worksite gathering duration overflowed")
                         }),
                 ),
-                "field-box construction and staging gathering",
+                "field-box, support, and staging gathering",
             )
             .checked_add(projected_budget(
                 board_craft.exertion(),
@@ -879,6 +980,20 @@ pub(super) fn evaluate_generated_wilderness_opening(
                     field_box_joinery.exertion(),
                     field_box_joinery.duration(),
                     "field-box joinery",
+                ))
+            })
+            .and_then(|budget| {
+                budget.checked_add(projected_budget(
+                    registries
+                        .labor()
+                        .get_structural_construction(STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER)
+                        .copied()
+                        .unwrap_or_else(|| {
+                            panic!("wilderness worksite structural labor disappeared")
+                        })
+                        .exertion(),
+                    worksite_support_duration,
+                    "worksite grounded-support construction",
                 ))
             })
             .and_then(|budget| {
@@ -1116,6 +1231,10 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let mut cached_food_mass_mg = 0_u64;
     let mut cached_total_mass_mg = 0_u64;
     let mut staged_worksite_timber_mg = 0_u64;
+    let mut worksite_construction_residue_mg = 0_u64;
+    let mut worksite_support_built = false;
+    let mut worksite_support_mass_mg = 0_u64;
+    let mut worksite_support_ticks = 0_u64;
     let mut selected_source_opportunity_mg = 0_u64;
     let mut selected_source_remaining_mg = 0_u64;
     let mut camp_logistics_steps = 0_u64;
@@ -1303,6 +1422,36 @@ pub(super) fn evaluate_generated_wilderness_opening(
             .unwrap_or_else(|error| {
                 panic!("wilderness camp storage placement commit failed: {error}")
             });
+        if camp_goal == WildernessCampGoal::WorksiteCache {
+            let mut residue_mass = Mass::ZERO;
+            let residue_selections = state
+                .inventory()
+                .lot_ids(carried)
+                .filter_map(|lot| {
+                    let record = state.inventory().get_lot(lot)?;
+                    (record.commodity().material() == MATERIAL_WOOD).then(|| {
+                        residue_mass =
+                            residue_mass.checked_add(record.mass()).unwrap_or_else(|| {
+                                panic!("wilderness construction residue overflowed")
+                            });
+                        MaterialLotSelection::new(lot, record.mass())
+                    })
+                })
+                .collect::<Vec<_>>();
+            assert!(
+                !residue_mass.is_zero(),
+                "field-box fabrication should leave material-backed wood residue to retain at camp"
+            );
+            validate_drop_to_ground(&registries, &state, storage, &residue_selections)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness construction-residue cache drop failed: {error}")
+                })
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness construction-residue cache commit failed: {error}")
+                });
+            worksite_construction_residue_mg = residue_mass.milligrams();
+        }
         if !retained_food_mass.is_zero() {
             validate_drop_to_ground(
                 &registries,
@@ -1319,6 +1468,9 @@ pub(super) fn evaluate_generated_wilderness_opening(
         }
         if camp_goal == WildernessCampGoal::WorksiteCache {
             let staged_timber = Mass::from_milligrams(WORKSITE_STAGED_TIMBER_MG);
+            let support_and_staging = staged_timber
+                .checked_add(worksite_support_mass)
+                .unwrap_or_else(|| panic!("wilderness worksite second-trip timber overflowed"));
             step_to(
                 &registries,
                 &mut state,
@@ -1340,16 +1492,16 @@ pub(super) fn evaluate_generated_wilderness_opening(
                     panic!("wilderness worksite-cache timber resource disappeared before staging")
                 });
             assert!(
-                remaining_world_timber >= staged_timber,
-                "generated timber opportunity must support the field-box body plus six-kilogram staged reserve"
+                remaining_world_timber >= support_and_staging,
+                "generated timber opportunity must support the field-box body, grounded support, and staged reserve"
             );
             gather_in_batches(
                 &registries,
                 &mut state,
                 SURFACE_GATHERING_HAND_COLLECT_TIMBER,
                 resource,
-                staged_timber,
-                "worksite-cache timber staging",
+                support_and_staging,
+                "worksite-cache support and timber staging",
             );
             let carrying_after_staging = assess_player_carrying(&state).unwrap_or_else(|| {
                 panic!("wilderness carrying assessment disappeared after bulk staging")
@@ -1363,6 +1515,65 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 .unwrap_or_else(|| {
                     panic!("wilderness worksite-cache source disappeared after staging")
                 });
+            let support_geometry = worksite_support_geometry(junction);
+            let support = validate_plan_player_grounded_structural_element(
+                &registries,
+                &state,
+                GroundedStructuralElementPlan::new(
+                    STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+                    MATERIAL_WOOD,
+                    support_geometry,
+                ),
+            )
+            .unwrap_or_else(|error| panic!("wilderness worksite support planning failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness worksite support plan commit failed: {error}")
+            });
+            let support_selections = select_stockpile_commodity_mass(
+                &state,
+                carried,
+                timber_commodity,
+                worksite_support_mass,
+                "wilderness worksite grounded support",
+            );
+            let support_work = validate_start_player_structural_construction(
+                &registries,
+                &state,
+                STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+                support,
+                support_selections.as_slice(),
+            )
+            .unwrap_or_else(|error| panic!("wilderness worksite support start failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("wilderness worksite support commit failed: {error}"));
+            advance_to(
+                &registries,
+                &mut state,
+                support_work.completes_at(),
+                TickEventAllowance {
+                    structural_construction: Some(support),
+                    ..TickEventAllowance::default()
+                },
+                "worksite grounded-support construction",
+            );
+            let support_record = state.structures().get_element(support).unwrap_or_else(|| {
+                panic!("wilderness worksite support disappeared after completion")
+            });
+            assert_eq!(support_record.lifecycle(), StructuralLifecycle::Active);
+            assert_eq!(support_record.embodied_mass(), worksite_support_mass);
+            worksite_support_built = true;
+            worksite_support_mass_mg = worksite_support_mass.milligrams();
+            worksite_support_ticks = worksite_support_duration.value();
+
+            let carrying_after_support = assess_player_carrying(&state).unwrap_or_else(|| {
+                panic!("wilderness carrying assessment disappeared after support construction")
+            });
+            assert_eq!(
+                carrying_after_support.stored(),
+                staged_timber,
+                "worksite support should consume exactly its timber before the return haul"
+            );
             step_to(
                 &registries,
                 &mut state,
@@ -1371,28 +1582,27 @@ pub(super) fn evaluate_generated_wilderness_opening(
             );
             total_steps += 1;
             camp_logistics_steps += 1;
-            let lot_ids = state.inventory().lot_ids(carried).collect::<Vec<_>>();
-            let mut unstaged = staged_timber;
-            let mut selections = Vec::new();
-            for lot in lot_ids {
-                if unstaged.is_zero() {
-                    break;
-                }
-                let Some(record) = state.inventory().get_lot(lot) else {
-                    continue;
-                };
-                if record.commodity() != timber_commodity {
-                    continue;
-                }
-                let selected = unstaged.min(record.mass());
-                selections.push(MaterialLotSelection::new(lot, selected));
-                unstaged = unstaged.checked_sub(selected).unwrap_or_else(|| {
-                    unreachable!("selected staging timber cannot exceed remaining requirement")
+            let _ = validate_mount_stockpile(&registries, &state, storage, support)
+                .unwrap_or_else(|error| panic!("wilderness worksite cache mount failed: {error}"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness worksite cache mount commit failed: {error}")
                 });
-            }
-            assert!(
-                unstaged.is_zero(),
-                "gathered staging timber must remain in carried custody"
+            assert_eq!(
+                state
+                    .inventory()
+                    .get_stockpile(storage)
+                    .and_then(|record| record.supported_by()),
+                Some(support),
+                "worksite field box should be structurally supported before accepting staged material"
+            );
+
+            let selections = select_stockpile_commodity_mass(
+                &state,
+                carried,
+                timber_commodity,
+                staged_timber,
+                "wilderness worksite staged timber",
             );
             validate_drop_to_ground(&registries, &state, storage, &selections)
                 .unwrap_or_else(|error| panic!("wilderness worksite-cache drop failed: {error}"))
@@ -1400,6 +1610,16 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 .unwrap_or_else(|error| {
                     panic!("wilderness worksite-cache drop commit failed: {error}")
                 });
+            assert!(
+                state
+                    .structures()
+                    .get_element(support)
+                    .is_some_and(|record| {
+                        record.lifecycle() == StructuralLifecycle::Active
+                            && record.load(StructuralLoadKind::StoredMatter) > Force::ZERO
+                    }),
+                "supported worksite cache should contribute a real stored-matter structural load"
+            );
             staged_worksite_timber_mg = staged_timber.milligrams();
         }
         let definition = registries
@@ -1420,8 +1640,12 @@ pub(super) fn evaluate_generated_wilderness_opening(
         if camp_goal == WildernessCampGoal::WorksiteCache {
             assert_eq!(
                 cached_total.milligrams(),
-                cached.milligrams() + WORKSITE_STAGED_TIMBER_MG,
-                "worksite cache must physically contain its provisions plus the staged timber reserve"
+                cached
+                    .milligrams()
+                    .checked_add(WORKSITE_STAGED_TIMBER_MG)
+                    .and_then(|mass| mass.checked_add(worksite_construction_residue_mg))
+                    .unwrap_or_else(|| panic!("wilderness cached-total accounting overflowed")),
+                "worksite cache must physically retain provisions, woodworking residue, and the staged timber reserve"
             );
             assert!(
                 cached_total > stone_crock_storage.maximum_stockpile_capacity(),
@@ -1443,7 +1667,8 @@ pub(super) fn evaluate_generated_wilderness_opening(
         let projected_ticks = match camp_goal {
             WildernessCampGoal::StayMobile => unreachable!(),
             WildernessCampGoal::WorksiteCache => field_box_build_ticks
-                .checked_add(worksite_staging_ticks)
+                .checked_add(worksite_second_trip_gather_ticks)
+                .and_then(|ticks| ticks.checked_add(worksite_support_duration.value()))
                 .and_then(|ticks| {
                     ticks.checked_add(
                         physiology
@@ -1561,6 +1786,10 @@ pub(super) fn evaluate_generated_wilderness_opening(
         cached_food_mass_mg,
         cached_total_mass_mg,
         staged_worksite_timber_mg,
+        worksite_construction_residue_mg,
+        worksite_support_built,
+        worksite_support_mass_mg,
+        worksite_support_ticks,
         selected_source_opportunity_mg,
         selected_source_remaining_mg,
         camp_logistics_steps,
@@ -1654,13 +1883,16 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             review.forage_remaining_mass_mg,
         ),
         WildernessCampGoal::WorksiteCache => format!(
-            "[selected:field-box project:{}t capacity:{}mg preservation:{}ppm cached-food:{}mg cached-total:{}mg staged-timber:{}mg goal:centralize-worksite source:{}mg->{}mg camp:junction alternative-stone-capacity:{}mg]",
+            "[selected:field-box project:{}t capacity:{}mg preservation:{}ppm cached-food:{}mg cached-total:{}mg staged-timber:{}mg retained-residue:{}mg grounded-support:{}mg/{}t goal:centralize-worksite source:{}mg->{}mg camp:junction alternative-stone-capacity:{}mg]",
             review.storage_project_ticks,
             review.selected_storage_capacity_mg,
             review.selected_storage_preservation_ppm,
             review.cached_food_mass_mg,
             review.cached_total_mass_mg,
             review.staged_worksite_timber_mg,
+            review.worksite_construction_residue_mg,
+            review.worksite_support_mass_mg,
+            review.worksite_support_ticks,
             review.selected_source_opportunity_mg,
             review.selected_source_remaining_mg,
             review.stone_crock_capacity_mg,
@@ -1720,7 +1952,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         Some(_) => "other",
     };
     let camp_project = format!(
-        "[goal:{} storage:{} material:{} work:{}t logistics-steps:{} source:{}mg->{}mg project-budget:{}nJ/{}uL project-meal:{}mg cached-total:{}mg staged-timber:{}mg]",
+        "[goal:{} storage:{} material:{} work:{}t logistics-steps:{} source:{}mg->{}mg project-budget:{}nJ/{}uL project-meal:{}mg cached-total:{}mg staged-timber:{}mg retained-residue:{}mg grounded-support:{}:{}mg/{}t]",
         review.camp_goal.label(),
         selected_storage,
         selected_material,
@@ -1733,6 +1965,10 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         review.project_meal_consumed_mg,
         review.cached_total_mass_mg,
         review.staged_worksite_timber_mg,
+        review.worksite_construction_residue_mg,
+        review.worksite_support_built,
+        review.worksite_support_mass_mg,
+        review.worksite_support_ticks,
     );
     std::println!(
         "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:{} choices:{}-{} blocked:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] camp-project={} storage-choice={} tool-choice={} material-choice={}",
@@ -1921,6 +2157,12 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         );
         assert_eq!(cache.selected_storage, Some(STORAGE_ROUGH_TIMBER_FIELD_BOX));
         assert_eq!(cache.staged_worksite_timber_mg, 6_000_000);
+        assert!(cache.worksite_support_built);
+        assert!(
+            (1_000_000..2_000_000).contains(&cache.worksite_support_mass_mg),
+            "worksite field-box support should remain a low-mass camp fixture rather than cabin-scale structure"
+        );
+        assert!(cache.worksite_support_ticks > 0);
         assert_eq!(cache.camp_logistics_steps, 4);
         assert!(
             cache.selected_source_opportunity_mg > cache.carried_capacity_mg,

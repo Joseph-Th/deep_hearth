@@ -62,6 +62,10 @@ def wilderness_summary(lines: list[str]) -> str | None:
     camp_work_ticks: list[int] = []
     camp_cached_mass: list[int] = []
     camp_staged_timber: list[int] = []
+    worksite_residue: list[int] = []
+    worksite_support_mass: list[int] = []
+    worksite_support_ticks: list[int] = []
+    worksite_support_built = 0
     camp_logistics_steps: list[int] = []
     selected_source_opportunity: list[int] = []
     selected_source_remaining: list[int] = []
@@ -84,7 +88,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
         project = re.search(
             r"\bcamp-project=\[.*?\bwork:(\d+)t logistics-steps:(\d+) "
             r"source:(\d+)mg->(\d+)mg project-budget:(\d+)nJ/(\d+)uL "
-            r"project-meal:(\d+)mg cached-total:(\d+)mg staged-timber:(\d+)mg\]",
+            r"project-meal:(\d+)mg cached-total:(\d+)mg staged-timber:(\d+)mg "
+            r"retained-residue:(\d+)mg grounded-support:(true|false):(\d+)mg/(\d+)t\]",
             experience,
         )
         if project is None:
@@ -102,6 +107,11 @@ def wilderness_summary(lines: list[str]) -> str | None:
             camp_hydration_budget.append(int(project.group(6)))
             camp_cached_mass.append(int(project.group(8)))
             camp_staged_timber.append(int(project.group(9)))
+            if project.group(11) == "true":
+                worksite_support_built += 1
+                worksite_residue.append(int(project.group(10)))
+                worksite_support_mass.append(int(project.group(12)))
+                worksite_support_ticks.append(int(project.group(13)))
     if not water_runway_tenths:
         raise ValueError("wilderness report has no exact-local visited water runway witness")
     resource_runway = (
@@ -126,6 +136,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"stone:{sum(' material:stone ' in line for line in experiences)}] "
         f"project-meals:{project_meals}]"
     )
+    cache_projects = [line for line in experiences if " goal=worksite-cache " in line]
     camp_projects = "camp-projects=[none]"
     if camp_work_ticks:
         camp_projects = (
@@ -133,13 +144,16 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"work:{min(camp_work_ticks)}..{max(camp_work_ticks)}t "
             f"cached:{scaled_span(camp_cached_mass, 1_000_000, 'kg')} "
             f"staged-timber:{scaled_span(camp_staged_timber, 1_000_000, 'kg')} "
+            f"worksite-support=[built:{worksite_support_built}/{len(cache_projects)} "
+            f"mass:{scaled_span(worksite_support_mass, 1_000_000, 'kg')} "
+            f"work:{scaled_span(worksite_support_ticks, 1, 't')} "
+            f"retained-residue:{scaled_span(worksite_residue, 1_000, 'g')}] "
             f"logistics-steps:{min(camp_logistics_steps)}..{max(camp_logistics_steps)} "
             f"source:{scaled_span(selected_source_opportunity, 1_000_000, 'kg')}->"
             f"{scaled_span(selected_source_remaining, 1_000_000, 'kg')} "
             f"project-budget:{scaled_span(camp_metabolic_budget, 1_000_000_000_000, 'kJ')}/"
             f"{scaled_span(camp_hydration_budget, 1_000, 'mL')}]"
         )
-    cache_projects = [line for line in experiences if " goal=worksite-cache " in line]
     adze_crossover = next(
         (
             int(match.group(1))

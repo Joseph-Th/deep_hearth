@@ -276,6 +276,22 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         source_after = int(project.group(3))
         if logistics_steps > 0 and source_before > source_after:
             camp_leverage += 1
+    worksite_projects = [
+        line for line in evidence.wilderness if " goal=worksite-cache " in line
+    ]
+    worksite_construction = sum(
+        re.search(
+            r"\bcamp-project=\[.*?\bgrounded-support:true:(\d+)mg/(\d+)t\]",
+            line,
+        )
+        is not None
+        for line in worksite_projects
+    )
+    worksite_construction_evidence = (
+        f"worksite-construction:{worksite_construction}/{len(worksite_projects)} "
+        if worksite_projects
+        else ""
+    )
     workload_sensitive_processing = sum(
         " processing-market=[one-cycle:manual " in line
         and " disclosed:mechanized]" in line
@@ -307,6 +323,7 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
         f"rational-mobility:{rational_mobility}/{len(evidence.wilderness)} "
         f"camp-leverage:{camp_leverage}/{len(evidence.wilderness)} "
+        f"{worksite_construction_evidence}"
         f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
         f"electrical-foundry:{electrical_foundries}/{foundry_builds}"
