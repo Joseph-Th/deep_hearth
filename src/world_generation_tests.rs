@@ -93,14 +93,12 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         .contents()
         .unwrap_or_else(|| panic!("generated wilderness water store is empty"));
     assert_eq!(contents.fluid(), FLUID_WATER);
-    assert_eq!(
-        contents.volume(),
-        Volume::from_microliters(OPENING_WATER_VOLUME_UL)
+    assert!(
+        (Volume::from_microliters(OPENING_WATER_BASE_VOLUME_UL)
+            ..=Volume::from_microliters(OPENING_WATER_BASE_VOLUME_UL + OPENING_WATER_VARIATION_UL,))
+            .contains(&contents.volume())
     );
-    assert_eq!(
-        water.capacity(),
-        Volume::from_microliters(OPENING_WATER_VOLUME_UL)
-    );
+    assert_eq!(water.capacity(), contents.volume());
     assert_eq!(contents.temperature(), WILDERNESS_TEMPERATURE);
     let water_position = first
         .logistics()
@@ -158,6 +156,72 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         generated_profile(&first),
         generated_profile(&alternate),
         "different explicit world seeds should change at least one opening opportunity"
+    );
+}
+
+#[test]
+fn opening_food_and_water_opportunities_vary_and_exceed_one_resting_day() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let ticks_per_day = registries.core().calendar().ticks_per_day();
+    let resting_day_energy = physiology
+        .basal_energy_cost_per_tick()
+        .nanojoules()
+        .checked_mul(u128::from(ticks_per_day))
+        .unwrap_or_else(|| panic!("opening resting-day energy projection overflowed"));
+    let resting_day_hydration = physiology
+        .hydration_loss_per_tick()
+        .microliters()
+        .checked_mul(ticks_per_day)
+        .unwrap_or_else(|| panic!("opening resting-day hydration projection overflowed"));
+    let berries = registries
+        .survival()
+        .get_food(CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD))
+        .unwrap_or_else(|| panic!("opening berries lost their food definition"));
+    let minimum_food_energy = berries
+        .dietary_energy_for_mass(Mass::from_milligrams(BERRIES_BASE_MASS_MG))
+        .nanojoules();
+
+    assert!(
+        minimum_food_energy > resting_day_energy,
+        "the minimum opening forage opportunity should buy more than one resting day instead of forcing repeated subsistence within hours"
+    );
+    assert!(
+        OPENING_WATER_BASE_VOLUME_UL > resting_day_hydration,
+        "the minimum opening water opportunity should buy more than one resting day of basal hydration"
+    );
+
+    let spawn = VoxelCoord::new(0, 0, 0);
+    let opportunities = (0_u64..8)
+        .map(|seed| {
+            let mut state = AppState::new();
+            generate(&mut state, WorldGenerationSeed::new(seed), spawn);
+            let berries = state
+                .surface()
+                .resources()
+                .find(|resource| {
+                    resource.commodity() == CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)
+                })
+                .map(|resource| resource.remaining_mass().milligrams())
+                .unwrap_or_else(|| panic!("varied opening lost generated forage"));
+            let water = state
+                .fluid()
+                .stores()
+                .next()
+                .and_then(|store| store.contents())
+                .map(|contents| contents.volume().microliters())
+                .unwrap_or_else(|| panic!("varied opening lost generated water"));
+            (berries, water)
+        })
+        .collect::<Vec<_>>();
+    let first = opportunities[0];
+    assert!(
+        opportunities.iter().any(|(berries, _)| *berries != first.0),
+        "opening forage quantity should vary across explicit world seeds"
+    );
+    assert!(
+        opportunities.iter().any(|(_, water)| *water != first.1),
+        "opening water quantity should vary across explicit world seeds"
     );
 }
 

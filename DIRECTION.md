@@ -95,7 +95,10 @@ appears one step from spawn. From forage, a finite non-refilling water branch co
 material junction, where loose stone and timber are simultaneously visible on two adjacent leaves. The lived
 wilderness episode proves that current physiology changes route choice: a rested actor skips the water detour,
 while a hydration-pressure actor chooses it and drinks before returning to the work path. Both reach the material
-junction through traversal-gated immediate observation and pay every load-sensitive step. This closes a real
+junction through traversal-gated immediate observation and pay every load-sensitive step. Generated forage and
+water quantities are finite and seed-varied; their minimum opportunities exceed one resting day of basal need,
+while the lived actor deliberately gathers only a portable ration and leaves local surplus in world custody.
+Exact water quantity remains unknown unless the actor visits its branch. This closes a real
 distributed opening slice without claiming terrain geometry, general route generation/pathfinding, ecology,
 hydrology/flow/recharge, or broader world discovery.
 

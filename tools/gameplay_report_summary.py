@@ -150,11 +150,9 @@ def settlement_specialization_summary(
 
 _ORDINARY_DIGEST_FIELDS = {
     "wilderness": (
-        "generation",
         "movement",
-        "water",
         "pressure-route",
-        "adaptation",
+        "resource-runway",
         "organic-adaptation",
         "storage-choice",
         "tool-choice",
@@ -234,8 +232,12 @@ _ORDINARY_DIGEST_FIELDS = {
 _SCOPED_ORDINARY_DIGEST_FIELDS = {
     "wilderness": (
         "evidence",
+        "generation",
         *_ORDINARY_DIGEST_FIELDS["wilderness"],
+        "water",
+        "adaptation",
         "timing",
+        "forage",
         "provisioning",
         "carrying",
     ),

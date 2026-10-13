@@ -12,7 +12,7 @@ use std::fmt::{Display, Formatter};
 use crate::content::{
     FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
 };
-use crate::core::quantity::{Mass, Temperature, Volume};
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::fluid::{
@@ -31,7 +31,8 @@ use crate::surface::{
 };
 
 use opening::{
-    OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_layout, local_entropy,
+    OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_layout, generated_volume,
+    local_entropy,
 };
 
 const WILDERNESS_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -39,9 +40,15 @@ const STONE_BASE_MASS_MG: u64 = 3_000_000;
 const STONE_VARIATION_MG: u64 = 1_500_000;
 const TIMBER_BASE_MASS_MG: u64 = 8_000_000;
 const TIMBER_VARIATION_MG: u64 = 4_000_000;
-const BERRIES_BASE_MASS_MG: u64 = 500_000;
-const BERRIES_VARIATION_MG: u64 = 300_000;
-const OPENING_WATER_VOLUME_UL: u64 = 1_500_000;
+// The opening food and water opportunities are deliberately larger than the actor's first quick
+// serving. At minimum they each represent more than one resting day of authored physiology, so a
+// fresh player can choose to secure a little, return later, or invest in storage instead of being
+// forced back into subsistence every few in-game hours.
+const BERRIES_BASE_MASS_MG: u64 = 4_000_000;
+const BERRIES_VARIATION_MG: u64 = 2_000_000;
+const OPENING_WATER_BASE_VOLUME_UL: u64 = 4_000_000;
+const OPENING_WATER_VARIATION_UL: u64 = 2_000_000;
+const OPENING_WATER_VOLUME_SALT: u64 = 0x5741_5445_525F_5350;
 
 /// Number of persisted traversal edges in the built-in opening opportunity graph.
 pub const INITIAL_WILDERNESS_ACCESS_EDGES: usize = 5;
@@ -419,7 +426,13 @@ pub fn validate_generate_initial_wilderness(
                 InitialWildernessGenerationError::InvalidGeneratedResource(error)
             }
         })?;
-    let water_volume = Volume::from_microliters(OPENING_WATER_VOLUME_UL);
+    let water_volume = generated_volume(
+        seed,
+        spawn,
+        OPENING_WATER_VOLUME_SALT,
+        OPENING_WATER_BASE_VOLUME_UL,
+        OPENING_WATER_VARIATION_UL,
+    );
     let water_generation = validate_generate_fluid_store(
         registries,
         state,

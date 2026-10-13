@@ -207,11 +207,18 @@ toward useful material work should be correct; under thirst pressure, taking the
 Likewise, visible stone or timber should become valuable because a real project, carrying constraint, preservation
 need, or repeated workload creates demand, not because discovery itself requires immediate collection.
 
+The first local food and water opportunities should buy enough breathing room for engineering choices instead of
+forcing the actor back into subsistence every few hours. That does not mean the player should automatically harvest
+or carry the whole opportunity. A useful opening pattern is to discover a finite local reserve, secure only the
+portable amount current needs justify, and leave the remainder as a known future option. Survival pressure should
+then grow from elapsed time, exertion, distance, consumption, spoilage, or a decision to exploit more of that
+reserve rather than from an opening supply too small to support any other work.
+
 The first roughly fifteen minutes are a pacing envelope, not a quota of infrastructure to fill. In an ordinary
 start they should still be dominated by orientation, gathering, provisioning, fire/shelter work when those
 pressures apply, and whichever first improvements the local situation actually justifies. A player who has enough
-carried capacity, several days of fresh food, and no repeated cutting workload should be correct to defer a box or
-an adze rather than spend resources merely to satisfy opening pacing.
+carried capacity, a known local food reserve, a sufficient portable ration, and no repeated cutting workload should
+be correct to defer a box or an adze rather than harvest and store everything merely to satisfy opening pacing.
 A visible copper clue may give the player a future objective, but the default opening should not already be
 delivering useful copper, copper upgrades, or ore-processing machinery. First useful copper should normally come
 after the player has a functional wilderness baseline and has spent additional attention locating, extracting,

@@ -1,6 +1,6 @@
 //! Pure deterministic layout and variation calculations for the bounded opening wilderness graph.
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Volume};
 use crate::spatial::VoxelCoord;
 
 use super::WorldGenerationSeed;
@@ -170,5 +170,23 @@ pub(super) fn generated_mass(
         base_mg
             .checked_add(variation)
             .unwrap_or_else(|| panic!("wilderness generated mass overflowed u64")),
+    )
+}
+
+pub(super) fn generated_volume(
+    seed: WorldGenerationSeed,
+    spawn: VoxelCoord,
+    salt: u64,
+    base_ul: u64,
+    variation_ul: u64,
+) -> Volume {
+    let width = variation_ul
+        .checked_add(1)
+        .unwrap_or_else(|| unreachable!("bounded wilderness volume variation width fits u64"));
+    let variation = local_entropy(seed, spawn, salt) % width;
+    Volume::from_microliters(
+        base_ul
+            .checked_add(variation)
+            .unwrap_or_else(|| panic!("wilderness generated volume overflowed u64")),
     )
 }
