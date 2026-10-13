@@ -169,6 +169,7 @@ fn active_work_releases_now(
         PlayerWork::Drinking { work } => work.completes_at() == next_tick,
         PlayerWork::EquipmentMaintenance { work } => work.completes_at() == next_tick,
         PlayerWork::StorageEnclosureDismantling { work } => work.completes_at() == next_tick,
+        PlayerWork::StructuralConstruction { work } => work.completes_at() == next_tick,
     }
 }
 

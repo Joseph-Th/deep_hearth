@@ -60,7 +60,8 @@ pub(super) fn validate_direct_consumption_binding(
             | PlayerWork::ManualPower { .. }
             | PlayerWork::Prospecting { .. }
             | PlayerWork::EquipmentMaintenance { .. }
-            | PlayerWork::StorageEnclosureDismantling { .. },
+            | PlayerWork::StorageEnclosureDismantling { .. }
+            | PlayerWork::StructuralConstruction { .. },
         )
         | None
             if pending.is_none() =>
@@ -75,7 +76,8 @@ pub(super) fn validate_direct_consumption_binding(
             | PlayerWork::ManualPower { .. }
             | PlayerWork::Prospecting { .. }
             | PlayerWork::EquipmentMaintenance { .. }
-            | PlayerWork::StorageEnclosureDismantling { .. },
+            | PlayerWork::StorageEnclosureDismantling { .. }
+            | PlayerWork::StructuralConstruction { .. },
         )
         | None => Err(PlayerWorkValidationError::PendingDirectConsumptionWithoutWork),
     }

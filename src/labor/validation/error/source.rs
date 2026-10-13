@@ -126,6 +126,16 @@ impl Error for PlayerWorkValidationError {
             | Self::StorageDismantlingDurationMismatch
             | Self::StorageDismantlingResourceDoubleBooked
             | Self::StorageDismantlingInventoryRevisionExhausted
+            | Self::StructuralConstructionMethodMissing
+            | Self::StructuralConstructionElementMissing
+            | Self::StructuralConstructionElementNotPlanned
+            | Self::StructuralConstructionElementNotGrounded
+            | Self::StructuralConstructionElementNotMaterialized
+            | Self::StructuralConstructionPlayerNotLocated
+            | Self::StructuralConstructionPlayerRemote
+            | Self::StructuralConstructionScheduleInvalid
+            | Self::StructuralConstructionDurationMismatch
+            | Self::StructuralConstructionRevisionExhausted
             | Self::PendingDirectConsumptionWithoutWork
             | Self::EatingConsumptionMissing
             | Self::EatingConsumptionMismatch

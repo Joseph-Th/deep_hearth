@@ -1,4 +1,4 @@
-//! Harness-side exact inventory binding for controlled structural materialization.
+//! Exact inventory binding for structural materialization.
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
@@ -9,10 +9,7 @@ use crate::inventory::{
 
 use super::super::state::StructuralElementId;
 
-/// Immutable fixture materialization selection for a planned member.
-///
-/// There is no runtime/public constructor. Player construction is outside current production scope;
-/// this setup-only binding intentionally omits joinery, wastage, tooling, labor, and duration.
+/// Immutable exact materialization selection for a planned member.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StructuralConstructionResolution {
@@ -39,9 +36,9 @@ impl StructuralConstructionResolution {
     }
 }
 
-/// Harness-side binding failure for controlled fixture materialization.
+/// Failure while binding exact inventory matter to one planned member.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum StructuralConstructionBindingError {
+pub enum StructuralConstructionBindingError {
     Inventory(ExplicitConsumptionSelectionError),
 }
 

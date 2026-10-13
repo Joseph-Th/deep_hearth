@@ -20,7 +20,8 @@ Current progression:
 | Crafting and equipment | Manual shaping, wear, service, recovery, primitive machines, copper upgrades, field instruments, specialist wire drawing, and settlement workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Primitive crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and the ordinary first/settlement foundry route. Compound-ore reduction is absent. |
-| Opening wilderness acquisition | Explicit-seed worlds generate a five-edge choice graph: forage at one step, an optional water branch, then a junction with separate stone/timber leaves. Observation is traversal-gated, unknown moves fail closed, physiology changes routing, and movement has load-sensitive body cost. General terrain/pathfinding, remote discovery, and hydrology remain absent. |
+| Opening wilderness acquisition | Seeded five-edge graph with forage, optional water, and separate stone/timber leaves. Observation and movement are edge-gated, physiology changes routing, and movement costs depend on carried load. General terrain/pathfinding, remote discovery, and hydrology remain absent. |
+| Structures | Grounded adjacent members use carried matter and timed work; load-bearing starts on completion. |
 
 ## Current integration frontier
 
@@ -30,7 +31,7 @@ These are current graph boundaries, not priorities.
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
 | Persistent local custody | General terrain/access generation, routed travel/haulage, delivery/path cost, and remote/general discovery. |
-| Structural physics | General player construction/deconstruction authorization. |
+| Structural physics | Non-grounded construction, joints/panels, deconstruction/salvage, and terrain support. |
 | Equipment maintenance | Maintenance tools and general transport to service sites. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
 | Finite fluid stores | Routed transport, pumping, mixing, and pressure networks. |
@@ -53,7 +54,7 @@ incomplete.
 | Loose surface matter | Persistent finite world-space records, traversal-gated neighbor orientation, exact-local gathering, reservation, survival cost, depletion, interruption cleanup, and conservation. Fresh worlds distribute forage/stone/timber across the opening graph; terrain/ecology and remote discovery remain absent. |
 | Energy and fluids | Finite typed energy stores with power/loss limits; finite homogeneous fluid stores with exact withdrawal/local observation. Fresh worlds place finite non-refilling water two authorized steps from spawn. General hydrology, flow/recharge, and remote fluid-source generation remain absent. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
-| Structures | Material-backed members, support topology, loads, damage, and failure cascades. |
+| Structures | Support/load/failure physics plus grounded hand-setting from exact material. |
 | Spatial and presentation | Checked voxel coordinates plus deterministic renderer-neutral texture and shader assembly. |
 
 ## Capability-only evaluation
@@ -77,7 +78,7 @@ ordinarily acquirable.
 | Logistics | General access generation, multi-step routing, haulage, delivery/transport, remote acquisition, container/hotbar presentation, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, reduction/smelting, alloying, forging, machining, and broad recycling. |
-| Maintenance/structures | Maintenance tools, general construction/deconstruction, demolition/salvage physics, bending, shear, torsion, buckling, joints, and terrain support. |
+| Maintenance/structures | Maintenance tools, construction/deconstruction/salvage, bending, shear, torsion, buckling, joints/panels, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, and pressure-dependent behavior. |
 | Ecology and society | Agriculture, soil/ecology/genetics, creatures, hunting/combat, workers, settlements, trade, economy, and migration. |

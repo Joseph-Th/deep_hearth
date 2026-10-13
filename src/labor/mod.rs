@@ -15,7 +15,8 @@ mod work_resources;
 pub use definitions::{
     LaborRegistry, ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition,
     ProspectingEquipmentProfile, ProspectingMethodId, ProspectingSpatialResolution,
-    SurfaceGatheringDefinition, SurfaceGatheringMethodId,
+    StructuralConstructionDefinition, StructuralConstructionMethodId, SurfaceGatheringDefinition,
+    SurfaceGatheringMethodId,
 };
 pub use lifecycle::{PlayerWorkCommitError, PlayerWorkStartError};
 pub use power_execution::{
@@ -36,7 +37,8 @@ pub use state::PlayerWorkState;
 pub use validation::PlayerWorkValidationError;
 pub use work::{
     DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerStepWork,
-    PlayerWork, ProspectingWork, StorageEnclosureDismantlingWork, SurfaceGatheringWork,
+    PlayerWork, ProspectingWork, StorageEnclosureDismantlingWork, StructuralConstructionWork,
+    SurfaceGatheringWork,
 };
 pub use work_resources::PlayerWorkResourceBudget;
 

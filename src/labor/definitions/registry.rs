@@ -10,7 +10,8 @@ use crate::material::MaterialRegistry;
 
 use super::{
     ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition, ProspectingMethodId,
-    SurfaceGatheringDefinition, SurfaceGatheringMethodId,
+    StructuralConstructionDefinition, StructuralConstructionMethodId, SurfaceGatheringDefinition,
+    SurfaceGatheringMethodId,
 };
 
 /// Immutable deterministic lookup for authored player-labor method semantics.
@@ -19,6 +20,8 @@ pub struct LaborRegistry {
     surface_gathering: BTreeMap<SurfaceGatheringMethodId, SurfaceGatheringDefinition>,
     manual_power: BTreeMap<ManualPowerMethodId, ManualPowerDefinition>,
     prospecting: BTreeMap<ProspectingMethodId, ProspectingDefinition>,
+    structural_construction:
+        BTreeMap<StructuralConstructionMethodId, StructuralConstructionDefinition>,
 }
 
 impl LaborRegistry {
@@ -26,6 +29,7 @@ impl LaborRegistry {
         surface_gathering_definitions: impl IntoIterator<Item = SurfaceGatheringDefinition>,
         manual_power_definitions: impl IntoIterator<Item = ManualPowerDefinition>,
         prospecting_definitions: impl IntoIterator<Item = ProspectingDefinition>,
+        structural_construction_definitions: impl IntoIterator<Item = StructuralConstructionDefinition>,
     ) -> Self {
         let mut surface_gathering = BTreeMap::new();
         for definition in surface_gathering_definitions {
@@ -54,10 +58,20 @@ impl LaborRegistry {
                 id.value()
             );
         }
+        let mut structural_construction = BTreeMap::new();
+        for definition in structural_construction_definitions {
+            let id = definition.id();
+            assert!(
+                structural_construction.insert(id, definition).is_none(),
+                "duplicate structural construction method {}",
+                id.value()
+            );
+        }
         Self {
             surface_gathering,
             manual_power,
             prospecting,
+            structural_construction,
         }
     }
 
@@ -92,6 +106,20 @@ impl LaborRegistry {
 
     pub fn prospecting_definitions(&self) -> impl Iterator<Item = &ProspectingDefinition> {
         self.prospecting.values()
+    }
+
+    #[must_use]
+    pub fn get_structural_construction(
+        &self,
+        id: StructuralConstructionMethodId,
+    ) -> Option<&StructuralConstructionDefinition> {
+        self.structural_construction.get(&id)
+    }
+
+    pub fn structural_construction_definitions(
+        &self,
+    ) -> impl Iterator<Item = &StructuralConstructionDefinition> {
+        self.structural_construction.values()
     }
 
     pub(crate) fn validate_references(

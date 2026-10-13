@@ -5,12 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Force;
-#[cfg(any(test, feature = "test-gameplay"))]
 use crate::inventory::ConsumedMaterialTrace;
 
 mod records;
 
-#[cfg(any(test, feature = "test-gameplay"))]
 pub(super) use records::StructuralElementConfiguration;
 pub use records::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
@@ -51,7 +49,6 @@ impl StructureState {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) const fn next_element_id(&self) -> u32 {
         self.next_element_id
     }
@@ -118,7 +115,6 @@ impl StructureState {
         self.dependents_by_support.get(&support)
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) fn insert_element(
         &mut self,
         record: StructuralElementRecord,
@@ -231,7 +227,6 @@ impl StructureState {
         assert!(self.elements.remove(&element).is_some());
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) fn activate_element(&mut self, element: StructuralElementId) {
         self.elements
             .get_mut(&element)
@@ -267,7 +262,6 @@ impl StructureState {
         }
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) fn set_embodied_matter(
         &mut self,
         element: StructuralElementId,

@@ -212,6 +212,17 @@ impl CompletionPlan {
         Cow::Owned(self.inventory_deposits.project(inventory))
     }
 
+    /// Projects the same-tick structure owner after production-owned stored-matter load changes.
+    pub(crate) fn project_structures_after_load<'structures>(
+        &self,
+        structures: &'structures crate::structural::StructureState,
+    ) -> Cow<'structures, crate::structural::StructureState> {
+        match &self.structural_load {
+            Some(load) => Cow::Owned(load.project(structures)),
+            None => Cow::Borrowed(structures),
+        }
+    }
+
     pub(crate) fn equipment_revision_steps(&self) -> u64 {
         u64::from(!self.equipment_outcomes.is_empty())
     }

@@ -145,7 +145,8 @@ pub(super) fn decide_player_death_effects(
         PlayerWork::Step { .. }
         | PlayerWork::ManualProduction { .. }
         | PlayerWork::Eating { .. }
-        | PlayerWork::Drinking { .. } => Ok(None),
+        | PlayerWork::Drinking { .. }
+        | PlayerWork::StructuralConstruction { .. } => Ok(None),
     }
 }
 

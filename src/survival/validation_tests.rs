@@ -28,7 +28,8 @@ fn finish_pending_consumption(registries: &Registries, state: &mut AppState) {
         | PlayerWork::ManualPower { .. }
         | PlayerWork::Prospecting { .. }
         | PlayerWork::EquipmentMaintenance { .. }
-        | PlayerWork::StorageEnclosureDismantling { .. }) => {
+        | PlayerWork::StorageEnclosureDismantling { .. }
+        | PlayerWork::StructuralConstruction { .. }) => {
             panic!("pending-consumption fixture has wrong active work: {other:?}")
         }
     };

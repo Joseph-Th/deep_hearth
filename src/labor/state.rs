@@ -9,7 +9,7 @@ use crate::inventory::{InventoryState, StockpileId};
 
 use super::work::{
     EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
-    StorageEnclosureDismantlingWork, SurfaceGatheringWork,
+    StorageEnclosureDismantlingWork, StructuralConstructionWork, SurfaceGatheringWork,
 };
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
@@ -41,6 +41,14 @@ impl PlayerWorkState {
     pub(crate) const fn future_logistics_revision_demand(&self) -> u64 {
         match self.active {
             Some(work) => work.future_logistics_revision_demand(),
+            None => 0,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn future_structure_revision_demand(&self) -> u64 {
+        match self.active {
+            Some(work) => work.future_structure_revision_demand(),
             None => 0,
         }
     }
@@ -140,6 +148,17 @@ impl PlayerWorkState {
     ) -> Option<StorageEnclosureDismantlingWork> {
         self.active
             .and_then(PlayerWork::storage_dismantling)
+            .filter(|work| work.completes_at() == tick)
+    }
+
+    /// Returns admitted structural-construction work that completes on `tick`, if any.
+    #[must_use]
+    pub(crate) fn structural_construction_due_at(
+        &self,
+        tick: SimulationTick,
+    ) -> Option<StructuralConstructionWork> {
+        self.active
+            .and_then(PlayerWork::structural_construction)
             .filter(|work| work.completes_at() == tick)
     }
 

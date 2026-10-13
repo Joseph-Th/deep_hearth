@@ -7,7 +7,8 @@ use crate::geology::GeologicalEvidenceKind;
 use crate::labor::{
     LaborRegistry, ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition,
     ProspectingEquipmentProfile, ProspectingMethodId, ProspectingSpatialResolution,
-    SurfaceGatheringDefinition, SurfaceGatheringMethodId,
+    StructuralConstructionDefinition, StructuralConstructionMethodId, SurfaceGatheringDefinition,
+    SurfaceGatheringMethodId,
 };
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
@@ -43,6 +44,8 @@ pub const PROSPECTING_LOCAL_TRANSECT: ProspectingMethodId = ProspectingMethodId:
 pub const PROSPECTING_INDEXED_CHANNEL_SURVEY: ProspectingMethodId = ProspectingMethodId::new(5);
 pub const PROSPECTING_CHANNEL_COMPOSITE_SURVEY: ProspectingMethodId = ProspectingMethodId::new(6);
 pub const PROSPECTING_SHALLOW_CORE_SURVEY: ProspectingMethodId = ProspectingMethodId::new(7);
+pub const STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER: StructuralConstructionMethodId =
+    StructuralConstructionMethodId::new(1);
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
@@ -259,10 +262,24 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             .with_excavation_hardness_resolution(Pressure::from_pascals(20_000_000))
             .with_resource_mass_resolution(Mass::from_milligrams(250_000)),
         ],
+        [StructuralConstructionDefinition::new(
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            Mass::from_milligrams(10_000_000),
+            TickSpan::new(100),
+            SurvivalExertion::new(
+                Energy::from_nanojoules(1_500_000_000_000),
+                Volume::from_microliters(350),
+            ),
+        )],
     )
 }
 
 #[cfg(test)]
 pub(super) fn empty_labor_registry() -> LaborRegistry {
-    LaborRegistry::new(std::iter::empty(), std::iter::empty(), std::iter::empty())
+    LaborRegistry::new(
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    )
 }

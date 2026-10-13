@@ -28,6 +28,7 @@ impl StructuralMaterialRequirement {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) const fn material(self) -> MaterialId {
         self.material
     }

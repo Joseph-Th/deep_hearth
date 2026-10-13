@@ -8,7 +8,8 @@ use crate::production::ProductionJobId;
 
 use super::{
     DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerStepWork,
-    ProspectingWork, StorageEnclosureDismantlingWork, SurfaceGatheringWork,
+    ProspectingWork, StorageEnclosureDismantlingWork, StructuralConstructionWork,
+    SurfaceGatheringWork,
 };
 
 /// Durable activity currently monopolizing the local player's labor.
@@ -45,6 +46,9 @@ pub enum PlayerWork {
     StorageEnclosureDismantling {
         work: StorageEnclosureDismantlingWork,
     },
+    StructuralConstruction {
+        work: StructuralConstructionWork,
+    },
 }
 
 impl PlayerWork {
@@ -61,7 +65,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
-            | Self::StorageEnclosureDismantling { .. } => 0,
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => 0,
         }
     }
 
@@ -78,7 +83,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
-            | Self::StorageEnclosureDismantling { .. } => 0,
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => 0,
         }
     }
 
@@ -98,7 +104,8 @@ impl PlayerWork {
             | Self::Prospecting { .. }
             | Self::Eating { .. }
             | Self::Drinking { .. }
-            | Self::EquipmentMaintenance { .. } => 0,
+            | Self::EquipmentMaintenance { .. }
+            | Self::StructuralConstruction { .. } => 0,
         }
     }
 
@@ -115,7 +122,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
-            | Self::StorageEnclosureDismantling { .. } => 0,
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => 0,
         }
     }
 
@@ -135,6 +143,25 @@ impl PlayerWork {
             | Self::Prospecting { .. }
             | Self::Eating { .. }
             | Self::Drinking { .. }
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => 0,
+        }
+    }
+
+    /// Future structure-owner revisions still owed directly by this work after admission.
+    #[must_use]
+    pub(in crate::labor) const fn future_structure_revision_demand(self) -> u64 {
+        match self {
+            Self::StructuralConstruction { .. } => 1,
+            Self::Step { .. }
+            | Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. } => 0,
         }
     }
@@ -151,7 +178,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
-            | Self::StorageEnclosureDismantling { .. } => None,
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => None,
         }
     }
 
@@ -167,7 +195,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
-            | Self::StorageEnclosureDismantling { .. } => None,
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => None,
         }
     }
 
@@ -184,6 +213,7 @@ impl PlayerWork {
             Self::StorageEnclosureDismantling { work } => {
                 Some((work.started_at(), work.completes_at()))
             }
+            Self::StructuralConstruction { work } => Some((work.started_at(), work.completes_at())),
             Self::ManualProduction { .. } | Self::Mining { .. } => None,
         }
     }
@@ -200,7 +230,8 @@ impl PlayerWork {
             | Self::Prospecting { .. }
             | Self::Eating { .. }
             | Self::Drinking { .. }
-            | Self::StorageEnclosureDismantling { .. } => None,
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => None,
         }
     }
 
@@ -216,7 +247,8 @@ impl PlayerWork {
             | Self::Prospecting { .. }
             | Self::Eating { .. }
             | Self::Drinking { .. }
-            | Self::EquipmentMaintenance { .. } => None,
+            | Self::EquipmentMaintenance { .. }
+            | Self::StructuralConstruction { .. } => None,
         }
     }
 
@@ -225,6 +257,24 @@ impl PlayerWork {
         match self {
             Self::Step { work } => Some(work),
             Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn structural_construction(self) -> Option<StructuralConstructionWork> {
+        match self {
+            Self::StructuralConstruction { work } => Some(work),
+            Self::Step { .. }
+            | Self::SurfaceGathering { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -248,7 +298,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
-            | Self::StorageEnclosureDismantling { .. } => None,
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => None,
         }
     }
 }

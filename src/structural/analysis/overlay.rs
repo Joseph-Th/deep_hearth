@@ -68,7 +68,6 @@ impl StructuralAnalysisOverlay {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn activate(element: StructuralElementId) -> Self {
         Self {
             #[cfg(test)]

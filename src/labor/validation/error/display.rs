@@ -394,6 +394,33 @@ impl Display for PlayerWorkValidationError {
             Self::StorageDismantlingInventoryRevisionExhausted => formatter.write_str(
                 "active storage dismantling cannot reserve its completion inventory revisions",
             ),
+            Self::StructuralConstructionMethodMissing => formatter
+                .write_str("structural construction work references a missing authored method"),
+            Self::StructuralConstructionElementMissing => formatter
+                .write_str("structural construction work references a missing member"),
+            Self::StructuralConstructionElementNotPlanned => formatter.write_str(
+                "structural construction work requires a member that remains in planned state",
+            ),
+            Self::StructuralConstructionElementNotGrounded => formatter.write_str(
+                "ordinary structural construction currently requires a grounded member",
+            ),
+            Self::StructuralConstructionElementNotMaterialized => formatter.write_str(
+                "structural construction work requires exact materialized member matter",
+            ),
+            Self::StructuralConstructionPlayerNotLocated => formatter.write_str(
+                "structural construction requires initialized player world position",
+            ),
+            Self::StructuralConstructionPlayerRemote => formatter.write_str(
+                "structural construction member is no longer local to the player",
+            ),
+            Self::StructuralConstructionScheduleInvalid => formatter
+                .write_str("structural construction work has an invalid persisted schedule"),
+            Self::StructuralConstructionDurationMismatch => formatter.write_str(
+                "structural construction duration disagrees with the authored labor method",
+            ),
+            Self::StructuralConstructionRevisionExhausted => formatter.write_str(
+                "active structural construction cannot reserve its activation revision",
+            ),
             Self::PendingDirectConsumptionWithoutWork => formatter.write_str(
                 "pending direct consumption exists without matching eating or drinking work",
             ),

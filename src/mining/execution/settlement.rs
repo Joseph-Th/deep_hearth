@@ -145,6 +145,11 @@ pub(crate) struct ValidatedMiningSettlement {
 }
 
 impl ValidatedMiningSettlement {
+    #[must_use]
+    pub(crate) const fn mutates_structures(&self) -> bool {
+        self.structural_load.is_some()
+    }
+
     #[cfg(test)]
     pub(crate) fn commit(
         self,

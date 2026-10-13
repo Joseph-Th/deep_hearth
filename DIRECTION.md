@@ -102,6 +102,13 @@ Exact water quantity remains unknown unless the actor visits its branch. This cl
 distributed opening slice without claiming terrain geometry, general route generation/pathfinding, ecology,
 hydrology/flow/recharge, or broader world discovery.
 
+The structural owner now also has one ordinary direct-player construction path below shelter semantics. An
+admitted player may plan a grounded member only in one face-adjacent voxel that does not contain the player, commit exact carried
+rigid material into that planned member, and spend authored hand-setting work plus survival reserves before it
+becomes load-bearing. In-progress work survives save/load and production-owned same-tick structural loads are
+projected before activation. This is a construction substrate, not a shelter implementation: non-grounded
+framing, joints, panels, deconstruction, weather/exposure, sleep, enclosure, and shelter benefit remain open.
+
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a
 small stone-and-timber toolkit. Geological clues may establish a future objective, but copper extraction and ore

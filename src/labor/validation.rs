@@ -6,6 +6,9 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::logistics::{assess_player_carrying, validate_player_stockpile_access};
 use crate::production::player_move_production_site_conflict;
 use crate::registry::Registries;
+use crate::structural::{
+    StructuralLifecycle, bounds_are_local, calculate_prismatic_material_mass_ceiling,
+};
 use crate::survival::Vitality;
 
 use super::{
@@ -179,6 +182,14 @@ pub(crate) fn validate_loaded_player_work(
                 available_hydration,
             )
         }
+        PlayerWork::StructuralConstruction { work } => validate_structural_construction_work(
+            registries,
+            state,
+            &active_jobs,
+            work,
+            available_energy,
+            available_hydration,
+        ),
     }?;
     validate_direct_consumption_binding(state, Some(work))
 }
@@ -341,6 +352,69 @@ fn validate_mining_work(
         available_hydration,
         method.exertion(),
         remaining,
+    )
+}
+
+fn validate_structural_construction_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    work: crate::labor::StructuralConstructionWork,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    if active_jobs.has_any() {
+        return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+    }
+    let method = registries
+        .labor()
+        .get_structural_construction(work.method())
+        .copied()
+        .ok_or(PlayerWorkValidationError::StructuralConstructionMethodMissing)?;
+    let player_position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .ok_or(PlayerWorkValidationError::StructuralConstructionPlayerNotLocated)?;
+    let record = state
+        .structures()
+        .get_element(work.element())
+        .ok_or(PlayerWorkValidationError::StructuralConstructionElementMissing)?;
+    if record.lifecycle() != StructuralLifecycle::Planned {
+        return Err(PlayerWorkValidationError::StructuralConstructionElementNotPlanned);
+    }
+    if !record.is_grounded() {
+        return Err(PlayerWorkValidationError::StructuralConstructionElementNotGrounded);
+    }
+    if !bounds_are_local(record.bounds(), player_position) {
+        return Err(PlayerWorkValidationError::StructuralConstructionPlayerRemote);
+    }
+    let required = calculate_prismatic_material_mass_ceiling(
+        registries.materials(),
+        record.material(),
+        record.cross_section(),
+        record.length(),
+    )
+    .map_err(|_| PlayerWorkValidationError::StructuralConstructionElementNotMaterialized)?;
+    if required.is_zero() || record.embodied_mass() != required {
+        return Err(PlayerWorkValidationError::StructuralConstructionElementNotMaterialized);
+    }
+    let schedule =
+        project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
+            .ok_or(PlayerWorkValidationError::StructuralConstructionScheduleInvalid)?;
+    if method.duration_for_mass(required) != Some(schedule.duration) {
+        return Err(PlayerWorkValidationError::StructuralConstructionDurationMismatch);
+    }
+    if !state.can_spend_structure_revisions(0) {
+        return Err(PlayerWorkValidationError::StructuralConstructionRevisionExhausted);
+    }
+    validate_remaining_resources(
+        registries,
+        state,
+        available_energy,
+        available_hydration,
+        method.exertion(),
+        schedule.remaining,
     )
 }
 

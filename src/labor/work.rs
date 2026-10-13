@@ -8,6 +8,7 @@ mod movement;
 mod player;
 mod prospecting;
 mod storage_dismantling;
+mod structural_construction;
 
 pub use consumption::{DrinkingWork, EatingWork};
 pub use gathering::SurfaceGatheringWork;
@@ -17,3 +18,4 @@ pub use movement::PlayerStepWork;
 pub use player::PlayerWork;
 pub use prospecting::ProspectingWork;
 pub use storage_dismantling::StorageEnclosureDismantlingWork;
+pub use structural_construction::StructuralConstructionWork;

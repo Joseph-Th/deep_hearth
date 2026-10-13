@@ -14,7 +14,6 @@ use super::state::StructuralLifecycle;
 use super::state::{StructuralElementId, StructuralLoadKind};
 
 mod errors;
-#[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
 mod transaction;
 
@@ -22,12 +21,12 @@ pub use errors::{StructuralCommitError, StructuralMutationError};
 
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fixture::validate_activate_structural_element;
+pub(crate) use fixture::validate_activate_structural_element_in;
 #[cfg(test)]
 pub(crate) use fixture::{
     validate_link_support, validate_remove_structural_element, validate_remove_support,
     validate_set_structural_load,
 };
-#[cfg(test)]
 pub(crate) use transaction::ValidatedStructuralMutation;
 pub(crate) use transaction::{
     StructuralMutationOutcome, ValidatedStructuralLoadBatch, ValidatedStructuralLoadChange,

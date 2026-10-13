@@ -1,9 +1,10 @@
-//! Controlled structural topology mutation used by tests and gameplay capability setup.
+//! Structural topology mutations, with activation shared by ordinary construction completion.
 
 use std::collections::BTreeSet;
 
 #[cfg(test)]
 use crate::core::quantity::Force;
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::core::state::AppState;
 use crate::registry::Registries;
 
@@ -19,10 +20,10 @@ use super::transaction::{
 use super::{StructuralCommitError, StructuralMutationError};
 
 fn validate_common_element(
-    state: &AppState,
+    structures: &crate::structural::StructureState,
     element: StructuralElementId,
 ) -> Result<StructuralLifecycle, StructuralMutationError> {
-    let Some(record) = state.structures().get_element(element) else {
+    let Some(record) = structures.get_element(element) else {
         return Err(StructuralMutationError::UnknownElement { element });
     };
     if record.lifecycle() == StructuralLifecycle::Failed {
@@ -33,27 +34,25 @@ fn validate_common_element(
 
 fn build_plan(
     registries: &Registries,
-    state: &AppState,
+    structures: &crate::structural::StructureState,
     operation: StructuralMutation,
 ) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
-    let expected_revision = state.structures().revision();
+    let expected_revision = structures.revision();
     let next_revision = expected_revision
         .checked_add(1)
         .ok_or(StructuralMutationError::RevisionExhausted)?;
-    validate_operation_commit_state(state.structures(), operation).map_err(
-        |error| match error {
-            StructuralCommitError::StaleRevision {
-                expected: _expected,
-                actual: _actual,
-            } => StructuralMutationError::RevisionExhausted,
-            StructuralCommitError::StateChanged { element } => {
-                StructuralMutationError::UnknownElement { element }
-            }
-            StructuralCommitError::SupportStateChanged { element, support } => {
-                StructuralMutationError::MissingSupport { element, support }
-            }
-        },
-    )?;
+    validate_operation_commit_state(structures, operation).map_err(|error| match error {
+        StructuralCommitError::StaleRevision {
+            expected: _expected,
+            actual: _actual,
+        } => StructuralMutationError::RevisionExhausted,
+        StructuralCommitError::StateChanged { element } => {
+            StructuralMutationError::UnknownElement { element }
+        }
+        StructuralCommitError::SupportStateChanged { element, support } => {
+            StructuralMutationError::MissingSupport { element, support }
+        }
+    })?;
     let overlay = match operation {
         #[cfg(test)]
         StructuralMutation::LinkSupport { element, support } => {
@@ -84,10 +83,10 @@ fn build_plan(
         #[cfg(test)]
         StructuralMutation::RemoveElement { element } => {
             let mut seeds = BTreeSet::new();
-            if let Some(supports) = state.structures().supports(element) {
+            if let Some(supports) = structures.supports(element) {
                 seeds.extend(supports);
             }
-            if let Some(dependents) = state.structures().dependents(element) {
+            if let Some(dependents) = structures.dependents(element) {
                 seeds.extend(dependents);
             }
             seeds
@@ -99,7 +98,7 @@ fn build_plan(
     let analysis = analyze_structure_components_with_overlay(
         registries.structural(),
         registries.materials(),
-        state.structures(),
+        structures,
         overlay,
         &seeds,
     )
@@ -120,7 +119,7 @@ pub(crate) fn validate_link_support(
     element: StructuralElementId,
     support: StructuralElementId,
 ) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
-    validate_common_element(state, element)?;
+    validate_common_element(state.structures(), element)?;
     let Some(element_record) = state.structures().get_element(element) else {
         return Err(StructuralMutationError::UnknownElement { element });
     };
@@ -154,7 +153,7 @@ pub(crate) fn validate_link_support(
     }
     build_plan(
         registries,
-        state,
+        state.structures(),
         StructuralMutation::LinkSupport { element, support },
     )
 }
@@ -167,7 +166,7 @@ pub(crate) fn validate_remove_support(
     element: StructuralElementId,
     support: StructuralElementId,
 ) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
-    validate_common_element(state, element)?;
+    validate_common_element(state.structures(), element)?;
     if state.structures().get_element(support).is_none() {
         return Err(StructuralMutationError::UnknownSupport { support });
     }
@@ -180,7 +179,7 @@ pub(crate) fn validate_remove_support(
     }
     build_plan(
         registries,
-        state,
+        state.structures(),
         StructuralMutation::RemoveSupport { element, support },
     )
 }
@@ -216,46 +215,53 @@ pub(crate) fn validate_remove_structural_element(
     }
     build_plan(
         registries,
-        state,
+        state.structures(),
         StructuralMutation::RemoveElement { element },
     )
 }
 
 /// Validates transition from construction planning into the active load-bearing graph.
-pub(crate) fn validate_activate_structural_element(
+pub(crate) fn validate_activate_structural_element_in(
     registries: &Registries,
-    state: &AppState,
+    structures: &crate::structural::StructureState,
     element: StructuralElementId,
 ) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
-    let lifecycle = validate_common_element(state, element)?;
+    let lifecycle = validate_common_element(structures, element)?;
     if lifecycle != StructuralLifecycle::Planned {
         return Err(StructuralMutationError::ElementNotPlanned { element });
     }
-    let Some(record) = state.structures().get_element(element) else {
+    let Some(record) = structures.get_element(element) else {
         return Err(StructuralMutationError::UnknownElement { element });
     };
     if record.embodied_mass().is_zero() {
         return Err(StructuralMutationError::ActivationUnmaterialized { element });
     }
     if !record.is_grounded() {
-        let has_active_support = state
-            .structures()
-            .supports(element)
-            .is_some_and(|supports| {
-                supports.into_iter().any(|support| {
-                    state
-                        .structures()
-                        .get_element(support)
-                        .is_some_and(|candidate| {
-                            candidate.lifecycle() == StructuralLifecycle::Active
-                        })
-                })
-            });
+        let has_active_support = structures.supports(element).is_some_and(|supports| {
+            supports.into_iter().any(|support| {
+                structures
+                    .get_element(support)
+                    .is_some_and(|candidate| candidate.lifecycle() == StructuralLifecycle::Active)
+            })
+        });
         if !has_active_support {
             return Err(StructuralMutationError::ActivationUnsupported { element });
         }
     }
-    build_plan(registries, state, StructuralMutation::Activate { element })
+    build_plan(
+        registries,
+        structures,
+        StructuralMutation::Activate { element },
+    )
+}
+
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) fn validate_activate_structural_element(
+    registries: &Registries,
+    state: &AppState,
+    element: StructuralElementId,
+) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
+    validate_activate_structural_element_in(registries, state.structures(), element)
 }
 
 /// Validates an explicit external load change and resolves all resulting cracks and failures.
@@ -267,7 +273,7 @@ pub(crate) fn validate_set_structural_load(
     kind: StructuralLoadKind,
     load: Force,
 ) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
-    validate_common_element(state, element)?;
+    validate_common_element(state.structures(), element)?;
     if matches!(
         kind,
         StructuralLoadKind::Equipment
@@ -290,7 +296,7 @@ pub(crate) fn validate_set_structural_load(
     }
     build_plan(
         registries,
-        state,
+        state.structures(),
         StructuralMutation::SetLoadContribution {
             element,
             kind,

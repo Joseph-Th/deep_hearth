@@ -1,8 +1,7 @@
-//! Fixture-only geometry-constrained materialization of planned structural members.
+//! Geometry-constrained materialization of planned structural members from exact inventory matter.
 //!
-//! Geometry and material density determine exact conservative solid mass for controlled starting
-//! states. This is not player construction and does not authorize labor, tools, joints, placement
-//! waste, or build duration.
+//! This owner moves rigid material into a planned member and establishes self-weight. Player labor,
+//! locality, duration, and final activation are coordinated by the ordinary construction wrapper.
 
 use crate::core::quantity::{AggregateMass, Force, Mass};
 use crate::core::state::AppState;
@@ -23,9 +22,11 @@ mod binding;
 mod errors;
 mod requirement;
 
-use binding::StructuralConstructionResolution;
-pub(crate) use binding::bind_structural_construction_selection;
-pub(crate) use errors::{StructuralConstructionCommitError, StructuralConstructionError};
+pub use binding::StructuralConstructionBindingError;
+pub(crate) use binding::{
+    StructuralConstructionResolution, bind_structural_construction_selection,
+};
+pub use errors::{StructuralConstructionCommitError, StructuralConstructionError};
 use requirement::resolve_required_mass;
 pub(crate) use requirement::resolve_structural_material_requirement;
 
@@ -49,10 +50,9 @@ impl ValidatedStructuralConstruction {
         self.self_weight
     }
 
-    /// Commits both owners only after rechecking both revisions and the target lifecycle.
-    pub(crate) fn commit(
-        self,
-        state: &mut AppState,
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
     ) -> Result<(), StructuralConstructionCommitError> {
         let actual_structure_revision = state.structures().revision();
         if actual_structure_revision != self.expected_structure_revision {
@@ -88,16 +88,29 @@ impl ValidatedStructuralConstruction {
             }
         }
         self.egress.assert_matches_state(state.inventory());
+        Ok(())
+    }
 
+    pub(crate) fn apply(self, state: &mut AppState) {
         if let Some(stockpile_load) = self.stockpile_load {
-            stockpile_load
-                .commit(state)
-                .map_err(StructuralConstructionCommitError::Structure)?;
+            stockpile_load.commit(state).unwrap_or_else(|error| {
+                panic!("prechecked structural source load changed: {error}")
+            });
         }
         apply_material_egress(state.inventory_state_mut(), self.egress);
         let structures = state.structure_state_mut();
         structures.set_embodied_matter(self.element, self.material, self.self_weight);
         structures.apply_revision(self.next_structure_revision);
+    }
+
+    /// Commits both owners only after rechecking both revisions and the target lifecycle.
+    #[cfg(any(test, feature = "test-gameplay"))]
+    pub(crate) fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<(), StructuralConstructionCommitError> {
+        self.precheck(state)?;
+        self.apply(state);
         Ok(())
     }
 }

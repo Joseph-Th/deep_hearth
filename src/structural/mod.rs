@@ -1,14 +1,13 @@
 //! Owns structural definitions, support graphs, load analysis, damage, and canonical mutation.
 
 mod analysis;
-#[cfg(any(test, feature = "test-gameplay"))]
 mod construction_execution;
 mod definitions;
-#[cfg(any(test, feature = "test-gameplay"))]
 mod element_execution;
 mod geometry;
 mod load;
 mod member_projection;
+mod player_construction;
 mod state;
 mod structural_execution;
 mod support_index;
@@ -34,6 +33,13 @@ pub use member_projection::{
     PrismaticMemberLoadProjection, PrismaticMemberLoadRequest, StructuralMemberLoadProjectionError,
     project_prismatic_member_load,
 };
+pub use player_construction::{
+    PlayerStructuralConstructionCommitError, PlayerStructuralConstructionError,
+    ValidatedPlayerStructuralConstructionStart, validate_start_player_structural_construction,
+};
+pub(crate) use player_construction::{
+    apply_structural_construction_tick, bounds_are_local, decide_structural_construction_tick,
+};
 pub use state::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
     StructuralLoadKind, StructureState, StructureValidationError,
@@ -41,21 +47,27 @@ pub use state::{
 pub(crate) use structural_execution::StructuralMutationOutcome;
 pub use structural_execution::{StructuralCommitError, StructuralMutationError};
 
-#[cfg(test)]
-pub(crate) use element_execution::AddStructuralElementError;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use element_execution::add_structural_element;
-#[cfg(test)]
+pub use element_execution::{
+    AddStructuralElementError, GroundedStructuralElementPlan,
+    PlanPlayerStructuralElementCommitError, PlanPlayerStructuralElementError,
+    ValidatedPlayerStructuralElementPlan, validate_plan_player_grounded_structural_element,
+};
 pub(crate) use structural_execution::ValidatedStructuralMutation;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use structural_execution::validate_activate_structural_element;
+pub(crate) use structural_execution::validate_activate_structural_element_in;
 
 #[cfg(test)]
 pub(crate) use structural_execution::{
     validate_link_support, validate_remove_structural_element, validate_set_structural_load,
 };
 
-#[cfg(feature = "test-gameplay")]
+pub use construction_execution::{
+    StructuralConstructionBindingError, StructuralConstructionCommitError,
+    StructuralConstructionError,
+};
 pub(crate) use construction_execution::{
     bind_structural_construction_selection, resolve_structural_material_requirement,
     validate_structural_construction,

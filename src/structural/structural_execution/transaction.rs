@@ -10,7 +10,6 @@ use super::super::state::{StructuralElementId, StructuralLoadKind, StructureStat
 use super::StructuralCommitError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg(any(test, feature = "test-gameplay"))]
 pub(super) enum StructuralMutation {
     #[cfg(test)]
     LinkSupport {
@@ -23,9 +22,12 @@ pub(super) enum StructuralMutation {
         support: StructuralElementId,
     },
     #[cfg(test)]
-    RemoveElement { element: StructuralElementId },
-    #[cfg(any(test, feature = "test-gameplay"))]
-    Activate { element: StructuralElementId },
+    RemoveElement {
+        element: StructuralElementId,
+    },
+    Activate {
+        element: StructuralElementId,
+    },
     #[cfg(test)]
     SetLoadContribution {
         element: StructuralElementId,
@@ -37,7 +39,6 @@ pub(super) enum StructuralMutation {
 /// Validated structural mutation bound to one exact subsystem revision and resolved cascade.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) struct ValidatedStructuralMutation {
     operation: StructuralMutation,
     expected_revision: u64,
@@ -45,7 +46,6 @@ pub(crate) struct ValidatedStructuralMutation {
     analysis: StructuralAnalysis,
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
 impl ValidatedStructuralMutation {
     pub(super) fn new(
         operation: StructuralMutation,
@@ -174,6 +174,18 @@ impl ValidatedStructuralLoadChange {
             None => Ok(None),
         }
     }
+
+    #[must_use]
+    pub(crate) fn project(&self, structures: &StructureState) -> StructureState {
+        assert_eq!(structures.revision(), self.expected_revision);
+        let mut projected = structures.clone();
+        if let Some(batch) = &self.structural {
+            apply_owned_loads(&mut projected, batch.kind, batch.loads.clone());
+            apply_damage_events(&mut projected, batch.analysis.damage_events());
+            projected.apply_revision(batch.next_revision);
+        }
+        projected
+    }
 }
 
 impl ValidatedStructuralLoadBatch {
@@ -245,7 +257,6 @@ impl StructuralMutationOutcome {
     }
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
 pub(super) fn validate_operation_commit_state(
     structures: &StructureState,
     operation: StructuralMutation,
@@ -263,7 +274,6 @@ pub(super) fn validate_operation_commit_state(
         StructuralMutation::RemoveElement { element } => {
             validate_element_removal_state(structures, element)?
         }
-        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::Activate { element } => validate_element_exists(structures, element)?,
         #[cfg(test)]
         StructuralMutation::SetLoadContribution { element, .. } => {
@@ -273,7 +283,6 @@ pub(super) fn validate_operation_commit_state(
     Ok(())
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
 fn validate_element_exists(
     structures: &StructureState,
     element: StructuralElementId,
@@ -326,7 +335,6 @@ fn validate_element_removal_state(
     Ok(())
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
 fn apply_operation_unchecked(structures: &mut StructureState, operation: StructuralMutation) {
     match operation {
         #[cfg(test)]
@@ -341,7 +349,6 @@ fn apply_operation_unchecked(structures: &mut StructureState, operation: Structu
         StructuralMutation::RemoveElement { element } => {
             structures.remove_element(element);
         }
-        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::Activate { element } => {
             structures.activate_element(element);
         }

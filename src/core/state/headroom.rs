@@ -72,11 +72,15 @@ impl AppState {
     }
 
     pub(crate) fn future_nonproduction_structure_revision_demand(&self) -> u64 {
-        // Only supported mining destinations require a structure-owned load mutation when their
-        // retained output settles. Support assignment changes reproject this demand atomically.
+        // Supported mining destinations and active direct construction both retain future
+        // structure-owner mutations. Support assignment changes reproject mining demand atomically.
         self.systems
             .mining
             .future_supported_settlement_count(&self.systems.inventory)
+            .checked_add(self.systems.player_work.future_structure_revision_demand())
+            .unwrap_or_else(|| {
+                unreachable!("resident nonproduction structural revision demand fits u64")
+            })
     }
 
     pub(crate) fn retained_mining_settlement_count_for_stockpile(

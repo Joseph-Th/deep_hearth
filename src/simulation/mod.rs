@@ -34,6 +34,9 @@ use crate::production::{
     apply_completion_plan, decide_due_completions,
 };
 use crate::registry::Registries;
+use crate::structural::{
+    StructuralElementId, apply_structural_construction_tick, decide_structural_construction_tick,
+};
 use crate::surface::{
     SurfaceGatheringOutcome, SurfaceGatheringTickPlan, apply_surface_gathering_tick,
     decide_surface_gathering_tick,
@@ -57,6 +60,7 @@ pub struct TickOutcome {
     manual_power: Option<ManualPowerOutcome>,
     equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
     storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
+    structural_construction: Option<StructuralElementId>,
     field_prospecting: Option<FieldProspectingOutcome>,
     survival: Option<SurvivalAssessment>,
 }
@@ -117,6 +121,12 @@ impl TickOutcome {
         self.storage_enclosure_dismantling.as_ref()
     }
 
+    /// Returns the grounded structural member that became load-bearing this tick, if any.
+    #[must_use]
+    pub const fn structural_construction(&self) -> Option<StructuralElementId> {
+        self.structural_construction
+    }
+
     /// Returns the geological observation acquired by field prospecting on this tick, if any.
     #[must_use]
     pub const fn field_prospecting(&self) -> Option<FieldProspectingOutcome> {
@@ -146,6 +156,7 @@ impl TickOutcome {
             manual_power,
             equipment_maintenance,
             storage_enclosure_dismantling,
+            structural_construction,
             field_prospecting,
             survival: _,
         } = self;
@@ -158,6 +169,7 @@ impl TickOutcome {
             manual_power.is_some(),
             equipment_maintenance.is_some(),
             storage_enclosure_dismantling.is_some(),
+            structural_construction.is_some(),
             field_prospecting.is_some(),
         ]
         .into_iter()
@@ -212,6 +224,7 @@ fn decide_automatic_mining_output(
     next_tick: SimulationTick,
     mining_plan: Option<MiningTickPlan>,
     inventory_owner_busy: bool,
+    structure_owner_busy: bool,
 ) -> Result<Option<ValidatedMiningSettlement>, TickError> {
     // Mining recovery is incidental to the current player action. If another scheduled phase owns
     // an inventory mutation this tick, preserve durable awaiting-settlement custody and retry next
@@ -234,6 +247,7 @@ fn decide_automatic_mining_output(
         return Ok(None);
     };
     match planned {
+        Ok(settlement) if structure_owner_busy && settlement.mutates_structures() => Ok(None),
         Ok(settlement) => Ok(Some(settlement)),
         // A support can fail after mining admission. Extraction remains authoritative and the
         // durable awaiting-settlement state retries automatically after the physical blocker is
@@ -293,13 +307,20 @@ pub fn advance_tick(
     };
     let next_tick = SimulationTick::new(next_value);
 
-    // Due jobs are indexed by exact authoritative tick. Downstream enclosure dismantling uses the
-    // projected inventory after those deposits because the completion phase commits first.
+    // Due jobs are indexed by exact authoritative tick. Downstream enclosure dismantling and
+    // structural activation use projected owner state because production completion commits first.
     // Snapshot isolation is intentional: every other phase decides against the pre-tick snapshot
     // and defers same-tick completion effects by one tick. Revision-budget prechecks make that
     // deferral fail-closed (a newly freed store, tool, or calorie is denied this tick rather than
     // admitted against stale facts), so no additional projection is needed for those phases.
     let mut completion_plan = decide_due_completions(registries, state, next_tick)?;
+    let projected_structures = completion_plan.project_structures_after_load(state.structures());
+    let structural_construction_plan = decide_structural_construction_tick(
+        registries,
+        state,
+        projected_structures.as_ref(),
+        next_tick,
+    );
     let surface_gathering_plan =
         decide_surface_gathering_after_completions(registries, state, &completion_plan, next_tick)?;
     let storage_enclosure_dismantling_plan = decide_storage_dismantling_after_completions(
@@ -376,6 +397,7 @@ pub fn advance_tick(
         next_tick,
         mining_plan,
         inventory_owner_busy,
+        structural_construction_plan.is_some(),
     )?;
     require_revision_capacity(
         state.equipment().revision(),
@@ -411,6 +433,8 @@ pub fn advance_tick(
         completions: production_completions,
         availability_changes: production_availability_changes,
     } = apply_completion_plan(state, completion_plan)?;
+    let structural_construction =
+        apply_structural_construction_tick(state, structural_construction_plan);
     let _completed_mining_job = apply_mining_tick(state, mining_plan);
     let mining_output =
         automatic_mining_output.map(|settlement| settlement.apply_prechecked(state));
@@ -439,6 +463,7 @@ pub fn advance_tick(
         manual_power,
         equipment_maintenance,
         storage_enclosure_dismantling,
+        structural_construction,
         field_prospecting,
         survival,
     })
