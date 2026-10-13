@@ -153,10 +153,10 @@ _ORDINARY_DIGEST_FIELDS = {
         "movement",
         "pressure-route",
         "resource-runway",
+        "camp-strategy",
+        "camp-projects",
         "organic-adaptation",
-        "storage-choice",
-        "tool-choice",
-        "material-choice",
+        "tool-policy",
     ),
     "primitive-progression": (
         "first-copper",
@@ -240,6 +240,9 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
         "forage",
         "provisioning",
         "carrying",
+        "storage-choice",
+        "tool-choice",
+        "material-choice",
     ),
     "primitive-progression": (
         *_ORDINARY_DIGEST_FIELDS["primitive-progression"],

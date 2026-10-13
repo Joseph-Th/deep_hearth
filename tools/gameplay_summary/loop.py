@@ -237,9 +237,15 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         and " provisioning=[" in line
         for line in evidence.wilderness
     )
-    rational_deferrals = sum(
+    rational_mobility = sum(
         " storage-choice=[selected:defer " in line
         and " tool-choice=[selected:defer " in line
+        and " intent=stay-mobile " in line
+        for line in evidence.wilderness
+    )
+    camp_engineering = sum(
+        " storage-choice=[selected:field-box " in line
+        or " storage-choice=[selected:stone-crock " in line
         for line in evidence.wilderness
     )
     workload_sensitive_processing = sum(
@@ -261,7 +267,8 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
     return (
         "agency-growth=["
         f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
-        f"rational-deferral:{rational_deferrals}/{len(evidence.wilderness)} "
+        f"rational-mobility:{rational_mobility}/{len(evidence.wilderness)} "
+        f"camp-engineering:{camp_engineering}/{len(evidence.wilderness)} "
         f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
         f"electrical-foundry:{electrical_foundries}/{foundry_builds}]"
@@ -600,6 +607,10 @@ def _maintenance_evidence(
 
 
 def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
+    wilderness = [line for line in lines if line.startswith("WILDERNESS EXPERIENCE ")]
+    opening_deferred = sum(" material:none " in line for line in wilderness)
+    opening_timber = sum(" material:timber " in line for line in wilderness)
+    opening_stone = sum(" material:stone " in line for line in wilderness)
     depletion = [
         line
         for line in lines
@@ -666,6 +677,8 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
     search_ended = shortfall_horizon_exhausted + shortfall_local_exhausted
     return (
         "world-feedback=["
+        "opening-material-response=["
+        f"defer:{opening_deferred} timber:{opening_timber} stone:{opening_stone}] "
         f"shortfall:{initial_supply_ended}/{len(fieldwork)} "
         f"rerouted:{initial_reroute_proved}/{initial_supply_ended} "
         f"indexed:{indexed_shortfall}/{len(shortfall_recoveries)} "

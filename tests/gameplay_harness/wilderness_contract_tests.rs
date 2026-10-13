@@ -14,17 +14,26 @@ use deep_hearth::content::gameplay_fixture::{
 use deep_hearth::content::{
     EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
     MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
+    PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
     STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_STONE,
     SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::SimulationTick;
-use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
+use deep_hearth::core::time::{SimulationTick, TickSpan};
+use deep_hearth::crafting::{
+    ManualCraftStartRequest, plan_manual_craft_from_stockpile, project_manual_craft_equipment,
+    project_manual_craft_hand_work, validate_start_manual_craft,
+};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
+use deep_hearth::inventory::{
+    MaterialLotSelection, StorageDefinitionId, validate_place_player_storage,
+};
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
-use deep_hearth::logistics::{PlayerStepError, assess_player_carrying, validate_start_player_step};
+use deep_hearth::logistics::{
+    PlayerStepError, assess_player_carrying, validate_drop_to_ground, validate_start_player_step,
+};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -37,7 +46,7 @@ use deep_hearth::surface::{
     validate_start_player_surface_gathering,
 };
 use deep_hearth::survival::{
-    AdjacentDrinkSource, assess_survival, available_adjacent_drink_sources,
+    AdjacentDrinkSource, SurvivalResourceBudget, assess_survival, available_adjacent_drink_sources,
     available_local_drink_sources, project_survival_resource_budget,
     validate_drink_store_to_hydration_target, validate_eat_lot_to_metabolic_target,
 };
@@ -69,9 +78,34 @@ impl WildernessStartProfile {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WildernessCampIntent {
+    StayMobile,
+    BulkCache,
+    PreserveReserve,
+}
+
+impl WildernessCampIntent {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::StayMobile => "stay-mobile",
+            Self::BulkCache => "bulk-cache",
+            Self::PreserveReserve => "preserve-reserve",
+        }
+    }
+
+    const fn forage_mass(self) -> Mass {
+        match self {
+            Self::StayMobile => Mass::from_milligrams(500_000),
+            Self::BulkCache | Self::PreserveReserve => Mass::from_milligrams(1_000_000),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct WildernessOpeningReview {
     pub(super) seed: u64,
     pub(super) start_profile: WildernessStartProfile,
+    pub(super) camp_intent: WildernessCampIntent,
     pub(super) food_secured_ticks: u64,
     pub(super) camp_ticks: u64,
     pub(super) forage_opportunity_mass_mg: u64,
@@ -93,10 +127,24 @@ pub(super) struct WildernessOpeningReview {
     pub(super) max_step_choices: u64,
     pub(super) blocked_adjacent_probes: u64,
     pub(super) material_choices: u64,
+    pub(super) selected_storage: Option<StorageDefinitionId>,
+    pub(super) selected_material: Option<CommodityKey>,
+    pub(super) storage_project_ticks: u64,
+    pub(super) cached_food_mass_mg: u64,
+    pub(super) cached_total_mass_mg: u64,
+    pub(super) staged_bulk_timber_mg: u64,
+    pub(super) selected_storage_capacity_mg: u64,
+    pub(super) selected_storage_preservation_ppm: u32,
+    pub(super) project_metabolic_budget_nj: u128,
+    pub(super) project_hydration_budget_ul: u64,
+    pub(super) project_meal_consumed_mg: u64,
     pub(super) field_box_build_ticks: u64,
     pub(super) field_box_capacity_mg: u64,
     pub(super) ambient_food_shelf_ticks: u64,
     pub(super) field_box_food_shelf_ticks: u64,
+    pub(super) stone_crock_build_ticks: u64,
+    pub(super) stone_crock_capacity_mg: u64,
+    pub(super) stone_crock_food_shelf_ticks: u64,
     pub(super) field_box_board_batches: u64,
     pub(super) adze_setup_ticks: u64,
     pub(super) bare_board_ticks: u64,
@@ -313,9 +361,68 @@ fn gather(
     assert_eq!(state.player_work().active(), None);
 }
 
+fn gather_in_batches(
+    registries: &Registries,
+    state: &mut AppState,
+    method: SurfaceGatheringMethodId,
+    resource: SurfaceResourceId,
+    requested: Mass,
+    context: &str,
+) {
+    let definition = registries
+        .labor()
+        .get_surface_gathering(method)
+        .copied()
+        .unwrap_or_else(|| panic!("wilderness {context} gathering method disappeared"));
+    let mut remaining = requested;
+    while !remaining.is_zero() {
+        let batch = remaining.min(definition.maximum_batch_mass());
+        gather(registries, state, method, resource, batch, context);
+        remaining = remaining.checked_sub(batch).unwrap_or_else(|| {
+            unreachable!("bounded wilderness gathering batch cannot exceed remainder")
+        });
+    }
+}
+
+fn craft_in_place(
+    registries: &Registries,
+    state: &mut AppState,
+    process: deep_hearth::production::ProcessId,
+    source: deep_hearth::inventory::StockpileId,
+    batches: u64,
+    context: &str,
+) {
+    let batches = NonZeroU64::new(batches)
+        .unwrap_or_else(|| panic!("wilderness {context} requires a nonzero craft batch count"));
+    let craft = plan_manual_craft_from_stockpile(registries, state, process, source, batches)
+        .unwrap_or_else(|error| panic!("wilderness {context} craft planning failed: {error}"));
+    let job =
+        validate_start_manual_craft(registries, state, ManualCraftStartRequest::in_place(craft))
+            .unwrap_or_else(|error| panic!("wilderness {context} craft admission failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("wilderness {context} craft commit failed: {error}"));
+    let completes_at = state
+        .production()
+        .get_job(job)
+        .map(|record| record.completes_at())
+        .unwrap_or_else(|| panic!("wilderness {context} craft job disappeared after admission"));
+    advance_to(
+        registries,
+        state,
+        completes_at,
+        TickEventAllowance {
+            production_jobs: &[job],
+            ..TickEventAllowance::default()
+        },
+        context,
+    );
+    assert_eq!(state.player_work().active(), None);
+}
+
 pub(super) fn evaluate_generated_wilderness_opening(
     seed: WorldGenerationSeed,
     start_profile: WildernessStartProfile,
+    camp_intent: WildernessCampIntent,
 ) -> WildernessOpeningReview {
     let registries = build_registries();
     let mut state = AppState::new();
@@ -326,7 +433,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
 
     // Ordinary admission owns a fixed body-scale carrying limit. The opening must adapt to that
     // capability instead of resizing the player to whatever the current script intends to gather.
-    let forage_mass = Mass::from_milligrams(500_000);
+    let forage_mass = camp_intent.forage_mass();
     let board_craft = registries
         .crafting()
         .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
@@ -515,6 +622,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let carrying_after_forage = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared after forage"));
     assert_eq!(carrying_after_forage.stored(), forage_mass);
+    let mut peak_carried_mass_mg = carrying_after_forage.stored().milligrams();
     let provisioning_decision = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("wilderness player disappeared after early forage"));
     match start_profile {
@@ -606,7 +714,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
             "needed opening meal should recover above the hunger warning"
         );
     }
-    let retained_food_mass = Mass::from_milligrams(
+    let mut retained_food_mass = Mass::from_milligrams(
         forage_mass
             .milligrams()
             .checked_sub(meal_consumed_mg)
@@ -648,6 +756,38 @@ pub(super) fn evaluate_generated_wilderness_opening(
             / 1_000_000,
     )
     .unwrap_or_else(|_| panic!("wilderness field-box shelf-life projection exceeds u64"));
+    let stone_crock_craft = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("wilderness stone-crock shaping disappeared"));
+    let stone_crock_raw_stone = stone_crock_craft.input_mass();
+    let stone_gathering = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_STONE)
+        .copied()
+        .unwrap_or_else(|| panic!("wilderness stone gathering disappeared"));
+    let stone_crock_gather_ticks = stone_gathering
+        .duration_for_mass(stone_crock_raw_stone)
+        .map(|duration| duration.value())
+        .unwrap_or_else(|| panic!("wilderness stone-crock gathering cannot schedule"));
+    let stone_crock_build_ticks = stone_crock_gather_ticks
+        .checked_add(stone_crock_craft.duration().value())
+        .unwrap_or_else(|| panic!("wilderness stone-crock build projection overflowed"));
+    let stone_crock_storage = registries
+        .storage()
+        .get(STORAGE_CARVED_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("wilderness stone-crock storage definition disappeared"));
+    let stone_crock_food_shelf_ticks = u64::try_from(
+        u128::from(ambient_food_shelf_ticks)
+            .checked_mul(u128::from(
+                stone_crock_storage
+                    .storage_profile()
+                    .preservation_multiplier_ppm(),
+            ))
+            .unwrap_or_else(|| panic!("wilderness stone-crock shelf-life projection overflowed"))
+            / 1_000_000,
+    )
+    .unwrap_or_else(|_| panic!("wilderness stone-crock shelf-life projection exceeds u64"));
     assert_eq!(
         ambient_food_shelf_ticks,
         registries.core().calendar().ticks_per_day() * 4,
@@ -658,6 +798,82 @@ pub(super) fn evaluate_generated_wilderness_opening(
         registries.core().calendar().ticks_per_day() * 7,
         "rough field box should extend opening berries from four to seven days"
     );
+    assert_eq!(
+        stone_crock_food_shelf_ticks,
+        registries.core().calendar().ticks_per_day() * 10,
+        "carved stone crock should extend opening berries from four to ten days"
+    );
+    assert!(
+        field_box_storage.maximum_stockpile_capacity()
+            > stone_crock_storage.maximum_stockpile_capacity(),
+        "timber field box should remain the primitive bulk-storage choice"
+    );
+    assert!(
+        stone_crock_storage
+            .storage_profile()
+            .preservation_multiplier_ppm()
+            > field_box_storage
+                .storage_profile()
+                .preservation_multiplier_ppm(),
+        "stone crock should remain the primitive preservation choice"
+    );
+    let projected_budget = |exertion, duration: TickSpan, context: &str| {
+        project_survival_resource_budget(physiology, exertion, duration).unwrap_or_else(|error| {
+            panic!("wilderness {context} survival projection failed: {error:?}")
+        })
+    };
+    let bulk_staged_timber = Mass::from_milligrams(6_000_000);
+    let mut bulk_staging_remaining = bulk_staged_timber;
+    let mut bulk_staging_ticks = 0_u64;
+    while !bulk_staging_remaining.is_zero() {
+        let batch = bulk_staging_remaining.min(timber_gathering.maximum_batch_mass());
+        let ticks = timber_gathering
+            .duration_for_mass(batch)
+            .unwrap_or_else(|| panic!("wilderness bulk-staging timber batch cannot schedule"))
+            .value();
+        bulk_staging_ticks = bulk_staging_ticks
+            .checked_add(ticks)
+            .unwrap_or_else(|| panic!("wilderness bulk-staging duration overflowed"));
+        bulk_staging_remaining = bulk_staging_remaining
+            .checked_sub(batch)
+            .unwrap_or_else(|| unreachable!("bounded bulk-staging batch cannot exceed remainder"));
+    }
+    let camp_project_budget = match camp_intent {
+        WildernessCampIntent::StayMobile => SurvivalResourceBudget::ZERO,
+        WildernessCampIntent::BulkCache => projected_budget(
+            timber_gathering.exertion(),
+            TickSpan::new(
+                field_box_gather_ticks
+                    .checked_add(bulk_staging_ticks)
+                    .unwrap_or_else(|| panic!("wilderness bulk gathering duration overflowed")),
+            ),
+            "field-box construction and staging gathering",
+        )
+        .checked_add(projected_budget(
+            board_craft.exertion(),
+            TickSpan::new(bare_board_ticks),
+            "field-box board shaping",
+        ))
+        .and_then(|budget| {
+            budget.checked_add(projected_budget(
+                field_box_joinery.exertion(),
+                field_box_joinery.duration(),
+                "field-box joinery",
+            ))
+        })
+        .unwrap_or_else(|| panic!("wilderness field-box survival budget overflowed")),
+        WildernessCampIntent::PreserveReserve => projected_budget(
+            stone_gathering.exertion(),
+            TickSpan::new(stone_crock_gather_ticks),
+            "stone-crock gathering",
+        )
+        .checked_add(projected_budget(
+            stone_crock_craft.exertion(),
+            stone_crock_craft.duration(),
+            "stone-crock shaping",
+        ))
+        .unwrap_or_else(|| panic!("wilderness stone-crock survival budget overflowed")),
+    };
     let carrying_after_provisioning = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared after provisioning"));
     assert_eq!(carrying_after_provisioning.stored(), retained_food_mass);
@@ -833,10 +1049,300 @@ pub(super) fn evaluate_generated_wilderness_opening(
     );
     let material_choices = u64::try_from(adjacent_materials.len())
         .unwrap_or_else(|_| panic!("wilderness material choice count exceeds u64"));
+    let mut selected_storage = None;
+    let mut selected_material = None;
+    let mut storage_project_ticks = 0_u64;
+    let mut cached_food_mass_mg = 0_u64;
+    let mut cached_total_mass_mg = 0_u64;
+    let mut staged_bulk_timber_mg = 0_u64;
+    let mut selected_storage_capacity_mg = 0_u64;
+    let mut selected_storage_preservation_ppm = 0_u32;
+    let mut project_meal_consumed_mg = 0_u64;
+
+    if camp_intent != WildernessCampIntent::StayMobile {
+        const BULK_STAGED_TIMBER_MG: u64 = 6_000_000;
+        const PRESERVATION_TARGET_DAYS: u64 = 8;
+        match camp_intent {
+            WildernessCampIntent::StayMobile => unreachable!(),
+            WildernessCampIntent::BulkCache => {
+                assert!(
+                    retained_food_mass > Mass::ZERO,
+                    "bulk-cache intent requires some provisions to stage beside raw timber"
+                );
+                let staged_total = BULK_STAGED_TIMBER_MG
+                    .checked_add(retained_food_mass.milligrams())
+                    .unwrap_or_else(|| panic!("wilderness bulk-cache target overflowed"));
+                assert!(
+                    stone_crock_storage
+                        .maximum_stockpile_capacity()
+                        .milligrams()
+                        < staged_total
+                        && field_box_storage.maximum_stockpile_capacity().milligrams()
+                            >= staged_total,
+                    "six kilograms of staged timber plus provisions must require the timber box rather than fit in the stone crock"
+                );
+            }
+            WildernessCampIntent::PreserveReserve => {
+                let ticks_per_day = registries.core().calendar().ticks_per_day();
+                assert!(
+                    field_box_food_shelf_ticks / ticks_per_day < PRESERVATION_TARGET_DAYS
+                        && stone_crock_food_shelf_ticks / ticks_per_day >= PRESERVATION_TARGET_DAYS,
+                    "preservation intent must distinguish the stone crock from the shorter-lived timber box"
+                );
+            }
+        }
+        let (storage_definition, material, gathering_method, gathering_mass) = match camp_intent {
+            WildernessCampIntent::StayMobile => {
+                unreachable!("mobile intent does not build storage")
+            }
+            WildernessCampIntent::BulkCache => (
+                STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                timber_commodity,
+                SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+                field_box_raw_timber,
+            ),
+            WildernessCampIntent::PreserveReserve => (
+                STORAGE_CARVED_STONE_PROVISIONS_CROCK,
+                stone_commodity,
+                SURFACE_GATHERING_HAND_COLLECT_STONE,
+                stone_crock_raw_stone,
+            ),
+        };
+        let selected = adjacent_materials
+            .iter()
+            .copied()
+            .find(|resource| resource.commodity() == material)
+            .unwrap_or_else(|| {
+                panic!("wilderness selected material is not adjacent at the junction")
+            });
+        step_to(
+            &registries,
+            &mut state,
+            selected.position(),
+            "selected camp-material approach",
+        );
+        total_steps += 1;
+        let project_survival = assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("wilderness player disappeared before camp project"));
+        let metabolic_target = physiology
+            .hungry_below()
+            .checked_add(camp_project_budget.metabolic_energy())
+            .and_then(|target| target.checked_add(Energy::from_nanojoules(1)))
+            .unwrap_or_else(|| panic!("wilderness camp-project metabolic target overflowed"));
+        if project_survival.metabolic_energy() < metabolic_target {
+            let meal = validate_eat_lot_to_metabolic_target(
+                &registries,
+                &state,
+                provisioned_berries,
+                metabolic_target,
+            )
+            .unwrap_or_else(|error| {
+                panic!("wilderness camp-project meal projection failed: {error}")
+            })
+            .unwrap_or_else(|| {
+                panic!("wilderness camp project required provisioning but produced no meal")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("wilderness camp-project meal commit failed: {error}"));
+            project_meal_consumed_mg = meal.total_mass().milligrams();
+            meal_consumed_mg = meal_consumed_mg
+                .checked_add(project_meal_consumed_mg)
+                .unwrap_or_else(|| panic!("wilderness meal accounting overflowed"));
+            retained_food_mass = retained_food_mass
+                .checked_sub(meal.total_mass())
+                .unwrap_or_else(|| panic!("wilderness camp-project meal exceeded retained food"));
+            advance_to(
+                &registries,
+                &mut state,
+                meal.completes_at(),
+                TickEventAllowance::default(),
+                "camp-project meal",
+            );
+            assert!(
+                assess_survival(&registries, &state)
+                    .is_some_and(|survival| survival.metabolic_energy() >= metabolic_target),
+                "camp-project meal must establish the disclosed working reserve"
+            );
+        }
+        let project_started_at = state.tick();
+        let resource = local_surface_resource(&state, material);
+        assert_eq!(resource, selected.resource());
+        gather(
+            &registries,
+            &mut state,
+            gathering_method,
+            resource,
+            gathering_mass,
+            "selected camp material",
+        );
+        let carrying_after_material = assess_player_carrying(&state).unwrap_or_else(|| {
+            panic!("wilderness carrying assessment disappeared during camp project")
+        });
+        peak_carried_mass_mg =
+            peak_carried_mass_mg.max(carrying_after_material.stored().milligrams());
+        match camp_intent {
+            WildernessCampIntent::StayMobile => {
+                unreachable!("mobile intent does not craft storage")
+            }
+            WildernessCampIntent::BulkCache => {
+                craft_in_place(
+                    &registries,
+                    &mut state,
+                    PROCESS_SHAPE_WOOD_BOARDS,
+                    carried,
+                    board_batches,
+                    "field-box boards",
+                );
+                craft_in_place(
+                    &registries,
+                    &mut state,
+                    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+                    carried,
+                    1,
+                    "field-box body",
+                );
+            }
+            WildernessCampIntent::PreserveReserve => craft_in_place(
+                &registries,
+                &mut state,
+                PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
+                carried,
+                1,
+                "stone-crock body",
+            ),
+        }
+        let storage = validate_place_player_storage(&registries, &state, storage_definition)
+            .unwrap_or_else(|error| panic!("wilderness camp storage placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness camp storage placement commit failed: {error}")
+            });
+        if !retained_food_mass.is_zero() {
+            validate_drop_to_ground(
+                &registries,
+                &state,
+                storage,
+                &[MaterialLotSelection::new(
+                    provisioned_berries,
+                    retained_food_mass,
+                )],
+            )
+            .unwrap_or_else(|error| panic!("wilderness food-cache drop failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("wilderness food-cache drop commit failed: {error}"));
+        }
+        if camp_intent == WildernessCampIntent::BulkCache {
+            let staged_timber = Mass::from_milligrams(BULK_STAGED_TIMBER_MG);
+            let remaining_world_timber = state
+                .available_surface_resources()
+                .find(|record| record.id() == resource)
+                .map(|record| record.remaining_mass())
+                .unwrap_or_else(|| {
+                    panic!("wilderness bulk-cache timber resource disappeared before staging")
+                });
+            assert!(
+                remaining_world_timber >= staged_timber,
+                "generated timber opportunity must support the disclosed field-box body plus six-kilogram staged reserve"
+            );
+            gather_in_batches(
+                &registries,
+                &mut state,
+                SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+                resource,
+                staged_timber,
+                "bulk-cache timber staging",
+            );
+            let carrying_after_staging = assess_player_carrying(&state).unwrap_or_else(|| {
+                panic!("wilderness carrying assessment disappeared after bulk staging")
+            });
+            peak_carried_mass_mg =
+                peak_carried_mass_mg.max(carrying_after_staging.stored().milligrams());
+            let lot_ids = state.inventory().lot_ids(carried).collect::<Vec<_>>();
+            let mut unstaged = staged_timber;
+            let mut selections = Vec::new();
+            for lot in lot_ids {
+                if unstaged.is_zero() {
+                    break;
+                }
+                let Some(record) = state.inventory().get_lot(lot) else {
+                    continue;
+                };
+                if record.commodity() != timber_commodity {
+                    continue;
+                }
+                let selected = unstaged.min(record.mass());
+                selections.push(MaterialLotSelection::new(lot, selected));
+                unstaged = unstaged.checked_sub(selected).unwrap_or_else(|| {
+                    unreachable!("selected staging timber cannot exceed remaining requirement")
+                });
+            }
+            assert!(
+                unstaged.is_zero(),
+                "gathered staging timber must remain in carried custody"
+            );
+            validate_drop_to_ground(&registries, &state, storage, &selections)
+                .unwrap_or_else(|error| panic!("wilderness timber-cache drop failed: {error}"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness timber-cache drop commit failed: {error}")
+                });
+            staged_bulk_timber_mg = staged_timber.milligrams();
+        }
+        let definition = registries
+            .storage()
+            .get(storage_definition)
+            .unwrap_or_else(|| panic!("wilderness selected storage definition disappeared"));
+        let cached = state
+            .inventory()
+            .get_stockpile(storage)
+            .map(|record| record.get_mass(berry_commodity))
+            .unwrap_or_else(|| panic!("wilderness selected camp storage disappeared"));
+        assert_eq!(cached, retained_food_mass);
+        let cached_total = state
+            .inventory()
+            .get_stockpile(storage)
+            .map(|record| record.stored_mass())
+            .unwrap_or_else(|| panic!("wilderness selected camp storage disappeared"));
+        if camp_intent == WildernessCampIntent::BulkCache {
+            assert_eq!(
+                cached_total.milligrams(),
+                cached.milligrams() + BULK_STAGED_TIMBER_MG,
+                "bulk cache must physically contain its provisions plus the disclosed timber reserve"
+            );
+            assert!(
+                cached_total > stone_crock_storage.maximum_stockpile_capacity(),
+                "the lived bulk cache must exceed the alternative stone crock capacity"
+            );
+        }
+        selected_storage = Some(storage_definition);
+        selected_material = Some(material);
+        cached_food_mass_mg = cached.milligrams();
+        cached_total_mass_mg = cached_total.milligrams();
+        selected_storage_capacity_mg = definition.maximum_stockpile_capacity().milligrams();
+        selected_storage_preservation_ppm =
+            definition.storage_profile().preservation_multiplier_ppm();
+        storage_project_ticks = state
+            .tick()
+            .checked_duration_since(project_started_at)
+            .unwrap_or_else(|| panic!("wilderness storage project time reversed"))
+            .value();
+        let projected_ticks = match camp_intent {
+            WildernessCampIntent::StayMobile => unreachable!(),
+            WildernessCampIntent::BulkCache => field_box_build_ticks
+                .checked_add(bulk_staging_ticks)
+                .unwrap_or_else(|| panic!("wilderness bulk-cache project duration overflowed")),
+            WildernessCampIntent::PreserveReserve => stone_crock_build_ticks,
+        };
+        assert_eq!(
+            storage_project_ticks, projected_ticks,
+            "executed primitive storage project should match its disclosed attention projection"
+        );
+    }
+
     let expected_steps = match start_profile {
         WildernessStartProfile::Rested | WildernessStartProfile::HungerPressure => 2,
         WildernessStartProfile::HydrationPressure => 4,
-    };
+    } + u64::from(camp_intent != WildernessCampIntent::StayMobile);
     assert_eq!(
         total_steps, expected_steps,
         "opening movement should reflect whether water is a current need instead of a mandatory waypoint"
@@ -859,10 +1365,16 @@ pub(super) fn evaluate_generated_wilderness_opening(
             registries.core().physical_tick_duration().microseconds(),
         ))
         .unwrap_or_else(|| panic!("wilderness physical duration overflowed"));
-    assert!(
-        (3 * minute..=8 * minute).contains(&elapsed_microseconds),
-        "generated opening should end when immediate provisioning is stable instead of padding the first quarter hour with unneeded infrastructure"
-    );
+    match camp_intent {
+        WildernessCampIntent::StayMobile => assert!(
+            (3 * minute..=8 * minute).contains(&elapsed_microseconds),
+            "mobile opening should end when immediate provisioning is stable instead of padding time with unneeded infrastructure"
+        ),
+        WildernessCampIntent::BulkCache | WildernessCampIntent::PreserveReserve => assert!(
+            (10 * minute..=30 * minute).contains(&elapsed_microseconds),
+            "an elected primitive camp project should be substantial but remain an opening-session investment"
+        ),
+    }
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("wilderness final matter audit failed: {error}"))
@@ -889,15 +1401,20 @@ pub(super) fn evaluate_generated_wilderness_opening(
     WildernessOpeningReview {
         seed: seed.value(),
         start_profile,
+        camp_intent,
         food_secured_ticks,
         camp_ticks: elapsed_ticks,
         forage_opportunity_mass_mg: forage_opportunity_mass.milligrams(),
         forage_remaining_mass_mg: forage_remaining_mass.milligrams(),
         forage_rest_runway_ticks,
         gathered_food_mass_mg: forage_mass.milligrams(),
-        carried_food_mass_mg: retained_food_mass.milligrams(),
+        carried_food_mass_mg: if selected_storage.is_some() {
+            0
+        } else {
+            retained_food_mass.milligrams()
+        },
         meal_consumed_mg,
-        peak_carried_mass_mg: carrying_after_forage.stored().milligrams(),
+        peak_carried_mass_mg,
         carried_capacity_mg: carrying_after_forage.capacity().milligrams(),
         water_adjacent_known: true,
         water_visited,
@@ -910,10 +1427,26 @@ pub(super) fn evaluate_generated_wilderness_opening(
         max_step_choices,
         blocked_adjacent_probes: 1,
         material_choices,
+        selected_storage,
+        selected_material,
+        storage_project_ticks,
+        cached_food_mass_mg,
+        cached_total_mass_mg,
+        staged_bulk_timber_mg,
+        selected_storage_capacity_mg,
+        selected_storage_preservation_ppm,
+        project_metabolic_budget_nj: camp_project_budget.metabolic_energy().nanojoules(),
+        project_hydration_budget_ul: camp_project_budget.hydration().microliters(),
+        project_meal_consumed_mg,
         field_box_build_ticks,
         field_box_capacity_mg: field_box_storage.maximum_stockpile_capacity().milligrams(),
         ambient_food_shelf_ticks,
         field_box_food_shelf_ticks,
+        stone_crock_build_ticks,
+        stone_crock_capacity_mg: stone_crock_storage
+            .maximum_stockpile_capacity()
+            .milligrams(),
+        stone_crock_food_shelf_ticks,
         field_box_board_batches: board_batches,
         adze_setup_ticks,
         bare_board_ticks,
@@ -976,11 +1509,99 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         }
         _ => panic!("wilderness water telemetry must be wholly exact-local or wholly unvisited"),
     };
+    let storage_choice = match review.camp_intent {
+        WildernessCampIntent::StayMobile => format!(
+            "[selected:defer candidates=[field-box:build:{}t/capacity:{}mg/shelf:{}d stone-crock:build:{}t/capacity:{}mg/shelf:{}d] ambient-shelf:{}d carried-food:{}mg local-surplus-left:{}mg reason:no-current-capacity-or-preservation-pressure]",
+            review.field_box_build_ticks,
+            review.field_box_capacity_mg,
+            review.field_box_food_shelf_ticks / ticks_per_day,
+            review.stone_crock_build_ticks,
+            review.stone_crock_capacity_mg,
+            review.stone_crock_food_shelf_ticks / ticks_per_day,
+            review.ambient_food_shelf_ticks / ticks_per_day,
+            review.carried_food_mass_mg,
+            review.forage_remaining_mass_mg,
+        ),
+        WildernessCampIntent::BulkCache => format!(
+            "[selected:field-box project:{}t capacity:{}mg preservation:{}ppm cached-food:{}mg cached-total:{}mg staged-timber:{}mg goal:bulk-cache alternative-stone-capacity:{}mg]",
+            review.storage_project_ticks,
+            review.selected_storage_capacity_mg,
+            review.selected_storage_preservation_ppm,
+            review.cached_food_mass_mg,
+            review.cached_total_mass_mg,
+            review.staged_bulk_timber_mg,
+            review.stone_crock_capacity_mg,
+        ),
+        WildernessCampIntent::PreserveReserve => format!(
+            "[selected:stone-crock project:{}t capacity:{}mg preservation:{}ppm cached-food:{}mg cached-total:{}mg goal:preserve-reserve target:8d field-box:{}d stone-crock:{}d]",
+            review.storage_project_ticks,
+            review.selected_storage_capacity_mg,
+            review.selected_storage_preservation_ppm,
+            review.cached_food_mass_mg,
+            review.cached_total_mass_mg,
+            review.field_box_food_shelf_ticks / ticks_per_day,
+            review.stone_crock_food_shelf_ticks / ticks_per_day,
+        ),
+    };
+    let tool_choice = match review.camp_intent {
+        WildernessCampIntent::BulkCache => format!(
+            "[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:first-box-below-adze-crossover]",
+            review.field_box_board_batches,
+            review.adze_setup_ticks,
+            review.bare_board_ticks,
+            review.adze_board_ticks,
+            review.adze_crossover_batches,
+        ),
+        WildernessCampIntent::StayMobile | WildernessCampIntent::PreserveReserve => format!(
+            "[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-woodworking-workload]",
+            review.field_box_board_batches,
+            review.adze_setup_ticks,
+            review.bare_board_ticks,
+            review.adze_board_ticks,
+            review.adze_crossover_batches,
+        ),
+    };
+    let material_choice = match review.camp_intent {
+        WildernessCampIntent::StayMobile => {
+            "[stone+timber:simultaneous selected:defer reason:no-current-workload]".to_owned()
+        }
+        WildernessCampIntent::BulkCache => {
+            "[stone+timber:simultaneous selected:timber reason:bulk-capacity-goal]".to_owned()
+        }
+        WildernessCampIntent::PreserveReserve => {
+            "[stone+timber:simultaneous selected:stone reason:preservation-horizon]".to_owned()
+        }
+    };
+    let selected_storage = match review.selected_storage {
+        None => "none",
+        Some(STORAGE_ROUGH_TIMBER_FIELD_BOX) => "field-box",
+        Some(STORAGE_CARVED_STONE_PROVISIONS_CROCK) => "stone-crock",
+        Some(_) => "other",
+    };
+    let selected_material = match review.selected_material {
+        None => "none",
+        Some(commodity) if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG) => "timber",
+        Some(commodity) if commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP) => "stone",
+        Some(_) => "other",
+    };
+    let camp_project = format!(
+        "[intent:{} storage:{} material:{} work:{}t budget:{}nJ/{}uL project-meal:{}mg cached-total:{}mg staged-timber:{}mg]",
+        review.camp_intent.label(),
+        selected_storage,
+        selected_material,
+        review.storage_project_ticks,
+        review.project_metabolic_budget_nj,
+        review.project_hydration_budget_ul,
+        review.project_meal_consumed_mg,
+        review.cached_total_mass_mg,
+        review.staged_bulk_timber_mg,
+    );
     std::println!(
-        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:{} choices:{}-{} blocked:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[retained:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] storage-choice=[selected:defer build:{}t capacity:{}mg carried-food:{}mg ambient:{}d boxed:{}d local-surplus-left:{}mg reason:no-current-capacity-or-preservation-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] material-choice=[stone+timber:simultaneous selected:defer reason:no-current-workload]",
+        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} intent={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:{} choices:{}-{} blocked:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] camp-project={} storage-choice={} tool-choice={} material-choice={}",
         sample,
         review.seed,
         review.start_profile.label(),
+        review.camp_intent.label(),
         review.total_steps,
         review.available_step_choices,
         review.max_step_choices,
@@ -1000,6 +1621,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         review.forage_remaining_mass_mg,
         physical_hours_tenths(&registries, review.forage_rest_runway_ticks),
         review.carried_food_mass_mg,
+        review.cached_food_mass_mg,
         meal_decision,
         review.meal_consumed_mg,
         review.final_warning_safe,
@@ -1016,17 +1638,10 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         water_supply,
         review.water_consumed_ul,
         water_decision,
-        review.field_box_build_ticks,
-        review.field_box_capacity_mg,
-        review.carried_food_mass_mg,
-        review.ambient_food_shelf_ticks / ticks_per_day,
-        review.field_box_food_shelf_ticks / ticks_per_day,
-        review.forage_remaining_mass_mg,
-        review.field_box_board_batches,
-        review.adze_setup_ticks,
-        review.bare_board_ticks,
-        review.adze_board_ticks,
-        review.adze_crossover_batches,
+        camp_project,
+        storage_choice,
+        tool_choice,
+        material_choice,
     );
 }
 
@@ -1052,6 +1667,14 @@ fn organic_start_profile(behavior_root: u64, index: usize) -> WildernessStartPro
     }
 }
 
+fn organic_camp_intent(behavior_root: u64, index: usize) -> WildernessCampIntent {
+    match (seed::mix64(behavior_root ^ 0x4341_4D50_5F49_4E54) as usize).wrapping_add(index) % 3 {
+        0 => WildernessCampIntent::StayMobile,
+        1 => WildernessCampIntent::BulkCache,
+        _ => WildernessCampIntent::PreserveReserve,
+    }
+}
+
 pub(super) fn run_wilderness_report() {
     const ORGANIC_SAMPLES: usize = 4;
     let world_root = configured_root(
@@ -1063,14 +1686,15 @@ pub(super) fn run_wilderness_report() {
         seed::mix64(WILDERNESS_WORLD_SEED.value() ^ 0x5749_4C44_5F42_4856),
     );
     std::println!(
-        "PROBE INPUT name=wilderness mode=explore samples={} maintained=1 coverage=1 organic={} world_root=0x{world_root:016X} behavior_root=0x{behavior_root:016X} replay=generated-opening-graph",
-        ORGANIC_SAMPLES + 2,
+        "PROBE INPUT name=wilderness mode=explore samples={} maintained=1 coverage=5 organic={} world_root=0x{world_root:016X} behavior_root=0x{behavior_root:016X} replay=generated-opening-graph",
+        ORGANIC_SAMPLES + 6,
         ORGANIC_SAMPLES,
     );
     print_wilderness_experience(
         evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,
+            WildernessCampIntent::StayMobile,
         ),
         "maintained",
     );
@@ -1078,6 +1702,39 @@ pub(super) fn run_wilderness_report() {
         evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::HydrationPressure,
+            WildernessCampIntent::StayMobile,
+        ),
+        "coverage",
+    );
+    print_wilderness_experience(
+        evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::Rested,
+            WildernessCampIntent::BulkCache,
+        ),
+        "coverage",
+    );
+    print_wilderness_experience(
+        evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::Rested,
+            WildernessCampIntent::PreserveReserve,
+        ),
+        "coverage",
+    );
+    print_wilderness_experience(
+        evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::HungerPressure,
+            WildernessCampIntent::PreserveReserve,
+        ),
+        "coverage",
+    );
+    print_wilderness_experience(
+        evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::HydrationPressure,
+            WildernessCampIntent::BulkCache,
         ),
         "coverage",
     );
@@ -1086,8 +1743,13 @@ pub(super) fn run_wilderness_report() {
             .unwrap_or_else(|_| unreachable!("bounded wilderness organic index fits u64"));
         let world_seed = seed::mix64(world_root ^ ordinal.wrapping_mul(0x9E37_79B9_7F4A_7C15));
         let profile = organic_start_profile(behavior_root, index);
+        let intent = organic_camp_intent(behavior_root, index);
         print_wilderness_experience(
-            evaluate_generated_wilderness_opening(WorldGenerationSeed::new(world_seed), profile),
+            evaluate_generated_wilderness_opening(
+                WorldGenerationSeed::new(world_seed),
+                profile,
+                intent,
+            ),
             "organic",
         );
     }
@@ -1101,15 +1763,41 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         let _ = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,
+            WildernessCampIntent::StayMobile,
         );
         let hunger = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::HungerPressure,
+            WildernessCampIntent::StayMobile,
         );
         assert!(hunger.meal_consumed_mg > 0);
         assert!(hunger.carried_food_mass_mg < hunger.gathered_food_mass_mg);
         assert_eq!(hunger.total_steps, 2);
         assert!(!hunger.water_visited);
         assert!(hunger.final_warning_safe);
+
+        let bulk = evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::Rested,
+            WildernessCampIntent::BulkCache,
+        );
+        assert_eq!(bulk.selected_storage, Some(STORAGE_ROUGH_TIMBER_FIELD_BOX));
+        assert_eq!(bulk.staged_bulk_timber_mg, 6_000_000);
+        assert!(bulk.cached_total_mass_mg > bulk.stone_crock_capacity_mg);
+        assert!(bulk.cached_total_mass_mg <= bulk.selected_storage_capacity_mg);
+        assert!(bulk.final_warning_safe);
+
+        let preserved = evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::HungerPressure,
+            WildernessCampIntent::PreserveReserve,
+        );
+        assert_eq!(
+            preserved.selected_storage,
+            Some(STORAGE_CARVED_STONE_PROVISIONS_CROCK)
+        );
+        assert!(preserved.stone_crock_food_shelf_ticks > preserved.field_box_food_shelf_ticks);
+        assert!(preserved.project_meal_consumed_mg > 0);
+        assert!(preserved.final_warning_safe);
     }
 }
