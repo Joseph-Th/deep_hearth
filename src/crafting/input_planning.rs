@@ -50,11 +50,7 @@ pub fn manual_craft_options_from_stockpile(
                 .entry(input)
                 .or_insert_with(|| scan_compatible_input(state, source, input));
             let availability = inventory.availability(input, definition.input_mass());
-            if availability.craftable_temperature_groups() > 1 {
-                ManualCraftInputMode::TemperatureChoice(availability)
-            } else {
-                ManualCraftInputMode::Automatic(availability)
-            }
+            ManualCraftInputMode::Automatic(availability)
         };
         let topology = registries.process_topology(process).unwrap_or_else(|| {
             panic!(
@@ -83,7 +79,7 @@ fn resolve_recipe_input(
     state: &AppState,
     process: ProcessId,
     source: StockpileId,
-) -> Result<(ManualCraftInputAvailability, CompatibleInputInventory), ManualCraftInputPlanError> {
+) -> Result<ManualCraftInputAvailability, ManualCraftInputPlanError> {
     let definition = registries
         .crafting()
         .get_manual(process)
@@ -99,10 +95,10 @@ fn resolve_recipe_input(
     }
     let inventory = scan_compatible_input(state, source, input);
     let availability = inventory.availability(input, definition.input_mass());
-    Ok((availability, inventory))
+    Ok(availability)
 }
 
-/// Reports how many complete batches one stockpile can supply without mixing input temperatures.
+/// Reports how many complete batches one stockpile can supply from pure compatible input matter.
 pub fn assess_manual_craft_inputs(
     registries: &Registries,
     state: &AppState,
@@ -110,7 +106,6 @@ pub fn assess_manual_craft_inputs(
     source: StockpileId,
 ) -> Result<ManualCraftInputAvailability, ManualCraftInputPlanError> {
     resolve_recipe_input(registries, state, process, source)
-        .map(|(availability, _inventory)| availability)
 }
 
 /// Converts a recipe-and-batch choice into exact deterministic lot slices.
@@ -126,7 +121,7 @@ pub fn plan_manual_craft_from_stockpile(
     source: StockpileId,
     batches: NonZeroU64,
 ) -> Result<ManualCraftRequest, ManualCraftInputPlanError> {
-    let (availability, inventory) = resolve_recipe_input(registries, state, process, source)?;
+    let availability = resolve_recipe_input(registries, state, process, source)?;
     let required = availability
         .batch_mass()
         .milligrams()
@@ -140,34 +135,6 @@ pub fn plan_manual_craft_from_stockpile(
             required,
         });
     }
-    let mut candidates = inventory
-        .groups()
-        .iter()
-        .filter(|group| group.mass() >= required);
-    let group = candidates
-        .next()
-        .ok_or(ManualCraftInputPlanError::SplitTemperatureInput {
-            input: availability.input(),
-            available: availability.total_eligible_mass(),
-            largest_compatible: availability.largest_compatible_mass(),
-            required,
-        })?;
-    if candidates.next().is_some() {
-        let temperatures = inventory
-            .groups()
-            .iter()
-            .filter(|group| group.mass() >= required)
-            .map(|group| group.temperature())
-            .collect::<Vec<_>>();
-        return Err(
-            ManualCraftInputPlanError::MultipleCompatibleInputTemperatures {
-                input: availability.input(),
-                required,
-                temperatures,
-            },
-        );
-    }
-
     let expected_composition = MaterialComposition::pure(availability.input().material());
     let mut remaining = required;
     let mut selections = Vec::new();
@@ -185,7 +152,7 @@ pub fn plan_manual_craft_from_stockpile(
                 lot_id.value()
             )
         });
-        if lot.composition() != &expected_composition || lot.temperature() != group.temperature() {
+        if lot.composition() != &expected_composition {
             continue;
         }
         let selected = lot.mass().min(remaining);
@@ -196,7 +163,7 @@ pub fn plan_manual_craft_from_stockpile(
     }
     assert!(
         remaining.is_zero(),
-        "selected compatible group must satisfy requested batch mass"
+        "eligible manual-craft input mass must satisfy requested batch mass"
     );
     Ok(ManualCraftRequest::new(process, source, selections))
 }

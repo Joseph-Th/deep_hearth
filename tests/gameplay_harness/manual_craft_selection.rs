@@ -12,9 +12,9 @@ use deep_hearth::registry::Registries;
 
 /// Attempts the same recipe-and-batch input planning used by an ordinary inventory caller.
 ///
-/// In particular, this does not choose between independently sufficient temperature cohorts.
-/// Temperature is physical state, so an ambiguous source remains an explicit player choice rather
-/// than being resolved by persistent lot order inside the gameplay harness.
+/// Durable pure material is selected deterministically in persistent lot order. Distinct
+/// temperature cohorts remain physical state, but crafting preserves them through output parcels
+/// rather than forcing the caller to manage thermal bookkeeping.
 pub(super) fn plan_manual_craft_request(
     registries: &Registries,
     state: &AppState,

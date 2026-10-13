@@ -507,7 +507,7 @@ fn stone_scrap_reknapping_rejects_contaminated_scrap_without_mutation() {
 }
 
 #[test]
-fn stone_scrap_reknapping_rejects_mixed_temperatures_without_inventing_heat_exchange() {
+fn stone_scrap_reknapping_preserves_mixed_temperature_cohorts_without_heat_exchange() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
@@ -527,29 +527,87 @@ fn stone_scrap_reknapping_rejects_mixed_temperatures_without_inventing_heat_exch
         )
         .unwrap_or_else(|error| panic!("mixed-temperature reknap fixture failed: {error}"))
     });
-    let before = state.clone();
-
-    assert_eq!(
-        validate_start_manual_craft(
-            &registries,
-            &state,
-            ManualCraftStartRequest::new(
-                ManualCraftRequest::new(
-                    PROCESS_REKNAP_STONE_SCRAP_TOOL,
-                    source,
-                    lots.into_iter()
-                        .map(|lot| MaterialLotSelection::new(lot, Mass::from_milligrams(500_000)))
-                        .collect(),
-                ),
-                destination,
-            ),
-        )
-        .err(),
-        Some(StartManualCraftError::Resolution(
-            ManualCraftError::MixedInputTemperature
-        ))
+    let request = ManualCraftRequest::new(
+        PROCESS_REKNAP_STONE_SCRAP_TOOL,
+        source,
+        lots.into_iter()
+            .map(|lot| MaterialLotSelection::new(lot, Mass::from_milligrams(500_000)))
+            .collect(),
     );
-    assert_eq!(state, before);
+    let resolution = resolve_manual_craft(&registries, &state, &request)
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap resolution failed: {error}"));
+    for temperature in [300_000, 310_000] {
+        let temperature = Temperature::from_millikelvin(temperature);
+        let mass = resolution
+            .outputs()
+            .iter()
+            .filter(|output| output.temperature() == temperature)
+            .fold(Mass::ZERO, |total, output| {
+                total
+                    .checked_add(output.mass())
+                    .unwrap_or_else(|| panic!("mixed-temperature output mass overflowed"))
+            });
+        assert_eq!(mass, Mass::from_milligrams(500_000));
+        let tool_mass = resolution
+            .outputs()
+            .iter()
+            .find(|output| {
+                output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL)
+                    && output.temperature() == temperature
+            })
+            .map(|output| output.mass())
+            .unwrap_or_else(|| panic!("mixed-temperature reknap tool cohort disappeared"));
+        let chip_mass = resolution
+            .outputs()
+            .iter()
+            .find(|output| {
+                output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+                    && output.temperature() == temperature
+            })
+            .map(|output| output.mass())
+            .unwrap_or_else(|| panic!("mixed-temperature reknap chip cohort disappeared"));
+        assert_eq!(tool_mass, Mass::from_milligrams(400_000));
+        assert_eq!(chip_mass, Mass::from_milligrams(100_000));
+    }
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap matter audit failed: {error}"))
+        .total();
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap energy audit failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("mixed-temperature reknap exact energy overflowed"));
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::new(request, destination),
+    )
+    .unwrap_or_else(|error| panic!("mixed-temperature reknap admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mixed-temperature reknap commit failed: {error}"));
+    let completes_at = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("mixed-temperature reknap job disappeared"))
+        .completes_at();
+    while state.tick() < completes_at {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mixed-temperature reknap tick failed: {error}"));
+    }
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("mixed-temperature reknap final matter failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap_or_else(|error| panic!("mixed-temperature reknap final energy failed: {error}"))
+            .total(),
+        Some(energy_before),
+        "manual shaping must preserve exact thermal energy across mixed input cohorts"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap final replay failed: {error}"));
 }
 
 #[test]

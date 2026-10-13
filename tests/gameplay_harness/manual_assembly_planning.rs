@@ -26,7 +26,7 @@ pub(super) struct ManualAssemblyProjection {
 
 /// Projects the complete manual shaping bill for one future assembly package without mutating
 /// runtime state. Repeated commodity demand shares whole-batch craft surplus, and aggregate source
-/// demand must fit one homogeneous pure temperature group.
+/// demand must fit the source's pure compatible matter.
 pub(super) fn project_manual_assembly_package(
     registries: &Registries,
     state: &AppState,
@@ -133,8 +133,8 @@ pub(super) fn project_manual_assembly_package(
                 panic!("gameplay harness {context} source availability failed: {error}")
             });
         assert!(
-            availability.largest_compatible_mass() >= required,
-            "gameplay harness {context} package projection overbooks homogeneous pure commodity {} in source {}",
+            availability.total_eligible_mass() >= required,
+            "gameplay harness {context} package projection overbooks pure commodity {} in source {}",
             commodity.value(),
             source.value()
         );

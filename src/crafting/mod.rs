@@ -56,8 +56,9 @@ pub(crate) use validation::validate_loaded_crafting_job;
 /// Exact hand-work request bound to explicit material-lot slices.
 ///
 /// The selected mass determines the integral authored batch count. Callers therefore cannot ask
-/// the generic inventory allocator to choose temperature- or provenance-sensitive matter on their
-/// behalf, and cannot provide a batch count that disagrees with the conserved input selection.
+/// the generic inventory allocator to choose provenance-sensitive matter on their behalf, and
+/// cannot provide a batch count that disagrees with the conserved input selection. Durable
+/// temperature cohorts may be combined because resolution preserves them in the output parcels.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ManualCraftRequest {
     process: ProcessId,
@@ -186,16 +187,13 @@ pub fn resolve_manual_craft(
     )
     .map_err(|error| ManualCraftError::from_batch_error(error, definition))?;
     let batches = batch.batches();
-    let temperature = batch.temperature();
     let outputs =
-        batch::build_manual_craft_outputs(definition, batches, temperature).map_err(|error| {
-            match error {
-                batch::ManualCraftOutputError::MassOverflow { commodity, batches } => {
-                    ManualCraftError::OutputMassOverflow { commodity, batches }
-                }
-                batch::ManualCraftOutputError::Construction { error, .. } => {
-                    ManualCraftError::Output(error)
-                }
+        batch::build_manual_craft_outputs(definition, &batch).map_err(|error| match error {
+            batch::ManualCraftOutputError::MassOverflow { commodity, batches } => {
+                ManualCraftError::OutputMassOverflow { commodity, batches }
+            }
+            batch::ManualCraftOutputError::Construction { error, .. } => {
+                ManualCraftError::Output(error)
             }
         })?;
     match request.equipment() {

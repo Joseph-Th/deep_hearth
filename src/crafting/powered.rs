@@ -390,15 +390,14 @@ pub fn resolve_powered_craft(
     let batch =
         validate_manual_craft_batch(transform, inputs.input_mass(), inputs.consumed_inputs())
             .map_err(batch_error)?;
-    let outputs = build_manual_craft_outputs(transform, batch.batches(), batch.temperature())
-        .map_err(|error| match error {
-            super::batch::ManualCraftOutputError::MassOverflow { .. } => {
-                PoweredCraftError::OutputMassOverflow
-            }
-            super::batch::ManualCraftOutputError::Construction { error, .. } => {
-                PoweredCraftError::Output(error)
-            }
-        })?;
+    let outputs = build_manual_craft_outputs(transform, &batch).map_err(|error| match error {
+        super::batch::ManualCraftOutputError::MassOverflow { .. } => {
+            PoweredCraftError::OutputMassOverflow
+        }
+        super::batch::ManualCraftOutputError::Construction { error, .. } => {
+            PoweredCraftError::Output(error)
+        }
+    })?;
 
     let provider =
         resolve_powered_craft_provider(registries, state, definition, request.equipment)?;

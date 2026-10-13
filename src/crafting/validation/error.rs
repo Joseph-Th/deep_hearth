@@ -89,9 +89,6 @@ pub enum CraftingJobValidationError {
     InputCompositionMismatch {
         job: ProductionJobId,
     },
-    MixedInputTemperature {
-        job: ProductionJobId,
-    },
     InputMassNotWholeBatches {
         job: ProductionJobId,
         consumed: Mass,
@@ -241,11 +238,6 @@ impl Display for CraftingJobValidationError {
                 "craft job {} consumed material whose composition its shaping transform cannot accept",
                 job.value()
             ),
-            Self::MixedInputTemperature { job } => write!(
-                formatter,
-                "craft job {} combines different input temperatures without thermal physics",
-                job.value()
-            ),
             Self::InputMassNotWholeBatches {
                 job,
                 consumed,
@@ -317,7 +309,6 @@ impl Error for CraftingJobValidationError {
             | Self::InputCommodityMismatch { .. }
             | Self::EmptyInput { .. }
             | Self::InputCompositionMismatch { .. }
-            | Self::MixedInputTemperature { .. }
             | Self::InputMassNotWholeBatches { .. }
             | Self::DurationOverflow { .. }
             | Self::DurationMismatch { .. }

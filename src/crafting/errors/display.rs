@@ -117,9 +117,6 @@ impl Display for ManualCraftError {
                 expected.material().value(),
                 expected.form().value()
             ),
-            Self::MixedInputTemperature => formatter.write_str(
-                "manual shaping cannot combine different input temperatures without thermal physics",
-            ),
             Self::InputMassNotWholeBatches {
                 consumed,
                 batch_mass,
@@ -172,12 +169,12 @@ impl Display for ManualCraftError {
                 "manual craft equipment throughput cannot schedule work: {error}"
             ),
             Self::EquipmentCondition(error) => {
-                write!(formatter, "manual craft equipment cannot remain productive: {error}")
+                write!(
+                    formatter,
+                    "manual craft equipment cannot remain productive: {error}"
+                )
             }
-            Self::OutputMassOverflow {
-                commodity,
-                batches,
-            } => write!(
+            Self::OutputMassOverflow { commodity, batches } => write!(
                 formatter,
                 "manual shaping output material {} form {} overflows when repeated {} times",
                 commodity.material().value(),

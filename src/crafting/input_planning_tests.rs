@@ -452,12 +452,14 @@ fn familiar_recipe_planner_selects_exact_lots_without_exposing_lot_choice() {
 }
 
 #[test]
-fn familiar_recipe_planner_does_not_hide_temperature_incompatibility() {
+fn familiar_recipe_planner_combines_temperature_cohorts_without_heat_exchange() {
     let registries = build_registries();
     let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("split-temperature survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
         .unwrap_or_else(|error| panic!("split-temperature stockpile failed: {error}"));
-    for temperature in [293_150, 303_150] {
+    let lots = [293_150, 303_150].map(|temperature| {
         deposit_lot_for_test(
             &registries,
             &mut state,
@@ -466,8 +468,8 @@ fn familiar_recipe_planner_does_not_hide_temperature_incompatibility() {
             Mass::from_milligrams(600_000),
             Temperature::from_millikelvin(temperature),
         )
-        .unwrap_or_else(|error| panic!("split-temperature lot failed: {error}"));
-    }
+        .unwrap_or_else(|error| panic!("split-temperature lot failed: {error}"))
+    });
 
     let availability =
         assess_manual_craft_inputs(&registries, &state, PROCESS_KNAP_STONE_TOOL, source)
@@ -476,36 +478,46 @@ fn familiar_recipe_planner_does_not_hide_temperature_incompatibility() {
         availability.total_eligible_mass(),
         Mass::from_milligrams(1_200_000)
     );
+    assert_eq!(availability.maximum_batches(), 1);
+    let request = plan_manual_craft_from_stockpile(
+        &registries,
+        &state,
+        PROCESS_KNAP_STONE_TOOL,
+        source,
+        batches(1),
+    )
+    .unwrap_or_else(|error| panic!("split-temperature planning failed: {error}"));
     assert_eq!(
-        availability.largest_compatible_mass(),
-        Mass::from_milligrams(600_000)
+        request.selections(),
+        &[
+            MaterialLotSelection::new(lots[0], Mass::from_milligrams(600_000)),
+            MaterialLotSelection::new(lots[1], Mass::from_milligrams(400_000)),
+        ]
     );
-    assert_eq!(availability.maximum_batches(), 0);
-    assert_eq!(availability.craftable_temperature_groups(), 0);
-    assert_eq!(
-        plan_manual_craft_from_stockpile(
-            &registries,
-            &state,
-            PROCESS_KNAP_STONE_TOOL,
-            source,
-            batches(1),
-        ),
-        Err(ManualCraftInputPlanError::SplitTemperatureInput {
-            input: CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            available: Mass::from_milligrams(1_200_000),
-            largest_compatible: Mass::from_milligrams(600_000),
-            required: Mass::from_milligrams(1_000_000),
-        })
-    );
+    let resolution = resolve_manual_craft(&registries, &state, &request)
+        .unwrap_or_else(|error| panic!("split-temperature craft failed: {error}"));
+    let mass_at = |temperature| {
+        resolution
+            .outputs()
+            .iter()
+            .filter(|output| output.temperature() == Temperature::from_millikelvin(temperature))
+            .fold(Mass::ZERO, |total, output| {
+                total
+                    .checked_add(output.mass())
+                    .unwrap_or_else(|| panic!("split-temperature output mass overflowed"))
+            })
+    };
+    assert_eq!(mass_at(293_150), Mass::from_milligrams(600_000));
+    assert_eq!(mass_at(303_150), Mass::from_milligrams(400_000));
 }
 
 #[test]
-fn familiar_recipe_planner_requires_choice_when_two_temperatures_can_each_supply_the_batch() {
+fn familiar_recipe_catalog_keeps_durable_temperature_cohorts_automatic() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
-        .unwrap_or_else(|error| panic!("temperature-choice stockpile failed: {error}"));
-    for temperature in [303_150, 293_150] {
+        .unwrap_or_else(|error| panic!("multi-temperature stockpile failed: {error}"));
+    let lots = [303_150, 293_150].map(|temperature| {
         deposit_lot_for_test(
             &registries,
             &mut state,
@@ -514,17 +526,16 @@ fn familiar_recipe_planner_requires_choice_when_two_temperatures_can_each_supply
             Mass::from_milligrams(1_000_000),
             Temperature::from_millikelvin(temperature),
         )
-        .unwrap_or_else(|error| panic!("temperature-choice lot failed: {error}"));
-    }
+        .unwrap_or_else(|error| panic!("multi-temperature lot failed: {error}"))
+    });
 
     let availability =
         assess_manual_craft_inputs(&registries, &state, PROCESS_KNAP_STONE_TOOL, source)
-            .unwrap_or_else(|error| panic!("temperature-choice availability failed: {error}"));
-    assert_eq!(availability.maximum_batches(), 1);
-    assert_eq!(availability.craftable_temperature_groups(), 2);
+            .unwrap_or_else(|error| panic!("multi-temperature availability failed: {error}"));
+    assert_eq!(availability.maximum_batches(), 2);
 
     let options = manual_craft_options_from_stockpile(&registries, &state, source)
-        .unwrap_or_else(|error| panic!("temperature-choice catalog failed: {error}"));
+        .unwrap_or_else(|error| panic!("multi-temperature catalog failed: {error}"));
     let knapping = options
         .iter()
         .copied()
@@ -532,27 +543,23 @@ fn familiar_recipe_planner_requires_choice_when_two_temperatures_can_each_supply
         .unwrap_or_else(|| panic!("stone knapping disappeared from recipe catalog"));
     assert!(matches!(
         knapping.input_mode(),
-        ManualCraftInputMode::TemperatureChoice(found) if found == availability
+        ManualCraftInputMode::Automatic(found) if found == availability
     ));
 
+    let request = plan_manual_craft_from_stockpile(
+        &registries,
+        &state,
+        PROCESS_KNAP_STONE_TOOL,
+        source,
+        batches(2),
+    )
+    .unwrap_or_else(|error| panic!("multi-temperature planning failed: {error}"));
     assert_eq!(
-        plan_manual_craft_from_stockpile(
-            &registries,
-            &state,
-            PROCESS_KNAP_STONE_TOOL,
-            source,
-            batches(1),
-        ),
-        Err(
-            ManualCraftInputPlanError::MultipleCompatibleInputTemperatures {
-                input: CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                required: Mass::from_milligrams(1_000_000),
-                temperatures: vec![
-                    Temperature::from_millikelvin(293_150),
-                    Temperature::from_millikelvin(303_150),
-                ],
-            }
-        )
+        request.selections(),
+        &[
+            MaterialLotSelection::new(lots[0], Mass::from_milligrams(1_000_000)),
+            MaterialLotSelection::new(lots[1], Mass::from_milligrams(1_000_000)),
+        ]
     );
 }
 

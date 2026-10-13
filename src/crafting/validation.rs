@@ -1,8 +1,5 @@
 //! Persistence replay validation for in-flight manual shaping jobs.
 
-use std::num::NonZeroU64;
-
-use crate::core::quantity::Temperature;
 use crate::core::time::TickSpan;
 use crate::energy::calculate_mass_specific_energy;
 use crate::material::MaterialLotSpec;
@@ -12,7 +9,7 @@ use crate::registry::Registries;
 use super::powered::{PoweredCraftTimingError, resolve_powered_craft_rate};
 use super::{
     ManualCraftDefinition, ManualCraftEquipmentProfile, PoweredCraftDefinition,
-    batch::{ManualCraftBatchError, validate_manual_craft_batch},
+    batch::{ManualCraftBatch, ManualCraftBatchError, validate_manual_craft_batch},
     physics::{
         ManualCraftEquipmentResolutionError, ManualCraftEquipmentScheduleError,
         resolve_manual_craft_equipment_physics, resolve_manual_craft_hand_duration,
@@ -211,26 +208,23 @@ fn validate_powered_craft_resources(
 fn reconstruct_manual_craft_outputs(
     definition: &ManualCraftDefinition,
     job: &ProductionJobRecord,
-    batches: NonZeroU64,
-    temperature: Temperature,
+    batch: &ManualCraftBatch,
 ) -> Result<Vec<MaterialLotSpec>, CraftingJobValidationError> {
-    let mut expected_outputs =
-        super::batch::build_manual_craft_outputs(definition, batches, temperature).map_err(
-            |error| match error {
-                super::batch::ManualCraftOutputError::MassOverflow { batches, .. } => {
-                    CraftingJobValidationError::OutputMassOverflow {
-                        job: job.id(),
-                        batches,
-                    }
+    let mut expected_outputs = super::batch::build_manual_craft_outputs(definition, batch)
+        .map_err(|error| match error {
+            super::batch::ManualCraftOutputError::MassOverflow { batches, .. } => {
+                CraftingJobValidationError::OutputMassOverflow {
+                    job: job.id(),
+                    batches,
                 }
-                super::batch::ManualCraftOutputError::Construction { error, .. } => {
-                    CraftingJobValidationError::OutputConstruction {
-                        job: job.id(),
-                        error,
-                    }
+            }
+            super::batch::ManualCraftOutputError::Construction { error, .. } => {
+                CraftingJobValidationError::OutputConstruction {
+                    job: job.id(),
+                    error,
                 }
-            },
-        )?;
+            }
+        })?;
     expected_outputs.sort();
     Ok(expected_outputs)
 }
@@ -284,9 +278,6 @@ pub(crate) fn validate_loaded_crafting_job(
             ManualCraftBatchError::InputCompositionMismatch => {
                 CraftingJobValidationError::InputCompositionMismatch { job: job.id() }
             }
-            ManualCraftBatchError::MixedInputTemperature => {
-                CraftingJobValidationError::MixedInputTemperature { job: job.id() }
-            }
             ManualCraftBatchError::InputMassNotWholeBatches {
                 consumed,
                 batch_mass,
@@ -316,7 +307,6 @@ pub(crate) fn validate_loaded_crafting_job(
             required: required_duration,
         });
     }
-    let temperature = batch.temperature();
-    let expected_outputs = reconstruct_manual_craft_outputs(definition, job, batches, temperature)?;
+    let expected_outputs = reconstruct_manual_craft_outputs(definition, job, &batch)?;
     validate_manual_craft_outputs(job, &expected_outputs)
 }

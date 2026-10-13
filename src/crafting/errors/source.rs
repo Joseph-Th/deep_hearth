@@ -39,7 +39,6 @@ impl Error for ManualCraftError {
             | Self::UnknownManualProcess { .. }
             | Self::InputCommodityMismatch { .. }
             | Self::InputCompositionMismatch { .. }
-            | Self::MixedInputTemperature
             | Self::InputMassNotWholeBatches { .. }
             | Self::DurationOverflow { .. }
             | Self::RequiredEquipmentMissing { .. }

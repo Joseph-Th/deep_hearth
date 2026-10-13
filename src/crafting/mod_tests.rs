@@ -14,6 +14,7 @@ use crate::content::{
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::TickSpan;
+use crate::energy::calculate_explicit_energy_accounting;
 use crate::equipment::validate_assemble_equipment;
 use crate::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use crate::inventory::{
@@ -147,6 +148,9 @@ mod powered;
 
 #[path = "mod_tests/powered_capability.rs"]
 mod powered_capability;
+
+#[path = "mod_tests/powered_temperature.rs"]
+mod powered_temperature;
 
 fn make_fixture() -> (
     Registries,

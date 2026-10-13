@@ -88,7 +88,6 @@ pub enum ManualCraftError {
     InputCompositionMismatch {
         expected: CommodityKey,
     },
-    MixedInputTemperature,
     InputMassNotWholeBatches {
         consumed: Mass,
         batch_mass: Mass,
@@ -136,7 +135,6 @@ impl ManualCraftError {
             ManualCraftBatchError::InputCompositionMismatch => Self::InputCompositionMismatch {
                 expected: definition.input(),
             },
-            ManualCraftBatchError::MixedInputTemperature => Self::MixedInputTemperature,
             ManualCraftBatchError::InputMassNotWholeBatches {
                 consumed,
                 batch_mass,

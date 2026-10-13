@@ -431,10 +431,13 @@ preserving work-in-process, reservations, remaining active duration, and those f
 Manual production releases player attention while suspended and must reacquire labor/survival budget before
 resumption.
 
-Manual shaping conserves material identity/mass and cannot change phase. Optional equipment may reduce attention
-through canonical condition-adjusted throughput; required equipment rejects the equipment-free route. Equipment
-changes throughput/wear, not recipe yield. Scrap/chip outputs remain represented matter until an explicit authored
-recovery process consumes them.
+Manual shaping conserves material identity/mass and cannot change phase. Pure durable input lots may span exact
+temperatures: form-only shaping retains every selected thermal cohort and apportions each authored output across
+the remaining cohort distribution at whole-milligram precision, so crafting neither averages heat nor performs
+free temperature separation. Powered crafting delegates the same material/yield transform. Optional equipment may
+reduce attention through canonical condition-adjusted throughput; required equipment rejects the equipment-free
+route. Equipment changes throughput/wear, not recipe yield. Scrap/chip outputs remain represented matter until an
+explicit authored recovery process consumes them.
 
 ### Physical resolvers
 

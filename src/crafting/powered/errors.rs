@@ -30,7 +30,6 @@ pub enum PoweredCraftError {
     EmptyInput,
     InputCommodityMismatch,
     InputCompositionMismatch,
-    MixedInputTemperature,
     InputMassNotWholeBatches {
         consumed: Mass,
         batch_mass: Mass,
@@ -77,9 +76,6 @@ impl Display for PoweredCraftError {
                 .write_str("powered craft input commodity does not match its authored transform"),
             Self::InputCompositionMismatch => formatter
                 .write_str("powered craft input composition does not match its authored transform"),
-            Self::MixedInputTemperature => {
-                formatter.write_str("powered craft cannot combine mixed input temperatures")
-            }
             Self::InputMassNotWholeBatches {
                 consumed,
                 batch_mass,
@@ -160,7 +156,6 @@ impl Error for PoweredCraftError {
             | Self::EmptyInput
             | Self::InputCommodityMismatch
             | Self::InputCompositionMismatch
-            | Self::MixedInputTemperature
             | Self::InputMassNotWholeBatches { .. }
             | Self::UnknownEquipmentDefinition { .. }
             | Self::EnergyCapacityExceeded { .. }
@@ -177,7 +172,6 @@ pub(super) fn batch_error(error: ManualCraftBatchError) -> PoweredCraftError {
         ManualCraftBatchError::InputCompositionMismatch => {
             PoweredCraftError::InputCompositionMismatch
         }
-        ManualCraftBatchError::MixedInputTemperature => PoweredCraftError::MixedInputTemperature,
         ManualCraftBatchError::InputMassNotWholeBatches {
             consumed,
             batch_mass,
