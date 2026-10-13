@@ -38,8 +38,12 @@ use opening::{
 const WILDERNESS_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const STONE_BASE_MASS_MG: u64 = 3_000_000;
 const STONE_VARIATION_MG: u64 = 1_500_000;
-const TIMBER_BASE_MASS_MG: u64 = 8_000_000;
-const TIMBER_VARIATION_MG: u64 = 4_000_000;
+// One local fallen-timber opportunity should be a reserve, not a pocket-sized pickup. The player
+// can still harvest only the amount current work justifies, but even the smallest discovered stand
+// exceeds the unaided body-carrying envelope so storage, repeated hauling, and later woodworking
+// can compete for the same known source.
+const TIMBER_BASE_MASS_MG: u64 = 30_000_000;
+const TIMBER_VARIATION_MG: u64 = 10_000_000;
 // The opening food and water opportunities are deliberately larger than the actor's first quick
 // serving. At minimum they each represent more than one resting day of authored physiology, so a
 // fresh player can choose to secure a little, return later, or invest in storage instead of being

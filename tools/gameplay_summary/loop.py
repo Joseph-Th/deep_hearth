@@ -259,14 +259,23 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
     rational_mobility = sum(
         " storage-choice=[selected:defer " in line
         and " tool-choice=[selected:defer " in line
-        and " intent=stay-mobile " in line
+        and " goal=stay-mobile " in line
         for line in evidence.wilderness
     )
-    camp_engineering = sum(
-        " storage-choice=[selected:field-box " in line
-        or " storage-choice=[selected:stone-crock " in line
-        for line in evidence.wilderness
-    )
+    camp_leverage = 0
+    for line in evidence.wilderness:
+        project = re.search(
+            r"\bcamp-project=\[.*?\blogistics-steps:(\d+) "
+            r"source:(\d+)mg->(\d+)mg",
+            line,
+        )
+        if project is None:
+            continue
+        logistics_steps = int(project.group(1))
+        source_before = int(project.group(2))
+        source_after = int(project.group(3))
+        if logistics_steps > 0 and source_before > source_after:
+            camp_leverage += 1
     workload_sensitive_processing = sum(
         " processing-market=[one-cycle:manual " in line
         and " disclosed:mechanized]" in line
@@ -297,7 +306,7 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         "agency-growth=["
         f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
         f"rational-mobility:{rational_mobility}/{len(evidence.wilderness)} "
-        f"camp-engineering:{camp_engineering}/{len(evidence.wilderness)} "
+        f"camp-leverage:{camp_leverage}/{len(evidence.wilderness)} "
         f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
         f"electrical-foundry:{electrical_foundries}/{foundry_builds}"

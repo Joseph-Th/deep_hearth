@@ -29,7 +29,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
     pressure_coverage = [
         line
         for line in coverage
-        if " start=hydration-pressure " in line and " intent=stay-mobile " in line
+        if " start=hydration-pressure " in line and " goal=stay-mobile " in line
     ]
     if len(maintained) != 1 or len(pressure_coverage) != 1:
         raise ValueError(
@@ -62,6 +62,9 @@ def wilderness_summary(lines: list[str]) -> str | None:
     camp_work_ticks: list[int] = []
     camp_cached_mass: list[int] = []
     camp_staged_timber: list[int] = []
+    camp_logistics_steps: list[int] = []
+    selected_source_opportunity: list[int] = []
+    selected_source_remaining: list[int] = []
     camp_metabolic_budget: list[int] = []
     camp_hydration_budget: list[int] = []
     project_meals = 0
@@ -79,22 +82,26 @@ def wilderness_summary(lines: list[str]) -> str | None:
         if water is not None:
             water_runway_tenths.append(int(water.group(1)) * 10 + int(water.group(2)))
         project = re.search(
-            r"\bcamp-project=\[.*?\bwork:(\d+)t budget:(\d+)nJ/(\d+)uL "
+            r"\bcamp-project=\[.*?\bwork:(\d+)t logistics-steps:(\d+) "
+            r"source:(\d+)mg->(\d+)mg project-budget:(\d+)nJ/(\d+)uL "
             r"project-meal:(\d+)mg cached-total:(\d+)mg staged-timber:(\d+)mg\]",
             experience,
         )
         if project is None:
             raise ValueError("wilderness experience lost camp-project telemetry")
         work = int(project.group(1))
-        meal = int(project.group(4))
+        meal = int(project.group(7))
         if meal > 0:
             project_meals += 1
         if work > 0:
             camp_work_ticks.append(work)
-            camp_metabolic_budget.append(int(project.group(2)))
-            camp_hydration_budget.append(int(project.group(3)))
-            camp_cached_mass.append(int(project.group(5)))
-            camp_staged_timber.append(int(project.group(6)))
+            camp_logistics_steps.append(int(project.group(2)))
+            selected_source_opportunity.append(int(project.group(3)))
+            selected_source_remaining.append(int(project.group(4)))
+            camp_metabolic_budget.append(int(project.group(5)))
+            camp_hydration_budget.append(int(project.group(6)))
+            camp_cached_mass.append(int(project.group(8)))
+            camp_staged_timber.append(int(project.group(9)))
     if not water_runway_tenths:
         raise ValueError("wilderness report has no exact-local visited water runway witness")
     resource_runway = (
@@ -105,11 +112,11 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"visited-water:{_tenths_span(water_runway_tenths, 'h')} "
         "unvisited-water:hidden]"
     )
-    camp_strategy = (
-        "camp-strategy=["
-        f"mobile:{sum(' intent=stay-mobile ' in line for line in experiences)} "
-        f"bulk-cache:{sum(' intent=bulk-cache ' in line for line in experiences)} "
-        f"preserve-reserve:{sum(' intent=preserve-reserve ' in line for line in experiences)} "
+    camp_goals = (
+        "camp-goals=["
+        f"mobile:{sum(' goal=stay-mobile ' in line for line in experiences)} "
+        f"worksite-cache:{sum(' goal=worksite-cache ' in line for line in experiences)} "
+        f"preserve-provisions:{sum(' goal=preserve-provisions ' in line for line in experiences)} "
         "built=["
         f"field-box:{sum(' storage:field-box ' in line for line in experiences)} "
         f"stone-crock:{sum(' storage:stone-crock ' in line for line in experiences)}] "
@@ -126,10 +133,13 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"work:{min(camp_work_ticks)}..{max(camp_work_ticks)}t "
             f"cached:{scaled_span(camp_cached_mass, 1_000_000, 'kg')} "
             f"staged-timber:{scaled_span(camp_staged_timber, 1_000_000, 'kg')} "
-            f"body-budget:{scaled_span(camp_metabolic_budget, 1_000_000_000_000, 'kJ')}/"
+            f"logistics-steps:{min(camp_logistics_steps)}..{max(camp_logistics_steps)} "
+            f"source:{scaled_span(selected_source_opportunity, 1_000_000, 'kg')}->"
+            f"{scaled_span(selected_source_remaining, 1_000_000, 'kg')} "
+            f"project-budget:{scaled_span(camp_metabolic_budget, 1_000_000_000_000, 'kJ')}/"
             f"{scaled_span(camp_hydration_budget, 1_000, 'mL')}]"
         )
-    bulk_projects = [line for line in experiences if " intent=bulk-cache " in line]
+    cache_projects = [line for line in experiences if " goal=worksite-cache " in line]
     adze_crossover = next(
         (
             int(match.group(1))
@@ -142,8 +152,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
         raise ValueError("wilderness experience lost early adze crossover telemetry")
     tool_policy = (
         "tool-policy=["
-        f"bulk-projects:{len(bulk_projects)} "
-        f"first-box-adze-deferred:{sum(' reason:first-box-below-adze-crossover]' in line for line in bulk_projects)}/{len(bulk_projects)} "
+        f"cache-projects:{len(cache_projects)} "
+        f"first-box-adze-deferred:{sum(' reason:first-box-below-adze-crossover]' in line for line in cache_projects)}/{len(cache_projects)} "
         f"crossover:{adze_crossover}batches]"
     )
     organic_detail = ""
@@ -153,10 +163,10 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"rested:{sum(' start=rested ' in line for line in organic)} "
             f"hunger:{sum(' start=hunger-pressure ' in line for line in organic)} "
             f"hydration:{sum(' start=hydration-pressure ' in line for line in organic)} "
-            "intent=["
-            f"mobile:{sum(' intent=stay-mobile ' in line for line in organic)} "
-            f"bulk:{sum(' intent=bulk-cache ' in line for line in organic)} "
-            f"preserve:{sum(' intent=preserve-reserve ' in line for line in organic)}] "
+            "goals=["
+            f"mobile:{sum(' goal=stay-mobile ' in line for line in organic)} "
+            f"cache:{sum(' goal=worksite-cache ' in line for line in organic)} "
+            f"preserve:{sum(' goal=preserve-provisions ' in line for line in organic)}] "
             f"meals:{sum(' meal:eat-needed ' in line for line in organic)} "
             f"water-visits:{sum(' visited:true ' in line for line in organic)}]"
         )
@@ -170,7 +180,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"pressure-route=[steps:{pressure_steps.group(1)} water:visited "
         f"consumed:{pressure_drink.group(1)}uL] "
         f"{resource_runway} "
-        f"{camp_strategy} "
+        f"{camp_goals} "
         f"{camp_projects} "
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"

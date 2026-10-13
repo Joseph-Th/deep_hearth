@@ -153,7 +153,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "movement",
         "pressure-route",
         "resource-runway",
-        "camp-strategy",
+        "camp-goals",
         "camp-projects",
         "organic-adaptation",
         "tool-policy",
