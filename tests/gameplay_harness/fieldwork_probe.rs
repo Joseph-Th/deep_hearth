@@ -52,6 +52,9 @@ use campaign::{
 mod extraction;
 use extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
 
+#[path = "fieldwork_probe/exact_local_expedition.rs"]
+mod exact_local_expedition;
+
 #[path = "fieldwork_probe/knowledge_experience.rs"]
 mod knowledge_experience;
 
@@ -258,6 +261,7 @@ fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
 
 pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCase) {
     if case.role() == FocusedProbeRole::MaintainedAnchor {
+        exact_local_expedition::run_exact_local_field_expedition(registries);
         knowledge_experience::run_fieldwork_knowledge_experience(registries, case.seed());
     }
     let episode = run_fieldwork_order(registries, case, fieldwork_order_for_case(registries, case));

@@ -191,6 +191,9 @@ pub fn validate_mount_equipment(
             element: existing,
         });
     }
+    if state.logistics().is_equipment_carried(equipment) {
+        return Err(EquipmentSupportError::EquipmentCarried { equipment });
+    }
     validate_not_busy(state, equipment)?;
 
     let target =

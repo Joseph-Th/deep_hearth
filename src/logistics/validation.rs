@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::energy::{EnergyState, EnergyStoreId};
-use crate::equipment::{EquipmentId, EquipmentState};
+use crate::equipment::{EquipmentId, EquipmentRegistry, EquipmentState};
 use crate::fluid::{FluidState, FluidStoreId};
 use crate::inventory::{InventoryState, StockpileId, StorageDefinitionId};
 use crate::spatial::VoxelCoord;
@@ -42,6 +42,26 @@ pub enum LogisticsValidationError {
         element: StructuralElementId,
     },
     UnknownLocatedEquipment {
+        equipment: EquipmentId,
+    },
+    CarriedEquipmentWithoutPlayer {
+        equipment: EquipmentId,
+    },
+    CarriedEquipmentNotStrictlyOrdered {
+        previous: EquipmentId,
+        current: EquipmentId,
+    },
+    UnknownCarriedEquipment {
+        equipment: EquipmentId,
+    },
+    CarriedEquipmentAlsoLocated {
+        equipment: EquipmentId,
+    },
+    CarriedEquipmentMounted {
+        equipment: EquipmentId,
+        element: StructuralElementId,
+    },
+    CarriedEquipmentRequiresSupport {
         equipment: EquipmentId,
     },
     EquipmentOutsideSupport {
@@ -119,6 +139,38 @@ impl Display for LogisticsValidationError {
             Self::UnknownLocatedEquipment { equipment } => write!(
                 formatter,
                 "equipment location references missing equipment {}",
+                equipment.value()
+            ),
+            Self::CarriedEquipmentWithoutPlayer { equipment } => write!(
+                formatter,
+                "equipment {} is marked player-carried without a logistics player",
+                equipment.value()
+            ),
+            Self::CarriedEquipmentNotStrictlyOrdered { previous, current } => write!(
+                formatter,
+                "carried equipment IDs are not strictly ordered: {} then {}",
+                previous.value(),
+                current.value()
+            ),
+            Self::UnknownCarriedEquipment { equipment } => write!(
+                formatter,
+                "player logistics references missing carried equipment {}",
+                equipment.value()
+            ),
+            Self::CarriedEquipmentAlsoLocated { equipment } => write!(
+                formatter,
+                "equipment {} is both player-carried and separately located",
+                equipment.value()
+            ),
+            Self::CarriedEquipmentMounted { equipment, element } => write!(
+                formatter,
+                "player-carried equipment {} is mounted to structural element {}",
+                equipment.value(),
+                element.value()
+            ),
+            Self::CarriedEquipmentRequiresSupport { equipment } => write!(
+                formatter,
+                "equipment {} requires structural support and cannot be player-carried",
                 equipment.value()
             ),
             Self::EquipmentOutsideSupport {
@@ -206,6 +258,7 @@ impl Error for LogisticsValidationError {}
 fn validate_revision(state: &LogisticsState) -> Result<(), LogisticsValidationError> {
     let populated = state.player().is_some()
         || state.traversable_edges().next().is_some()
+        || state.carried_equipment().next().is_some()
         || state.stockpile_locations().next().is_some()
         || state.equipment_locations().next().is_some()
         || state.energy_store_locations().next().is_some()
@@ -239,6 +292,61 @@ fn validate_traversal_edges(state: &LogisticsState) -> Result<(), LogisticsValid
             });
         }
         previous = Some(edge);
+    }
+    Ok(())
+}
+
+fn validate_carried_equipment(
+    state: &LogisticsState,
+    equipment: &EquipmentState,
+    registry: &EquipmentRegistry,
+) -> Result<(), LogisticsValidationError> {
+    let mut previous = None;
+    for equipment_id in state.carried_equipment() {
+        if state.player().is_none() {
+            return Err(LogisticsValidationError::CarriedEquipmentWithoutPlayer {
+                equipment: equipment_id,
+            });
+        }
+        if let Some(previous_id) = previous
+            && previous_id >= equipment_id
+        {
+            return Err(
+                LogisticsValidationError::CarriedEquipmentNotStrictlyOrdered {
+                    previous: previous_id,
+                    current: equipment_id,
+                },
+            );
+        }
+        previous = Some(equipment_id);
+        let record = equipment.get_equipment(equipment_id).ok_or(
+            LogisticsValidationError::UnknownCarriedEquipment {
+                equipment: equipment_id,
+            },
+        )?;
+        if state.stationary_equipment_position(equipment_id).is_some() {
+            return Err(LogisticsValidationError::CarriedEquipmentAlsoLocated {
+                equipment: equipment_id,
+            });
+        }
+        if let Some(element) = record.supported_by() {
+            return Err(LogisticsValidationError::CarriedEquipmentMounted {
+                equipment: equipment_id,
+                element,
+            });
+        }
+        let definition = registry
+            .get_equipment(record.definition())
+            .unwrap_or_else(|| {
+                unreachable!(
+                    "equipment owner validation proves carried equipment definition exists"
+                )
+            });
+        if definition.requires_structural_support() {
+            return Err(LogisticsValidationError::CarriedEquipmentRequiresSupport {
+                equipment: equipment_id,
+            });
+        }
     }
     Ok(())
 }
@@ -363,6 +471,7 @@ pub(crate) fn validate_loaded_logistics(
     state: &LogisticsState,
     inventory: &InventoryState,
     equipment: &EquipmentState,
+    equipment_registry: &EquipmentRegistry,
     energy: &EnergyState,
     fluid: &FluidState,
     structures: &StructureState,
@@ -370,6 +479,7 @@ pub(crate) fn validate_loaded_logistics(
     validate_revision(state)?;
     validate_traversal_edges(state)?;
     validate_player_custody(state, inventory)?;
+    validate_carried_equipment(state, equipment, equipment_registry)?;
     validate_stockpile_locations(state, inventory, structures)?;
     validate_equipment_locations(state, equipment, structures)?;
     validate_energy_store_locations(state, energy)?;

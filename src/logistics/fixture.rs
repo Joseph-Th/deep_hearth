@@ -1,6 +1,7 @@
 //! Controlled pre-admission logistics setup for tests and gameplay probes.
 
 use crate::core::state::AppState;
+#[cfg(feature = "test-gameplay")]
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::spatial::VoxelCoord;
@@ -39,6 +40,7 @@ pub(crate) fn place_equipment_for_fixture(
 ///
 /// This mirrors fixture equipment placement: logistics remains the sole location owner and advances
 /// its revision, while the fixture contributes only the pre-existing world position.
+#[cfg(feature = "test-gameplay")]
 pub(crate) fn place_energy_store_for_fixture(
     state: &mut AppState,
     store: EnergyStoreId,

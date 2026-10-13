@@ -48,6 +48,7 @@ pub struct LogisticsState {
     revision: u64,
     player: Option<PlayerLogisticsRecord>,
     traversable_edges: Vec<TraversalEdge>,
+    carried_equipment: Vec<EquipmentId>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -65,6 +66,7 @@ impl LogisticsState {
             revision: 0,
             player: None,
             traversable_edges: Vec::new(),
+            carried_equipment: Vec::new(),
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
@@ -101,14 +103,33 @@ impl LogisticsState {
     /// Returns the world voxel of one equipment instance managed by logistics.
     #[must_use]
     pub fn equipment_position(&self, equipment: EquipmentId) -> Option<VoxelCoord> {
+        if self.carried_equipment.binary_search(&equipment).is_ok() {
+            return self.player.map(PlayerLogisticsRecord::position);
+        }
+        self.stationary_equipment_position(equipment)
+    }
+
+    /// Returns the stationary world voxel of one equipment instance, excluding player custody.
+    #[must_use]
+    pub fn stationary_equipment_position(&self, equipment: EquipmentId) -> Option<VoxelCoord> {
         self.equipment_locations.get(&equipment).copied()
     }
 
-    /// Iterates equipment locations in stable equipment-ID order.
+    /// Iterates stationary equipment locations in stable equipment-ID order.
     pub fn equipment_locations(&self) -> impl Iterator<Item = (EquipmentId, VoxelCoord)> + '_ {
         self.equipment_locations
             .iter()
             .map(|(equipment, position)| (*equipment, *position))
+    }
+
+    /// Iterates player-carried equipment in stable equipment-ID order.
+    pub fn carried_equipment(&self) -> impl Iterator<Item = EquipmentId> + '_ {
+        self.carried_equipment.iter().copied()
+    }
+
+    #[must_use]
+    pub fn is_equipment_carried(&self, equipment: EquipmentId) -> bool {
+        self.carried_equipment.binary_search(&equipment).is_ok()
     }
 
     pub(crate) const fn revision(&self) -> u64 {
@@ -120,6 +141,7 @@ impl LogisticsState {
         self.revision == 0
             && self.player.is_none()
             && self.traversable_edges.is_empty()
+            && self.carried_equipment.is_empty()
             && self.stockpile_locations.is_empty()
             && self.equipment_locations.is_empty()
             && self.energy_store_locations.is_empty()
@@ -285,6 +307,55 @@ impl LogisticsState {
         self.revision = next_revision;
     }
 
+    pub(super) fn apply_equipment_pickup(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        equipment: EquipmentId,
+        expected_position: VoxelCoord,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            self.player.is_some(),
+            "equipment pickup requires a logistics player"
+        );
+        assert_eq!(
+            self.equipment_locations.remove(&equipment),
+            Some(expected_position),
+            "equipment location changed after pickup validation"
+        );
+        let insertion = match self.carried_equipment.binary_search(&equipment) {
+            Ok(_) => panic!("validated equipment pickup cannot duplicate carried custody"),
+            Err(index) => index,
+        };
+        self.carried_equipment.insert(insertion, equipment);
+        self.revision = next_revision;
+    }
+
+    pub(super) fn apply_equipment_drop(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        equipment: EquipmentId,
+        position: VoxelCoord,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let index = match self.carried_equipment.binary_search(&equipment) {
+            Ok(index) => index,
+            Err(_) => panic!("validated equipment drop requires carried custody"),
+        };
+        self.carried_equipment.remove(index);
+        assert!(
+            self.equipment_locations
+                .insert(equipment, position)
+                .is_none(),
+            "equipment drop cannot replace a stationary location"
+        );
+        self.revision = next_revision;
+    }
+
     pub(crate) fn apply_energy_store_placement(
         &mut self,
         expected_revision: u64,
@@ -378,7 +449,7 @@ impl LogisticsState {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn add_traversable_edge_for_test(
     state: &mut AppState,
     first: VoxelCoord,
@@ -403,7 +474,7 @@ pub(crate) fn add_traversable_edge_for_test(
     logistics.revision = next_revision;
 }
 
-/// Actor-facing snapshot of current carried material capacity at the player's world position.
+/// Actor-facing snapshot of total body-scale carried load at the player's world position.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayerCarryingAssessment {
@@ -412,6 +483,7 @@ pub struct PlayerCarryingAssessment {
     capacity: Mass,
     stored: Mass,
     available: Mass,
+    equipment: Mass,
 }
 
 impl PlayerCarryingAssessment {
@@ -439,9 +511,14 @@ impl PlayerCarryingAssessment {
     pub const fn available(self) -> Mass {
         self.available
     }
+
+    #[must_use]
+    pub const fn equipment(self) -> Mass {
+        self.equipment
+    }
 }
 
-/// Returns the player's current position and inventory-owned carried capacity.
+/// Returns the player's current position and total load across material and portable equipment.
 #[must_use]
 pub fn assess_player_carrying(state: &AppState) -> Option<PlayerCarryingAssessment> {
     let player = state.logistics().player().copied()?;
@@ -454,11 +531,35 @@ pub fn assess_player_carrying(state: &AppState) -> Option<PlayerCarryingAssessme
                 player.carried_stockpile().value()
             )
         });
+    let equipment = state
+        .logistics()
+        .carried_equipment()
+        .fold(Mass::ZERO, |total, equipment| {
+            let mass = state
+                .equipment()
+                .get_equipment(equipment)
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: carried equipment disappeared")
+                })
+                .embodied_mass();
+            total
+                .checked_add(mass)
+                .unwrap_or_else(|| panic!("carried equipment mass overflowed"))
+        });
+    let capacity = stockpile
+        .capacity()
+        .checked_add(equipment)
+        .unwrap_or_else(|| panic!("player body carrying capacity overflowed"));
+    let stored = stockpile
+        .stored_mass()
+        .checked_add(equipment)
+        .unwrap_or_else(|| panic!("player total carried mass overflowed"));
     Some(PlayerCarryingAssessment {
         position: player.position(),
         stockpile: stockpile.id(),
-        capacity: stockpile.capacity(),
-        stored: stockpile.stored_mass(),
+        capacity,
+        stored,
         available: stockpile.available_capacity(),
+        equipment,
     })
 }

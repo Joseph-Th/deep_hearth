@@ -182,6 +182,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "saw-feedback",
     ),
     "fieldwork": (
+        "exact-local-expedition",
         "outcomes",
         "organic-outcomes",
         "reserve-knowledge",
@@ -401,6 +402,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         if probe == "fieldwork":
             experience_fields = _evidence_fields(summary, probe, (
                 "sample-shape",
+                "exact-local-expedition",
                 "outcomes",
                 "organic-outcomes",
                 "orders",
@@ -437,6 +439,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                         if name
                         in {
                             "sample-shape",
+                            "exact-local-expedition",
                             "outcomes",
                             "organic-outcomes",
                             "orders",

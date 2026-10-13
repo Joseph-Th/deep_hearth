@@ -171,6 +171,9 @@ pub fn validate_disassemble_equipment(
     if let Some(element) = record.supported_by() {
         return Err(EquipmentDisassemblyError::EquipmentMounted { equipment, element });
     }
+    if state.logistics().is_equipment_carried(equipment) {
+        return Err(EquipmentDisassemblyError::EquipmentCarried { equipment });
+    }
     if let Some(error) = validation_occupancy_error(state, equipment) {
         return Err(error);
     }
@@ -219,7 +222,7 @@ pub fn validate_disassemble_equipment(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("equipment headroom check includes disassembly revision"));
     let expected_logistics_revision = state.logistics().revision();
-    let logistics_removal = match state.logistics().equipment_position(equipment) {
+    let logistics_removal = match state.logistics().stationary_equipment_position(equipment) {
         Some(position) => {
             if !state.can_spend_logistics_revisions(1) {
                 return Err(EquipmentDisassemblyError::LogisticsRevisionExhausted);

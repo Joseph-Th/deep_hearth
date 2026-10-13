@@ -17,8 +17,8 @@ use crate::inventory::{
     deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
 };
 use crate::logistics::{
-    PlayerLogisticsRecord, place_energy_store_for_fixture, place_equipment_for_fixture,
-    validate_allocate_ground_stockpile, validate_place_fluid_store,
+    PlayerLogisticsRecord, add_traversable_edge_for_test, place_energy_store_for_fixture,
+    place_equipment_for_fixture, validate_allocate_ground_stockpile, validate_place_fluid_store,
     validate_place_ground_stockpile,
 };
 use crate::maintenance::Condition;
@@ -116,6 +116,16 @@ pub fn admit_player_at_hydration_warning_boundary(
         physiology.thirsty_below(),
         "hydration-warning-boundary player",
     )
+}
+
+/// Establishes one authored face-adjacent traversal edge before actor admission.
+///
+/// Ordinary movement may only query persisted traversal authority. This gameplay-only setup surface
+/// exists so exact-local maintained probes can construct a bounded route without exposing arbitrary
+/// traversal mutation to runtime callers.
+pub fn seed_traversable_edge(state: &mut AppState, first: VoxelCoord, second: VoxelCoord) {
+    assert_pre_admission(state, "traversal-edge seed");
+    add_traversable_edge_for_test(state, first, second);
 }
 
 /// Seeds finite loose matter at one world voxel for controlled pre-admission world setup.

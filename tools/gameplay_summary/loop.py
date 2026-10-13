@@ -18,6 +18,7 @@ class _LoopEvidenceLines:
     first_foundry: list[str]
     woodworking: list[str]
     fieldwork: list[str]
+    fieldwork_expeditions: list[str]
     power: list[str]
     settlement: list[str]
     power_projects: list[str]
@@ -42,6 +43,7 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
         first_foundry=_lines_with_prefix(lines, "FIRST FOUNDRY EXPERIENCE "),
         woodworking=_lines_with_prefix(lines, "WOODWORKING EXPERIENCE "),
         fieldwork=_lines_with_prefix(lines, "FIELDWORK EXPERIENCE "),
+        fieldwork_expeditions=_lines_with_prefix(lines, "FIELDWORK EXPEDITION "),
         power=_lines_with_prefix(lines, "POWER PROVIDER EXPERIENCE "),
         settlement=_lines_with_prefix(lines, "SETTLEMENT EXPERIENCE "),
         power_projects=_lines_with_prefix(lines, "POWER PROJECT EXPERIENCE "),
@@ -86,6 +88,11 @@ def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
     single_state = sum(
         " continuity=single-state " in line for line in evidence.progression_reviews
     )
+    exact_local = (
+        f" exact-local-fieldwork:{len(evidence.fieldwork_expeditions)}"
+        if evidence.fieldwork_expeditions
+        else ""
+    )
     return (
         "evidence-shape=["
         f"wilderness:{len(evidence.wilderness)} "
@@ -94,7 +101,7 @@ def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
         f"woodworking{len(evidence.woodworking)}/fieldwork{len(evidence.fieldwork)}/"
         f"power{len(evidence.power)}/settlement{len(evidence.settlement)}/"
         f"liberation{len(evidence.liberation)}/"
-        f"first-foundry{len(evidence.first_foundry)}]"
+        f"first-foundry{len(evidence.first_foundry)}{exact_local}]"
     )
 
 
@@ -133,15 +140,27 @@ def _observe_infer_evidence(fieldwork: list[str], extracted: int) -> str:
     )
 
 
-def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: int) -> str:
+def _extract_evidence(
+    fieldwork: list[str],
+    liberation: list[str],
+    extracted: int,
+    fieldwork_expeditions: list[str],
+) -> str:
     completed_liberation = sum(
         (match := re.search(r"\bnative-copper:(\d+)mg", line)) is not None
         and int(match.group(1)) > 0
         for line in liberation
     )
+    exact_local = ""
+    if fieldwork_expeditions:
+        hauled = sum(
+            " cache=[returned:" in line and " matter=conserved" in line
+            for line in fieldwork_expeditions
+        )
+        exact_local = f" exact-local-haul:{hauled}/{len(fieldwork_expeditions)}"
     return (
-        f"extract=[fieldwork:{extracted}/{len(fieldwork)} "
-        f"liberation-native-copper:{completed_liberation}/{len(liberation)}]"
+        f"extract=[fieldwork:{extracted}/{len(fieldwork)}"
+        f"{exact_local} liberation-native-copper:{completed_liberation}/{len(liberation)}]"
     )
 
 
@@ -264,6 +283,16 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         for line in evidence.first_foundry
     )
     foundry_builds = sum(" foundry-build=true " in line for line in evidence.first_foundry)
+    exact_local = ""
+    if evidence.fieldwork_expeditions:
+        completed = sum(
+            " cache=[returned:" in line
+            and " tool-dropped:true] matter=conserved" in line
+            for line in evidence.fieldwork_expeditions
+        )
+        exact_local = (
+            f" exact-local-field-expedition:{completed}/{len(evidence.fieldwork_expeditions)}"
+        )
     return (
         "agency-growth=["
         f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
@@ -271,7 +300,8 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         f"camp-engineering:{camp_engineering}/{len(evidence.wilderness)} "
         f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
-        f"electrical-foundry:{electrical_foundries}/{foundry_builds}]"
+        f"electrical-foundry:{electrical_foundries}/{foundry_builds}"
+        f"{exact_local}]"
     )
 
 
@@ -725,7 +755,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
         f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries, evidence.preservation_paths)} "
         f"{shared_power + ' ' if shared_power else ''}"
-        f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted)} "
+        f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted, evidence.fieldwork_expeditions)} "
         f"{_thermal_bootstrap_evidence(evidence.first_foundry)} "
         f"{_world_feedback_evidence(lines, evidence.fieldwork)} "
         f"{_survival_adaptation_evidence(evidence.survival, evidence.power_projects, evidence.preservation_paths)} "

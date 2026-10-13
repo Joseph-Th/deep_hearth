@@ -6,7 +6,8 @@
 //! geometry, pathfinding, route cost, haulage, and arbitrary stockpile transport remain absent.
 
 mod access;
-#[cfg(feature = "test-gameplay")]
+mod equipment_carry;
+#[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fluid;
@@ -24,8 +25,14 @@ pub use access::{
     validate_player_equipment_access, validate_player_fluid_store_access,
     validate_player_stockpile_access,
 };
+pub use equipment_carry::{
+    PlayerEquipmentCarryCommitError, PlayerEquipmentCarryError, ValidatedPlayerEquipmentCarry,
+    validate_drop_equipment, validate_pickup_equipment,
+};
 #[cfg(feature = "test-gameplay")]
-pub(crate) use fixture::{place_energy_store_for_fixture, place_equipment_for_fixture};
+pub(crate) use fixture::place_energy_store_for_fixture;
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use fixture::place_equipment_for_fixture;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fluid::validate_place_fluid_store;
 #[cfg(test)]
@@ -50,7 +57,7 @@ pub use movement::{
     validate_start_player_step,
 };
 pub(crate) use movement::{apply_player_step_tick, decide_player_step_tick};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use state::add_traversable_edge_for_test;
 pub use state::{
     LogisticsState, PlayerCarryingAssessment, PlayerLogisticsRecord, assess_player_carrying,

@@ -29,6 +29,9 @@ pub enum EquipmentSupportError {
     NotMounted {
         equipment: EquipmentId,
     },
+    EquipmentCarried {
+        equipment: EquipmentId,
+    },
     TargetNotActive {
         element: StructuralElementId,
         lifecycle: StructuralLifecycle,
@@ -90,6 +93,11 @@ impl Display for EquipmentSupportError {
             Self::NotMounted { equipment } => write!(
                 formatter,
                 "equipment {} has no structural support assignment to remove",
+                equipment.value()
+            ),
+            Self::EquipmentCarried { equipment } => write!(
+                formatter,
+                "equipment {} must be dropped before structural mounting",
                 equipment.value()
             ),
             Self::TargetNotActive { element, lifecycle } => write!(
@@ -191,6 +199,7 @@ impl Error for EquipmentSupportError {
             | Self::UnknownEquipment { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
+            | Self::EquipmentCarried { .. }
             | Self::TargetNotActive { .. }
             | Self::EquipmentBusy { .. }
             | Self::EquipmentBusyMining { .. }

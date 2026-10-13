@@ -37,6 +37,9 @@ pub enum EquipmentUpgradeError {
         equipment: EquipmentId,
         element: StructuralElementId,
     },
+    EquipmentCarried {
+        equipment: EquipmentId,
+    },
     EquipmentBusyProduction {
         equipment: EquipmentId,
         job: ProductionJobId,
@@ -118,6 +121,11 @@ impl Display for EquipmentUpgradeError {
                 "equipment {} is mounted on structural element {} and must be unmounted before its mass changes",
                 equipment.value(),
                 element.value()
+            ),
+            Self::EquipmentCarried { equipment } => write!(
+                formatter,
+                "equipment {} must be dropped before its mass changes",
+                equipment.value()
             ),
             Self::EquipmentBusyProduction {
                 equipment,
@@ -210,6 +218,7 @@ impl Error for EquipmentUpgradeError {
             | Self::NoUpgradeProfile { .. }
             | Self::WrongBaseDefinition { .. }
             | Self::EquipmentMounted { .. }
+            | Self::EquipmentCarried { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }

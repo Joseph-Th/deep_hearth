@@ -247,21 +247,32 @@ impl AppState {
             .logistics
             .player()
             .map(|player| player.position());
-        self.systems
-            .logistics
-            .equipment_locations()
-            .filter(move |(_, position)| Some(*position) == player_position)
-            .map(|(equipment, _)| {
-                self.systems
-                    .equipment
-                    .get_equipment(equipment)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "runtime invariant broken: logistics references missing equipment {}",
-                            equipment.value()
-                        )
-                    })
-            })
+        for (equipment, _) in self.systems.logistics.equipment_locations() {
+            self.systems
+                .equipment
+                .get_equipment(equipment)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: logistics references missing equipment {}",
+                        equipment.value()
+                    )
+                });
+        }
+        for equipment in self.systems.logistics.carried_equipment() {
+            self.systems
+                .equipment
+                .get_equipment(equipment)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: logistics references missing carried equipment {}",
+                        equipment.value()
+                    )
+                });
+        }
+        self.systems.equipment.equipment().filter(move |record| {
+            player_position.is_some()
+                && self.systems.logistics.equipment_position(record.id()) == player_position
+        })
     }
 
     pub(crate) fn equipment_state_mut(&mut self) -> &mut EquipmentState {

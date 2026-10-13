@@ -33,6 +33,9 @@ pub enum EquipmentDisassemblyError {
         equipment: EquipmentId,
         element: StructuralElementId,
     },
+    EquipmentCarried {
+        equipment: EquipmentId,
+    },
     EquipmentBusyProduction {
         equipment: EquipmentId,
         job: ProductionJobId,
@@ -112,6 +115,11 @@ impl Display for EquipmentDisassemblyError {
                 "equipment {} is mounted on structural element {} and must be unmounted before disassembly",
                 equipment.value(),
                 element.value()
+            ),
+            Self::EquipmentCarried { equipment } => write!(
+                formatter,
+                "equipment {} must be dropped before disassembly",
+                equipment.value()
             ),
             Self::EquipmentBusyProduction {
                 equipment,
@@ -221,6 +229,7 @@ impl Error for EquipmentDisassemblyError {
             | Self::NoEmbodiedMatter { .. }
             | Self::WornComponentRecoveryUnavailable { .. }
             | Self::EquipmentMounted { .. }
+            | Self::EquipmentCarried { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }

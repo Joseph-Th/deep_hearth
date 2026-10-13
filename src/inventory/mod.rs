@@ -1,6 +1,7 @@
 //! Owns inventory custody, deterministic material selection, and validated matter mutation.
 
 pub(crate) mod allocation;
+mod capacity;
 mod coalescing;
 mod enclosure_dismantling;
 mod enclosure_execution;
@@ -19,6 +20,11 @@ mod structural_integration;
 #[cfg(test)]
 mod test_support;
 mod transactions;
+
+pub(crate) use capacity::{
+    StockpileCapacityChangeCommitError, StockpileCapacityChangeError,
+    ValidatedStockpileCapacityChange, validate_stockpile_capacity_change,
+};
 
 pub(crate) use enclosure_dismantling::{
     StorageEnclosureDismantlingCancellationPlan, StorageEnclosureDismantlingTickError,

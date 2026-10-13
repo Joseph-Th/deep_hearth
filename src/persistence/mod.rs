@@ -12,7 +12,7 @@ use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 79;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 80;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 ///
@@ -92,11 +92,31 @@ fn validate_persisted_player_admission(
                     unreachable!("generic validation proved admitted carried custody exists")
                 });
             let expected_capacity = registries.survival().physiology().carried_mass_capacity();
-            if stockpile.capacity() != expected_capacity {
+            let equipment_mass =
+                state
+                    .logistics()
+                    .carried_equipment()
+                    .fold(Mass::ZERO, |total, equipment| {
+                        let mass = state
+                            .equipment()
+                            .get_equipment(equipment)
+                            .unwrap_or_else(|| {
+                                unreachable!("generic validation proved carried equipment exists")
+                            })
+                            .embodied_mass();
+                        total.checked_add(mass).unwrap_or_else(|| {
+                            panic!("persisted carried equipment mass overflowed")
+                        })
+                    });
+            let actual_capacity = stockpile
+                .capacity()
+                .checked_add(equipment_mass)
+                .unwrap_or_else(|| panic!("persisted player carrying envelope overflowed"));
+            if actual_capacity != expected_capacity {
                 return Err(LoadError::PlayerCarriedCapacityMismatch {
                     stockpile: stockpile.id(),
                     expected: expected_capacity,
-                    actual: stockpile.capacity(),
+                    actual: actual_capacity,
                 });
             }
             let expected_profile = StockpileStorageProfile::unbounded_solid_only();
@@ -189,7 +209,7 @@ impl Display for LoadError {
                 actual,
             } => write!(
                 formatter,
-                "persisted player carried stockpile {} has capacity {} mg; authored body capacity is {} mg",
+                "persisted player carried custody for stockpile {} represents {} mg capacity; authored body capacity is {} mg",
                 stockpile.value(),
                 actual.milligrams(),
                 expected.milligrams()

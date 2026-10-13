@@ -136,6 +136,34 @@ impl InventoryState {
         self.revision = next_revision;
     }
 
+    pub(in crate::inventory) fn apply_stockpile_capacity_change(
+        &mut self,
+        stockpile: StockpileId,
+        expected_capacity: crate::core::quantity::Mass,
+        next_capacity: crate::core::quantity::Mass,
+        next_revision: u64,
+    ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "stockpile capacity change must advance inventory revision exactly once"
+        );
+        let record = self.stockpiles.get_mut(&stockpile).unwrap_or_else(|| {
+            unreachable!("validated stockpile capacity target disappeared before apply")
+        });
+        assert_eq!(record.capacity, expected_capacity);
+        let committed = record
+            .stored_mass
+            .checked_add(record.reserved_inbound)
+            .unwrap_or_else(|| panic!("validated stockpile committed mass overflowed"));
+        assert!(
+            !next_capacity.is_zero() && committed <= next_capacity,
+            "validated stockpile capacity change became invalid before apply"
+        );
+        record.capacity = next_capacity;
+        self.revision = next_revision;
+    }
+
     pub(crate) fn has_valid_id_cursors(&self) -> bool {
         self.next_stockpile_id != 0
             && self.next_lot_id != 0

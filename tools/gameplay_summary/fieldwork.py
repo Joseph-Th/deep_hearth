@@ -636,6 +636,67 @@ def _bulk_crossover_summary(lines: list[str]) -> str:
     )
 
 
+def _exact_local_expedition_summary(lines: list[str]) -> str | None:
+    expeditions = [
+        line for line in lines if line.startswith("FIELDWORK EXPEDITION ")
+    ]
+    if not expeditions:
+        return None
+    if len(expeditions) != 1:
+        raise ValueError("fieldwork report requires at most one maintained exact-local expedition")
+    line = expeditions[0]
+    route = re.search(
+        r"\broute=\[steps:(\d+) barren-sites:(\d+) target-distance:(\d+)\]",
+        line,
+    )
+    survey = re.search(r"\bsurvey=\[inspections:(\d+) detailed:(\d+) ", line)
+    extraction = re.search(
+        r"\bextraction=\[requested:(\d+)mg batches:(\d+) ticks:(\d+)\]",
+        line,
+    )
+    haul = re.search(
+        r"\bhaul=\[outbound:(\d+)mg return:(\d+)mg capacity:(\d+)mg utilization:(\d+)ppm\]",
+        line,
+    )
+    locomotion = re.search(
+        r"\blocomotion=\[outbound:(\d+)nJ/(\d+)uL return:(\d+)nJ/(\d+)uL\]",
+        line,
+    )
+    returned = re.search(r"\bcache=\[returned:(\d+)mg tool-dropped:true\]", line)
+    if None in (route, survey, extraction, haul, locomotion, returned):
+        raise ValueError("fieldwork exact-local expedition lost required telemetry")
+    assert route is not None
+    assert survey is not None
+    assert extraction is not None
+    assert haul is not None
+    assert locomotion is not None
+    assert returned is not None
+    outbound_energy = int(locomotion.group(1))
+    outbound_hydration = int(locomotion.group(2))
+    return_energy = int(locomotion.group(3))
+    return_hydration = int(locomotion.group(4))
+    energy_delta_pct = (
+        (return_energy - outbound_energy) * 100 + outbound_energy // 2
+    ) // outbound_energy
+    hydration_delta_pct = (
+        (return_hydration - outbound_hydration) * 100 + outbound_hydration // 2
+    ) // outbound_hydration
+    return (
+        "exact-local-expedition=["
+        f"steps:{route.group(1)} barren:{route.group(2)} distance:{route.group(3)} "
+        f"survey:{survey.group(1)}+{survey.group(2)} "
+        f"extracted:{scaled_span([int(extraction.group(1))], 1_000_000, 'kg')} "
+        f"batches:{extraction.group(2)} work:{extraction.group(3)}t "
+        f"load:{scaled_span([int(haul.group(1))], 1_000_000, 'kg')}"
+        f"->{scaled_span([int(haul.group(2))], 1_000_000, 'kg')}"
+        f"/{scaled_span([int(haul.group(3))], 1_000_000, 'kg')} "
+        f"utilization:{haul.group(4)}ppm "
+        f"step-cost:+{energy_delta_pct}%energy/+{hydration_delta_pct}%hydration "
+        f"returned:{scaled_span([int(returned.group(1))], 1_000_000, 'kg')} "
+        "matter:conserved]"
+    )
+
+
 def fieldwork_summary(lines: list[str]) -> str | None:
     fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
     if not fieldwork:
@@ -721,12 +782,14 @@ def fieldwork_summary(lines: list[str]) -> str | None:
     organic_fieldwork = organic_only(fieldwork)
     depletion_horizon, depletion_adaptation = _depletion_summary(lines)
     initial_shortfall, shortfall_recovery = _initial_shortfall_recovery_summary(lines)
+    exact_local_expedition = _exact_local_expedition_summary(lines)
     inspection_span, fulfillment_span, resource_capped, organic_resource_capped = (
         _outcome_metrics(fieldwork)
     )
     return (
         "ORDINARY SUMMARY probe=fieldwork "
         f"samples={len(fieldwork)} sample-shape=[{sample_shape(fieldwork)}] inspections={inspection_span} "
+        f"{exact_local_expedition + ' ' if exact_local_expedition else ''}"
         f"outcomes=[completed:{count('outcome=completed')} "
         f"local-supply-ended:{count('outcome=known-target-supply')} "
         f"fulfillment:{fulfillment_span}] "

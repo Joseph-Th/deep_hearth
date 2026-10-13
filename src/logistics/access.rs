@@ -68,6 +68,9 @@ impl Error for PlayerStockpileAccessError {}
 /// Failure when a player action cannot prove local access to equipment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerEquipmentAccessError {
+    CarriedEquipmentInTransit {
+        equipment: EquipmentId,
+    },
     UnlocatedEquipment {
         equipment: EquipmentId,
     },
@@ -81,6 +84,11 @@ pub enum PlayerEquipmentAccessError {
 impl Display for PlayerEquipmentAccessError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::CarriedEquipmentInTransit { equipment } => write!(
+                formatter,
+                "carried equipment {} cannot start new work while the player is stepping",
+                equipment.value()
+            ),
             Self::UnlocatedEquipment { equipment } => write!(
                 formatter,
                 "equipment {} has no logistics-owned world location",
@@ -287,6 +295,11 @@ pub fn validate_player_equipment_access(
     let Some(player) = state.logistics().player().copied() else {
         return Ok(());
     };
+    if state.logistics().is_equipment_carried(equipment)
+        && matches!(state.player_work().active(), Some(PlayerWork::Step { .. }))
+    {
+        return Err(PlayerEquipmentAccessError::CarriedEquipmentInTransit { equipment });
+    }
     validate_known_local_position(
         player.position(),
         state.logistics().equipment_position(equipment),

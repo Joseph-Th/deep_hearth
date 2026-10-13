@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+use crate::equipment::{EquipmentId, equipment_occupancy};
 use crate::inventory::StockpileId;
 use crate::labor::{
     PlayerStepWork, PlayerWork, PlayerWorkCommitError, PlayerWorkStartError,
@@ -37,6 +38,9 @@ pub enum PlayerStepError {
     MiningSettlementPending {
         stockpile: StockpileId,
         job: MiningJobId,
+    },
+    CarriedEquipmentBusy {
+        equipment: EquipmentId,
     },
     PlayerWork(PlayerWorkStartError),
 }
@@ -91,6 +95,11 @@ impl Display for PlayerStepError {
                 stockpile.value(),
                 job.value()
             ),
+            Self::CarriedEquipmentBusy { equipment } => write!(
+                formatter,
+                "player step cannot move carried equipment {} while it is occupied",
+                equipment.value()
+            ),
             Self::PlayerWork(error) => {
                 write!(formatter, "player step cannot reserve labor: {error}")
             }
@@ -108,7 +117,8 @@ impl Error for PlayerStepError {
             | Self::CompletionTickOverflow
             | Self::LogisticsRevisionExhausted
             | Self::ProductionSiteConflict { .. }
-            | Self::MiningSettlementPending { .. } => None,
+            | Self::MiningSettlementPending { .. }
+            | Self::CarriedEquipmentBusy { .. } => None,
         }
     }
 }
@@ -132,6 +142,9 @@ pub enum PlayerStepCommitError {
         stockpile: StockpileId,
         job: MiningJobId,
     },
+    CarriedEquipmentBusy {
+        equipment: EquipmentId,
+    },
     PlayerWork(PlayerWorkCommitError),
 }
 
@@ -149,7 +162,8 @@ impl Error for PlayerStepCommitError {
             | Self::PlayerPositionChanged { .. }
             | Self::PlayerDisappeared
             | Self::ProductionSiteConflict { .. }
-            | Self::MiningSettlementPending { .. } => None,
+            | Self::MiningSettlementPending { .. }
+            | Self::CarriedEquipmentBusy { .. } => None,
         }
     }
 }
@@ -204,6 +218,13 @@ impl ValidatedPlayerStepStart {
                 job,
             });
         }
+        if let Some(equipment) = state
+            .logistics()
+            .carried_equipment()
+            .find(|equipment| equipment_occupancy(state, *equipment).is_some())
+        {
+            return Err(PlayerStepCommitError::CarriedEquipmentBusy { equipment });
+        }
         self.player_work
             .precheck(state)
             .map_err(PlayerStepCommitError::PlayerWork)?;
@@ -251,6 +272,13 @@ pub fn validate_start_player_step(
             stockpile: carrying.stockpile(),
             job,
         });
+    }
+    if let Some(equipment) = state
+        .logistics()
+        .carried_equipment()
+        .find(|equipment| equipment_occupancy(state, *equipment).is_some())
+    {
+        return Err(PlayerStepError::CarriedEquipmentBusy { equipment });
     }
     let locomotion = registries.survival().physiology().locomotion();
     let duration = locomotion.step_duration();
@@ -335,6 +363,13 @@ pub(crate) fn decide_player_step_tick(
             .awaiting_settlement_destination_occupant(carried)
             .is_none(),
         "runtime invariant broken: active player step would move carried custody before mining settlement"
+    );
+    assert!(
+        state
+            .logistics()
+            .carried_equipment()
+            .all(|equipment| equipment_occupancy(state, equipment).is_none()),
+        "runtime invariant broken: active player step would move occupied carried equipment"
     );
     let expected_logistics_revision = state.logistics().revision();
     let next_logistics_revision = expected_logistics_revision.checked_add(1).ok_or(())?;

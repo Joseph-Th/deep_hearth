@@ -207,6 +207,9 @@ pub fn validate_upgrade_equipment(
     if let Some(element) = record.supported_by() {
         return Err(EquipmentUpgradeError::EquipmentMounted { equipment, element });
     }
+    if state.logistics().is_equipment_carried(equipment) {
+        return Err(EquipmentUpgradeError::EquipmentCarried { equipment });
+    }
     if let Some(error) = validation_occupancy_error(state, equipment) {
         return Err(error);
     }
