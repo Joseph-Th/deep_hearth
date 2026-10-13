@@ -140,10 +140,18 @@ fn powered_shaping_preserves_mixed_temperature_cohorts_through_replay_validation
         assert_eq!(chip_mass, Mass::from_milligrams(expected_chip));
     }
 
-    let _job = validate_start_powered_craft(&registries, &state, request, destination)
-        .unwrap_or_else(|error| panic!("powered mixed-temperature admission failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("powered mixed-temperature commit failed: {error}"));
+    let _job = crate::production::validate_start_process(
+        &registries,
+        &state,
+        &resolution,
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| {
+        panic!("powered mixed-temperature capability admission failed: {error}")
+    })
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("powered mixed-temperature commit failed: {error}"));
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("powered mixed-temperature replay failed: {error}"));
 }

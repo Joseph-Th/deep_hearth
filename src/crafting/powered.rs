@@ -26,7 +26,7 @@ use crate::maintenance::{
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::production::{
     ProcessId, ProcessResolution, StartPlayerProcessError, ValidatedStartProcess,
-    validate_process_inputs, validate_start_player_process, validate_start_process,
+    validate_process_inputs, validate_start_player_process,
 };
 use crate::registry::Registries;
 
@@ -433,13 +433,20 @@ pub fn resolve_powered_craft(
         .map_err(PoweredCraftError::Resolution)
 }
 
-/// Resolves and admits one unattended powered craft through canonical production ownership.
+/// Resolves and admits one unattended powered craft for a living admitted player's exact-local
+/// custody through canonical production ownership.
+///
+/// Capability-level callers without an admitted player must resolve with [`resolve_powered_craft`]
+/// and enter production through [`crate::production::validate_start_process`] directly.
 pub fn validate_start_powered_craft(
     registries: &Registries,
     state: &AppState,
     request: PoweredCraftRequest,
     destination: StockpileId,
 ) -> Result<ValidatedStartProcess, StartPoweredCraftError> {
+    if player_admission_state(state) != PlayerAdmissionState::Admitted {
+        return Err(StartPoweredCraftError::PlayerNotAdmitted);
+    }
     let source = request.source;
     validate_player_stockpile_access(state, source)
         .map_err(StartPoweredCraftError::StockpileAccess)?;
@@ -451,25 +458,22 @@ pub fn validate_start_powered_craft(
         .map_err(StartPoweredCraftError::EnergyStoreAccess)?;
     let resolution = resolve_powered_craft(registries, state, &request)
         .map_err(StartPoweredCraftError::Resolution)?;
-    if player_admission_state(state) == PlayerAdmissionState::Admitted {
-        return validate_start_player_process(registries, state, &resolution, source, destination)
-            .map_err(|error| match error {
-                StartPlayerProcessError::PlayerNotAdmitted => {
-                    unreachable!("powered craft just observed a fully admitted player")
-                }
-                StartPlayerProcessError::PlayerDead => StartPoweredCraftError::PlayerDead,
-                StartPlayerProcessError::StockpileAccess(error) => {
-                    StartPoweredCraftError::StockpileAccess(error)
-                }
-                StartPlayerProcessError::EquipmentAccess(error) => {
-                    StartPoweredCraftError::EquipmentAccess(error)
-                }
-                StartPlayerProcessError::EnergyStoreAccess(error) => {
-                    StartPoweredCraftError::EnergyStoreAccess(error)
-                }
-                StartPlayerProcessError::Process(error) => StartPoweredCraftError::Process(error),
-            });
-    }
-    validate_start_process(registries, state, &resolution, source, destination)
-        .map_err(StartPoweredCraftError::Process)
+    validate_start_player_process(registries, state, &resolution, source, destination).map_err(
+        |error| match error {
+            StartPlayerProcessError::PlayerNotAdmitted => {
+                unreachable!("powered craft already proved full player admission")
+            }
+            StartPlayerProcessError::PlayerDead => StartPoweredCraftError::PlayerDead,
+            StartPlayerProcessError::StockpileAccess(error) => {
+                StartPoweredCraftError::StockpileAccess(error)
+            }
+            StartPlayerProcessError::EquipmentAccess(error) => {
+                StartPoweredCraftError::EquipmentAccess(error)
+            }
+            StartPlayerProcessError::EnergyStoreAccess(error) => {
+                StartPoweredCraftError::EnergyStoreAccess(error)
+            }
+            StartPlayerProcessError::Process(error) => StartPoweredCraftError::Process(error),
+        },
+    )
 }

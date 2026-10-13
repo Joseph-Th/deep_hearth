@@ -1,296 +1,37 @@
 //! Canonical synchronous simulation tick pipeline with active subsystem phases wired in visible order.
 
 mod error;
+mod outcome;
+mod planning;
 mod player_death;
 
 pub use error::TickError;
+pub use outcome::TickOutcome;
 
 use crate::core::state::{AppState, apply_clock_advance, debug_assert_runtime_invariants};
 use crate::core::time::SimulationTick;
 use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
-use crate::equipment::{
-    EquipmentMaintenanceOutcome, apply_equipment_maintenance_tick,
-    decide_equipment_maintenance_tick,
-};
-use crate::geology::{
-    FieldProspectingOutcome, apply_field_prospecting_tick, decide_field_prospecting_tick,
-};
-use crate::inventory::{
-    StorageEnclosureDismantlingOutcome, StorageEnclosureDismantlingTickPlan,
-    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_tick,
-};
+use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
+use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
+use crate::inventory::apply_storage_enclosure_dismantling_tick;
 use crate::labor::{
-    ManualPowerOutcome, apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
+    apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
     decide_player_work_tick, player_work_exertion,
 };
-use crate::logistics::{PlayerStepOutcome, apply_player_step_tick, decide_player_step_tick};
-use crate::mining::{
-    MiningOutputReceipt, MiningSettlementError, MiningTickPlan, ValidatedMiningSettlement,
-    apply_mining_tick, decide_mining_tick, validate_awaiting_mining_output_settlement,
-    validate_due_mining_output_settlement,
-};
-use crate::production::{
-    CompletionApplication, CompletionPlan, ProcessCompletion, ProductionAvailabilityChange,
-    apply_completion_plan, decide_due_completions,
-};
+use crate::logistics::{apply_player_step_tick, decide_player_step_tick};
+use crate::mining::{apply_mining_tick, decide_mining_tick};
+use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
 use crate::registry::Registries;
-use crate::structural::{
-    StructuralElementId, apply_structural_construction_tick, decide_structural_construction_tick,
-};
-use crate::surface::{
-    SurfaceGatheringOutcome, SurfaceGatheringTickPlan, apply_surface_gathering_tick,
-    decide_surface_gathering_tick,
-};
-use crate::survival::{
-    SurvivalAssessment, apply_survival_tick, assess_survival, decide_survival_tick,
-};
+use crate::structural::apply_structural_construction_tick;
+use crate::surface::apply_surface_gathering_tick;
+use crate::survival::{apply_survival_tick, assess_survival, decide_survival_tick};
 
+use planning::{
+    decide_automatic_mining_output, decide_storage_dismantling_after_completions,
+    decide_structural_construction_after_completions, decide_surface_gathering_after_completions,
+    require_revision_capacity,
+};
 use player_death::{apply_player_death_effects, decide_player_death_effects};
-
-/// Successful result of one canonical simulation tick.
-#[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TickOutcome {
-    tick: SimulationTick,
-    production_availability_changes: Vec<ProductionAvailabilityChange>,
-    production_completions: Vec<ProcessCompletion>,
-    mining_output: Option<MiningOutputReceipt>,
-    player_step: Option<PlayerStepOutcome>,
-    surface_gathering: Option<SurfaceGatheringOutcome>,
-    manual_power: Option<ManualPowerOutcome>,
-    equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
-    storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
-    structural_construction: Option<StructuralElementId>,
-    field_prospecting: Option<FieldProspectingOutcome>,
-    survival: Option<SurvivalAssessment>,
-}
-
-impl TickOutcome {
-    /// Returns the committed authoritative tick.
-    #[must_use]
-    pub const fn tick(&self) -> SimulationTick {
-        self.tick
-    }
-
-    /// Returns production jobs suspended or resumed because provider availability changed during
-    /// this tick. The changes are ordered by stable job ID.
-    #[must_use]
-    pub fn production_availability_changes(&self) -> &[ProductionAvailabilityChange] {
-        &self.production_availability_changes
-    }
-
-    /// Returns process jobs whose outputs became authoritative during this tick.
-    #[must_use]
-    pub fn production_completions(&self) -> &[ProcessCompletion] {
-        &self.production_completions
-    }
-
-    /// Returns mined matter that landed in inventory custody during this tick.
-    #[must_use]
-    pub const fn mining_output(&self) -> Option<&MiningOutputReceipt> {
-        self.mining_output.as_ref()
-    }
-
-    /// Returns the adjacent player locality change completed this tick, if any.
-    #[must_use]
-    pub const fn player_step(&self) -> Option<PlayerStepOutcome> {
-        self.player_step
-    }
-
-    /// Returns loose surface matter gathered into ordinary inventory on this tick, if any.
-    #[must_use]
-    pub const fn surface_gathering(&self) -> Option<&SurfaceGatheringOutcome> {
-        self.surface_gathering.as_ref()
-    }
-
-    /// Returns direct player-powered energy generation that completed during this tick.
-    #[must_use]
-    pub const fn manual_power(&self) -> Option<ManualPowerOutcome> {
-        self.manual_power
-    }
-
-    /// Returns equipment condition recovery completed by direct maintenance this tick.
-    #[must_use]
-    pub const fn equipment_maintenance(&self) -> Option<EquipmentMaintenanceOutcome> {
-        self.equipment_maintenance
-    }
-
-    /// Returns enclosure matter recovered by direct dismantling completed during this tick.
-    #[must_use]
-    pub fn storage_enclosure_dismantling(&self) -> Option<&StorageEnclosureDismantlingOutcome> {
-        self.storage_enclosure_dismantling.as_ref()
-    }
-
-    /// Returns the grounded structural member that became load-bearing this tick, if any.
-    #[must_use]
-    pub const fn structural_construction(&self) -> Option<StructuralElementId> {
-        self.structural_construction
-    }
-
-    /// Returns the geological observation acquired by field prospecting on this tick, if any.
-    #[must_use]
-    pub const fn field_prospecting(&self) -> Option<FieldProspectingOutcome> {
-        self.field_prospecting
-    }
-
-    /// Returns the post-tick player survival projection when survival has been initialized.
-    #[must_use]
-    pub const fn survival(&self) -> Option<SurvivalAssessment> {
-        self.survival
-    }
-
-    /// Returns how many discrete observable event categories fired during this tick.
-    ///
-    /// The committed tick itself and the continuous survival assessment are not discrete events.
-    /// This deliberately destructures every outcome field so adding another tick result forces the
-    /// runtime owner to decide whether it belongs in the observable event surface.
-    #[must_use]
-    pub fn discrete_event_category_count(&self) -> usize {
-        let Self {
-            tick: _,
-            production_availability_changes,
-            production_completions,
-            mining_output,
-            player_step,
-            surface_gathering,
-            manual_power,
-            equipment_maintenance,
-            storage_enclosure_dismantling,
-            structural_construction,
-            field_prospecting,
-            survival: _,
-        } = self;
-        [
-            !production_availability_changes.is_empty(),
-            !production_completions.is_empty(),
-            mining_output.is_some(),
-            player_step.is_some(),
-            surface_gathering.is_some(),
-            manual_power.is_some(),
-            equipment_maintenance.is_some(),
-            storage_enclosure_dismantling.is_some(),
-            structural_construction.is_some(),
-            field_prospecting.is_some(),
-        ]
-        .into_iter()
-        .filter(|present| *present)
-        .count()
-    }
-}
-
-fn decide_surface_gathering_after_completions(
-    registries: &Registries,
-    state: &AppState,
-    completion_plan: &CompletionPlan,
-    next_tick: SimulationTick,
-) -> Result<Option<SurfaceGatheringTickPlan>, TickError> {
-    if state
-        .player_work()
-        .surface_gathering_due_at(next_tick)
-        .is_none()
-    {
-        return Ok(None);
-    }
-    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
-    decide_surface_gathering_tick(registries, state, projected_inventory.as_ref(), next_tick)
-        .map_err(Into::into)
-}
-
-fn checked_revision_steps(
-    steps: impl IntoIterator<Item = u64>,
-    exhausted: TickError,
-) -> Result<u64, TickError> {
-    steps
-        .into_iter()
-        .try_fold(0_u64, u64::checked_add)
-        .ok_or(exhausted)
-}
-
-fn require_revision_capacity(
-    current: u64,
-    steps: impl IntoIterator<Item = u64>,
-    exhausted: TickError,
-) -> Result<(), TickError> {
-    let steps = checked_revision_steps(steps, exhausted.clone())?;
-    if current.checked_add(steps).is_none() {
-        return Err(exhausted);
-    }
-    Ok(())
-}
-
-fn decide_automatic_mining_output(
-    registries: &Registries,
-    state: &AppState,
-    next_tick: SimulationTick,
-    mining_plan: Option<MiningTickPlan>,
-    inventory_owner_busy: bool,
-    structure_owner_busy: bool,
-) -> Result<Option<ValidatedMiningSettlement>, TickError> {
-    // Mining recovery is incidental to the current player action. If another scheduled phase owns
-    // an inventory mutation this tick, preserve durable awaiting-settlement custody and retry next
-    // tick rather
-    // than invalidating that phase's revision-bound plan or inventing a combined transaction.
-    if inventory_owner_busy {
-        return Ok(None);
-    }
-
-    let planned = if let Some(plan) = mining_plan {
-        validate_due_mining_output_settlement(registries, state, plan, next_tick)
-    } else if let Some(job) = state
-        .mining()
-        .jobs()
-        .find(|job| job.is_awaiting_settlement())
-        .map(|job| job.id())
-    {
-        validate_awaiting_mining_output_settlement(registries, state, job, next_tick)
-    } else {
-        return Ok(None);
-    };
-    match planned {
-        Ok(settlement) if structure_owner_busy && settlement.mutates_structures() => Ok(None),
-        Ok(settlement) => Ok(Some(settlement)),
-        // A support can fail after mining admission. Extraction remains authoritative and the
-        // durable awaiting-settlement state retries automatically after the physical blocker is
-        // repaired.
-        Err(MiningSettlementError::StructuralLoad(_)) => Ok(None),
-        Err(MiningSettlementError::LotIdExhausted) => Err(TickError::MaterialLotIdExhausted),
-        Err(MiningSettlementError::InventoryRevisionExhausted) => {
-            Err(TickError::InventoryRevisionExhausted)
-        }
-        Err(MiningSettlementError::MiningRevisionExhausted) => {
-            Err(TickError::MiningRevisionExhausted)
-        }
-        Err(
-            MiningSettlementError::UnknownJob { .. }
-            | MiningSettlementError::NotAwaitingSettlement { .. },
-        ) => {
-            unreachable!("automatic mining settlement must target current due or awaiting work")
-        }
-    }
-}
-
-fn decide_storage_dismantling_after_completions(
-    registries: &Registries,
-    state: &AppState,
-    completion_plan: &CompletionPlan,
-    next_tick: SimulationTick,
-) -> Result<Option<StorageEnclosureDismantlingTickPlan>, TickError> {
-    if state
-        .player_work()
-        .storage_dismantling_due_at(next_tick)
-        .is_none()
-    {
-        return Ok(None);
-    }
-    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
-    decide_storage_enclosure_dismantling_tick(
-        registries,
-        state,
-        projected_inventory.as_ref(),
-        next_tick,
-    )
-    .map_err(Into::into)
-}
 
 /// Advances the full authoritative simulation by exactly one base tick.
 ///
@@ -314,11 +55,10 @@ pub fn advance_tick(
     // deferral fail-closed (a newly freed store, tool, or calorie is denied this tick rather than
     // admitted against stale facts), so no additional projection is needed for those phases.
     let mut completion_plan = decide_due_completions(registries, state, next_tick)?;
-    let projected_structures = completion_plan.project_structures_after_load(state.structures());
-    let structural_construction_plan = decide_structural_construction_tick(
+    let structural_construction_plan = decide_structural_construction_after_completions(
         registries,
         state,
-        projected_structures.as_ref(),
+        &completion_plan,
         next_tick,
     );
     let surface_gathering_plan =

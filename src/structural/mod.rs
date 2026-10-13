@@ -38,7 +38,8 @@ pub use player_construction::{
     ValidatedPlayerStructuralConstructionStart, validate_start_player_structural_construction,
 };
 pub(crate) use player_construction::{
-    apply_structural_construction_tick, bounds_are_local, decide_structural_construction_tick,
+    StructuralConstructionTickPlan, apply_structural_construction_tick, bounds_are_local,
+    decide_structural_construction_tick,
 };
 pub use state::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,

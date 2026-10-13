@@ -22,15 +22,13 @@ use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{
     MaterialLotSelection, StockpileId, add_solid_stockpile_for_test, deposit_lot_for_test,
 };
-use crate::logistics::{
-    PlayerStockpileAccessError, validate_initialize_player_logistics,
-    validate_place_ground_stockpile,
-};
+use crate::logistics::{PlayerStockpileAccessError, validate_place_ground_stockpile};
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
+use crate::production::{ProductionJobId, validate_start_process};
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
@@ -39,6 +37,22 @@ const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 fn stockpile(state: &mut AppState, capacity_mg: u64) -> StockpileId {
     add_solid_stockpile_for_test(state, Mass::from_milligrams(capacity_mg))
         .unwrap_or_else(|error| panic!("powered craft stockpile fixture failed: {error}"))
+}
+
+fn start_capability_powered_craft(
+    registries: &crate::registry::Registries,
+    state: &mut AppState,
+    source: StockpileId,
+    request: PoweredCraftRequest,
+    destination: StockpileId,
+    context: &str,
+) -> ProductionJobId {
+    let resolution = resolve_powered_craft(registries, state, &request)
+        .unwrap_or_else(|error| panic!("{context} resolution failed: {error}"));
+    validate_start_process(registries, state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("{context} capability admission failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("{context} capability commit failed: {error}"))
 }
 
 #[test]
@@ -88,21 +102,26 @@ fn spindle_drill_preserves_screen_plate_yield_while_spending_stored_work() {
         .unwrap_or_else(|error| panic!("spindle drill matter setup failed: {error}"))
         .total();
 
-    let job = validate_start_powered_craft(
+    let request = PoweredCraftRequest::single(
+        PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+        source,
+        MaterialLotSelection::new(reinforcement, Mass::from_milligrams(20_000)),
+        drill,
+        drive,
+    );
+    assert_eq!(
+        validate_start_powered_craft(&registries, &state, request.clone(), destination).err(),
+        Some(StartPoweredCraftError::PlayerNotAdmitted)
+    );
+
+    let job = start_capability_powered_craft(
         &registries,
-        &state,
-        PoweredCraftRequest::single(
-            PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
-            source,
-            MaterialLotSelection::new(reinforcement, Mass::from_milligrams(20_000)),
-            drill,
-            drive,
-        ),
+        &mut state,
+        source,
+        request,
         destination,
-    )
-    .unwrap_or_else(|error| panic!("powered screen-plate drilling failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("powered screen-plate drilling commit failed: {error}"));
+        "powered screen-plate drilling",
+    );
 
     let record = state
         .production()
@@ -195,9 +214,10 @@ fn helve_hammer_executes_scrap_rework_and_saw_blade_routes() {
         .unwrap_or_else(|error| panic!("helve hammer matter setup failed: {error}"))
         .total();
 
-    let scrap_job = validate_start_powered_craft(
+    let scrap_job = start_capability_powered_craft(
         &registries,
-        &state,
+        &mut state,
+        scrap_source,
         PoweredCraftRequest::single(
             PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT,
             scrap_source,
@@ -206,10 +226,8 @@ fn helve_hammer_executes_scrap_rework_and_saw_blade_routes() {
             drive,
         ),
         reinforcement_output,
-    )
-    .unwrap_or_else(|error| panic!("powered scrap reinforcement start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("powered scrap reinforcement commit failed: {error}"));
+        "powered scrap reinforcement",
+    );
     assert_eq!(
         state
             .production()
@@ -236,9 +254,10 @@ fn helve_hammer_executes_scrap_rework_and_saw_blade_routes() {
         Some(Mass::from_milligrams(2_000))
     );
 
-    let blade_job = validate_start_powered_craft(
+    let blade_job = start_capability_powered_craft(
         &registries,
-        &state,
+        &mut state,
+        blade_source,
         PoweredCraftRequest::single(
             PROCESS_POWER_HAMMER_COPPER_SAW_BLADE,
             blade_source,
@@ -247,10 +266,8 @@ fn helve_hammer_executes_scrap_rework_and_saw_blade_routes() {
             drive,
         ),
         blade_output,
-    )
-    .unwrap_or_else(|error| panic!("powered saw-blade start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("powered saw-blade commit failed: {error}"));
+        "powered saw-blade",
+    );
     assert_eq!(
         state
             .production()
@@ -316,7 +333,7 @@ fn finish_job(
 }
 
 #[test]
-fn powered_craft_rejects_remote_input_after_player_logistics_initialization() {
+fn powered_craft_rejects_remote_input_for_admitted_player() {
     let registries = build_registries();
     let mut state = AppState::new();
     let assembly = stockpile(&mut state, 4_000_000);
@@ -358,10 +375,10 @@ fn powered_craft_rejects_remote_input_after_player_logistics_initialization() {
     )
     .unwrap_or_else(|error| panic!("remote powered-craft drive fixture failed: {error}"));
     let player_position = VoxelCoord::new(0, 0, 0);
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("remote powered-craft logistics setup failed: {error}"))
+    validate_admit_player(&registries, &state, player_position)
+        .unwrap_or_else(|error| panic!("remote powered-craft player admission failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("remote powered-craft logistics commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("remote powered-craft player commit failed: {error}"));
     let source_position = VoxelCoord::new(1, 0, 0);
     validate_place_ground_stockpile(&state, source, source_position)
         .unwrap_or_else(|error| panic!("remote powered-craft source placement failed: {error}"))
@@ -631,9 +648,10 @@ fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
         .unwrap_or_else(|error| panic!("sash sawmill matter setup failed: {error}"))
         .total();
 
-    let job = validate_start_powered_craft(
+    let job = start_capability_powered_craft(
         &registries,
-        &state,
+        &mut state,
+        source,
         PoweredCraftRequest::single(
             PROCESS_POWER_SAW_WOOD_BOARDS,
             source,
@@ -642,10 +660,8 @@ fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
             drive,
         ),
         destination,
-    )
-    .unwrap_or_else(|error| panic!("sash sawmill start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("sash sawmill start commit failed: {error}"));
+        "sash sawmill",
+    );
 
     let record = state
         .production()
@@ -782,9 +798,10 @@ fn flywheel_lathe_turns_a_full_timber_rotor_from_one_primitive_work_charge() {
     );
     assert!(projection.required_energy() <= first_flywheel_capacity);
 
-    let job = validate_start_powered_craft(
+    let job = start_capability_powered_craft(
         &registries,
-        &state,
+        &mut state,
+        source,
         PoweredCraftRequest::single(
             PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
             source,
@@ -793,10 +810,8 @@ fn flywheel_lathe_turns_a_full_timber_rotor_from_one_primitive_work_charge() {
             drive,
         ),
         destination,
-    )
-    .unwrap_or_else(|error| panic!("powered flywheel turning failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("powered flywheel turning commit failed: {error}"));
+        "powered flywheel turning",
+    );
 
     let record = state
         .production()
@@ -900,9 +915,10 @@ fn flywheel_toolroom_grindstone_recovers_service_stock_from_finite_work() {
     );
     assert_eq!(projection.duration().value(), 7);
 
-    let job = validate_start_powered_craft(
+    let job = start_capability_powered_craft(
         &registries,
-        &state,
+        &mut state,
+        source,
         PoweredCraftRequest::single(
             PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
             source,
@@ -911,10 +927,8 @@ fn flywheel_toolroom_grindstone_recovers_service_stock_from_finite_work() {
             drive,
         ),
         destination,
-    )
-    .unwrap_or_else(|error| panic!("powered service-stock grinding failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("powered service-stock grinding commit failed: {error}"));
+        "powered service-stock grinding",
+    );
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
         state
@@ -987,9 +1001,10 @@ fn helve_hammer_turns_native_copper_into_reinforcement_without_player_work() {
     )
     .unwrap_or_else(|error| panic!("helve hammer drive fixture failed: {error}"));
 
-    let job = validate_start_powered_craft(
+    let job = start_capability_powered_craft(
         &registries,
-        &state,
+        &mut state,
+        source,
         PoweredCraftRequest::single(
             PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
             source,
@@ -998,10 +1013,8 @@ fn helve_hammer_turns_native_copper_into_reinforcement_without_player_work() {
             drive,
         ),
         destination,
-    )
-    .unwrap_or_else(|error| panic!("helve hammer start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("helve hammer start commit failed: {error}"));
+        "helve hammer",
+    );
     let record = state
         .production()
         .get_job(job)

@@ -16,7 +16,7 @@ use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::survival::{Vitality, initialize_player_survival, player_record};
+use crate::survival::{SurvivalAssessment, Vitality, initialize_player_survival, player_record};
 
 const DISSIPATIVE_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(510_001);
 
