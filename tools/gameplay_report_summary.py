@@ -155,6 +155,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "water",
         "pressure-route",
         "adaptation",
+        "organic-adaptation",
         "storage-choice",
         "tool-choice",
         "material-choice",

@@ -6,9 +6,11 @@
 //! consequences after admission use canonical runtime owners. General terrain geometry,
 //! pathfinding, and hydrology remain absent.
 
-use std::num::NonZeroU64;
+use std::{env, num::NonZeroU64};
 
-use deep_hearth::content::gameplay_fixture::admit_player_at_hydration_warning_boundary;
+use deep_hearth::content::gameplay_fixture::{
+    admit_player_at_hunger_warning_boundary, admit_player_at_hydration_warning_boundary,
+};
 use deep_hearth::content::{
     EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
     MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
@@ -16,7 +18,7 @@ use deep_hearth::content::{
     STORAGE_ROUGH_TIMBER_FIELD_BOX, SURFACE_GATHERING_HAND_COLLECT_STONE,
     SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::SimulationTick;
 use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
@@ -36,13 +38,15 @@ use deep_hearth::surface::{
 };
 use deep_hearth::survival::{
     AdjacentDrinkSource, assess_survival, available_adjacent_drink_sources,
-    available_local_drink_sources, validate_drink_store_to_hydration_target,
+    available_local_drink_sources, project_survival_resource_budget,
+    validate_drink_store_to_hydration_target, validate_eat_lot_to_metabolic_target,
 };
 use deep_hearth::world_generation::{WorldGenerationSeed, validate_generate_initial_wilderness};
 
 use super::exact_local_runtime::{
     STATIONARY_PLAYER_ORIGIN, assert_ordinary_admitted_runtime_ready,
 };
+use super::seed;
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
@@ -50,6 +54,7 @@ const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x57
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WildernessStartProfile {
     Rested,
+    HungerPressure,
     HydrationPressure,
 }
 
@@ -57,6 +62,7 @@ impl WildernessStartProfile {
     const fn label(self) -> &'static str {
         match self {
             Self::Rested => "rested",
+            Self::HungerPressure => "hunger-pressure",
             Self::HydrationPressure => "hydration-pressure",
         }
     }
@@ -68,7 +74,9 @@ pub(super) struct WildernessOpeningReview {
     pub(super) start_profile: WildernessStartProfile,
     pub(super) food_secured_ticks: u64,
     pub(super) camp_ticks: u64,
+    pub(super) gathered_food_mass_mg: u64,
     pub(super) carried_food_mass_mg: u64,
+    pub(super) meal_consumed_mg: u64,
     pub(super) peak_carried_mass_mg: u64,
     pub(super) carried_capacity_mg: u64,
     pub(super) water_adjacent_known: bool,
@@ -361,6 +369,12 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 })
                 .carried_stockpile()
         }
+        WildernessStartProfile::HungerPressure => admit_player_at_hunger_warning_boundary(
+            &registries,
+            &mut state,
+            STATIONARY_PLAYER_ORIGIN,
+        )
+        .carried_stockpile(),
         WildernessStartProfile::HydrationPressure => admit_player_at_hydration_warning_boundary(
             &registries,
             &mut state,
@@ -463,14 +477,20 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let provisioning_decision = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("wilderness player disappeared after early forage"));
     let physiology = registries.survival().physiology();
-    assert!(
-        provisioning_decision.metabolic_energy() > physiology.hungry_below(),
-        "opening forage should preserve enough metabolic reserve to choose the next problem deliberately"
-    );
     match start_profile {
-        WildernessStartProfile::Rested => assert!(
+        WildernessStartProfile::HungerPressure => assert!(
+            provisioning_decision.metabolic_energy() <= physiology.hungry_below(),
+            "the hunger-pressure witness should still need the gathered food after foraging"
+        ),
+        WildernessStartProfile::Rested | WildernessStartProfile::HydrationPressure => assert!(
+            provisioning_decision.metabolic_energy() > physiology.hungry_below(),
+            "non-hungry openings should preserve enough metabolic reserve to choose the next problem deliberately"
+        ),
+    }
+    match start_profile {
+        WildernessStartProfile::Rested | WildernessStartProfile::HungerPressure => assert!(
             provisioning_decision.hydration() > physiology.thirsty_below(),
-            "a rested wilderness opening should remain above the thirst warning after early forage"
+            "a non-thirsty wilderness opening should remain above the thirst warning after early forage"
         ),
         WildernessStartProfile::HydrationPressure => assert!(
             provisioning_decision.hydration() <= physiology.thirsty_below(),
@@ -478,8 +498,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
         ),
     }
     assert!(
-        provisioning_decision.metabolic_energy() < physiology.maximum_metabolic_energy()
-            && provisioning_decision.hydration() < physiology.maximum_hydration(),
+        provisioning_decision.hydration() < physiology.maximum_hydration(),
         "opening foraging should spend some reserve without turning a negligible deficit into a forced top-off action"
     );
     let food_secured_ticks = state
@@ -497,7 +516,64 @@ pub(super) fn evaluate_generated_wilderness_opening(
         "a useful food reserve should be secured early instead of waiting behind fabrication or storage construction"
     );
 
-    // Storage and tools are investments, not opening checkboxes. The food reserve already fits
+    let provisioned_berries = state
+        .inventory()
+        .lot_ids(carried)
+        .find(|lot| {
+            state
+                .inventory()
+                .get_lot(*lot)
+                .is_some_and(|record| record.commodity() == berry_commodity)
+        })
+        .unwrap_or_else(|| panic!("provisioned opening berries disappeared from carried custody"));
+    let mut meal_consumed_mg = 0_u64;
+    if start_profile == WildernessStartProfile::HungerPressure {
+        let carrying = assess_player_carrying(&state)
+            .unwrap_or_else(|| panic!("hunger-pressure opening lost carrying state before meal"));
+        let locomotion = physiology.locomotion();
+        let step_budget = project_survival_resource_budget(
+            physiology,
+            locomotion.exertion_for_load(carrying.stored(), carrying.capacity()),
+            locomotion.step_duration(),
+        )
+        .unwrap_or_else(|error| panic!("hunger-pressure next-step projection failed: {error:?}"));
+        let metabolic_target = physiology
+            .hungry_below()
+            .checked_add(step_budget.metabolic_energy())
+            .and_then(|target| target.checked_add(Energy::from_nanojoules(1)))
+            .unwrap_or_else(|| panic!("hunger-pressure opening metabolic target overflowed"));
+        let meal = validate_eat_lot_to_metabolic_target(
+            &registries,
+            &state,
+            provisioned_berries,
+            metabolic_target,
+        )
+        .unwrap_or_else(|error| panic!("hunger-pressure opening meal projection failed: {error}"))
+        .unwrap_or_else(|| panic!("hunger-pressure opening unexpectedly needed no meal"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("hunger-pressure opening meal commit failed: {error}"));
+        meal_consumed_mg = meal.total_mass().milligrams();
+        advance_to(
+            &registries,
+            &mut state,
+            meal.completes_at(),
+            TickEventAllowance::default(),
+            "needed opening meal",
+        );
+        assert!(
+            assess_survival(&registries, &state)
+                .is_some_and(|survival| survival.metabolic_energy() >= metabolic_target),
+            "needed opening meal should recover above the hunger warning"
+        );
+    }
+    let retained_food_mass = Mass::from_milligrams(
+        forage_mass
+            .milligrams()
+            .checked_sub(meal_consumed_mg)
+            .unwrap_or_else(|| panic!("opening meal consumed more food than was gathered")),
+    );
+
+    // Storage and tools are investments, not opening checkboxes. The retained food reserve fits
     // comfortably on the player and remains fresh for four ambient days. Building a field box now
     // would consume two kilograms of timber and much of the short opening merely to extend a small
     // carried reserve to seven days. Defer both box and adze until a real workload or
@@ -548,7 +624,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
     );
     let carrying_after_provisioning = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("wilderness carrying assessment disappeared after provisioning"));
-    assert_eq!(carrying_after_provisioning.stored(), forage_mass);
+    assert_eq!(carrying_after_provisioning.stored(), retained_food_mass);
     assert!(
         carrying_after_provisioning.available() > field_box_raw_timber,
         "field-box investment should be deferred only while the actor has ample body-custody headroom"
@@ -561,23 +637,13 @@ pub(super) fn evaluate_generated_wilderness_opening(
         state.available_local_ground_stockpiles().next().is_none(),
         "opening should not manufacture stationary storage before capacity or freshness requires it"
     );
-    let provisioned_berries = state
-        .inventory()
-        .lot_ids(carried)
-        .find(|lot| {
-            state
-                .inventory()
-                .get_lot(*lot)
-                .is_some_and(|record| record.commodity() == berry_commodity)
-        })
-        .unwrap_or_else(|| panic!("provisioned opening berries disappeared from carried custody"));
     assert_eq!(
         state
             .inventory()
             .get_lot(provisioned_berries)
             .map(|record| record.mass()),
-        Some(forage_mass),
-        "opening should retain the secured food reserve instead of consuming a redundant top-off meal"
+        Some(retained_food_mass),
+        "opening should consume food only when current hunger makes the meal useful"
     );
 
     let forage_position = adjacent_berries.position();
@@ -615,7 +681,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let mut water_visited = false;
     let mut water_consumed_ul = 0_u64;
     match start_profile {
-        WildernessStartProfile::Rested => {
+        WildernessStartProfile::Rested | WildernessStartProfile::HungerPressure => {
             assert!(
                 water_decision.hydration() >= proactive_drink_below,
                 "the rested opening should be able to skip optional water instead of walking there for a scripted checkpoint"
@@ -720,7 +786,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let material_choices = u64::try_from(adjacent_materials.len())
         .unwrap_or_else(|_| panic!("wilderness material choice count exceeds u64"));
     let expected_steps = match start_profile {
-        WildernessStartProfile::Rested => 2,
+        WildernessStartProfile::Rested | WildernessStartProfile::HungerPressure => 2,
         WildernessStartProfile::HydrationPressure => 4,
     };
     assert_eq!(
@@ -777,7 +843,9 @@ pub(super) fn evaluate_generated_wilderness_opening(
         start_profile,
         food_secured_ticks,
         camp_ticks: elapsed_ticks,
-        carried_food_mass_mg: forage_mass.milligrams(),
+        gathered_food_mass_mg: forage_mass.milligrams(),
+        carried_food_mass_mg: retained_food_mass.milligrams(),
+        meal_consumed_mg,
         peak_carried_mass_mg: carrying_after_forage.stored().milligrams(),
         carried_capacity_mg: carrying_after_forage.capacity().milligrams(),
         water_adjacent_known: true,
@@ -814,20 +882,21 @@ fn physical_minutes_tenths(registries: &Registries, ticks: u64) -> String {
     format!("{}.{:01}m", tenths / 10, tenths % 10)
 }
 
-pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
+pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sample: &str) {
     let registries = build_registries();
     let ticks_per_day = registries.core().calendar().ticks_per_day();
-    let sample = match review.start_profile {
-        WildernessStartProfile::Rested => "maintained",
-        WildernessStartProfile::HydrationPressure => "coverage",
-    };
     let water_decision = if review.water_visited {
         "drink-needed"
     } else {
         "defer-hydrated"
     };
+    let meal_decision = if review.meal_consumed_mg > 0 {
+        "eat-needed"
+    } else {
+        "defer-fed"
+    };
     std::println!(
-        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:{} choices:{}-{} blocked:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] provisioning=[carried:{}mg meal:defer-retained-reserve warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} consumed:{}uL decision:{}] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] material-choice=[stone+timber:simultaneous selected:defer reason:no-current-workload]",
+        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:{} choices:{}-{} blocked:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] provisioning=[gathered:{}mg retained:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} consumed:{}uL decision:{}] storage-choice=[selected:defer build:{}t capacity:{}mg food:{}mg ambient:{}d boxed:{}d reason:no-capacity-or-freshness-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:{} setup:{}t bare:{}t adze:{}t crossover:{}batches] reason:no-current-workload] material-choice=[stone+timber:simultaneous selected:defer reason:no-current-workload]",
         sample,
         review.seed,
         review.start_profile.label(),
@@ -845,7 +914,10 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
         physical_minutes_tenths(&registries, review.food_secured_ticks),
         review.camp_ticks,
         physical_minutes_tenths(&registries, review.camp_ticks),
+        review.gathered_food_mass_mg,
         review.carried_food_mass_mg,
+        meal_decision,
+        review.meal_consumed_mg,
         review.final_warning_safe,
         review.peak_carried_mass_mg,
         review.carried_capacity_mg,
@@ -872,19 +944,67 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview) {
     );
 }
 
+fn configured_root(name: &str, fallback: u64) -> u64 {
+    env::var(name).ok().map_or(fallback, |raw| {
+        let trimmed = raw.trim();
+        let parsed = trimmed
+            .strip_prefix("0x")
+            .or_else(|| trimmed.strip_prefix("0X"))
+            .map_or_else(
+                || trimmed.parse().ok(),
+                |hex| u64::from_str_radix(hex, 16).ok(),
+            );
+        parsed.unwrap_or_else(|| panic!("wilderness gameplay seed {name} is invalid: {raw:?}"))
+    })
+}
+
+fn organic_start_profile(behavior_root: u64, index: usize) -> WildernessStartProfile {
+    match (behavior_root as usize).wrapping_add(index) % 3 {
+        0 => WildernessStartProfile::Rested,
+        1 => WildernessStartProfile::HungerPressure,
+        _ => WildernessStartProfile::HydrationPressure,
+    }
+}
+
 pub(super) fn run_wilderness_report() {
-    std::println!(
-        "PROBE INPUT name=wilderness mode=explore samples=2 maintained=1 coverage=1 organic=0 world_root=0x{:016X} behavior_root=physiology-state replay=generated-opening-graph",
-        WILDERNESS_WORLD_SEED.value(),
+    const ORGANIC_SAMPLES: usize = 4;
+    let world_root = configured_root(
+        "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
+        seed::mix64(WILDERNESS_WORLD_SEED.value() ^ 0x5749_4C44_5F4F_5247),
     );
-    print_wilderness_experience(evaluate_generated_wilderness_opening(
-        WILDERNESS_WORLD_SEED,
-        WildernessStartProfile::Rested,
-    ));
-    print_wilderness_experience(evaluate_generated_wilderness_opening(
-        WILDERNESS_WORLD_SEED,
-        WildernessStartProfile::HydrationPressure,
-    ));
+    let behavior_root = configured_root(
+        "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED",
+        seed::mix64(WILDERNESS_WORLD_SEED.value() ^ 0x5749_4C44_5F42_4856),
+    );
+    std::println!(
+        "PROBE INPUT name=wilderness mode=explore samples={} maintained=1 coverage=1 organic={} world_root=0x{world_root:016X} behavior_root=0x{behavior_root:016X} replay=generated-opening-graph",
+        ORGANIC_SAMPLES + 2,
+        ORGANIC_SAMPLES,
+    );
+    print_wilderness_experience(
+        evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::Rested,
+        ),
+        "maintained",
+    );
+    print_wilderness_experience(
+        evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::HydrationPressure,
+        ),
+        "coverage",
+    );
+    for index in 0..ORGANIC_SAMPLES {
+        let ordinal = u64::try_from(index + 1)
+            .unwrap_or_else(|_| unreachable!("bounded wilderness organic index fits u64"));
+        let world_seed = seed::mix64(world_root ^ ordinal.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+        let profile = organic_start_profile(behavior_root, index);
+        print_wilderness_experience(
+            evaluate_generated_wilderness_opening(WorldGenerationSeed::new(world_seed), profile),
+            "organic",
+        );
+    }
 }
 
 #[test]
@@ -896,5 +1016,14 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,
         );
+        let hunger = evaluate_generated_wilderness_opening(
+            WILDERNESS_WORLD_SEED,
+            WildernessStartProfile::HungerPressure,
+        );
+        assert!(hunger.meal_consumed_mg > 0);
+        assert!(hunger.carried_food_mass_mg < hunger.gathered_food_mass_mg);
+        assert_eq!(hunger.total_steps, 2);
+        assert!(!hunger.water_visited);
+        assert!(hunger.final_warning_safe);
     }
 }

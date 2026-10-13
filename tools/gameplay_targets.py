@@ -44,6 +44,7 @@ GAMEPLAY_SCOPE_SPECS = {
     "wilderness": GameplayScopeSpec(
         "gameplay_wilderness",
         "wilderness_contract_tests::generated_wilderness_opening_stabilizes_without_premature_investment",
+        True,
         evidence_mode=EVIDENCE_ORDINARY_GENERATED_OPENING,
     ),
     "progression": GameplayScopeSpec(

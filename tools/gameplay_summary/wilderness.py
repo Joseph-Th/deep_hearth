@@ -15,6 +15,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         return None
     maintained = [line for line in experiences if " sample=maintained " in line]
     coverage = [line for line in experiences if " sample=coverage " in line]
+    organic = [line for line in experiences if " sample=organic " in line]
     if len(maintained) != 1 or len(coverage) != 1:
         raise ValueError(
             "wilderness report requires one maintained rested experience and one pressure coverage experience"
@@ -38,11 +39,25 @@ def wilderness_summary(lines: list[str]) -> str | None:
     pressure_drink = re.search(r"\bwater=\[.*?\bconsumed:(\d+)uL", coverage[0])
     if pressure_steps is None or pressure_drink is None:
         raise ValueError("wilderness pressure experience lost route or drink telemetry")
+    organic_detail = ""
+    if organic:
+        organic_detail = (
+            " organic-adaptation=["
+            f"rested:{sum(' start=rested ' in line for line in organic)} "
+            f"hunger:{sum(' start=hunger-pressure ' in line for line in organic)} "
+            f"hydration:{sum(' start=hydration-pressure ' in line for line in organic)} "
+            f"meals:{sum(' meal:eat-needed ' in line for line in organic)} "
+            f"water-visits:{sum(' visited:true ' in line for line in organic)}]"
+        )
+    sample_shape = "maintained:1 coverage:1"
+    if organic:
+        sample_shape += f" organic:{len(organic)}"
     return (
-        "ORDINARY SUMMARY probe=wilderness samples=2 "
-        "sample-shape=[maintained:1 coverage:1] "
+        f"ORDINARY SUMMARY probe=wilderness samples={len(experiences)} "
+        f"sample-shape=[{sample_shape}] "
         f"{baseline} "
         f"pressure-route=[steps:{pressure_steps.group(1)} water:visited "
         f"consumed:{pressure_drink.group(1)}uL] "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
+        f"{organic_detail}"
     )
