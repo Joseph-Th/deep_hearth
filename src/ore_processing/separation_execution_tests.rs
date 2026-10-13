@@ -19,15 +19,16 @@ use crate::inventory::{
 };
 use crate::labor::PlayerWork;
 use crate::logistics::{
-    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
-    validate_place_ground_stockpile, validate_player_logistics_initialization,
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, place_equipment_for_fixture,
+    validate_initialize_player_logistics, validate_place_ground_stockpile,
 };
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
 };
 use crate::matter::calculate_matter_accounting;
 use crate::ore_processing::{ManualConstituentSeparationProcessDefinition, ManualOrePhysicsError};
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
+use crate::player::validate_admit_player;
 use crate::production::{ProcessOutputRoute, StartProcessError, validate_start_process_routed};
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
@@ -658,10 +659,15 @@ struct ManualFixture {
 }
 
 fn manual_fixture(mass: Mass, composition: MaterialComposition) -> ManualFixture {
+    let mut fixture = unadmitted_manual_fixture(mass, composition);
+    initialize_player_survival(&fixture.registries, &mut fixture.state)
+        .unwrap_or_else(|error| panic!("manual separation survival fixture failed: {error}"));
+    fixture
+}
+
+fn unadmitted_manual_fixture(mass: Mass, composition: MaterialComposition) -> ManualFixture {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("manual separation survival fixture failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("manual separation source fixture failed: {error}"));
     let target = add_solid_stockpile_for_test(&mut state, mass)
@@ -686,6 +692,27 @@ fn manual_fixture(mass: Mass, composition: MaterialComposition) -> ManualFixture
         residue,
         lot,
     }
+}
+
+fn admit_manual_separation_fixture(fixture: &mut ManualFixture, equipment: &[EquipmentId]) {
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [fixture.source, fixture.target, fixture.residue] {
+        validate_place_ground_stockpile(&fixture.state, stockpile, position)
+            .unwrap_or_else(|error| panic!("manual separation admission placement failed: {error}"))
+            .commit(&mut fixture.state)
+            .unwrap_or_else(|error| {
+                panic!("manual separation admission placement commit failed: {error}")
+            });
+    }
+    for &equipment in equipment {
+        place_equipment_for_fixture(&mut fixture.state, equipment, position);
+    }
+    validate_admit_player(&fixture.registries, &fixture.state, position)
+        .unwrap_or_else(|error| panic!("manual separation player admission failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("manual separation player admission commit failed: {error}")
+        });
 }
 
 #[test]
@@ -1098,22 +1125,8 @@ fn hand_sorting_enforces_a_small_attention_bounded_batch() {
 #[test]
 fn in_progress_hand_sorting_round_trip_preserves_deterministic_continuation() {
     let mass = Mass::from_milligrams(100_000);
-    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
-    let position = VoxelCoord::new(0, 0, 0);
-    for stockpile in [fixture.source, fixture.target, fixture.residue] {
-        validate_place_ground_stockpile(&fixture.state, stockpile, position)
-            .unwrap_or_else(|error| panic!("manual separation replay placement failed: {error}"))
-            .commit(&mut fixture.state)
-            .unwrap_or_else(|error| {
-                panic!("manual separation replay placement commit failed: {error}")
-            });
-    }
-    validate_player_logistics_initialization(&fixture.registries, &fixture.state, position)
-        .unwrap_or_else(|error| panic!("manual separation replay logistics failed: {error}"))
-        .commit(&mut fixture.state)
-        .unwrap_or_else(|error| {
-            panic!("manual separation replay logistics commit failed: {error}")
-        });
+    let mut fixture = unadmitted_manual_fixture(mass, copper_stone_composition(400_000));
+    admit_manual_separation_fixture(&mut fixture, &[]);
     let resolved = resolve_manual(&fixture, mass);
     let duration = resolved.duration();
     validate_start_manual_constituent_separation(
@@ -1135,6 +1148,8 @@ fn in_progress_hand_sorting_round_trip_preserves_deterministic_continuation() {
             panic!("round-trip manual separation pre-save tick failed: {error}")
         });
     }
+    validate_persistable_state(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|error| panic!("manual separation replay baseline must persist: {error}"));
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
         .unwrap_or_else(|error| {
             panic!("round-trip manual separation serialization failed: {error}")
@@ -1164,7 +1179,8 @@ fn in_progress_hand_sorting_round_trip_preserves_deterministic_continuation() {
 #[test]
 fn persisted_hand_sorting_rejects_forged_fine_feed_trace() {
     let mass = Mass::from_milligrams(100_000);
-    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let mut fixture = unadmitted_manual_fixture(mass, copper_stone_composition(400_000));
+    admit_manual_separation_fixture(&mut fixture, &[]);
     let resolved = resolve_manual(&fixture, mass);
     let job = validate_start_manual_constituent_separation(
         &fixture.registries,
@@ -1181,6 +1197,8 @@ fn persisted_hand_sorting_rejects_forged_fine_feed_trace() {
         validate_loaded_state(&fixture.registries, &fixture.state),
         Ok(())
     );
+    validate_persistable_state(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|error| panic!("manual sorting tamper baseline must persist: {error}"));
 
     let mut tampered = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
         .unwrap_or_else(|error| panic!("manual sorting tamper serialization failed: {error}"));

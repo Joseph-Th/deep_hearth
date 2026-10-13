@@ -30,8 +30,8 @@ use crate::inventory::{
 };
 use crate::labor::PlayerWork;
 use crate::logistics::{
-    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
-    validate_place_ground_stockpile, validate_player_logistics_initialization,
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, place_equipment_for_fixture,
+    validate_initialize_player_logistics, validate_place_ground_stockpile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::CompositionComponent;
@@ -40,7 +40,8 @@ use crate::ore_processing::{
     ComminutionProcessDefinition, ManualOreJobValidationError, ManualOrePhysicsError,
     PoweredOreJobValidationError, PoweredOreProcessProfile,
 };
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
+use crate::player::validate_admit_player;
 use crate::production::{ProcessDefinition, StartProcessError, validate_start_process};
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
@@ -414,9 +415,10 @@ fn copper_reinforced_stone_crusher_increases_real_throughput_and_single_batch_ca
 #[test]
 fn cobbing_hammer_is_an_ordinary_wearing_attention_investment_with_exact_save_replay() {
     let mass = Mass::from_milligrams(100_000);
-    let mut fixture = manual_comminution_fixture(mass);
-    let hand = resolve_manual_comminution(&fixture, mass);
+    let mut fixture = unadmitted_manual_comminution_fixture(mass);
     let hammer = assemble_stone_cobbing_hammer(&mut fixture);
+    admit_manual_comminution_fixture(&mut fixture, &[hammer]);
+    let hand = resolve_manual_comminution(&fixture, mass);
     let assisted = resolve_manual_comminution_process(
         &fixture.registries,
         &fixture.state,
@@ -449,35 +451,6 @@ fn cobbing_hammer_is_an_ordinary_wearing_attention_investment_with_exact_save_re
     let matter_before = calculate_matter_accounting(&fixture.state)
         .unwrap_or_else(|error| panic!("cobbing-hammer matter audit failed: {error}"))
         .total();
-    let position = VoxelCoord::new(0, 0, 0);
-    for stockpile in [fixture.source, fixture.destination] {
-        validate_place_ground_stockpile(&fixture.state, stockpile, position)
-            .unwrap_or_else(|error| panic!("cobbing-hammer stockpile placement failed: {error}"))
-            .commit(&mut fixture.state)
-            .unwrap_or_else(|error| {
-                panic!("cobbing-hammer stockpile placement commit failed: {error}")
-            });
-    }
-    let logistics_revision = fixture.state.logistics().revision();
-    fixture
-        .state
-        .logistics_state_mut()
-        .apply_equipment_placement(logistics_revision, logistics_revision + 1, hammer, position);
-    validate_player_logistics_initialization(&fixture.registries, &fixture.state, position)
-        .unwrap_or_else(|error| panic!("cobbing-hammer player logistics failed: {error}"))
-        .commit(&mut fixture.state)
-        .unwrap_or_else(|error| panic!("cobbing-hammer player logistics commit failed: {error}"));
-    let assisted = resolve_manual_comminution_process(
-        &fixture.registries,
-        &fixture.state,
-        ManualComminutionRequest::new(
-            PROCESS_HAND_BREAK_ORE,
-            fixture.source,
-            &[MaterialLotSelection::new(fixture.lot, mass)],
-        )
-        .with_equipment(hammer),
-    )
-    .unwrap_or_else(|error| panic!("admitted cobbing-hammer resolution failed: {error}"));
     let duration = assisted.duration();
     let job = validate_start_manual_comminution(
         &fixture.registries,
@@ -509,6 +482,8 @@ fn cobbing_hammer_is_an_ordinary_wearing_attention_investment_with_exact_save_re
         let _ = advance_tick(&fixture.registries, &mut fixture.state)
             .unwrap_or_else(|error| panic!("cobbing-hammer pre-save tick failed: {error}"));
     }
+    validate_persistable_state(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|error| panic!("cobbing-hammer save baseline must persist: {error}"));
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
         .unwrap_or_else(|error| panic!("cobbing-hammer save serialization failed: {error}"));
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
@@ -1545,10 +1520,15 @@ struct ManualComminutionFixture {
 }
 
 fn manual_comminution_fixture(mass: Mass) -> ManualComminutionFixture {
+    let mut fixture = unadmitted_manual_comminution_fixture(mass);
+    initialize_player_survival(&fixture.registries, &mut fixture.state)
+        .unwrap_or_else(|error| panic!("manual comminution survival fixture failed: {error}"));
+    fixture
+}
+
+fn unadmitted_manual_comminution_fixture(mass: Mass) -> ManualComminutionFixture {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("manual comminution survival fixture failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("manual comminution source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, mass)
@@ -1570,6 +1550,32 @@ fn manual_comminution_fixture(mass: Mass) -> ManualComminutionFixture {
         destination,
         lot,
     }
+}
+
+fn admit_manual_comminution_fixture(
+    fixture: &mut ManualComminutionFixture,
+    equipment: &[EquipmentId],
+) {
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [fixture.source, fixture.destination] {
+        validate_place_ground_stockpile(&fixture.state, stockpile, position)
+            .unwrap_or_else(|error| {
+                panic!("manual comminution admission placement failed: {error}")
+            })
+            .commit(&mut fixture.state)
+            .unwrap_or_else(|error| {
+                panic!("manual comminution admission placement commit failed: {error}")
+            });
+    }
+    for &equipment in equipment {
+        place_equipment_for_fixture(&mut fixture.state, equipment, position);
+    }
+    validate_admit_player(&fixture.registries, &fixture.state, position)
+        .unwrap_or_else(|error| panic!("manual comminution player admission failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("manual comminution player admission commit failed: {error}")
+        });
 }
 
 fn resolve_manual_comminution(
@@ -1860,22 +1866,8 @@ fn hand_breaking_enforces_its_attention_bounded_batch() {
 #[test]
 fn in_progress_hand_breaking_round_trip_replays_exact_manual_physics() {
     let mass = Mass::from_milligrams(100_000);
-    let mut fixture = manual_comminution_fixture(mass);
-    let position = VoxelCoord::new(0, 0, 0);
-    for stockpile in [fixture.source, fixture.destination] {
-        validate_place_ground_stockpile(&fixture.state, stockpile, position)
-            .unwrap_or_else(|error| panic!("manual comminution replay placement failed: {error}"))
-            .commit(&mut fixture.state)
-            .unwrap_or_else(|error| {
-                panic!("manual comminution replay placement commit failed: {error}")
-            });
-    }
-    validate_player_logistics_initialization(&fixture.registries, &fixture.state, position)
-        .unwrap_or_else(|error| panic!("manual comminution replay logistics failed: {error}"))
-        .commit(&mut fixture.state)
-        .unwrap_or_else(|error| {
-            panic!("manual comminution replay logistics commit failed: {error}")
-        });
+    let mut fixture = unadmitted_manual_comminution_fixture(mass);
+    admit_manual_comminution_fixture(&mut fixture, &[]);
     let resolved = resolve_manual_comminution(&fixture, mass);
     let duration = resolved.duration();
     let job = validate_start_manual_comminution(
@@ -1892,6 +1884,8 @@ fn in_progress_hand_breaking_round_trip_replays_exact_manual_physics() {
         let _ = advance_tick(&fixture.registries, &mut fixture.state)
             .unwrap_or_else(|error| panic!("manual comminution pre-save tick failed: {error}"));
     }
+    validate_persistable_state(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|error| panic!("manual comminution save baseline must persist: {error}"));
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
         .unwrap_or_else(|error| panic!("manual comminution save serialization failed: {error}"));
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
