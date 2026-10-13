@@ -8,7 +8,9 @@ mod resource_cost;
 mod state;
 mod validation;
 
-pub use assessment::{HungerState, HydrationState, SurvivalAssessment, assess_survival};
+pub use assessment::{
+    HungerState, HydrationState, SurvivalAssessment, ThermalComfortState, assess_survival,
+};
 pub use consumption::{
     AdjacentDrinkSource, DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome,
     DrinkStoreToTargetError, EatCommitError, EatError, EatLotToTargetError, EatOutcome,
@@ -24,8 +26,8 @@ pub use consumption::{
 pub use definitions::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
     FoodDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
-    NutritionDefinition, PhysiologyDefinition, SurvivalRegistry, VitalityLossDefinition,
-    calculate_food_hydration_offer,
+    NutritionDefinition, PhysiologyDefinition, SurvivalRegistry, ThermalComfortDefinition,
+    VitalityLossDefinition, calculate_food_hydration_offer,
 };
 pub use resource_cost::{
     SurvivalExertion, SurvivalResourceBudget, SurvivalResourceProjectionError,
@@ -42,8 +44,8 @@ pub(crate) use lifecycle::initialize_player_survival;
 pub(crate) use lifecycle::validate_player_survival_initialization_with_reserves;
 pub(crate) use lifecycle::{
     InitializeSurvivalError, PlayerSurvivalInitializationCommitError, SurvivalTickError,
-    ValidatedPlayerSurvivalInitialization, apply_survival_tick, decide_survival_tick,
-    validate_player_survival_initialization,
+    ValidatedPlayerSurvivalInitialization, apply_survival_tick,
+    decide_survival_tick_with_local_heat, validate_player_survival_initialization,
 };
 #[cfg(feature = "test-gameplay")]
 pub(crate) use lifecycle::{
@@ -55,5 +57,5 @@ pub(crate) use resource_cost::{
 };
 pub(crate) use state::PendingDirectConsumption;
 #[cfg(test)]
-pub(crate) use state::player_record;
+pub(crate) use state::{player_record, player_record_with_thermal_comfort};
 pub(crate) use validation::validate_loaded_survival;

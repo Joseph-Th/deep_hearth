@@ -10,7 +10,7 @@ pub use intake::{
 };
 pub use physiology::{
     DirectConsumptionDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
-    NutritionDefinition, PhysiologyDefinition, VitalityLossDefinition,
+    NutritionDefinition, PhysiologyDefinition, ThermalComfortDefinition, VitalityLossDefinition,
 };
 pub use registry::SurvivalRegistry;
 

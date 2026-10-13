@@ -362,6 +362,75 @@ impl VitalityLossDefinition {
     }
 }
 
+/// Authored unsheltered thermal-comfort reserve and local-heat response.
+///
+/// This models only the player's short-horizon warmth reserve. Ambient weather, clothing
+/// insulation, and shelter modifiers remain separate future owners rather than being implied by
+/// this baseline exposure rate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThermalComfortDefinition {
+    warning_below_ppm: u32,
+    unsheltered_loss_ppm_per_tick: u32,
+    maximum_local_heat_gain_ppm_per_tick: u32,
+    local_heat_for_maximum_gain: Energy,
+    cold_vitality_loss_ppm_per_tick: u32,
+}
+
+impl ThermalComfortDefinition {
+    #[must_use]
+    pub fn new(
+        warning_below_ppm: u32,
+        unsheltered_loss_ppm_per_tick: u32,
+        maximum_local_heat_gain_ppm_per_tick: u32,
+        local_heat_for_maximum_gain: Energy,
+        cold_vitality_loss_ppm_per_tick: u32,
+    ) -> Self {
+        assert!(warning_below_ppm < NORMALIZED_PARTS_PER_MILLION);
+        assert!(unsheltered_loss_ppm_per_tick > 0);
+        assert!(unsheltered_loss_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION);
+        assert!(maximum_local_heat_gain_ppm_per_tick > 0);
+        assert!(maximum_local_heat_gain_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION);
+        assert!(!local_heat_for_maximum_gain.is_zero());
+        assert!(cold_vitality_loss_ppm_per_tick > 0);
+        assert!(cold_vitality_loss_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION);
+        Self {
+            warning_below_ppm,
+            unsheltered_loss_ppm_per_tick,
+            maximum_local_heat_gain_ppm_per_tick,
+            local_heat_for_maximum_gain,
+            cold_vitality_loss_ppm_per_tick,
+        }
+    }
+
+    #[must_use]
+    pub const fn warning_below_ppm(self) -> u32 {
+        self.warning_below_ppm
+    }
+
+    #[must_use]
+    pub const fn unsheltered_loss_ppm_per_tick(self) -> u32 {
+        self.unsheltered_loss_ppm_per_tick
+    }
+
+    #[must_use]
+    pub const fn cold_vitality_loss_ppm_per_tick(self) -> u32 {
+        self.cold_vitality_loss_ppm_per_tick
+    }
+
+    #[must_use]
+    pub fn local_heat_gain_ppm(self, local_heat: Energy) -> u32 {
+        if local_heat.is_zero() {
+            return 0;
+        }
+        let numerator = local_heat
+            .nanojoules()
+            .saturating_mul(u128::from(self.maximum_local_heat_gain_ppm_per_tick));
+        let gain = numerator / self.local_heat_for_maximum_gain.nanojoules();
+        u32::try_from(gain.min(u128::from(self.maximum_local_heat_gain_ppm_per_tick)))
+            .unwrap_or_else(|_| unreachable!("bounded thermal-comfort gain fits u32"))
+    }
+}
+
 /// Immutable physiology parameters for the player survival owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PhysiologyDefinition {
@@ -372,6 +441,7 @@ pub struct PhysiologyDefinition {
     locomotion: LocomotionDefinition,
     carried_mass_capacity: Mass,
     vitality_loss: VitalityLossDefinition,
+    thermal_comfort: ThermalComfortDefinition,
 }
 
 impl PhysiologyDefinition {
@@ -397,7 +467,20 @@ impl PhysiologyDefinition {
             locomotion,
             carried_mass_capacity,
             vitality_loss,
+            thermal_comfort: ThermalComfortDefinition::new(
+                800_000,
+                1_000,
+                20_000,
+                Energy::from_nanojoules(10_800_000_000_000),
+                25,
+            ),
         }
+    }
+
+    #[must_use]
+    pub fn with_thermal_comfort(mut self, thermal_comfort: ThermalComfortDefinition) -> Self {
+        self.thermal_comfort = thermal_comfort;
+        self
     }
 
     #[must_use]
@@ -463,5 +546,10 @@ impl PhysiologyDefinition {
     #[must_use]
     pub const fn dehydration_vitality_loss_ppm_per_tick(self) -> u32 {
         self.vitality_loss.dehydration_ppm_per_tick()
+    }
+
+    #[must_use]
+    pub const fn thermal_comfort(self) -> ThermalComfortDefinition {
+        self.thermal_comfort
     }
 }

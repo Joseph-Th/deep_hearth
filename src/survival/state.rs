@@ -17,8 +17,8 @@ pub(crate) use direct_consumption::{
     DirectConsumptionState, PendingConsumedFoodTrace, PendingConsumedMatterBaseline,
     PendingDirectConsumption, PendingDrinking, PendingEating,
 };
-pub(crate) use player::player_record;
 pub use player::{NutritionReserves, PlayerSurvivalRecord, Vitality};
+pub(crate) use player::{player_record, player_record_with_thermal_comfort};
 
 pub const NUTRITION_PARTS_PER_MILLION: u32 = crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
@@ -73,6 +73,8 @@ impl SurvivalState {
                 && player.hydration() <= physiology.maximum_hydration()
                 && player.vitality().parts_per_million() <= Vitality::MAXIMUM.parts_per_million()
                 && player.nutrition().has_valid_bounds()
+                && player.thermal_comfort_ppm()
+                    <= crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION
                 && player.vitality_recovery_remainder() < NUTRITION_PARTS_PER_MILLION
                 && (player.vitality() != Vitality::MAXIMUM
                     || player.vitality_recovery_remainder() == 0)

@@ -4,7 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::Energy;
+use crate::core::quantity::{AggregateMass, Energy};
+use crate::material::MaterialId;
 
 use super::definitions::EnergyStoreDefinitionId;
 
@@ -21,6 +22,8 @@ pub struct EnergyState {
     next_store_id: u64,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     records: BTreeMap<EnergyStoreId, EnergyStoreRecord>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
+    combusted_matter: BTreeMap<MaterialId, AggregateMass>,
     #[serde(skip)]
     nonempty_stores_by_definition: BTreeMap<EnergyStoreDefinitionId, BTreeSet<EnergyStoreId>>,
 }
@@ -31,6 +34,7 @@ impl EnergyState {
             revision: 0,
             next_store_id: 1,
             records: BTreeMap::new(),
+            combusted_matter: BTreeMap::new(),
             nonempty_stores_by_definition: BTreeMap::new(),
         }
     }
@@ -52,6 +56,25 @@ impl EnergyState {
 
     pub fn stores(&self) -> impl Iterator<Item = &EnergyStoreRecord> {
         self.records.values()
+    }
+
+    /// Iterates matter transferred into the terminal combustion-products boundary.
+    ///
+    /// Ash, smoke, and atmospheric chemistry are outside the current material model, so burned
+    /// fuel remains explicitly conserved here instead of disappearing from world accounting.
+    pub(crate) fn combusted_matter(
+        &self,
+    ) -> impl Iterator<Item = (MaterialId, AggregateMass)> + '_ {
+        self.combusted_matter
+            .iter()
+            .map(|(material, mass)| (*material, *mass))
+    }
+
+    pub(crate) fn combusted_mass(&self, material: MaterialId) -> AggregateMass {
+        self.combusted_matter
+            .get(&material)
+            .copied()
+            .unwrap_or(AggregateMass::ZERO)
     }
 
     /// Iterates nonempty store IDs grouped by immutable definition in stable authored-ID order.
@@ -153,6 +176,24 @@ impl EnergyState {
                 "runtime invariant broken: empty energy store was already indexed as nonempty"
             );
         }
+    }
+
+    pub(super) fn apply_combustion(
+        &mut self,
+        store: EnergyStoreId,
+        energy: Energy,
+        material: MaterialId,
+        next_combusted_mass: AggregateMass,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let before = self.combusted_mass(material);
+        assert!(next_combusted_mass > before);
+        self.add_stored_energy(store, energy);
+        self.combusted_matter.insert(material, next_combusted_mass);
+        self.revision = next_revision;
     }
 
     pub(super) fn subtract_stored_energy(&mut self, store: EnergyStoreId, energy: Energy) {

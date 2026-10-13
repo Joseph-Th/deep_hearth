@@ -178,6 +178,12 @@ impl PassiveEnergyDissipationPlan {
     pub(crate) fn energy_revision_steps(&self) -> u64 {
         u64::from(!self.is_empty())
     }
+
+    pub(crate) fn dissipated_for_store(&self, store: EnergyStoreId) -> Energy {
+        self.entries()
+            .find(|entry| entry.store == store)
+            .map_or(Energy::ZERO, |entry| entry.dissipated)
+    }
 }
 
 /// Decides passive losses against the pre-tick energy snapshot without mutation.

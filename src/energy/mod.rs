@@ -2,6 +2,7 @@
 
 mod accounting;
 mod availability;
+mod combustion_execution;
 mod construction_execution;
 mod definitions;
 mod disassembly_execution;
@@ -17,14 +18,17 @@ pub use crate::core::quantity::PreciseEnergy;
 pub use accounting::{
     ExplicitEnergyAccounting, ExplicitEnergyAccountingError, calculate_explicit_energy_accounting,
 };
+pub use combustion_execution::{
+    CombustionCommitError, CombustionError, ValidatedCombustion, validate_combust_fuel,
+};
 pub use construction_execution::{
     EnergyStoreAssemblyCommitError, EnergyStoreAssemblyError, ValidatedEnergyStoreAssembly,
     validate_assemble_energy_store,
 };
 
 pub use definitions::{
-    EnergyCarrier, EnergyRegistry, EnergyStoreDefinition, EnergyStoreDefinitionId,
-    EnergyStoreUpgradeProfile,
+    CombustionProfile, EnergyCarrier, EnergyRegistry, EnergyStoreDefinition,
+    EnergyStoreDefinitionId, EnergyStoreUpgradeProfile,
 };
 pub use disassembly_execution::{
     EnergyStoreDisassemblyCommitError, EnergyStoreDisassemblyError, EnergyStoreDisassemblyOutcome,

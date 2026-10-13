@@ -66,6 +66,12 @@ def wilderness_summary(lines: list[str]) -> str | None:
     worksite_support_mass: list[int] = []
     worksite_support_ticks: list[int] = []
     worksite_support_built = 0
+    campfire_fuel: list[int] = []
+    campfire_recovery_ticks: list[int] = []
+    campfire_before_comfort: list[int] = []
+    campfire_after_comfort: list[int] = []
+    campfire_heat_remaining: list[int] = []
+    campfires_built = 0
     camp_logistics_steps: list[int] = []
     selected_source_opportunity: list[int] = []
     selected_source_remaining: list[int] = []
@@ -94,6 +100,20 @@ def wilderness_summary(lines: list[str]) -> str | None:
         )
         if project is None:
             raise ValueError("wilderness experience lost camp-project telemetry")
+        warmth = re.search(
+            r"\bwarmth=\[fire:true fuel:(\d+)mg logistics-steps:(\d+) recovery:(\d+)t "
+            r"comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ\]",
+            experience,
+        )
+        if " goal=worksite-cache " in experience:
+            if warmth is None:
+                raise ValueError("wilderness worksite experience lost campfire warmth telemetry")
+            campfires_built += 1
+            campfire_fuel.append(int(warmth.group(1)))
+            campfire_recovery_ticks.append(int(warmth.group(3)))
+            campfire_before_comfort.append(int(warmth.group(4)))
+            campfire_after_comfort.append(int(warmth.group(5)))
+            campfire_heat_remaining.append(int(warmth.group(6)))
         work = int(project.group(1))
         meal = int(project.group(7))
         if meal > 0:
@@ -154,6 +174,17 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"project-budget:{scaled_span(camp_metabolic_budget, 1_000_000_000_000, 'kJ')}/"
             f"{scaled_span(camp_hydration_budget, 1_000, 'mL')}]"
         )
+    camp_warmth = ""
+    if cache_projects:
+        camp_warmth = (
+            "camp-warmth=["
+            f"fires:{campfires_built}/{len(cache_projects)} "
+            f"fuel:{scaled_span(campfire_fuel, 1_000_000, 'kg')} "
+            f"recovery:{scaled_span(campfire_recovery_ticks, 1, 't')} "
+            f"comfort:{scaled_span(campfire_before_comfort, 1_000, 'kppm')}->"
+            f"{scaled_span(campfire_after_comfort, 1_000, 'kppm')} "
+            f"heat-left:{scaled_span(campfire_heat_remaining, 1_000_000_000_000_000, 'MJ')}]"
+        )
     adze_crossover = next(
         (
             int(match.group(1))
@@ -196,6 +227,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{resource_runway} "
         f"{camp_goals} "
         f"{camp_projects} "
+        f"{camp_warmth + ' ' if camp_warmth else ''}"
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"

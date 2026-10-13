@@ -155,6 +155,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "resource-runway",
         "camp-goals",
         "camp-projects",
+        "camp-warmth",
         "organic-adaptation",
         "tool-policy",
     ),

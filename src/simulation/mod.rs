@@ -24,7 +24,7 @@ use crate::production::{CompletionApplication, apply_completion_plan, decide_due
 use crate::registry::Registries;
 use crate::structural::apply_structural_construction_tick;
 use crate::surface::apply_surface_gathering_tick;
-use crate::survival::{apply_survival_tick, assess_survival, decide_survival_tick};
+use crate::survival::{apply_survival_tick, assess_survival, decide_survival_tick_with_local_heat};
 
 use planning::{
     decide_automatic_mining_output, decide_storage_dismantling_after_completions,
@@ -110,8 +110,21 @@ pub fn advance_tick(
         ],
         TickError::EnergyRevisionExhausted,
     )?;
+    let local_warmth = state
+        .available_local_energy_stores()
+        .filter(|store| {
+            registries
+                .energy()
+                .get_store(store.definition())
+                .is_some_and(|definition| definition.is_local_warmth_source())
+        })
+        .try_fold(crate::core::quantity::Energy::ZERO, |total, store| {
+            total.checked_add(passive_energy_plan.dissipated_for_store(store.id()))
+        })
+        .unwrap_or_else(|| panic!("local passive warmth overflowed energy range"));
     let exertion = player_work_exertion(registries, state, completion_plan.availability_changes());
-    let survival_plan = decide_survival_tick(registries, state, exertion, next_tick)?;
+    let survival_plan =
+        decide_survival_tick_with_local_heat(registries, state, exertion, next_tick, local_warmth)?;
     // Player attention uses the projected survival result so fatality, work release, and direct-
     // consumption cancellation become authoritative on the same tick without reading partially
     // mutated state.

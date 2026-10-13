@@ -6,7 +6,7 @@ use crate::core::time::SimulationTick;
 use crate::registry::Registries;
 use crate::survival::assessment::accumulate_diet_supported_vitality_recovery;
 use crate::survival::consumption::{DirectConsumptionInstallment, direct_consumption_installment};
-use crate::survival::state::{PlayerSurvivalRecord, player_record};
+use crate::survival::state::{PlayerSurvivalRecord, player_record_with_thermal_comfort};
 use crate::survival::{
     FoodCategory, SurvivalExertion, SurvivalTickResourceCostError, Vitality,
     resolve_survival_tick_resource_cost,
@@ -24,6 +24,7 @@ struct TickResourceResolution {
     after_intake: PlayerSurvivalRecord,
     energy_deficit: bool,
     hydration_deficit: bool,
+    thermal_deficit: bool,
 }
 
 fn apply_direct_consumption_installment(
@@ -74,12 +75,13 @@ fn apply_direct_consumption_installment(
             .add(category, installment.nutrition().get(category))
             .0;
     }
-    player_record(
+    player_record_with_thermal_comfort(
         metabolic_energy,
         hydration,
         before.vitality(),
         nutrition,
         before.vitality_recovery_remainder(),
+        before.thermal_comfort_ppm(),
     )
 }
 
@@ -99,6 +101,7 @@ fn resolve_tick_resources(
     before: PlayerSurvivalRecord,
     exertion: SurvivalExertion,
     installment: DirectConsumptionInstallment,
+    local_heat: Energy,
 ) -> Result<TickResourceResolution, SurvivalTickError> {
     let resource_cost =
         resolve_survival_tick_resource_cost(physiology, exertion).map_err(|error| match error {
@@ -123,12 +126,21 @@ fn resolve_tick_resources(
         .hydration()
         .checked_sub(hydration_loss)
         .unwrap_or(Volume::ZERO);
-    let after_cost = player_record(
+    let thermal = physiology.thermal_comfort();
+    let thermal_loss = thermal.unsheltered_loss_ppm_per_tick();
+    let heat_gain = thermal.local_heat_gain_ppm(local_heat);
+    let heat_shortfall = thermal_loss.saturating_sub(before.thermal_comfort_ppm());
+    let thermal_after_loss = before.thermal_comfort_ppm().saturating_sub(thermal_loss);
+    let thermal_after = thermal_after_loss
+        .saturating_add(heat_gain.saturating_sub(heat_shortfall))
+        .min(crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION);
+    let after_cost = player_record_with_thermal_comfort(
         energy_after_cost,
         hydration_after_cost,
         before.vitality(),
         before.nutrition(),
         before.vitality_recovery_remainder(),
+        thermal_after,
     );
     Ok(TickResourceResolution {
         after_intake: apply_direct_consumption_installment(
@@ -146,6 +158,7 @@ fn resolve_tick_resources(
         },
         hydration_deficit: installment.hydration().microliters()
             < u128::from(hydration_shortfall.microliters()),
+        thermal_deficit: heat_gain < heat_shortfall,
     })
 }
 
@@ -163,6 +176,13 @@ fn resolve_vitality(
         vitality_loss =
             vitality_loss.saturating_add(physiology.dehydration_vitality_loss_ppm_per_tick());
     }
+    if resources.thermal_deficit {
+        vitality_loss = vitality_loss.saturating_add(
+            physiology
+                .thermal_comfort()
+                .cold_vitality_loss_ppm_per_tick(),
+        );
+    }
     let mut recovery_remainder = before.vitality_recovery_remainder();
     let vitality_ppm = if vitality_loss > 0 {
         before
@@ -171,6 +191,8 @@ fn resolve_vitality(
             .saturating_sub(vitality_loss)
     } else if resources.after_intake.metabolic_energy() >= physiology.hungry_below()
         && resources.after_intake.hydration() >= physiology.thirsty_below()
+        && resources.after_intake.thermal_comfort_ppm()
+            >= physiology.thermal_comfort().warning_below_ppm()
         && before.vitality() < Vitality::MAXIMUM
     {
         let (recovery, next_remainder) = accumulate_diet_supported_vitality_recovery(
@@ -206,22 +228,24 @@ pub(super) fn resolve_live_player_tick(
     before: PlayerSurvivalRecord,
     exertion: SurvivalExertion,
     next_tick: SimulationTick,
+    local_heat: Energy,
 ) -> Result<LivePlayerTickResolution, SurvivalTickError> {
     let physiology = registries.survival().physiology();
     let installment = resolve_pending_installment(registries, state, next_tick);
-    let resources = resolve_tick_resources(physiology, before, exertion, installment)?;
+    let resources = resolve_tick_resources(physiology, before, exertion, installment, local_heat)?;
     let (vitality_after, recovery_remainder) = resolve_vitality(physiology, before, resources);
     let clear_pending_consumption = installment.completes() || vitality_after == Vitality::ZERO;
     let nutrition_after = resources
         .after_intake
         .nutrition()
         .decay(physiology.nutrition().decay_ppm_per_tick());
-    let after = player_record(
+    let after = player_record_with_thermal_comfort(
         resources.after_intake.metabolic_energy(),
         resources.after_intake.hydration(),
         vitality_after,
         nutrition_after,
         recovery_remainder,
+        resources.after_intake.thermal_comfort_ppm(),
     );
     Ok(LivePlayerTickResolution {
         after,

@@ -27,6 +27,7 @@ pub struct MatterAccounting {
     stored: AggregateMass,
     in_process: AggregateMass,
     consumed: AggregateMass,
+    combusted: AggregateMass,
     total: AggregateMass,
 }
 
@@ -86,6 +87,12 @@ impl MatterAccounting {
         self.consumed
     }
 
+    /// Fuel matter transferred into the terminal combustion-products conservation boundary.
+    #[must_use]
+    pub const fn combusted(self) -> AggregateMass {
+        self.combusted
+    }
+
     /// Total non-fluid matter represented by the implemented authoritative matter owners.
     #[must_use]
     pub const fn total(self) -> AggregateMass {
@@ -105,6 +112,7 @@ pub enum MatterAccountingError {
     StoredMassOverflow,
     InProcessMassOverflow,
     ConsumedMassOverflow,
+    CombustedMassOverflow,
     TotalMassOverflow,
 }
 
@@ -136,6 +144,9 @@ impl Display for MatterAccountingError {
             }
             Self::ConsumedMassOverflow => {
                 formatter.write_str("consumed world matter exceeds aggregate mass range")
+            }
+            Self::CombustedMassOverflow => {
+                formatter.write_str("combusted world matter exceeds aggregate mass range")
             }
             Self::TotalMassOverflow => {
                 formatter.write_str("total world matter exceeds aggregate mass range")
@@ -254,6 +265,13 @@ fn calculate_consumed_mass(state: &AppState) -> Result<AggregateMass, MatterAcco
     )
 }
 
+fn calculate_combusted_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    sum_masses(
+        state.energy().combusted_matter().map(|(_, mass)| mass),
+        MatterAccountingError::CombustedMassOverflow,
+    )
+}
+
 fn calculate_total_mass(parts: &[AggregateMass]) -> Result<AggregateMass, MatterAccountingError> {
     sum_masses(
         parts.iter().copied(),
@@ -284,6 +302,7 @@ pub fn calculate_matter_accounting(
     let stored = calculate_stored_mass(state)?;
     let in_process = calculate_in_process_mass(state)?;
     let consumed = calculate_consumed_mass(state)?;
+    let combusted = calculate_combusted_mass(state)?;
     let total = calculate_total_mass(&[
         geological,
         surface,
@@ -294,6 +313,7 @@ pub fn calculate_matter_accounting(
         stored,
         in_process,
         consumed,
+        combusted,
     ])?;
     Ok(MatterAccounting {
         geological,
@@ -305,6 +325,7 @@ pub fn calculate_matter_accounting(
         stored,
         in_process,
         consumed,
+        combusted,
         total,
     })
 }

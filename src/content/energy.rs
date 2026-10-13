@@ -2,8 +2,8 @@
 
 use crate::core::quantity::{Energy, Mass, Power};
 use crate::energy::{
-    EnergyCarrier, EnergyRegistry, EnergyStoreDefinition, EnergyStoreDefinitionId,
-    EnergyStoreUpgradeProfile,
+    CombustionProfile, EnergyCarrier, EnergyRegistry, EnergyStoreDefinition,
+    EnergyStoreDefinitionId, EnergyStoreUpgradeProfile,
 };
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
@@ -12,8 +12,8 @@ use super::crafted_parts::{
     TIMBER_FLYWHEEL_MASS,
 };
 use super::materials::{
-    FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_LUMP, FORM_REINFORCEMENT,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP,
+    FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const ENERGY_MECHANICAL_SMALL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(1);
@@ -35,6 +35,10 @@ pub const ENERGY_COPPER_RACK_ELECTRICAL_BUFFER: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(12);
 pub const ENERGY_COPPER_BANDED_STONE_THERMAL_SINK: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(13);
+pub const ENERGY_STONE_RING_CAMPFIRE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(14);
+
+pub const CAMPFIRE_FUEL_MASS: Mass = Mass::from_milligrams(1_000_000);
+pub const CAMPFIRE_FUEL_THERMAL_ENERGY: Energy = Energy::from_nanojoules(3_200_000_000_000_000);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -356,5 +360,21 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 ),
             ]),
         )),
+        EnergyStoreDefinition::new_combustion_store(
+            ENERGY_STONE_RING_CAMPFIRE,
+            "stone-ring campfire",
+            Energy::from_nanojoules(6_400_000_000_000_000),
+            Power::from_microwatts(3_000_000_000),
+            CombustionProfile::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                CAMPFIRE_FUEL_MASS,
+                CAMPFIRE_FUEL_THERMAL_ENERGY,
+            ),
+        )
+        .with_local_warmth_source()
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        )])),
     ])
 }

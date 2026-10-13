@@ -12,6 +12,7 @@ use deep_hearth::content::gameplay_fixture::{
     admit_player_at_hunger_warning_boundary, admit_player_at_hydration_warning_boundary,
 };
 use deep_hearth::content::{
+    CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE,
     EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
     MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
@@ -27,6 +28,7 @@ use deep_hearth::crafting::{
     ManualCraftStartRequest, plan_manual_craft_from_stockpile, project_manual_craft_equipment,
     project_manual_craft_hand_work, validate_start_manual_craft,
 };
+use deep_hearth::energy::{validate_assemble_energy_store, validate_combust_fuel};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{
     MaterialLotSelection, StockpileId, StorageDefinitionId, validate_mount_stockpile,
@@ -54,9 +56,10 @@ use deep_hearth::surface::{
     validate_start_player_surface_gathering,
 };
 use deep_hearth::survival::{
-    AdjacentDrinkSource, SurvivalResourceBudget, assess_survival, available_adjacent_drink_sources,
-    available_local_drink_sources, project_survival_resource_budget,
-    validate_drink_store_to_hydration_target, validate_eat_lot_to_metabolic_target,
+    AdjacentDrinkSource, SurvivalExertion, SurvivalResourceBudget, ThermalComfortState,
+    assess_survival, available_adjacent_drink_sources, available_local_drink_sources,
+    project_survival_resource_budget, validate_drink_store_to_hydration_target,
+    validate_eat_lot_to_metabolic_target,
 };
 use deep_hearth::world_generation::{WorldGenerationSeed, validate_generate_initial_wilderness};
 
@@ -179,6 +182,13 @@ pub(super) struct WildernessOpeningReview {
     pub(super) worksite_support_built: bool,
     pub(super) worksite_support_mass_mg: u64,
     pub(super) worksite_support_ticks: u64,
+    pub(super) campfire_built: bool,
+    pub(super) campfire_fuel_mg: u64,
+    pub(super) campfire_logistics_steps: u64,
+    pub(super) campfire_recovery_ticks: u64,
+    pub(super) thermal_before_fire_ppm: u32,
+    pub(super) thermal_after_fire_ppm: u32,
+    pub(super) campfire_heat_remaining_nj: u128,
     pub(super) selected_source_opportunity_mg: u64,
     pub(super) selected_source_remaining_mg: u64,
     pub(super) camp_logistics_steps: u64,
@@ -929,6 +939,18 @@ pub(super) fn evaluate_generated_wilderness_opening(
         )
     };
     let worksite_staged_timber = Mass::from_milligrams(6_000_000);
+    let campfire_stone_mass = registries
+        .energy()
+        .get_store(ENERGY_STONE_RING_CAMPFIRE)
+        .and_then(|definition| definition.assembly_profile())
+        .and_then(|assembly| assembly.inputs().first())
+        .map(|input| input.mass())
+        .unwrap_or_else(|| panic!("wilderness campfire stone input disappeared"));
+    let campfire_stone_gather_ticks = stone_gathering
+        .duration_for_mass(campfire_stone_mass)
+        .unwrap_or_else(|| panic!("wilderness campfire stone gathering cannot schedule"))
+        .value();
+    const CAMPFIRE_RECOVERY_BUDGET_TICKS: u64 = 20;
     let (worksite_support_mass, worksite_support_duration) =
         worksite_support_projection(&registries);
     let worksite_second_trip_timber = worksite_staged_timber
@@ -1012,6 +1034,29 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 budget.checked_add(movement_budget(
                     worksite_staged_timber,
                     "worksite-cache loaded return",
+                ))
+            })
+            .and_then(|budget| {
+                budget.checked_add(projected_budget(
+                    stone_gathering.exertion(),
+                    TickSpan::new(campfire_stone_gather_ticks),
+                    "campfire stone gathering",
+                ))
+            })
+            .and_then(|budget| {
+                budget.checked_add(movement_budget(Mass::ZERO, "campfire stone outbound trip"))
+            })
+            .and_then(|budget| {
+                budget.checked_add(movement_budget(
+                    campfire_stone_mass,
+                    "campfire stone loaded return",
+                ))
+            })
+            .and_then(|budget| {
+                budget.checked_add(projected_budget(
+                    SurvivalExertion::REST,
+                    TickSpan::new(CAMPFIRE_RECOVERY_BUDGET_TICKS),
+                    "campfire warmth recovery",
                 ))
             })
             .unwrap_or_else(|| panic!("wilderness field-box survival budget overflowed"))
@@ -1235,6 +1280,13 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let mut worksite_support_built = false;
     let mut worksite_support_mass_mg = 0_u64;
     let mut worksite_support_ticks = 0_u64;
+    let mut campfire_built = false;
+    let mut campfire_fuel_mg = 0_u64;
+    let mut campfire_logistics_steps = 0_u64;
+    let mut campfire_recovery_ticks = 0_u64;
+    let mut thermal_before_fire_ppm = 0_u32;
+    let mut thermal_after_fire_ppm = 0_u32;
+    let mut campfire_heat_remaining_nj = 0_u128;
     let mut selected_source_opportunity_mg = 0_u64;
     let mut selected_source_remaining_mg = 0_u64;
     let mut camp_logistics_steps = 0_u64;
@@ -1687,6 +1739,138 @@ pub(super) fn evaluate_generated_wilderness_opening(
             storage_project_ticks, projected_ticks,
             "executed primitive storage project should match its disclosed attention projection"
         );
+
+        if camp_goal == WildernessCampGoal::WorksiteCache {
+            let before_fire = assess_survival(&registries, &state).unwrap_or_else(|| {
+                panic!("wilderness player disappeared before campfire response")
+            });
+            assert_eq!(
+                before_fire.thermal_comfort_state(),
+                ThermalComfortState::Chilly,
+                "the long worksite project should create a natural warmth problem before fire is considered"
+            );
+            thermal_before_fire_ppm = before_fire.thermal_comfort_ppm();
+
+            let campfire_definition = registries
+                .energy()
+                .get_store(ENERGY_STONE_RING_CAMPFIRE)
+                .unwrap_or_else(|| panic!("wilderness campfire definition disappeared"));
+            let campfire_assembly = campfire_definition
+                .assembly_profile()
+                .unwrap_or_else(|| panic!("wilderness campfire lost its stone assembly profile"));
+            assert_eq!(
+                campfire_assembly.inputs().len(),
+                1,
+                "primitive campfire should require one exact local stone input"
+            );
+            let campfire_stone = &campfire_assembly.inputs()[0];
+            assert_eq!(campfire_stone.commodity(), stone_commodity);
+
+            let stone = adjacent_surface_resource(&state, stone_commodity);
+            step_to(
+                &registries,
+                &mut state,
+                stone.position(),
+                "campfire stone pickup",
+            );
+            total_steps += 1;
+            campfire_logistics_steps += 1;
+            let stone_resource = local_surface_resource(&state, stone_commodity);
+            assert_eq!(stone_resource, stone.resource());
+            gather(
+                &registries,
+                &mut state,
+                SURFACE_GATHERING_HAND_COLLECT_STONE,
+                stone_resource,
+                campfire_stone.mass(),
+                "campfire stone",
+            );
+            peak_carried_mass_mg = peak_carried_mass_mg.max(
+                assess_player_carrying(&state)
+                    .unwrap_or_else(|| {
+                        panic!("wilderness carrying disappeared during campfire build")
+                    })
+                    .stored()
+                    .milligrams(),
+            );
+            step_to(
+                &registries,
+                &mut state,
+                junction,
+                "return campfire stone to worksite",
+            );
+            total_steps += 1;
+            campfire_logistics_steps += 1;
+
+            let campfire = validate_assemble_energy_store(
+                &registries,
+                &state,
+                ENERGY_STONE_RING_CAMPFIRE,
+                carried,
+            )
+            .unwrap_or_else(|error| panic!("wilderness campfire assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("wilderness campfire assembly commit failed: {error}"));
+            let released = validate_combust_fuel(&registries, &state, campfire, storage)
+                .unwrap_or_else(|error| panic!("wilderness campfire fueling failed: {error}"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness campfire fueling commit failed: {error}")
+                });
+            assert_eq!(released, CAMPFIRE_FUEL_THERMAL_ENERGY);
+            campfire_built = true;
+            campfire_fuel_mg = CAMPFIRE_FUEL_MASS.milligrams();
+
+            loop {
+                let warmth = assess_survival(&registries, &state)
+                    .unwrap_or_else(|| panic!("wilderness player disappeared beside campfire"));
+                if warmth.thermal_comfort_ppm() >= physiology.thermal_comfort().warning_below_ppm()
+                {
+                    thermal_after_fire_ppm = warmth.thermal_comfort_ppm();
+                    break;
+                }
+                let outcome = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+                    panic!("wilderness campfire recovery tick failed: {error}")
+                });
+                assert_tick_events_within(
+                    &outcome,
+                    TickEventAllowance::default(),
+                    "campfire warmth recovery",
+                );
+                campfire_recovery_ticks = campfire_recovery_ticks
+                    .checked_add(1)
+                    .unwrap_or_else(|| panic!("wilderness campfire recovery duration overflowed"));
+                assert!(
+                    campfire_recovery_ticks <= CAMPFIRE_RECOVERY_BUDGET_TICKS,
+                    "primitive campfire recovery must stay within the pre-work survival budget"
+                );
+            }
+            assert!(
+                thermal_after_fire_ppm > thermal_before_fire_ppm,
+                "staying beside a fueled local campfire must reverse the unsheltered warmth trend"
+            );
+            campfire_heat_remaining_nj = state
+                .energy()
+                .get_store(campfire)
+                .map(|store| store.stored().nanojoules())
+                .unwrap_or_else(|| panic!("wilderness campfire disappeared after recovery"));
+            assert!(campfire_heat_remaining_nj > 0);
+
+            cached_total_mass_mg = state
+                .inventory()
+                .get_stockpile(storage)
+                .map(|record| record.stored_mass().milligrams())
+                .unwrap_or_else(|| panic!("wilderness worksite cache disappeared after fueling"));
+            assert_eq!(
+                cached_total_mass_mg,
+                cached_food_mass_mg
+                    .checked_add(WORKSITE_STAGED_TIMBER_MG)
+                    .and_then(|mass| mass.checked_add(worksite_construction_residue_mg))
+                    .and_then(|mass| mass.checked_sub(campfire_fuel_mg))
+                    .unwrap_or_else(|| panic!("wilderness post-fire cache accounting overflowed")),
+                "campfire should consume exactly one authored fuel charge from the staged worksite reserve"
+            );
+        }
     }
 
     let expected_steps = 2
@@ -1694,7 +1878,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
         + match camp_goal {
             WildernessCampGoal::StayMobile => 0,
             WildernessCampGoal::PreserveProvisions => 2,
-            WildernessCampGoal::WorksiteCache => 4,
+            WildernessCampGoal::WorksiteCache => 6,
         };
     assert_eq!(
         total_steps, expected_steps,
@@ -1790,6 +1974,13 @@ pub(super) fn evaluate_generated_wilderness_opening(
         worksite_support_built,
         worksite_support_mass_mg,
         worksite_support_ticks,
+        campfire_built,
+        campfire_fuel_mg,
+        campfire_logistics_steps,
+        campfire_recovery_ticks,
+        thermal_before_fire_ppm,
+        thermal_after_fire_ppm,
+        campfire_heat_remaining_nj,
         selected_source_opportunity_mg,
         selected_source_remaining_mg,
         camp_logistics_steps,
@@ -1970,8 +2161,21 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         review.worksite_support_mass_mg,
         review.worksite_support_ticks,
     );
+    let warmth = if review.campfire_built {
+        format!(
+            "[fire:true fuel:{}mg logistics-steps:{} recovery:{}t comfort:{}->{}ppm heat-remaining:{}nJ]",
+            review.campfire_fuel_mg,
+            review.campfire_logistics_steps,
+            review.campfire_recovery_ticks,
+            review.thermal_before_fire_ppm,
+            review.thermal_after_fire_ppm,
+            review.campfire_heat_remaining_nj,
+        )
+    } else {
+        "[fire:false]".to_owned()
+    };
     std::println!(
-        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:{} choices:{}-{} blocked:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] camp-project={} storage-choice={} tool-choice={} material-choice={}",
+        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:{} choices:{}-{} blocked:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] warmth={} camp-project={} storage-choice={} tool-choice={} material-choice={}",
         sample,
         review.seed,
         review.start_profile.label(),
@@ -2012,6 +2216,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         water_supply,
         review.water_consumed_ul,
         water_decision,
+        warmth,
         camp_project,
         storage_choice,
         tool_choice,
@@ -2164,6 +2369,14 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         );
         assert!(cache.worksite_support_ticks > 0);
         assert_eq!(cache.camp_logistics_steps, 4);
+        assert!(cache.campfire_built);
+        assert_eq!(cache.campfire_fuel_mg, CAMPFIRE_FUEL_MASS.milligrams());
+        assert_eq!(cache.campfire_logistics_steps, 2);
+        assert!(cache.campfire_recovery_ticks > 0);
+        assert!(cache.campfire_recovery_ticks <= 64);
+        assert!(cache.thermal_before_fire_ppm < cache.thermal_after_fire_ppm);
+        assert!(cache.thermal_after_fire_ppm >= 800_000);
+        assert!(cache.campfire_heat_remaining_nj > 0);
         assert!(
             cache.selected_source_opportunity_mg > cache.carried_capacity_mg,
             "the lived worksite timber reserve should exceed one unaided carrying load"

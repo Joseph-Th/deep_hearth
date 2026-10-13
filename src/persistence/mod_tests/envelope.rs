@@ -194,7 +194,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
             "state": {
                 "clock": {"tick": 0},
                 "systems": {
-                    "energy": {"revision": 0, "next_store_id": 1, "records": {}},
+                    "energy": {"revision": 0, "next_store_id": 1, "records": {}, "combusted_matter": {}},
                 "fluid": {
                     "revision": 0,
                     "next_store_id": 1,

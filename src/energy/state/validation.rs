@@ -3,10 +3,10 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Energy, Mass};
+use crate::core::quantity::{AggregateMass, Energy, Mass};
 use crate::core::time::SimulationTick;
 use crate::material::{
-    CommodityKey, MaterialPhaseStateError, MaterialRegistry, ParticleSizeStateError,
+    CommodityKey, MaterialId, MaterialPhaseStateError, MaterialRegistry, ParticleSizeStateError,
 };
 
 use super::super::definitions::{EnergyRegistry, EnergyStoreDefinitionId};
@@ -87,6 +87,12 @@ pub enum EnergyValidationError {
         store: EnergyStoreId,
         created_at: SimulationTick,
         current: SimulationTick,
+    },
+    UnknownCombustedMaterial {
+        material: MaterialId,
+    },
+    ZeroCombustedMass {
+        material: MaterialId,
     },
 }
 
@@ -217,6 +223,16 @@ impl Display for EnergyValidationError {
                 created_at.value(),
                 current.value()
             ),
+            Self::UnknownCombustedMaterial { material } => write!(
+                formatter,
+                "combustion terminal references unknown material {}",
+                material.value()
+            ),
+            Self::ZeroCombustedMass { material } => write!(
+                formatter,
+                "combustion terminal stores zero mass for material {}",
+                material.value()
+            ),
         }
     }
 }
@@ -234,6 +250,18 @@ pub(crate) fn validate_loaded_energy(
     }
     for (key, record) in &state.records {
         validate_energy_store_record(registry, materials, *key, record, current)?;
+    }
+    for (material, mass) in &state.combusted_matter {
+        if materials.get_material(*material).is_none() {
+            return Err(EnergyValidationError::UnknownCombustedMaterial {
+                material: *material,
+            });
+        }
+        if *mass == AggregateMass::ZERO {
+            return Err(EnergyValidationError::ZeroCombustedMass {
+                material: *material,
+            });
+        }
     }
     Ok(())
 }

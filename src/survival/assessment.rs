@@ -23,6 +23,14 @@ pub enum HydrationState {
     Dehydrated,
 }
 
+/// Qualitative short-horizon warmth state derived from authored physiology thresholds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThermalComfortState {
+    Comfortable,
+    Chilly,
+    Cold,
+}
+
 /// Read-only survival projection suitable for UI and gameplay policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SurvivalAssessment {
@@ -34,6 +42,8 @@ pub struct SurvivalAssessment {
     diet_supported_vitality_recovery_ppm_per_tick: u32,
     hunger: HungerState,
     hydration_state: HydrationState,
+    thermal_comfort_ppm: u32,
+    thermal_comfort_state: ThermalComfortState,
 }
 
 impl SurvivalAssessment {
@@ -82,6 +92,16 @@ impl SurvivalAssessment {
     pub const fn hydration_state(self) -> HydrationState {
         self.hydration_state
     }
+
+    #[must_use]
+    pub const fn thermal_comfort_ppm(self) -> u32 {
+        self.thermal_comfort_ppm
+    }
+
+    #[must_use]
+    pub const fn thermal_comfort_state(self) -> ThermalComfortState {
+        self.thermal_comfort_state
+    }
 }
 
 /// Returns the current survival projection when a player has been admitted.
@@ -113,6 +133,13 @@ pub(super) fn assess_record(
     } else {
         HydrationState::Hydrated
     };
+    let thermal_comfort_state = if player.thermal_comfort_ppm() == 0 {
+        ThermalComfortState::Cold
+    } else if player.thermal_comfort_ppm() < physiology.thermal_comfort().warning_below_ppm() {
+        ThermalComfortState::Chilly
+    } else {
+        ThermalComfortState::Comfortable
+    };
     SurvivalAssessment {
         metabolic_energy: player.metabolic_energy(),
         hydration: player.hydration(),
@@ -123,6 +150,8 @@ pub(super) fn assess_record(
             diet_supported_vitality_recovery_ppm_per_tick(physiology, player.nutrition()),
         hunger,
         hydration_state,
+        thermal_comfort_ppm: player.thermal_comfort_ppm(),
+        thermal_comfort_state,
     }
 }
 

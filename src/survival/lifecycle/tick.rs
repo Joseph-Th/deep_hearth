@@ -1,5 +1,6 @@
 //! Authoritative per-tick survival evolution and direct-consumption uptake.
 
+use crate::core::quantity::Energy;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::registry::Registries;
@@ -54,11 +55,22 @@ fn build_tick_plan(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn decide_survival_tick(
     registries: &Registries,
     state: &AppState,
     exertion: SurvivalExertion,
     next_tick: SimulationTick,
+) -> Result<Option<SurvivalTickPlan>, SurvivalTickError> {
+    decide_survival_tick_with_local_heat(registries, state, exertion, next_tick, Energy::ZERO)
+}
+
+pub(crate) fn decide_survival_tick_with_local_heat(
+    registries: &Registries,
+    state: &AppState,
+    exertion: SurvivalExertion,
+    next_tick: SimulationTick,
+    local_heat: Energy,
 ) -> Result<Option<SurvivalTickPlan>, SurvivalTickError> {
     let Some(before) = state.survival().player().copied() else {
         return Ok(None);
@@ -72,7 +84,8 @@ pub(crate) fn decide_survival_tick(
         // no refund and no duplication: the intake is wasted, matching death during a meal.
         return build_tick_plan(registries, state, before, true).map(Some);
     }
-    let resolved = resolve_live_player_tick(registries, state, before, exertion, next_tick)?;
+    let resolved =
+        resolve_live_player_tick(registries, state, before, exertion, next_tick, local_heat)?;
     build_tick_plan(
         registries,
         state,

@@ -16,11 +16,11 @@ Current progression:
 | --- | --- |
 | Survival and labor | Metabolic energy, hydration, vitality, nutrition, perishability, timed consumption, exertion, preservation, and exclusive player work. |
 | Materials and inventory | Typed commodities, exact lots, finite stockpiles/reservations, provenance, temperature, storage effects, recovery, and matter accounting. |
-| Prospecting and mining | Reconnaissance, physical sampling, bounded geological evidence, unsampled localized attempts, tool-dependent extraction, and output claim into inventory. Hidden deposit identity and exact reserve remain non-public. |
+| Prospecting and mining | Reconnaissance, sampling, bounded evidence, localized attempts, tool-dependent extraction, and inventory claim. Hidden deposit identity and exact reserve remain non-public. |
 | Crafting and equipment | Manual shaping, wear, service, recovery, primitive machines, copper upgrades, field instruments, specialist wire drawing, and settlement workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Primitive crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and the ordinary first/settlement foundry route. Compound-ore reduction is absent. |
-| Opening wilderness acquisition | Seeded five-edge graph with forage, optional water, and separate stone/timber leaves. Observation and movement are edge-gated, physiology changes routing, and movement costs depend on carried load. General terrain/pathfinding, remote discovery, and hydrology remain absent. |
+| Opening wilderness acquisition | Seeded five-edge graph with forage, optional water, and separate stone/timber leaves; edge-gated observation/movement and load-sensitive travel. A worksite can build a finite stone-ring campfire from local stone and staged timber; co-located heat restores warmth. General terrain/pathfinding, remote discovery, hydrology, shelter, and weather are absent. |
 | Structures | Grounded adjacent members use carried matter and timed work; load-bearing starts on completion. |
 
 ## Current integration frontier
@@ -42,25 +42,23 @@ These are current graph boundaries, not priorities.
 
 ## Implemented infrastructure
 
-These systems have authoritative runtime owners and canonical production paths even where ordinary acquisition is
-incomplete.
+These systems have authoritative owners and canonical runtime paths even where ordinary acquisition is incomplete.
 
 | Area | Implemented capability |
 | --- | --- |
 | Core | Deterministic headless simulation, validated immutable registries, generated `AppState`, typed time, checked physical quantities, and explicit tick order. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
-| Logistics | Persistent player/carried custody, world locations, and explicit traversable neighbor edges; timed authorized steps with load-sensitive survival cost; exact-local observation, loose-storage allocation, pickup/drop, and access checks. |
-| Loose surface matter | Persistent finite world-space records, traversal-gated neighbor orientation, exact-local gathering, reservation, survival cost, depletion, interruption cleanup, and conservation. Fresh worlds distribute forage/stone/timber across the opening graph; terrain/ecology and remote discovery remain absent. |
-| Energy and fluids | Finite typed energy stores with power/loss limits; finite homogeneous fluid stores with exact withdrawal/local observation. Fresh worlds place finite non-refilling water two authorized steps from spawn. General hydrology, flow/recharge, and remote fluid-source generation remain absent. |
+| Logistics | Persistent player/carried custody, locations, traversable neighbor edges, timed load-sensitive steps, exact-local observation, storage allocation, pickup/drop, and access checks. |
+| Loose surface matter | Finite world records with edge-gated orientation, exact-local gathering, reservation, survival cost, depletion, interruption cleanup, and conservation. Fresh worlds distribute forage/stone/timber; terrain/ecology and remote discovery remain absent. |
+| Energy and fluids | Finite typed stores with power/loss limits. Authored local combustion moves exact fuel matter to a terminal conservation account and finite thermal storage; co-located passive heat affects warmth. Fluids support exact withdrawal/local observation; fresh worlds place finite water. General heat transport and hydrology remain absent. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure physics plus grounded hand-setting from exact material. |
 | Spatial and presentation | Checked voxel coordinates plus deterministic renderer-neutral texture and shader assembly. |
 
 ## Capability-only evaluation
 
-These surfaces execute through canonical runtime paths after controlled setup, but their infrastructure is not
-ordinarily acquirable.
+These surfaces execute canonically after controlled setup, but their infrastructure is not ordinarily acquirable.
 
 | Surface | Evaluated capability |
 | --- | --- |
@@ -72,12 +70,12 @@ ordinarily acquirable.
 
 | Area | Boundary |
 | --- | --- |
-| Wilderness opening | Terrain/path travel and discovery beyond the bounded generated opening graph, fire/warmth, shelter, and one continuous empty-inventory first-day loop. A five-edge authored graph is not general route generation, pathfinding, or hydrology. |
+| Wilderness opening | Travel/discovery beyond the bounded graph, shelter/weather protection, light, and one continuous empty-inventory first-day loop. The authored graph is not general pathfinding, hydrology, climate, or enclosure simulation. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Voxel/chunk storage, terrain generation, streaming, world-scale indexing, and runtime clue-location discovery. |
 | Logistics | General access generation, multi-step routing, haulage, delivery/transport, remote acquisition, container/hotbar presentation, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
-| Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, reduction/smelting, alloying, forging, machining, and broad recycling. |
+| Thermal/chemical industry | Environmental heat transport, vaporization, general combustion/fuel chemistry/emissions, mixed/alloy phases, reduction/smelting, alloying, forging, machining, and broad recycling. The campfire is not a general combustion or atmospheric model. |
 | Maintenance/structures | Maintenance tools, construction/deconstruction/salvage, bending, shear, torsion, buckling, joints/panels, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, and pressure-dependent behavior. |

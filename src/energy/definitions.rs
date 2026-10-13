@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Energy, Power};
-use crate::material::MaterialAssemblyProfile;
+use crate::core::quantity::{Energy, Mass, Power};
+use crate::material::{CommodityKey, MaterialAssemblyProfile};
 
 mod registry;
 
@@ -62,6 +62,42 @@ impl EnergyStoreUpgradeProfile {
     }
 }
 
+/// One authored solid-fuel charge that a thermal store can convert into finite stored heat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CombustionProfile {
+    fuel: CommodityKey,
+    fuel_mass: Mass,
+    released_energy: Energy,
+}
+
+impl CombustionProfile {
+    #[must_use]
+    pub fn new(fuel: CommodityKey, fuel_mass: Mass, released_energy: Energy) -> Self {
+        assert!(!fuel_mass.is_zero());
+        assert!(!released_energy.is_zero());
+        Self {
+            fuel,
+            fuel_mass,
+            released_energy,
+        }
+    }
+
+    #[must_use]
+    pub const fn fuel(self) -> CommodityKey {
+        self.fuel
+    }
+
+    #[must_use]
+    pub const fn fuel_mass(self) -> Mass {
+        self.fuel_mass
+    }
+
+    #[must_use]
+    pub const fn released_energy(self) -> Energy {
+        self.released_energy
+    }
+}
+
 /// Immutable authored capacity and directional transfer envelopes for one energy-store class.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnergyStoreDefinition {
@@ -72,11 +108,42 @@ pub struct EnergyStoreDefinition {
     max_input_power: Power,
     max_output_power: Power,
     passive_dissipation_power: Power,
+    local_warmth_source: bool,
+    combustion_profile: Option<CombustionProfile>,
     assembly_profile: Option<MaterialAssemblyProfile>,
     upgrade_profile: Option<EnergyStoreUpgradeProfile>,
 }
 
 impl EnergyStoreDefinition {
+    /// Builds a thermal store whose only ingress is its authored solid-fuel combustion profile.
+    #[must_use]
+    pub fn new_combustion_store(
+        id: EnergyStoreDefinitionId,
+        name: impl Into<String>,
+        capacity: Energy,
+        passive_dissipation_power: Power,
+        profile: CombustionProfile,
+    ) -> Self {
+        let name = name.into();
+        assert!(!name.trim().is_empty());
+        assert!(!capacity.is_zero());
+        assert!(!passive_dissipation_power.is_zero());
+        assert!(profile.released_energy() <= capacity);
+        Self {
+            id,
+            name,
+            carrier: EnergyCarrier::Thermal,
+            capacity,
+            max_input_power: Power::ZERO,
+            max_output_power: Power::ZERO,
+            passive_dissipation_power,
+            local_warmth_source: false,
+            combustion_profile: Some(profile),
+            assembly_profile: None,
+            upgrade_profile: None,
+        }
+    }
+
     /// Builds a finite energy store with explicit independent input and output power envelopes.
     ///
     /// Either direction may be zero, allowing a pure source or pure sink. A store with no transfer
@@ -108,6 +175,8 @@ impl EnergyStoreDefinition {
             max_input_power,
             max_output_power,
             passive_dissipation_power: Power::ZERO,
+            local_warmth_source: false,
+            combustion_profile: None,
             assembly_profile: None,
             upgrade_profile: None,
         }
@@ -128,6 +197,26 @@ impl EnergyStoreDefinition {
             self.id.value()
         );
         self.passive_dissipation_power = power;
+        self
+    }
+
+    /// Marks passive thermal loss as locally usable warmth for a co-located player.
+    #[must_use]
+    pub fn with_local_warmth_source(mut self) -> Self {
+        assert_eq!(self.carrier, EnergyCarrier::Thermal);
+        assert!(!self.passive_dissipation_power.is_zero());
+        assert!(!self.local_warmth_source);
+        self.local_warmth_source = true;
+        self
+    }
+
+    /// Adds one authored material-to-thermal conversion charge.
+    #[must_use]
+    pub fn with_combustion_profile(mut self, profile: CombustionProfile) -> Self {
+        assert_eq!(self.carrier, EnergyCarrier::Thermal);
+        assert!(self.combustion_profile.is_none());
+        assert!(profile.released_energy() <= self.capacity);
+        self.combustion_profile = Some(profile);
         self
     }
 
@@ -195,6 +284,16 @@ impl EnergyStoreDefinition {
     #[must_use]
     pub const fn passive_dissipation_power(&self) -> Power {
         self.passive_dissipation_power
+    }
+
+    #[must_use]
+    pub const fn is_local_warmth_source(&self) -> bool {
+        self.local_warmth_source
+    }
+
+    #[must_use]
+    pub const fn combustion_profile(&self) -> Option<CombustionProfile> {
+        self.combustion_profile
     }
 
     #[must_use]

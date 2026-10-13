@@ -319,6 +319,23 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         if worksite_projects
         else ""
     )
+    worksite_warmth = 0
+    for line in worksite_projects:
+        warmth = re.search(
+            r"\bwarmth=\[fire:true .*?comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ\]",
+            line,
+        )
+        if (
+            warmth is not None
+            and int(warmth.group(2)) > int(warmth.group(1))
+            and int(warmth.group(3)) > 0
+        ):
+            worksite_warmth += 1
+    worksite_warmth_evidence = (
+        f"camp-warmth:{worksite_warmth}/{len(worksite_projects)} "
+        if worksite_projects
+        else ""
+    )
     workload_sensitive_processing = sum(
         " processing-market=[one-cycle:manual " in line
         and " disclosed:mechanized]" in line
@@ -373,6 +390,7 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         f"rational-mobility:{rational_mobility}/{len(evidence.wilderness)} "
         f"camp-leverage:{camp_leverage}/{len(evidence.wilderness)} "
         f"{worksite_construction_evidence}"
+        f"{worksite_warmth_evidence}"
         f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
         f"electrical-foundry:{electrical_foundries}/{foundry_builds}"

@@ -118,6 +118,7 @@ pub struct PlayerSurvivalRecord {
     vitality: Vitality,
     nutrition: NutritionReserves,
     vitality_recovery_remainder: u32,
+    thermal_comfort_ppm: u32,
 }
 
 impl PlayerSurvivalRecord {
@@ -145,6 +146,11 @@ impl PlayerSurvivalRecord {
     pub(crate) const fn vitality_recovery_remainder(self) -> u32 {
         self.vitality_recovery_remainder
     }
+
+    #[must_use]
+    pub const fn thermal_comfort_ppm(self) -> u32 {
+        self.thermal_comfort_ppm
+    }
 }
 
 pub(crate) const fn player_record(
@@ -154,11 +160,30 @@ pub(crate) const fn player_record(
     nutrition: NutritionReserves,
     vitality_recovery_remainder: u32,
 ) -> PlayerSurvivalRecord {
+    player_record_with_thermal_comfort(
+        metabolic_energy,
+        hydration,
+        vitality,
+        nutrition,
+        vitality_recovery_remainder,
+        crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION,
+    )
+}
+
+pub(crate) const fn player_record_with_thermal_comfort(
+    metabolic_energy: Energy,
+    hydration: Volume,
+    vitality: Vitality,
+    nutrition: NutritionReserves,
+    vitality_recovery_remainder: u32,
+    thermal_comfort_ppm: u32,
+) -> PlayerSurvivalRecord {
     PlayerSurvivalRecord {
         metabolic_energy,
         hydration,
         vitality,
         nutrition,
         vitality_recovery_remainder,
+        thermal_comfort_ppm,
     }
 }

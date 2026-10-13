@@ -148,6 +148,20 @@ impl EnergyRegistry {
         physical_tick_duration: PhysicalTickDuration,
     ) {
         for definition in self.definitions.values() {
+            if let Some(combustion) = definition.combustion_profile() {
+                assert!(
+                    materials.has_commodity(combustion.fuel()),
+                    "energy store definition {} combustion fuel must reference an authored commodity",
+                    definition.id().value()
+                );
+            }
+            if definition.is_local_warmth_source() {
+                assert!(
+                    definition.combustion_profile().is_some(),
+                    "energy store definition {} local warmth source must own an authored combustion profile",
+                    definition.id().value()
+                );
+            }
             if let Some(assembly) = definition.assembly_profile() {
                 assert!(
                     assembly
