@@ -26,12 +26,14 @@ use crate::equipment::{
 use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError};
 use crate::logistics::{
-    PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, validate_allocate_ground_stockpile,
-    validate_initialize_player_logistics, validate_player_logistics_initialization,
+    PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, place_energy_store_for_fixture,
+    place_equipment_for_fixture, validate_allocate_ground_stockpile,
+    validate_initialize_player_logistics, validate_place_ground_stockpile,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
+use crate::player::validate_admit_player;
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -48,7 +50,7 @@ fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
     }
 }
 
-fn complete_manual_power_player_logistics(
+fn admit_manual_power_player(
     registries: &Registries,
     state: &mut AppState,
     equipment: &[EquipmentId],
@@ -56,29 +58,15 @@ fn complete_manual_power_player_logistics(
 ) {
     let position = VoxelCoord::new(0, 0, 0);
     for &equipment in equipment {
-        let revision = state.logistics().revision();
-        state.logistics_state_mut().apply_equipment_placement(
-            revision,
-            revision + 1,
-            equipment,
-            position,
-        );
+        place_equipment_for_fixture(state, equipment, position);
     }
     for &store in stores {
-        let revision = state.logistics().revision();
-        state.logistics_state_mut().apply_energy_store_placement(
-            revision,
-            revision + 1,
-            store,
-            position,
-        );
+        place_energy_store_for_fixture(state, store, position);
     }
-    validate_player_logistics_initialization(registries, state, position)
-        .unwrap_or_else(|error| panic!("manual power persistence player logistics failed: {error}"))
+    validate_admit_player(registries, state, position)
+        .unwrap_or_else(|error| panic!("manual power player admission failed: {error}"))
         .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("manual power persistence player logistics commit failed: {error}")
-        });
+        .unwrap_or_else(|error| panic!("manual power player admission commit failed: {error}"));
 }
 
 #[test]
@@ -249,12 +237,10 @@ fn manual_power_token_rejects_logistics_change_before_commit() {
 fn trusted_load_rejects_active_manual_power_with_remote_destination() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("remote-load power survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = assemble_flywheel_fixture(&registries, &mut state);
     let player_position = VoxelCoord::new(0, 0, 0);
-    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
+    admit_manual_power_player(&registries, &mut state, &[crank], &[drive]);
     let _ = validate_start_manual_power(
         &registries,
         &state,
@@ -456,13 +442,13 @@ fn manual_power_due_on_fatal_tick_completes_before_attention_is_released() {
 fn manual_power_rejects_completion_owner_revision_exhaustion_at_admission() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("manual power revision survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
         .unwrap_or_else(|error| panic!("manual power revision drive failed: {error}"));
-    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
+    admit_manual_power_player(&registries, &mut state, &[crank], &[drive]);
     let requested = Energy::from_nanojoules(100_000_000_000);
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("manual power revision baseline must persist: {error}"));
     let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("manual power revision serialization failed: {error}"));
 
@@ -495,12 +481,10 @@ fn manual_power_rejects_completion_owner_revision_exhaustion_at_admission() {
 fn active_manual_power_load_requires_completion_owner_revisions() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("manual power load revision survival failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
         .unwrap_or_else(|error| panic!("manual power load revision drive failed: {error}"));
-    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
+    admit_manual_power_player(&registries, &mut state, &[crank], &[drive]);
     validate_start_manual_power(
         &registries,
         &state,
@@ -795,8 +779,6 @@ fn copper_reinforced_crank_halves_manual_charge_time_without_changing_energy_yie
 fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomically() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("shared-energy survival setup failed: {error}"));
     let crank = assemble_crank_fixture(
         &registries,
         &mut state,
@@ -813,12 +795,7 @@ fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomical
         Energy::from_nanojoules(1_000_000_000_000_000),
     )
     .unwrap_or_else(|error| panic!("shared-energy passive store failed: {error}"));
-    complete_manual_power_player_logistics(
-        &registries,
-        &mut state,
-        &[crank],
-        &[manual_destination],
-    );
+    admit_manual_power_player(&registries, &mut state, &[crank], &[manual_destination]);
     let requested = Energy::from_nanojoules(300_000_000_000);
     let start = validate_start_manual_power(
         &registries,
@@ -838,6 +815,8 @@ fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomical
     start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("shared-energy manual power commit failed: {error}"));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("shared-energy baseline must persist: {error}"));
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("shared-energy save failed: {error}"));
@@ -860,8 +839,6 @@ fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomical
 fn passive_loss_cannot_spend_energy_revision_reserved_for_later_manual_power_completion() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("reserved-energy survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let manual_destination =
         add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_LARGE_DRIVE)
@@ -873,12 +850,7 @@ fn passive_loss_cannot_spend_energy_revision_reserved_for_later_manual_power_com
         Energy::from_nanojoules(1_000_000_000_000_000),
     )
     .unwrap_or_else(|error| panic!("reserved-energy passive store failed: {error}"));
-    complete_manual_power_player_logistics(
-        &registries,
-        &mut state,
-        &[crank],
-        &[manual_destination],
-    );
+    admit_manual_power_player(&registries, &mut state, &[crank], &[manual_destination]);
     let start = validate_start_manual_power(
         &registries,
         &state,
@@ -897,6 +869,8 @@ fn passive_loss_cannot_spend_energy_revision_reserved_for_later_manual_power_com
     start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("reserved-energy manual power commit failed: {error}"));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("reserved-energy baseline must persist: {error}"));
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("reserved-energy save failed: {error}"));
@@ -1002,11 +976,9 @@ fn partial_flywheel_recharge_preserves_passive_loss_of_preexisting_work() {
 fn manual_power_topoff_credits_guaranteed_pre_completion_flywheel_loss() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("topoff survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = assemble_flywheel_fixture(&registries, &mut state);
-    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
+    admit_manual_power_player(&registries, &mut state, &[crank], &[drive]);
     let initial = Energy::from_nanojoules(300_100_000_000);
     let requested = Energy::from_nanojoules(200_000_000_000);
     let initial_charge = validate_start_manual_power(
@@ -1046,6 +1018,8 @@ fn manual_power_topoff_credits_guaranteed_pre_completion_flywheel_loss() {
     topoff
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("topoff commit failed: {error}"));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("topoff replay baseline must persist: {error}"));
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("topoff active-work save failed: {error}"));
@@ -1112,18 +1086,16 @@ fn manual_power_topoff_does_not_credit_completion_tick_passive_loss() {
 fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("manual power survival initialization failed: {error}"));
-    let raw = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+    let raw = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(4_000_000))
         .unwrap_or_else(|error| panic!("manual power raw stockpile failed: {error}"));
-    let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+    let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(4_000_000))
         .unwrap_or_else(|error| panic!("manual power shaped stockpile failed: {error}"));
     let stone = deposit_lot_for_test(
         &registries,
         &mut state,
         raw,
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        Mass::from_milligrams(1_000_000),
+        Mass::from_milligrams(2_000_000),
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("manual power stone fixture failed: {error}"));
@@ -1132,48 +1104,67 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
         &mut state,
         raw,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(1_000_000),
+        Mass::from_milligrams(2_000_000),
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("manual power wood fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [raw, shaped] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| panic!("manual power stockpile placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("manual power stockpile placement commit failed: {error}")
+            });
+    }
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("manual power player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("manual power player admission commit failed: {error}"));
 
-    validate_start_manual_craft(
-        &registries,
-        &state,
-        ManualCraftStartRequest::single(
-            PROCESS_SHAPE_STONE_FLYWHEEL,
-            raw,
-            MaterialLotSelection::new(stone, Mass::from_milligrams(1_000_000)),
-            shaped,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("flywheel shaping validation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("flywheel shaping commit failed: {error}"));
-    advance_exact(&registries, &mut state, 60);
-    validate_start_manual_craft(
-        &registries,
-        &state,
-        ManualCraftStartRequest::single(
-            PROCESS_SHAPE_WOOD_HANDLE,
-            raw,
-            MaterialLotSelection::new(wood, Mass::from_milligrams(1_000_000)),
-            shaped,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("crank handle shaping validation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("crank handle shaping commit failed: {error}"));
-    advance_exact(&registries, &mut state, 40);
+    for _ in 0..2 {
+        validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::single(
+                PROCESS_SHAPE_STONE_FLYWHEEL,
+                raw,
+                MaterialLotSelection::new(stone, Mass::from_milligrams(1_000_000)),
+                shaped,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("flywheel shaping validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("flywheel shaping commit failed: {error}"));
+        advance_exact(&registries, &mut state, 60);
+    }
+    for _ in 0..2 {
+        validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::single(
+                PROCESS_SHAPE_WOOD_HANDLE,
+                raw,
+                MaterialLotSelection::new(wood, Mass::from_milligrams(1_000_000)),
+                shaped,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("crank handle shaping validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("crank handle shaping commit failed: {error}"));
+        advance_exact(&registries, &mut state, 40);
+    }
 
     let crank =
         validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_HAND_CRANK, shaped)
             .unwrap_or_else(|error| panic!("hand crank assembly validation failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("hand crank assembly commit failed: {error}"));
-    let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
-        .unwrap_or_else(|error| panic!("manual power drive allocation failed: {error}"));
-    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
+    let drive =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, shaped)
+            .unwrap_or_else(|error| panic!("stone flywheel accumulator assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("stone flywheel accumulator commit failed: {error}"));
     let survival_before = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("manual power survival state disappeared"));
     let condition_before = state
@@ -1182,7 +1173,9 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
         .unwrap_or_else(|| panic!("assembled hand crank disappeared"))
         .condition();
 
-    let requested = Energy::from_nanojoules(1_700_000_000_000);
+    let requested = Energy::from_nanojoules(500_000_000_000);
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("manual power reserve baseline must persist: {error}"));
     let base_save = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("manual power reserve serialization failed: {error}"));
     let mut low_energy = base_save.clone();
@@ -1251,7 +1244,8 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     assert!(!projected_resource_budget.metabolic_energy().is_zero());
     assert!(!projected_resource_budget.hydration().is_zero());
     let work = token.work();
-    assert_eq!(work.completes_at().value() - work.started_at().value(), 10);
+    let duration = work.completes_at().value() - work.started_at().value();
+    assert_eq!(duration, 3);
     token
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("manual power commit failed: {error}"));
@@ -1268,7 +1262,7 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
         Err(EnergySupplyError::StoreBusyManualPower { store: drive })
     );
 
-    advance_exact(&registries, &mut state, 5);
+    advance_exact(&registries, &mut state, 1);
     assert_eq!(
         state
             .energy()
@@ -1303,6 +1297,8 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
             PlayerWorkValidationError::ManualPowerExertionMismatch
         )))
     );
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("active manual power baseline must persist: {error}"));
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("active manual power serialization failed: {error}"));
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
@@ -1313,7 +1309,7 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     assert_eq!(loaded, state);
 
     let mut completion = None;
-    for _ in 0..5 {
+    for _ in 1..duration {
         completion = advance_tick(&registries, &mut loaded)
             .unwrap_or_else(|error| panic!("manual power completion tick failed: {error}"))
             .manual_power();

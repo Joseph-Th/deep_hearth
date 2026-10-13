@@ -29,7 +29,7 @@ pub use equipment_carry::{
     PlayerEquipmentCarryCommitError, PlayerEquipmentCarryError, ValidatedPlayerEquipmentCarry,
     validate_drop_equipment, validate_pickup_equipment,
 };
-#[cfg(feature = "test-gameplay")]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fixture::place_energy_store_for_fixture;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fixture::place_equipment_for_fixture;
