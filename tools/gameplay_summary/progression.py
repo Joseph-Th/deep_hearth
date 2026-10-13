@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .common import organic_only, physical_duration_span, sample_shape, scaled_span
+from .common import field, organic_only, physical_duration_span, sample_shape, scaled_span
 
 
 def _span(values: list[int], unit: str = "t", fallback: str = "n/a") -> str:
@@ -391,6 +391,90 @@ def _integration_evidence(lines: list[str], progression: list[str]) -> str:
     )
 
 
+def _exact_local_frontier_evidence(lines: list[str]) -> str | None:
+    frontiers = [line for line in lines if line.startswith("PROGRESSION LOCAL FRONTIER ")]
+    if not frontiers:
+        return None
+    parity = [line for line in lines if line.startswith("PROGRESSION LOCAL PARITY ")]
+    frontier_keys: set[tuple[str, str]] = set()
+    parity_keys: set[tuple[str, str]] = set()
+    steps: list[int] = []
+    hauls: list[int] = []
+    pick_first = 0
+    crank_first = 0
+    refinements = 0
+    hard_samples = 0
+    drop_modify_repickup = 0
+    for line in frontiers:
+        seed = field(line, "seed")
+        sample = field(line, "sample")
+        corridor = re.search(r"\bcorridor=\[[^]]* steps:(\d+)\]", line)
+        information = re.search(r"\binformation=\[[^]]* refinement:(true|false) ", line)
+        extraction = re.search(r"\bextraction=\[[^]]* haul-trips:(\d+)\]", line)
+        decision = re.search(r"\bdecision=\[selected:([^\s\]]+) ", line)
+        investment = re.search(
+            r"\bfirst-investment=\[local:true handling:([^\s\]]+) hard-sample-returned:(\d+)mg\]",
+            line,
+        )
+        if None in (seed, sample, corridor, information, extraction, decision, investment):
+            raise ValueError(f"malformed exact-local progression frontier: {line}")
+        assert seed is not None and sample is not None
+        assert corridor is not None and information is not None
+        assert extraction is not None and decision is not None and investment is not None
+        if sample not in {"organic", "replay"}:
+            raise ValueError(
+                "exact-local progression frontier is reserved for organic/replay cases: " + line
+            )
+        key = (seed.lower(), sample)
+        if key in frontier_keys:
+            raise ValueError(f"duplicate exact-local progression frontier for {key}")
+        frontier_keys.add(key)
+        steps.append(int(corridor.group(1)))
+        hauls.append(int(extraction.group(1)))
+        refinements += information.group(1) == "true"
+        selected = decision.group(1)
+        pick_first += selected == "pick-first"
+        crank_first += selected == "crank-first"
+        if selected not in {"pick-first", "crank-first"}:
+            raise ValueError(f"unknown exact-local progression decision {selected!r}")
+        hard_samples += int(investment.group(2)) > 0
+        drop_modify_repickup += investment.group(1) == "drop-modify-repickup"
+        if " matter=conserved" not in line:
+            raise ValueError("exact-local progression frontier lost matter conservation evidence")
+
+    for line in parity:
+        seed = field(line, "seed")
+        sample = field(line, "sample")
+        if seed is None or sample is None:
+            raise ValueError(f"malformed progression exact-local parity line: {line}")
+        for marker in (
+            " exact-local=true ",
+            " regional-evidence:matched ",
+            " clue-evidence:matched ",
+            " owned-sample:matched ",
+            " shortage:matched ",
+            " decision:matched ",
+        ):
+            if marker not in line:
+                raise ValueError(f"progression exact-local parity lost {marker.strip()}: {line}")
+        key = (seed.lower(), sample)
+        if key in parity_keys:
+            raise ValueError(f"duplicate progression exact-local parity for {key}")
+        parity_keys.add(key)
+    if parity_keys != frontier_keys:
+        raise ValueError(
+            "progression exact-local frontier/parity case sets disagree: "
+            f"frontier={sorted(frontier_keys)} parity={sorted(parity_keys)}"
+        )
+    return (
+        "generated-exact-local-frontier=["
+        f"cases:{len(frontiers)} parity:{len(parity_keys)}/{len(frontier_keys)} "
+        f"decision=[pick:{pick_first} crank:{crank_first}] refinement:{refinements} "
+        f"steps:{_span(steps, unit='')} hauls:{_span(hauls, unit='')} "
+        f"hard-sample:{hard_samples} drop-modify-repickup:{drop_modify_repickup}]"
+    )
+
+
 def progression_summary(lines: list[str]) -> str | None:
     progression = [line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")]
     if not progression:
@@ -405,9 +489,11 @@ def progression_summary(lines: list[str]) -> str | None:
         progression,
         frozen_choices,
     )
+    exact_local_frontier = _exact_local_frontier_evidence(lines)
     return (
         "ORDINARY SUMMARY probe=primitive-progression "
         f"samples={len(progression)} sample-shape=[{sample_shape(progression)}] "
+        f"{exact_local_frontier + ' ' if exact_local_frontier else ''}"
         f"first-copper=[pick:{sum('local-copper-sequence=pick-first' in line for line in progression)} "
         f"crank:{sum('local-copper-sequence=crank-first' in line for line in progression)}] "
         f"{feed_adaptation + ' ' if feed_adaptation else ''}"

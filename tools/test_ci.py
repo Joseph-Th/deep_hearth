@@ -3836,6 +3836,30 @@ class GameplayReportContractTests(unittest.TestCase):
             summary,
         )
 
+    def test_progression_summary_exposes_generated_exact_local_frontier_parity(self) -> None:
+        lines = [
+            "PROGRESSION EXPERIENCE seed=0x1 sample=organic local-copper-sequence=pick-first selected-reinvestment=[completed]",
+            "PROGRESSION LOCAL FRONTIER seed=0x1 sample=organic evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:72] information=[regional:800000..1000000ppm surface:4 resolved:3 refinement:true hard:850000..900000ppm bulk:500000..550000ppm direct:975000..1000000ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:200000mg direct-first:20000mg direct-second:8000mg shortage:true haul-trips:5] decision=[selected:pick-first rule:hard-lower>owned-bulk bulk-grade:525000ppm] first-investment=[local:true handling:drop-modify-repickup hard-sample-returned:200000mg] matter=conserved",
+            "PROGRESSION LOCAL PARITY seed=0x1 sample=organic evidence=matched-generated-world exact-local=true proxy-campaign=true regional-evidence:matched clue-evidence:matched owned-sample:matched shortage:matched decision:matched steps:72 haul-trips:5 proxy-scope=automation-and-reinvestment",
+            "PROGRESSION EXPERIENCE seed=0x2 sample=replay local-copper-sequence=crank-first selected-reinvestment=[completed]",
+            "PROGRESSION LOCAL FRONTIER seed=0x2 sample=replay evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:66] information=[regional:700000..1000000ppm surface:4 resolved:4 refinement:false hard:450000..500000ppm bulk:700000..750000ppm direct:975000..1000000ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:200000mg direct-first:20000mg direct-second:9000mg shortage:true haul-trips:3] decision=[selected:crank-first rule:hard-lower>owned-bulk bulk-grade:725000ppm] first-investment=[local:true handling:stationary-local hard-sample-returned:0mg] matter=conserved",
+            "PROGRESSION LOCAL PARITY seed=0x2 sample=replay evidence=matched-generated-world exact-local=true proxy-campaign=true regional-evidence:matched clue-evidence:matched owned-sample:matched shortage:matched decision:matched steps:66 haul-trips:3 proxy-scope=automation-and-reinvestment",
+        ]
+        summary = gameplay_report_summary.progression_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn(
+            "generated-exact-local-frontier=[cases:2 parity:2/2 decision=[pick:1 crank:1] refinement:1 steps:66..72 hauls:3..5 hard-sample:1 drop-modify-repickup:1]",
+            summary,
+        )
+        digest = gameplay_report_summary._digest_summary(summary, scoped=True)
+        self.assertIn("generated-exact-local-frontier=[cases:2 parity:2/2", digest)
+        loop = gameplay_report_summary.player_loop_evidence(lines)
+        self.assertIsNotNone(loop)
+        assert loop is not None
+        self.assertIn("generated-exact-local-progression-frontiers:2/2", loop)
+        self.assertIn("progression-local-frontier:2/2", loop)
+
     def test_player_loop_summary_distinguishes_survival_and_selected_maintenance(self) -> None:
         output = "\n".join(
             (

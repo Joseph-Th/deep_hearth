@@ -3,26 +3,26 @@
 use super::super::super::copper_progression_world::progression_ore_grades;
 use super::*;
 
-pub(super) struct ProgressionWorldSetup {
-    pub(super) state: AppState,
-    pub(super) mined_mass: Mass,
-    pub(super) raw_surplus: Mass,
-    pub(super) stone_pick_batch_limit: Mass,
-    pub(super) stone_hardness_limit: Pressure,
-    pub(super) reinforced_hardness_limit: Pressure,
-    pub(super) pick_upgrade_native: Mass,
-    pub(super) crank_upgrade_native: Mass,
-    pub(super) concurrent_soft_mass: Mass,
-    pub(super) raw: deep_hearth::inventory::StockpileId,
-    pub(super) shaped: deep_hearth::inventory::StockpileId,
-    pub(super) ore_storage: deep_hearth::inventory::StockpileId,
-    pub(super) hard_ore_storage: deep_hearth::inventory::StockpileId,
-    pub(super) refined_clue_storage: deep_hearth::inventory::StockpileId,
-    pub(super) native_storage: deep_hearth::inventory::StockpileId,
-    pub(super) crushed_storage: deep_hearth::inventory::StockpileId,
-    pub(super) separation_residue_storage: deep_hearth::inventory::StockpileId,
-    pub(super) visible_clue_requests: [MiningTargetRequest; 4],
-    pub(super) refined_clue_sample_mass: Mass,
+pub(in super::super) struct ProgressionWorldSetup {
+    pub(in super::super) state: AppState,
+    pub(in super::super) mined_mass: Mass,
+    pub(in super::super) raw_surplus: Mass,
+    pub(in super::super) stone_pick_batch_limit: Mass,
+    pub(in super::super) stone_hardness_limit: Pressure,
+    pub(in super::super) reinforced_hardness_limit: Pressure,
+    pub(in super::super) pick_upgrade_native: Mass,
+    pub(in super::super) crank_upgrade_native: Mass,
+    pub(in super::super) concurrent_soft_mass: Mass,
+    pub(in super::super) raw: deep_hearth::inventory::StockpileId,
+    pub(in super::super) shaped: deep_hearth::inventory::StockpileId,
+    pub(in super::super) ore_storage: deep_hearth::inventory::StockpileId,
+    pub(in super::super) hard_ore_storage: deep_hearth::inventory::StockpileId,
+    pub(in super::super) refined_clue_storage: deep_hearth::inventory::StockpileId,
+    pub(in super::super) native_storage: deep_hearth::inventory::StockpileId,
+    pub(in super::super) crushed_storage: deep_hearth::inventory::StockpileId,
+    pub(in super::super) separation_residue_storage: deep_hearth::inventory::StockpileId,
+    pub(in super::super) visible_clue_requests: [MiningTargetRequest; 4],
+    pub(in super::super) refined_clue_sample_mass: Mass,
 }
 
 /// Hidden world truth used only after actor discovery for harness validation and diagnostics.
@@ -31,7 +31,7 @@ pub(super) struct ProgressionWorldSetup {
 /// hardness, and authored-role identity from becoming accidental inputs to the player's search
 /// policy.
 #[derive(Clone, Copy)]
-pub(super) struct ProgressionFixtureDiagnostics {
+pub(in super::super) struct ProgressionFixtureDiagnostics {
     pub(super) soft_ore_deposit_mass: Mass,
     pub(super) hard_ore_deposit_mass: Mass,
     pub(super) ore_copper_ppm: u32,
@@ -45,7 +45,7 @@ pub(super) struct ProgressionFixtureDiagnostics {
     pub(super) trace_target: MiningTargetRequest,
 }
 
-pub(super) fn setup_progression_world(
+pub(in super::super) fn build_progression_world_unadmitted(
     registries: &Registries,
     seed: u64,
     low_trace_grade_regime: bool,
@@ -274,17 +274,6 @@ pub(super) fn setup_progression_world(
         ),
     );
     let trace_target = MiningTargetRequest::new(trace_bounds, MATERIAL_COPPER);
-    // Finish every fixture-only world mutation before admitting the spatial-proxy actor. From this
-    // point onward the episode may only use production-visible observations and canonical runtime
-    // actions. Logistics stays deliberately absent because production has no movement/path owner;
-    // this episode therefore proves system behavior, not locality or travel behavior.
-    seed_player_survival_at_full_reserve(registries, &mut state);
-    super::super::spatial_proxy_runtime::assert_spatial_proxy_runtime_ready(
-        registries,
-        &state,
-        "primitive progression",
-    );
-
     (
         ProgressionWorldSetup {
             state,
@@ -321,4 +310,28 @@ pub(super) fn setup_progression_world(
             trace_target,
         },
     )
+}
+
+pub(super) fn setup_progression_world(
+    registries: &Registries,
+    seed: u64,
+    low_trace_grade_regime: bool,
+    ore_opportunity_batch_budget: u64,
+) -> (ProgressionWorldSetup, ProgressionFixtureDiagnostics) {
+    let (mut world, diagnostics) = build_progression_world_unadmitted(
+        registries,
+        seed,
+        low_trace_grade_regime,
+        ore_opportunity_batch_budget,
+    );
+    // The long progression campaign still intentionally has no travel owner. Its bounded
+    // exact-local counterpart is executed separately; this branch remains the richer causal
+    // processing/reinvestment episode and must not accidentally claim locality.
+    seed_player_survival_at_full_reserve(registries, &mut world.state);
+    super::super::spatial_proxy_runtime::assert_spatial_proxy_runtime_ready(
+        registries,
+        &world.state,
+        "primitive progression",
+    );
+    (world, diagnostics)
 }

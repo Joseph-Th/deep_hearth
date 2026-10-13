@@ -8,7 +8,10 @@ use discovery::{ProgressionDiscovery, ProgressionDiscoveryPlan, discover_primiti
 
 #[path = "episode/world.rs"]
 mod world;
-use world::{ProgressionFixtureDiagnostics, ProgressionWorldSetup, setup_progression_world};
+use world::setup_progression_world;
+pub(super) use world::{
+    ProgressionFixtureDiagnostics, ProgressionWorldSetup, build_progression_world_unadmitted,
+};
 
 pub(super) fn run_primitive_progression_case(
     registries: &Registries,

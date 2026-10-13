@@ -373,19 +373,11 @@ pub(crate) fn evaluate_primitive_progression_probe(
     let manual_fallback = (case.role() == FocusedProbeRole::MaintainedAnchor)
         .then(|| evaluate_manual_processing_fallback(registries, seed));
     validate_maintained_manual_fallback(seed, manual_fallback);
-    let low_trace_grade_regime = match case.role() {
-        FocusedProbeRole::MaintainedAnchor => true,
-        FocusedProbeRole::MaintainedCoverage => seed == 3,
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            mix64(seed ^ 0x494E_464F_5F50_4154).is_multiple_of(2)
-        }
-    };
     let maintained_reinvestment_required = matches!(
         case.role(),
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
     );
-    let opportunity = ore_opportunity(seed, maintained_reinvestment_required);
-    let ore_opportunity_batch_budget = opportunity.batch_budget();
+    let (low_trace_grade_regime, ore_opportunity_batch_budget) = progression_world_parameters(case);
     let extraction = run_primitive_progression_case(
         registries,
         seed,
@@ -925,6 +917,64 @@ fn validate_primitive_progression_review(
 
 pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: FocusedProbeCase) {
     let review = evaluate_primitive_progression_probe(registries, case);
+    if matches!(
+        case.role(),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
+    ) {
+        let local =
+            super::exact_local_frontier::run_exact_local_progression_frontier(registries, case);
+        assert_eq!(local.natural_priority, review.natural_priority);
+        assert_eq!(
+            local.regional_upper_bounds_ppm, review.regional_upper_bounds_ppm,
+            "exact-local progression must preserve the same actor-visible regional evidence"
+        );
+        assert_eq!(
+            (
+                local.direct_copper_evidence_lower_ppm,
+                local.direct_copper_evidence_upper_ppm,
+                local.bulk_ore_evidence_lower_ppm,
+                local.bulk_ore_evidence_upper_ppm,
+                local.hard_ore_evidence_lower_ppm,
+                local.hard_ore_evidence_upper_ppm,
+            ),
+            (
+                review.direct_copper_evidence_lower_ppm,
+                review.direct_copper_evidence_upper_ppm,
+                review.bulk_ore_evidence_lower_ppm,
+                review.bulk_ore_evidence_upper_ppm,
+                review.hard_ore_evidence_lower_ppm,
+                review.hard_ore_evidence_upper_ppm,
+            ),
+            "exact-local progression must preserve the same detailed clue evidence"
+        );
+        assert_eq!(
+            (
+                local.bulk_sample_copper_ppm,
+                local.information_refinement_required,
+                local.refined_sample_copper_ppm,
+                local.direct_second_upgrade_blocked,
+            ),
+            (
+                review.bulk_sample_copper_ppm,
+                review.information_refinement_required,
+                review.refined_sample_copper_ppm,
+                review.direct_second_upgrade_blocked,
+            ),
+            "exact-local hauling must preserve the same owned-sample evidence and scarcity result"
+        );
+        assert_eq!(
+            local.hard_sample_returned.is_zero(),
+            review.natural_priority == PrimitivePriority::CrankFirst,
+            "only a selected pick-first local frontier should immediately unlock and haul hard-seam ore"
+        );
+        reviewln!(
+            "PROGRESSION LOCAL PARITY seed=0x{:016X} sample={} evidence=matched-generated-world exact-local=true proxy-campaign=true regional-evidence:matched clue-evidence:matched owned-sample:matched shortage:matched decision:matched steps:{} haul-trips:{} proxy-scope=automation-and-reinvestment",
+            case.seed(),
+            case.role().label(),
+            local.movement_steps,
+            local.haul_trips,
+        );
+    }
     if case.role() == FocusedProbeRole::MaintainedCoverage {
         match case.seed() {
             PROGRESSION_REFINEMENT_COVERAGE_SEED => {

@@ -13,6 +13,7 @@ class _LoopEvidenceLines:
     wilderness: list[str]
     progression: list[str]
     progression_reviews: list[str]
+    progression_local_frontiers: list[str]
     liberation: list[str]
     liberation_kit: list[str]
     first_foundry: list[str]
@@ -39,6 +40,7 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
         wilderness=_lines_with_prefix(lines, "WILDERNESS EXPERIENCE "),
         progression=_lines_with_prefix(lines, "PROGRESSION EXPERIENCE "),
         progression_reviews=_lines_with_prefix(lines, "PROGRESSION REVIEW "),
+        progression_local_frontiers=_lines_with_prefix(lines, "PROGRESSION LOCAL FRONTIER "),
         liberation=_lines_with_prefix(lines, "LIBERATION EXPERIENCE "),
         liberation_kit=_lines_with_prefix(lines, "LIBERATION KIT ACQUISITION "),
         first_foundry=_lines_with_prefix(lines, "FIRST FOUNDRY EXPERIENCE "),
@@ -143,6 +145,7 @@ def _observe_infer_evidence(fieldwork: list[str], extracted: int) -> str:
 
 
 def _extract_evidence(
+    progression_local_frontiers: list[str],
     fieldwork: list[str],
     liberation: list[str],
     extracted: int,
@@ -171,8 +174,17 @@ def _extract_evidence(
         generated_local = (
             f" generated-local-haul:{hauled}/{len(fieldwork_local_orders)}"
         )
+    progression_local = ""
+    if progression_local_frontiers:
+        hauled = sum(
+            " evidence=ordinary-exact-local " in line and " matter=conserved" in line
+            for line in progression_local_frontiers
+        )
+        progression_local = (
+            f" progression-local-frontier:{hauled}/{len(progression_local_frontiers)}"
+        )
     return (
-        f"extract=[fieldwork:{extracted}/{len(fieldwork)}"
+        f"extract=[fieldwork:{extracted}/{len(fieldwork)}{progression_local}"
         f"{exact_local}{generated_local} liberation-native-copper:{completed_liberation}/{len(liberation)}]"
     )
 
@@ -310,6 +322,15 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         and " disclosed:mechanized]" in line
         for line in evidence.progression
     )
+    exact_local_progression = ""
+    if evidence.progression_local_frontiers:
+        completed = sum(
+            " evidence=ordinary-exact-local " in line and " matter=conserved" in line
+            for line in evidence.progression_local_frontiers
+        )
+        exact_local_progression = (
+            f" generated-exact-local-progression-frontiers:{completed}/{len(evidence.progression_local_frontiers)}"
+        )
     delegated_orders = sum(
         (match := re.search(r"\bdelegated:(\d+)t", line)) is not None
         and int(match.group(1)) > 0
@@ -350,7 +371,7 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
         f"electrical-foundry:{electrical_foundries}/{foundry_builds}"
-        f"{exact_local}{generated_exact_local}]"
+        f"{exact_local_progression}{exact_local}{generated_exact_local}]"
     )
 
 
@@ -804,7 +825,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
         f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries, evidence.preservation_paths)} "
         f"{shared_power + ' ' if shared_power else ''}"
-        f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted, evidence.fieldwork_expeditions, evidence.fieldwork_local_orders)} "
+        f"{_extract_evidence(evidence.progression_local_frontiers, evidence.fieldwork, evidence.liberation, extracted, evidence.fieldwork_expeditions, evidence.fieldwork_local_orders)} "
         f"{_thermal_bootstrap_evidence(evidence.first_foundry)} "
         f"{_world_feedback_evidence(lines, evidence.fieldwork)} "
         f"{_survival_adaptation_evidence(evidence.survival, evidence.power_projects, evidence.preservation_paths)} "

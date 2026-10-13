@@ -88,6 +88,24 @@ use deep_hearth::survival::assess_survival;
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
 
+fn progression_world_parameters(case: FocusedProbeCase) -> (bool, u64) {
+    let low_trace_grade_regime = match case.role() {
+        FocusedProbeRole::MaintainedAnchor => true,
+        FocusedProbeRole::MaintainedCoverage => case.seed() == 3,
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            mix64(case.seed() ^ 0x494E_464F_5F50_4154).is_multiple_of(2)
+        }
+    };
+    let maintained_reinvestment_required = matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    );
+    (
+        low_trace_grade_regime,
+        ore_opportunity(case.seed(), maintained_reinvestment_required).batch_budget(),
+    )
+}
+
 fn project_manual_stockpile_breaking_attention(
     registries: &Registries,
     cycle_mass: Mass,
@@ -632,6 +650,9 @@ mod spatial_proxy_runtime;
 #[path = "progression_probe/episode.rs"]
 mod episode;
 use episode::run_primitive_progression_case;
+
+#[path = "progression_probe/exact_local_frontier.rs"]
+mod exact_local_frontier;
 
 #[path = "progression_probe/manual_processing.rs"]
 pub(super) mod manual_processing;
