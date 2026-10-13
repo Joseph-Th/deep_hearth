@@ -1,5 +1,7 @@
 //! Deterministic fixture construction for an ordinary-system spatial-proxy fieldwork episode.
 
+use std::collections::BTreeMap;
+
 use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;
 use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
@@ -13,6 +15,7 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
+use deep_hearth::spatial::VoxelBounds;
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::inventory_support::add_solid_stockpile;
@@ -35,6 +38,61 @@ pub(super) struct FieldworkWorld {
     pub(super) channel_voxels: i64,
     pub(super) mining_limits: FieldworkMiningLimits,
     pub(super) native_copper: CommodityKey,
+}
+
+fn raw_opportunity_for_geology(
+    registries: &Registries,
+    seed: u64,
+    hardness_tier: usize,
+) -> (BTreeMap<CommodityKey, Mass>, Mass) {
+    let (mut raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
+    let native_copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
+    let copper_rich = hardness_tier != 0 || !mix64(seed ^ 0x4649_454C_445F_4355).is_multiple_of(2);
+    if !copper_rich {
+        raw_opportunity.remove(&native_copper);
+    }
+    (raw_opportunity, parts_capacity)
+}
+
+pub(super) fn generated_fieldwork_raw_opportunity(
+    registries: &Registries,
+    seed: u64,
+    stratify_hardness: bool,
+) -> (BTreeMap<CommodityKey, Mass>, Mass) {
+    let mining_limits = fieldwork_mining_limits(registries);
+    let (hardness_tier, _geology_label, _profile) =
+        geology_profile(registries, seed, mining_limits, stratify_hardness);
+    raw_opportunity_for_geology(registries, seed, hardness_tier)
+}
+
+pub(super) fn seed_generated_primary_fieldwork_site(
+    registries: &Registries,
+    state: &mut AppState,
+    seed: u64,
+    deposit_mass: Mass,
+    stratify_hardness: bool,
+    region: VoxelBounds,
+) -> FieldworkFixtureDiagnostics {
+    let mining_limits = fieldwork_mining_limits(registries);
+    let (_hardness_tier, geology_label, profile) =
+        geology_profile(registries, seed, mining_limits, stratify_hardness);
+    seed_geological_deposit(
+        registries,
+        state,
+        GeologicalDepositSeed::new(
+            region,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            deposit_mass,
+            ROOM_TEMPERATURE,
+            profile.hardness,
+            copper_ore_composition(profile.copper_ppm, profile.clay_share_ppm),
+        ),
+    );
+    FieldworkFixtureDiagnostics {
+        geology_label,
+        excavation_hardness: profile.hardness,
+        deposit_mass,
+    }
 }
 
 /// Fixture truth retained only for post-action audit/reporting.
@@ -269,12 +327,9 @@ fn build_fieldwork_world_inner(
     let (hardness_tier, geology_label, profile) =
         geology_profile(registries, seed, mining_limits, stratify_hardness);
     let mut state = AppState::new();
-    let (mut raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
     let native_copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
-    let copper_rich = hardness_tier != 0 || !mix64(seed ^ 0x4649_454C_445F_4355).is_multiple_of(2);
-    if !copper_rich {
-        raw_opportunity.remove(&native_copper);
-    }
+    let (raw_opportunity, parts_capacity) =
+        raw_opportunity_for_geology(registries, seed, hardness_tier);
     let raw_capacity = raw_opportunity
         .values()
         .copied()

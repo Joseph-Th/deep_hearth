@@ -183,6 +183,7 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "fieldwork": (
         "exact-local-expedition",
+        "generated-exact-local",
         "outcomes",
         "organic-outcomes",
         "reserve-knowledge",
@@ -406,6 +407,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             experience_fields = _evidence_fields(summary, probe, (
                 "sample-shape",
                 "exact-local-expedition",
+                "generated-exact-local",
                 "outcomes",
                 "organic-outcomes",
                 "orders",
@@ -443,6 +445,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                         in {
                             "sample-shape",
                             "exact-local-expedition",
+                            "generated-exact-local",
                             "outcomes",
                             "organic-outcomes",
                             "orders",

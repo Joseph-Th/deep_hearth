@@ -11,7 +11,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::equipment::EquipmentId;
+use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::geology::{FieldProspectingOutcome, GeologicalEvidenceKind};
 use deep_hearth::inventory::{MaterialLotSelection, StockpileStorageProfile};
 use deep_hearth::logistics::{
@@ -20,7 +20,9 @@ use deep_hearth::logistics::{
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::mining::{MiningTargetRequest, resolve_mining_target};
+use deep_hearth::mining::{
+    MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target,
+};
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -28,11 +30,17 @@ use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::assess_survival;
 
 use super::super::environment::ROOM_TEMPERATURE;
+use super::super::focused_case::FocusedProbeCase;
 use super::super::ore_fixture::copper_ore_composition;
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::extraction::{FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction};
-use super::planning::{equipment_component_requirements, fieldwork_mining_limits};
+use super::planning::{
+    choose_fieldwork_tool_with_market_phase, equipment_component_requirements,
+    fieldwork_mining_limits, fieldwork_tool_label,
+};
+use super::preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
 use super::survey::{horizontal_region, run_survey};
+use super::world::{generated_fieldwork_raw_opportunity, seed_generated_primary_fieldwork_site};
 
 const CAMP: VoxelCoord = VoxelCoord::new(0, -1, 0);
 const BARREN_SITE: VoxelCoord = VoxelCoord::new(1, -1, 0);
@@ -45,6 +53,18 @@ struct StepCost {
     load: Mass,
     energy: Energy,
     hydration: Volume,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct GeneratedExactLocalFieldOrderReview {
+    pub(super) tool: EquipmentDefinitionId,
+    pub(super) observed_hardness_lower_pa: u64,
+    pub(super) observed_hardness_upper_pa: u64,
+    pub(super) observed_mass_lower_mg: u64,
+    pub(super) observed_mass_upper_mg: u64,
+    pub(super) returned: Mass,
+    pub(super) stop: FieldworkStop,
+    pub(super) trips: u64,
 }
 
 fn assert_exact_local_field_state(registries: &Registries, state: &AppState, context: &str) {
@@ -218,6 +238,169 @@ fn carried_ore_selection(
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ExactLocalOrderResult {
+    trips: u64,
+    batches: u64,
+    extraction_ticks: u64,
+    returned: Mass,
+    stop: FieldworkStop,
+    outbound_tool_step: StepCost,
+    minimum_return_load: Mass,
+    maximum_return_load: Mass,
+    maximum_return_step: StepCost,
+    minimum_utilization_ppm: u128,
+    maximum_utilization_ppm: u128,
+}
+
+fn execute_exact_local_order(
+    registries: &Registries,
+    state: &mut AppState,
+    cache: deep_hearth::inventory::StockpileId,
+    tool: EquipmentId,
+    tool_mass: Mass,
+    body_capacity: Mass,
+    requested: Mass,
+    batch_limit: Mass,
+) -> ExactLocalOrderResult {
+    assert!(!requested.is_zero());
+    let target_region = horizontal_region(TARGET_SITE.x(), 1);
+    let mut remaining_order = requested;
+    let mut trip_count = 0_u64;
+    let mut total_extraction_batches = 0_u64;
+    let mut total_extraction_ticks = 0_u64;
+    let mut total_returned = Mass::ZERO;
+    let mut outbound_tool_step = None;
+    let mut minimum_return_load = None::<Mass>;
+    let mut maximum_return_load = Mass::ZERO;
+    let mut maximum_return_step = None::<StepCost>;
+    let mut minimum_utilization_ppm = u128::MAX;
+    let mut maximum_utilization_ppm = 0_u128;
+    let mut stop = FieldworkStop::OrderComplete;
+
+    while !remaining_order.is_zero() {
+        let outbound = walk_step(registries, state, BARREN_SITE);
+        outbound_tool_step.get_or_insert(outbound);
+        let _ = walk_step(registries, state, TARGET_SITE);
+        let target = resolve_mining_target(
+            state,
+            MiningTargetRequest::new(target_region, MATERIAL_COPPER),
+        )
+        .unwrap_or_else(|error| panic!("exact-local acquired target no longer resolves: {error}"));
+        let carried = assess_player_carrying(state)
+            .unwrap_or_else(|| panic!("exact-local mining lost carried custody"));
+        let trip_request = remaining_order.min(carried.available());
+        assert!(
+            !trip_request.is_zero(),
+            "exact-local field order must leave carrying room for some ore beside the owned tool"
+        );
+        let extraction = execute_fieldwork_extraction(
+            registries,
+            state,
+            FieldworkExtractionOrder {
+                target,
+                destination: carried.stockpile(),
+                equipment: tool,
+                requested: trip_request,
+                batch_limit,
+            },
+        );
+        total_extraction_batches = total_extraction_batches
+            .checked_add(extraction.batches)
+            .unwrap_or_else(|| panic!("exact-local extraction batch accounting overflowed"));
+        total_extraction_ticks = total_extraction_ticks
+            .checked_add(extraction.ticks)
+            .unwrap_or_else(|| panic!("exact-local extraction time accounting overflowed"));
+        remaining_order = remaining_order
+            .checked_sub(extraction.extracted)
+            .unwrap_or_else(|| unreachable!("trip extraction is bounded by remaining order"));
+
+        let supply_ended = if extraction.stop != FieldworkStop::OrderComplete {
+            stop = extraction.stop;
+            true
+        } else if remaining_order.is_zero() {
+            false
+        } else {
+            match resolve_mining_target(
+                state,
+                MiningTargetRequest::new(target_region, MATERIAL_COPPER),
+            ) {
+                Ok(_) => false,
+                Err(MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                    ..
+                }) => {
+                    stop = FieldworkStop::TargetNoLongerResolved;
+                    true
+                }
+                Err(error) => panic!("exact-local target refresh failed: {error}"),
+            }
+        };
+
+        let loaded = assess_player_carrying(state)
+            .unwrap_or_else(|| panic!("exact-local loaded carrying assessment disappeared"));
+        assert_eq!(
+            loaded.stored(),
+            tool_mass
+                .checked_add(extraction.extracted)
+                .unwrap_or_else(|| panic!("exact-local loaded custody overflowed"))
+        );
+        assert_eq!(loaded.capacity(), body_capacity);
+        let return_loaded_step = walk_step(registries, state, BARREN_SITE);
+        let utilization_ppm = u128::from(return_loaded_step.load.milligrams()) * 1_000_000
+            / u128::from(body_capacity.milligrams());
+        minimum_return_load = Some(
+            minimum_return_load.map_or(return_loaded_step.load, |minimum| {
+                minimum.min(return_loaded_step.load)
+            }),
+        );
+        if return_loaded_step.load > maximum_return_load {
+            maximum_return_load = return_loaded_step.load;
+            maximum_return_step = Some(return_loaded_step);
+        }
+        minimum_utilization_ppm = minimum_utilization_ppm.min(utilization_ppm);
+        maximum_utilization_ppm = maximum_utilization_ppm.max(utilization_ppm);
+        let _ = walk_step(registries, state, CAMP);
+
+        let carried = assess_player_carrying(state)
+            .unwrap_or_else(|| panic!("exact-local return lost carried custody"));
+        let ore_selection = carried_ore_selection(state, carried.stockpile());
+        assert!(!ore_selection.is_empty());
+        validate_drop_to_ground(registries, state, cache, &ore_selection)
+            .unwrap_or_else(|error| panic!("exact-local ore cache drop failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("exact-local ore cache drop commit failed: {error}"));
+        total_returned = total_returned
+            .checked_add(extraction.extracted)
+            .unwrap_or_else(|| panic!("exact-local returned ore accounting overflowed"));
+        trip_count = trip_count
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("exact-local trip count overflowed"));
+        if supply_ended {
+            break;
+        }
+    }
+
+    if remaining_order.is_zero() {
+        stop = FieldworkStop::OrderComplete;
+    }
+    ExactLocalOrderResult {
+        trips: trip_count,
+        batches: total_extraction_batches,
+        extraction_ticks: total_extraction_ticks,
+        returned: total_returned,
+        stop,
+        outbound_tool_step: outbound_tool_step
+            .unwrap_or_else(|| unreachable!("nonzero local order executes one outbound trip")),
+        minimum_return_load: minimum_return_load
+            .unwrap_or_else(|| unreachable!("nonzero local order executes one return trip")),
+        maximum_return_load,
+        maximum_return_step: maximum_return_step
+            .unwrap_or_else(|| unreachable!("nonzero local order executes one return trip")),
+        minimum_utilization_ppm,
+        maximum_utilization_ppm,
+    }
+}
+
 pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
     let mut state = AppState::new();
     let limits = fieldwork_mining_limits(registries);
@@ -304,112 +487,26 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
         requested == EXPEDITION_ORDER_MASS,
         "maintained exact-local reserve evidence should support the independently disclosed 30 kg field order"
     );
-    let target_region = horizontal_region(TARGET_SITE.x(), 1);
-    let mut remaining_order = requested;
-    let mut trip_count = 0_u64;
-    let mut total_extraction_batches = 0_u64;
-    let mut total_extraction_ticks = 0_u64;
-    let mut total_returned = Mass::ZERO;
-    let mut outbound_pick_step = None;
-    let mut minimum_return_load = None::<Mass>;
-    let mut maximum_return_load = Mass::ZERO;
-    let mut maximum_return_step = None::<StepCost>;
-    let mut minimum_utilization_ppm = u128::MAX;
-    let mut maximum_utilization_ppm = 0_u128;
-    while !remaining_order.is_zero() {
-        let outbound = walk_step(registries, &mut state, BARREN_SITE);
-        outbound_pick_step.get_or_insert(outbound);
-        let _ = walk_step(registries, &mut state, TARGET_SITE);
-        let target = resolve_mining_target(
-            &state,
-            MiningTargetRequest::new(target_region, MATERIAL_COPPER),
-        )
-        .unwrap_or_else(|error| panic!("exact-local acquired target no longer resolves: {error}"));
-        let carried = assess_player_carrying(&state)
-            .unwrap_or_else(|| panic!("exact-local mining lost carried custody"));
-        let trip_request = remaining_order.min(carried.available());
-        assert!(
-            !trip_request.is_zero(),
-            "exact-local field order must leave carrying room for some ore beside the owned pick"
-        );
-        let extraction = execute_fieldwork_extraction(
-            registries,
-            &mut state,
-            FieldworkExtractionOrder {
-                target,
-                destination: carried.stockpile(),
-                equipment: pick,
-                requested: trip_request,
-                batch_limit: limits.base_quarry_batch,
-            },
-        );
-        assert_eq!(extraction.stop, FieldworkStop::OrderComplete);
-        assert_eq!(extraction.extracted, trip_request);
-        total_extraction_batches = total_extraction_batches
-            .checked_add(extraction.batches)
-            .unwrap_or_else(|| panic!("exact-local extraction batch accounting overflowed"));
-        total_extraction_ticks = total_extraction_ticks
-            .checked_add(extraction.ticks)
-            .unwrap_or_else(|| panic!("exact-local extraction time accounting overflowed"));
-        remaining_order = remaining_order
-            .checked_sub(extraction.extracted)
-            .unwrap_or_else(|| unreachable!("trip extraction is bounded by remaining order"));
-
-        let loaded = assess_player_carrying(&state)
-            .unwrap_or_else(|| panic!("exact-local loaded carrying assessment disappeared"));
-        assert_eq!(
-            loaded.stored(),
-            pick_mass
-                .checked_add(extraction.extracted)
-                .unwrap_or_else(|| panic!("exact-local loaded custody overflowed"))
-        );
-        assert_eq!(loaded.capacity(), body_capacity);
-        let return_loaded_step = walk_step(registries, &mut state, BARREN_SITE);
-        let utilization_ppm = u128::from(return_loaded_step.load.milligrams()) * 1_000_000
-            / u128::from(body_capacity.milligrams());
-        minimum_return_load = Some(
-            minimum_return_load.map_or(return_loaded_step.load, |minimum| {
-                minimum.min(return_loaded_step.load)
-            }),
-        );
-        if return_loaded_step.load > maximum_return_load {
-            maximum_return_load = return_loaded_step.load;
-            maximum_return_step = Some(return_loaded_step);
-        }
-        minimum_utilization_ppm = minimum_utilization_ppm.min(utilization_ppm);
-        maximum_utilization_ppm = maximum_utilization_ppm.max(utilization_ppm);
-        let _ = walk_step(registries, &mut state, CAMP);
-
-        let carried = assess_player_carrying(&state)
-            .unwrap_or_else(|| panic!("exact-local return lost carried custody"));
-        let ore_selection = carried_ore_selection(&state, carried.stockpile());
-        assert!(!ore_selection.is_empty());
-        validate_drop_to_ground(registries, &state, cache, &ore_selection)
-            .unwrap_or_else(|error| panic!("exact-local ore cache drop failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("exact-local ore cache drop commit failed: {error}"));
-        total_returned = total_returned
-            .checked_add(extraction.extracted)
-            .unwrap_or_else(|| panic!("exact-local returned ore accounting overflowed"));
-        trip_count = trip_count
-            .checked_add(1)
-            .unwrap_or_else(|| panic!("exact-local trip count overflowed"));
-    }
-    assert_eq!(total_returned, requested);
+    let order = execute_exact_local_order(
+        registries,
+        &mut state,
+        cache,
+        pick,
+        pick_mass,
+        body_capacity,
+        requested,
+        limits.base_quarry_batch,
+    );
+    assert_eq!(order.stop, FieldworkStop::OrderComplete);
+    assert_eq!(order.returned, requested);
     assert!(
-        trip_count > 1,
+        order.trips > 1,
         "30 kg field order should require multiple body-scale haul trips"
     );
-    let outbound_pick_step = outbound_pick_step
-        .unwrap_or_else(|| unreachable!("nonzero order executes one outbound trip"));
-    let minimum_return_load = minimum_return_load
-        .unwrap_or_else(|| unreachable!("nonzero order executes one return trip"));
-    let maximum_return_step = maximum_return_step
-        .unwrap_or_else(|| unreachable!("nonzero order executes one return trip"));
-    assert_eq!(maximum_return_load, body_capacity);
-    assert!(minimum_return_load < maximum_return_load);
-    assert!(maximum_return_step.energy >= outbound_pick_step.energy);
-    assert!(maximum_return_step.hydration >= outbound_pick_step.hydration);
+    assert_eq!(order.maximum_return_load, body_capacity);
+    assert!(order.minimum_return_load < order.maximum_return_load);
+    assert!(order.maximum_return_step.energy >= order.outbound_tool_step.energy);
+    assert!(order.maximum_return_step.hydration >= order.outbound_tool_step.hydration);
 
     validate_drop_equipment(registries, &state, pick)
         .unwrap_or_else(|error| panic!("exact-local pick drop failed: {error}"))
@@ -437,25 +534,242 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
 
     reviewln!(
         "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[steps:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:{}..{}mg] tools=[hammer:{}mg pick:{}mg custody:player-carried] extraction=[order:{}mg batches:{} ticks:{} complete:true] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm] locomotion=[outbound:{}nJ/{}uL loaded-max:{}nJ/{}uL] cache=[returned:{}mg tool-dropped:true] matter=conserved",
-        4 + trip_count * 4,
-        trip_count,
+        4 + order.trips * 4,
+        order.trips,
         observed_mass.lower().milligrams(),
         observed_mass.upper().milligrams(),
         hammer_mass.milligrams(),
         pick_mass.milligrams(),
         requested.milligrams(),
-        total_extraction_batches,
-        total_extraction_ticks,
-        outbound_pick_step.load.milligrams(),
-        minimum_return_load.milligrams(),
-        maximum_return_load.milligrams(),
+        order.batches,
+        order.extraction_ticks,
+        order.outbound_tool_step.load.milligrams(),
+        order.minimum_return_load.milligrams(),
+        order.maximum_return_load.milligrams(),
         body_capacity.milligrams(),
-        minimum_utilization_ppm,
-        maximum_utilization_ppm,
-        outbound_pick_step.energy.nanojoules(),
-        outbound_pick_step.hydration.microliters(),
-        maximum_return_step.energy.nanojoules(),
-        maximum_return_step.hydration.microliters(),
+        order.minimum_utilization_ppm,
+        order.maximum_utilization_ppm,
+        order.outbound_tool_step.energy.nanojoules(),
+        order.outbound_tool_step.hydration.microliters(),
+        order.maximum_return_step.energy.nanojoules(),
+        order.maximum_return_step.hydration.microliters(),
         requested.milligrams(),
     );
+}
+
+pub(super) fn run_generated_exact_local_field_order(
+    registries: &Registries,
+    case: FocusedProbeCase,
+    requested: Mass,
+    deposit_mass: Mass,
+    stratify_hardness: bool,
+) -> GeneratedExactLocalFieldOrderReview {
+    assert!(!requested.is_zero());
+    assert!(!deposit_mass.is_zero());
+    let mut state = AppState::new();
+    let (raw_opportunity, parts_capacity) =
+        generated_fieldwork_raw_opportunity(registries, case.seed(), stratify_hardness);
+    let raw_capacity = raw_opportunity
+        .values()
+        .copied()
+        .try_fold(Mass::ZERO, Mass::checked_add)
+        .unwrap_or_else(|| panic!("generated exact-local field raw capacity overflowed"));
+    let raw = seed_ground_stockpile(&mut state, CAMP, raw_capacity);
+    for (commodity, mass) in raw_opportunity {
+        seed_lot(
+            registries,
+            &mut state,
+            raw,
+            commodity,
+            mass,
+            ROOM_TEMPERATURE,
+        );
+    }
+    let parts = seed_ground_stockpile(&mut state, CAMP, parts_capacity);
+    let cache = seed_ground_stockpile(&mut state, CAMP, requested);
+    let fixture = seed_generated_primary_fieldwork_site(
+        registries,
+        &mut state,
+        case.seed(),
+        deposit_mass,
+        stratify_hardness,
+        horizontal_region(TARGET_SITE.x(), 1),
+    );
+    seed_traversable_edge(&mut state, CAMP, BARREN_SITE);
+    seed_traversable_edge(&mut state, BARREN_SITE, TARGET_SITE);
+    validate_admit_player(registries, &state, CAMP)
+        .unwrap_or_else(|error| panic!("generated exact-local field admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("generated exact-local field admission commit failed: {error}")
+        });
+    assert_exact_local_field_state(registries, &state, "generated order start");
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("generated exact-local field matter audit failed: {error}"))
+        .total();
+    let body_capacity = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("generated exact-local field player has no carrying envelope"))
+        .capacity();
+
+    let (hammer, sampling_setup_ticks) =
+        assemble_sampling_hammer(registries, &mut state, raw, parts);
+    assert!(
+        state
+            .available_local_equipment()
+            .any(|record| record.id() == hammer),
+        "generated exact-local sampling hammer should be actor-visible at the camp where it was assembled"
+    );
+    let hammer_mass = equipment_mass(&state, hammer);
+    validate_pickup_equipment(registries, &state, hammer)
+        .unwrap_or_else(|error| panic!("generated exact-local hammer pickup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("generated exact-local hammer pickup commit failed: {error}")
+        });
+    let _ = walk_step(registries, &mut state, BARREN_SITE);
+    assert!(survey_site(registries, &mut state, BARREN_SITE, hammer).is_none());
+    let _ = walk_step(registries, &mut state, TARGET_SITE);
+    let detailed = survey_site(registries, &mut state, TARGET_SITE, hammer)
+        .unwrap_or_else(|| panic!("generated exact-local target should be survey-positive"));
+    let detailed_record = state
+        .geological_knowledge()
+        .get_observation(detailed.observation())
+        .unwrap_or_else(|| panic!("generated exact-local detailed survey disappeared"));
+    let observed_hardness = detailed_record
+        .excavation_hardness()
+        .unwrap_or_else(|| panic!("generated exact-local survey did not reveal hardness"));
+    let observed_mass = detailed_record
+        .resource_mass()
+        .unwrap_or_else(|| panic!("generated exact-local survey did not reveal resource scale"));
+    let _ = walk_step(registries, &mut state, BARREN_SITE);
+    let _ = walk_step(registries, &mut state, CAMP);
+    validate_drop_equipment(registries, &state, hammer)
+        .unwrap_or_else(|error| panic!("generated exact-local hammer drop failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("generated exact-local hammer drop commit failed: {error}"));
+
+    let planned_local_mass = requested.min(observed_mass.upper());
+    assert!(
+        !planned_local_mass.is_zero(),
+        "generated exact-local acquired evidence must leave a nonzero local workload"
+    );
+    let estimate = choose_fieldwork_tool_with_market_phase(
+        registries,
+        &state,
+        raw,
+        parts,
+        observed_hardness.upper(),
+        planned_local_mass,
+        "generated-exact-local-acquired-evidence",
+    )
+    .unwrap_or_else(|| {
+        panic!("generated exact-local fieldwork has no tool candidate for acquired evidence")
+    });
+    let (tool, preparation_ticks) =
+        assemble_fieldwork_tool(registries, &mut state, raw, parts, estimate.tool);
+    assert_eq!(
+        preparation_ticks, estimate.preparation_ticks,
+        "generated exact-local tool preparation diverged from the frozen actor-visible estimate"
+    );
+    assert!(
+        state
+            .available_local_equipment()
+            .any(|record| record.id() == tool),
+        "generated exact-local extraction tool should be actor-visible where it was assembled"
+    );
+    let tool_mass = equipment_mass(&state, tool);
+    validate_pickup_equipment(registries, &state, tool)
+        .unwrap_or_else(|error| {
+            panic!("generated exact-local extraction-tool pickup failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("generated exact-local extraction-tool pickup commit failed: {error}")
+        });
+    let order = execute_exact_local_order(
+        registries,
+        &mut state,
+        cache,
+        tool,
+        tool_mass,
+        body_capacity,
+        requested,
+        estimate.batch,
+    );
+
+    validate_drop_equipment(registries, &state, tool)
+        .unwrap_or_else(|error| {
+            panic!("generated exact-local extraction-tool drop failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("generated exact-local extraction-tool drop commit failed: {error}")
+        });
+    let final_carry = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("generated exact-local final carrying assessment disappeared"));
+    assert_eq!(final_carry.stored(), Mass::ZERO);
+    assert_eq!(final_carry.available(), body_capacity);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(cache)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_ORE))),
+        Some(order.returned)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!(
+                "generated exact-local final matter audit failed: {error}"
+            ))
+            .total(),
+        matter_before,
+        "generated exact-local field order must conserve matter through fabrication, extraction, and haulage"
+    );
+    assert_exact_local_field_state(registries, &state, "completed generated order");
+
+    reviewln!(
+        "FIELDWORK LOCAL ORDER seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=[demand:independent geology:independent supply:{}mg fixture:{}] route=[steps:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 observed-hardness:{}..{}Pa observed-mass:{}..{}mg] investment=[hammer:{}mg setup:{}t selected:{} tool:{}mg preparation:{}t planned-local:{}mg] extraction=[requested:{}mg returned:{}mg batches:{} ticks:{} stop:{}] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm] locomotion=[outbound:{}nJ/{}uL loaded-max:{}nJ/{}uL] cache=[returned:{}mg tools-dropped:true] matter=conserved",
+        case.seed(),
+        case.role().label(),
+        fixture.deposit_mass.milligrams(),
+        fixture.geology_label,
+        4 + order.trips * 4,
+        order.trips,
+        observed_hardness.lower().pascals(),
+        observed_hardness.upper().pascals(),
+        observed_mass.lower().milligrams(),
+        observed_mass.upper().milligrams(),
+        hammer_mass.milligrams(),
+        sampling_setup_ticks,
+        fieldwork_tool_label(estimate.tool),
+        tool_mass.milligrams(),
+        preparation_ticks,
+        planned_local_mass.milligrams(),
+        requested.milligrams(),
+        order.returned.milligrams(),
+        order.batches,
+        order.extraction_ticks,
+        order.stop.label(),
+        order.outbound_tool_step.load.milligrams(),
+        order.minimum_return_load.milligrams(),
+        order.maximum_return_load.milligrams(),
+        body_capacity.milligrams(),
+        order.minimum_utilization_ppm,
+        order.maximum_utilization_ppm,
+        order.outbound_tool_step.energy.nanojoules(),
+        order.outbound_tool_step.hydration.microliters(),
+        order.maximum_return_step.energy.nanojoules(),
+        order.maximum_return_step.hydration.microliters(),
+        order.returned.milligrams(),
+    );
+    GeneratedExactLocalFieldOrderReview {
+        tool: estimate.tool.target,
+        observed_hardness_lower_pa: observed_hardness.lower().pascals(),
+        observed_hardness_upper_pa: observed_hardness.upper().pascals(),
+        observed_mass_lower_mg: observed_mass.lower().milligrams(),
+        observed_mass_upper_mg: observed_mass.upper().milligrams(),
+        returned: order.returned,
+        stop: order.stop,
+        trips: order.trips,
+    }
 }

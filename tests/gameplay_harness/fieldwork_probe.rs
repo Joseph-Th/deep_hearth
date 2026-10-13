@@ -252,6 +252,12 @@ fn fieldwork_maintained_world_seed(seed: u64) -> bool {
     .contains(&seed)
 }
 
+fn fieldwork_stratifies_hardness(case: FocusedProbeCase) -> bool {
+    case.role() == FocusedProbeRole::OrganicVariation
+        || (case.role() == FocusedProbeRole::ExplicitReplay
+            && !fieldwork_maintained_world_seed(case.seed()))
+}
+
 fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
     let minimum = (batch.milligrams() / 2).max(1);
     Mass::from_milligrams(
@@ -264,7 +270,56 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         exact_local_expedition::run_exact_local_field_expedition(registries);
         knowledge_experience::run_fieldwork_knowledge_experience(registries, case.seed());
     }
-    let episode = run_fieldwork_order(registries, case, fieldwork_order_for_case(registries, case));
+    let requested = fieldwork_order_for_case(registries, case);
+    let exact_local = if matches!(
+        case.role(),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
+    ) {
+        Some(
+            exact_local_expedition::run_generated_exact_local_field_order(
+                registries,
+                case,
+                requested,
+                fieldwork_supply_for_case(registries, case),
+                fieldwork_stratifies_hardness(case),
+            ),
+        )
+    } else {
+        None
+    };
+    let episode = run_fieldwork_order(registries, case, requested);
+    if let Some(local) = exact_local {
+        assert_eq!(
+            (
+                local.observed_hardness_lower_pa,
+                local.observed_hardness_upper_pa,
+                local.observed_mass_lower_mg,
+                local.observed_mass_upper_mg,
+            ),
+            (
+                episode.observed_hardness.lower().pascals(),
+                episode.observed_hardness.upper().pascals(),
+                episode.observed_resource_mass.lower().milligrams(),
+                episode.observed_resource_mass.upper().milligrams(),
+            ),
+            "generated exact-local and proxy fieldwork must derive the same actor-visible evidence band from the same independent world pressure"
+        );
+        assert_eq!(
+            local.tool, episode.tool,
+            "generated exact-local travel/custody must not change the evidence-driven extraction-tool decision"
+        );
+        assert_eq!(
+            (local.returned, local.stop),
+            (episode.extraction.extracted, episode.extraction.stop),
+            "generated exact-local carrying constraints must preserve the same geological extraction result as the matched proxy episode"
+        );
+        reviewln!(
+            "FIELDWORK LOCAL PARITY seed=0x{:016X} sample={} evidence=matched-generated-world exact-local=true proxy-search=true observed-evidence:matched tool:matched extraction:matched trips:{} proxy-scope=multi-channel-search-only",
+            case.seed(),
+            case.role().label(),
+            local.trips,
+        );
+    }
     reviewln!(
         "FIELDWORK ENDPOINT seed=0x{:016X} tool={} full-order-tool={} resource-knowledge-effect={} observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg preparation={}t projected-order={}t actual-extraction={}t extracted={}mg outcome={}",
         case.seed(),
@@ -319,9 +374,7 @@ fn run_fieldwork_with_supply(
     deposit_mass: Mass,
 ) -> FieldworkEpisode {
     let seed = case.seed();
-    let stratify_hardness = case.role() == FocusedProbeRole::OrganicVariation
-        || (case.role() == FocusedProbeRole::ExplicitReplay
-            && !fieldwork_maintained_world_seed(case.seed()));
+    let stratify_hardness = fieldwork_stratifies_hardness(case);
     let (world, fixture_diagnostics) = build_fieldwork_world_with_diagnostics(
         registries,
         seed,

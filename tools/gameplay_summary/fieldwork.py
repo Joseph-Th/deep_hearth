@@ -704,6 +704,102 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
     )
 
 
+def _generated_exact_local_orders_summary(lines: list[str]) -> str | None:
+    orders = [line for line in lines if line.startswith("FIELDWORK LOCAL ORDER ")]
+    if not orders:
+        return None
+    parity = [line for line in lines if line.startswith("FIELDWORK LOCAL PARITY ")]
+
+    order_keys: set[tuple[str, str]] = set()
+    trips: list[int] = []
+    returned: list[int] = []
+    tools: set[str] = set()
+    complete = 0
+    supply_ended = 0
+    fabricated = 0
+    organic = 0
+    replay = 0
+    for line in orders:
+        seed = field(line, "seed")
+        sample = field(line, "sample")
+        route = re.search(r"\bhaul-trips:(\d+)\]", line)
+        investment = re.search(
+            r"\binvestment=\[hammer:(\d+)mg setup:(\d+)t selected:([^\s\]]+) "
+            r"tool:(\d+)mg preparation:(\d+)t planned-local:(\d+)mg\]",
+            line,
+        )
+        extraction = re.search(
+            r"\bextraction=\[requested:(\d+)mg returned:(\d+)mg batches:(\d+) "
+            r"ticks:(\d+) stop:([^\s\]]+)\]",
+            line,
+        )
+        if None in (seed, sample, route, investment, extraction):
+            raise ValueError(f"malformed generated exact-local field order: {line}")
+        assert seed is not None
+        assert sample is not None
+        assert route is not None
+        assert investment is not None
+        assert extraction is not None
+        if sample not in {"organic", "replay"}:
+            raise ValueError(
+                "generated exact-local field orders are reserved for organic/replay cases: "
+                + line
+            )
+        key = (seed.lower(), sample)
+        if key in order_keys:
+            raise ValueError(f"duplicate generated exact-local field order for {key}")
+        order_keys.add(key)
+        organic += sample == "organic"
+        replay += sample == "replay"
+        trip_count = int(route.group(1))
+        trips.append(trip_count)
+        tools.add(investment.group(3))
+        fabricated += int(investment.group(1)) > 0 and int(investment.group(4)) > 0
+        returned.append(int(extraction.group(2)))
+        stop = extraction.group(5)
+        if stop == "order-complete":
+            complete += 1
+        else:
+            supply_ended += 1
+
+    parity_keys: set[tuple[str, str]] = set()
+    for line in parity:
+        seed = field(line, "seed")
+        sample = field(line, "sample")
+        if seed is None or sample is None:
+            raise ValueError(f"malformed exact-local field parity evidence: {line}")
+        if not all(
+            marker in line
+            for marker in (
+                " exact-local=true ",
+                " observed-evidence:matched ",
+                " tool:matched ",
+                " extraction:matched ",
+            )
+        ):
+            raise ValueError(f"fieldwork exact-local parity is incomplete: {line}")
+        key = (seed.lower(), sample)
+        if key in parity_keys:
+            raise ValueError(f"duplicate exact-local field parity evidence for {key}")
+        parity_keys.add(key)
+    if parity_keys != order_keys:
+        raise ValueError(
+            "generated exact-local field order/parity case sets disagree: "
+            f"orders={sorted(order_keys)} parity={sorted(parity_keys)}"
+        )
+
+    return (
+        "generated-exact-local=["
+        f"cases:{len(orders)} organic:{organic} replay:{replay} "
+        f"parity:{len(parity_keys)}/{len(order_keys)} "
+        f"fabricated-kit:{fabricated}/{len(orders)} "
+        f"trips:{min(trips)}..{max(trips)} multi-trip:{sum(value > 1 for value in trips)} "
+        f"returned:{scaled_span(returned, 1_000_000, 'kg')} "
+        f"outcomes=[complete:{complete} supply-ended:{supply_ended}] "
+        f"tools:{len(tools)}]"
+    )
+
+
 def fieldwork_summary(lines: list[str]) -> str | None:
     fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
     if not fieldwork:
@@ -790,6 +886,7 @@ def fieldwork_summary(lines: list[str]) -> str | None:
     depletion_horizon, depletion_adaptation = _depletion_summary(lines)
     initial_shortfall, shortfall_recovery = _initial_shortfall_recovery_summary(lines)
     exact_local_expedition = _exact_local_expedition_summary(lines)
+    generated_exact_local = _generated_exact_local_orders_summary(lines)
     inspection_span, fulfillment_span, resource_capped, organic_resource_capped = (
         _outcome_metrics(fieldwork)
     )
@@ -797,6 +894,7 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         "ORDINARY SUMMARY probe=fieldwork "
         f"samples={len(fieldwork)} sample-shape=[{sample_shape(fieldwork)}] inspections={inspection_span} "
         f"{exact_local_expedition + ' ' if exact_local_expedition else ''}"
+        f"{generated_exact_local + ' ' if generated_exact_local else ''}"
         f"outcomes=[completed:{count('outcome=completed')} "
         f"local-supply-ended:{count('outcome=known-target-supply')} "
         f"fulfillment:{fulfillment_span}] "

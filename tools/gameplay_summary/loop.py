@@ -19,6 +19,7 @@ class _LoopEvidenceLines:
     woodworking: list[str]
     fieldwork: list[str]
     fieldwork_expeditions: list[str]
+    fieldwork_local_orders: list[str]
     power: list[str]
     settlement: list[str]
     power_projects: list[str]
@@ -44,6 +45,7 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
         woodworking=_lines_with_prefix(lines, "WOODWORKING EXPERIENCE "),
         fieldwork=_lines_with_prefix(lines, "FIELDWORK EXPERIENCE "),
         fieldwork_expeditions=_lines_with_prefix(lines, "FIELDWORK EXPEDITION "),
+        fieldwork_local_orders=_lines_with_prefix(lines, "FIELDWORK LOCAL ORDER "),
         power=_lines_with_prefix(lines, "POWER PROVIDER EXPERIENCE "),
         settlement=_lines_with_prefix(lines, "SETTLEMENT EXPERIENCE "),
         power_projects=_lines_with_prefix(lines, "POWER PROJECT EXPERIENCE "),
@@ -145,6 +147,7 @@ def _extract_evidence(
     liberation: list[str],
     extracted: int,
     fieldwork_expeditions: list[str],
+    fieldwork_local_orders: list[str],
 ) -> str:
     completed_liberation = sum(
         (match := re.search(r"\bnative-copper:(\d+)mg", line)) is not None
@@ -158,9 +161,19 @@ def _extract_evidence(
             for line in fieldwork_expeditions
         )
         exact_local = f" exact-local-haul:{hauled}/{len(fieldwork_expeditions)}"
+    generated_local = ""
+    if fieldwork_local_orders:
+        hauled = sum(
+            " cache=[returned:" in line
+            and " tools-dropped:true] matter=conserved" in line
+            for line in fieldwork_local_orders
+        )
+        generated_local = (
+            f" generated-local-haul:{hauled}/{len(fieldwork_local_orders)}"
+        )
     return (
         f"extract=[fieldwork:{extracted}/{len(fieldwork)}"
-        f"{exact_local} liberation-native-copper:{completed_liberation}/{len(liberation)}]"
+        f"{exact_local}{generated_local} liberation-native-copper:{completed_liberation}/{len(liberation)}]"
     )
 
 
@@ -318,6 +331,16 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         exact_local = (
             f" exact-local-field-expedition:{completed}/{len(evidence.fieldwork_expeditions)}"
         )
+    generated_exact_local = ""
+    if evidence.fieldwork_local_orders:
+        conserved = sum(
+            " evidence=ordinary-exact-local " in line
+            and " tools-dropped:true] matter=conserved" in line
+            for line in evidence.fieldwork_local_orders
+        )
+        generated_exact_local = (
+            f" generated-exact-local-field-orders:{conserved}/{len(evidence.fieldwork_local_orders)}"
+        )
     return (
         "agency-growth=["
         f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
@@ -327,7 +350,7 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
         f"electrical-foundry:{electrical_foundries}/{foundry_builds}"
-        f"{exact_local}]"
+        f"{exact_local}{generated_exact_local}]"
     )
 
 
@@ -781,7 +804,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
         f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries, evidence.preservation_paths)} "
         f"{shared_power + ' ' if shared_power else ''}"
-        f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted, evidence.fieldwork_expeditions)} "
+        f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted, evidence.fieldwork_expeditions, evidence.fieldwork_local_orders)} "
         f"{_thermal_bootstrap_evidence(evidence.first_foundry)} "
         f"{_world_feedback_evidence(lines, evidence.fieldwork)} "
         f"{_survival_adaptation_evidence(evidence.survival, evidence.power_projects, evidence.preservation_paths)} "

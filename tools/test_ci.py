@@ -3605,6 +3605,32 @@ class GameplayReportContractTests(unittest.TestCase):
             "exact-local-expedition=[steps:12 barren:1 distance:2 trips:2 survey:2+1 order:30kg batches:60 work:292t load:2kg->9kg..25kg/25kg utilization:360000..1000000ppm step-cost:+56%energy/+48%hydration returned:30kg matter:conserved]",
         )
 
+    def test_fieldwork_summary_exposes_generated_exact_local_parity(self) -> None:
+        lines = [
+            "FIELDWORK EXPERIENCE seed=0x2 sample=organic order-horizon=project requested=2000000mg planned-local-work=2000000mg mining=2000000mg outcome=completed copper-opportunity=available tool=copper-reinforced-hard-pick resource-knowledge-effect=same-tool field-inspections=2",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x2 geology=quarry-reinforcement policy-input=false report-only=true",
+            "FIELDWORK LOCAL ORDER seed=0x2 sample=organic evidence=ordinary-exact-local generation=[demand:independent geology:independent supply:40000000mg fixture:quarry-reinforcement] route=[steps:8 barren-sites:1 target-distance:2 haul-trips:1] survey=[inspections:2 detailed:1 observed-hardness:500000000..550000000Pa observed-mass:40000000..45000000mg] investment=[hammer:650000mg setup:80t selected:copper-reinforced-hard-pick tool:1020000mg preparation:120t planned-local:2000000mg] extraction=[requested:2000000mg returned:2000000mg batches:7 ticks:20 stop:order-complete] haul=[outbound:1020000mg return:3020000..3020000mg capacity:25000000mg utilization:120800..120800ppm] locomotion=[outbound:1nJ/1uL loaded-max:2nJ/2uL] cache=[returned:2000000mg tools-dropped:true] matter=conserved",
+            "FIELDWORK LOCAL PARITY seed=0x2 sample=organic evidence=matched-generated-world exact-local=true proxy-search=true observed-evidence:matched tool:matched extraction:matched trips:1 proxy-scope=multi-channel-search-only",
+            "FIELDWORK EXPERIENCE seed=0x3 sample=replay order-horizon=bulk requested=30000000mg planned-local-work=5000000mg mining=4000000mg outcome=known-target-supply copper-opportunity=absent tool=stone-pick resource-knowledge-effect=changed-tool field-inspections=3",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x3 geology=quarry-soft policy-input=false report-only=true",
+            "FIELDWORK LOCAL ORDER seed=0x3 sample=replay evidence=ordinary-exact-local generation=[demand:independent geology:independent supply:4000000mg fixture:quarry-soft] route=[steps:8 barren-sites:1 target-distance:2 haul-trips:1] survey=[inspections:2 detailed:1 observed-hardness:100..200Pa observed-mass:0..5000000mg] investment=[hammer:650000mg setup:80t selected:stone-pick tool:1000000mg preparation:100t planned-local:5000000mg] extraction=[requested:30000000mg returned:4000000mg batches:8 ticks:24 stop:short-claim] haul=[outbound:1000000mg return:5000000..5000000mg capacity:25000000mg utilization:200000..200000ppm] locomotion=[outbound:1nJ/1uL loaded-max:2nJ/2uL] cache=[returned:4000000mg tools-dropped:true] matter=conserved",
+            "FIELDWORK LOCAL PARITY seed=0x3 sample=replay evidence=matched-generated-world exact-local=true proxy-search=true observed-evidence:matched tool:matched extraction:matched trips:1 proxy-scope=multi-channel-search-only",
+        ]
+        summary = gameplay_report_summary.fieldwork_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn(
+            "generated-exact-local=[cases:2 organic:1 replay:1 parity:2/2 fabricated-kit:2/2 trips:1..1 multi-trip:0 returned:2..4kg outcomes=[complete:1 supply-ended:1] tools:2]",
+            summary,
+        )
+        digest = gameplay_report_summary._digest_summary(summary, scoped=True)
+        self.assertIn("generated-exact-local=[cases:2 organic:1 replay:1 parity:2/2", digest)
+        loop = gameplay_report_summary.player_loop_evidence(lines)
+        self.assertIsNotNone(loop)
+        assert loop is not None
+        self.assertIn("generated-exact-local-field-orders:2/2", loop)
+        self.assertIn("generated-local-haul:2/2", loop)
+
     def test_liberation_digest_prefers_organic_lifecycle_over_maintained_payback(self) -> None:
         summary = (
             "ORDINARY SUMMARY probe=primitive-liberation "
