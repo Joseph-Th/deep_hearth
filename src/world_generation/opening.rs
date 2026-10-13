@@ -5,7 +5,7 @@ use crate::spatial::VoxelCoord;
 
 use super::WorldGenerationSeed;
 
-const OPENING_TRAIL_DIRECTION_SALT: u64 = 0x5452_4149_4C5F_4449;
+const OPENING_SPINE_DIRECTION_SALT: u64 = 0x5452_4149_4C5F_4449;
 const OPENING_BRANCH_DIRECTION_SALT: u64 = 0x4252_414E_4348_4449;
 pub(super) const OPENING_RESOURCE_ORDER_SALT: u64 = 0x5245_534F_5552_4345;
 
@@ -116,8 +116,8 @@ pub(super) fn generated_opening_layout(
     seed: WorldGenerationSeed,
     spawn: VoxelCoord,
 ) -> GeneratedOpeningLayout {
-    let first = usize::try_from(local_entropy(seed, spawn, OPENING_TRAIL_DIRECTION_SALT) % 4)
-        .unwrap_or_else(|_| unreachable!("bounded trail direction fits usize"));
+    let first = usize::try_from(local_entropy(seed, spawn, OPENING_SPINE_DIRECTION_SALT) % 4)
+        .unwrap_or_else(|_| unreachable!("bounded spine direction fits usize"));
     let main_direction = (0..4)
         .map(|offset| (first + offset) % 4)
         .find(|direction| direction_supports_opening_spine(spawn, *direction))
