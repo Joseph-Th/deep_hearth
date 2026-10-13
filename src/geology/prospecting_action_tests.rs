@@ -19,13 +19,14 @@ use crate::geology::{
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId, ProspectingWork};
 use crate::logistics::{
-    PlayerEquipmentAccessError, validate_allocate_ground_stockpile,
-    validate_initialize_player_logistics, validate_player_logistics_initialization,
+    PlayerEquipmentAccessError, place_equipment_for_fixture, validate_allocate_ground_stockpile,
+    validate_initialize_player_logistics,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::mining::{MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target};
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
+use crate::player::validate_admit_player;
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -204,14 +205,14 @@ fn prospecting_token_rejects_logistics_change_before_commit() {
 fn trusted_load_rejects_active_prospecting_with_player_outside_region() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("remote-load prospecting survival setup failed: {error}"));
     let region = one_voxel(42);
     let player_position = region.min();
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("remote-load prospecting logistics setup failed: {error}"))
+    validate_admit_player(&registries, &state, player_position)
+        .unwrap_or_else(|error| panic!("remote-load prospecting player admission failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("remote-load prospecting logistics commit failed: {error}"));
+        .unwrap_or_else(|error| {
+            panic!("remote-load prospecting player admission commit failed: {error}")
+        });
     validate_start_field_prospecting(
         &registries,
         &state,
@@ -221,6 +222,8 @@ fn trusted_load_rejects_active_prospecting_with_player_outside_region() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("remote-load prospecting commit failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("remote-load prospecting baseline must persist: {error}"));
 
     let remote_position = VoxelCoord::new(0, -1, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -245,27 +248,18 @@ fn trusted_load_rejects_active_prospecting_with_player_outside_region() {
 fn trusted_load_rejects_remote_prospecting_equipment_before_condition_state() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
-        panic!("remote equipment load prospecting survival setup failed: {error}")
-    });
     let hammer = assemble_sampling_hammer(&registries, &mut state);
     let region = one_voxel(42);
     let player_position = region.min();
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+    place_equipment_for_fixture(&mut state, hammer, player_position);
+    validate_admit_player(&registries, &state, player_position)
         .unwrap_or_else(|error| {
-            panic!("remote equipment load prospecting logistics setup failed: {error}")
+            panic!("remote equipment load prospecting player admission failed: {error}")
         })
         .commit(&mut state)
         .unwrap_or_else(|error| {
-            panic!("remote equipment load prospecting logistics commit failed: {error}")
+            panic!("remote equipment load prospecting player admission commit failed: {error}")
         });
-    let revision = state.logistics().revision();
-    state.logistics_state_mut().apply_equipment_placement(
-        revision,
-        revision + 1,
-        hammer,
-        player_position,
-    );
     validate_start_field_prospecting(
         &registries,
         &state,
@@ -280,6 +274,9 @@ fn trusted_load_rejects_remote_prospecting_equipment_before_condition_state() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("remote equipment load prospecting commit failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    validate_persistable_state(&registries, &state).unwrap_or_else(|error| {
+        panic!("remote equipment load prospecting baseline must persist: {error}")
+    });
 
     let equipment_position = VoxelCoord::new(
         player_position.x() + 1,
@@ -784,7 +781,7 @@ fn assemble_stone_pick_for_wrong_provider_test(
         .unwrap_or_else(|error| panic!("wrong-provider pick assembly commit failed: {error}"))
 }
 
-fn complete_prospecting_player_logistics(
+fn admit_prospecting_player(
     registries: &Registries,
     state: &mut AppState,
     region: VoxelBounds,
@@ -792,19 +789,13 @@ fn complete_prospecting_player_logistics(
 ) {
     let position = region.min();
     if let Some(equipment) = equipment {
-        let revision = state.logistics().revision();
-        state.logistics_state_mut().apply_equipment_placement(
-            revision,
-            revision + 1,
-            equipment,
-            position,
-        );
+        place_equipment_for_fixture(state, equipment, position);
     }
-    validate_player_logistics_initialization(registries, state, position)
-        .unwrap_or_else(|error| panic!("prospecting persistence player logistics failed: {error}"))
+    validate_admit_player(registries, state, position)
+        .unwrap_or_else(|error| panic!("prospecting persistence player admission failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| {
-            panic!("prospecting persistence player logistics commit failed: {error}")
+            panic!("prospecting persistence player admission commit failed: {error}")
         });
 }
 
@@ -820,10 +811,9 @@ fn prospecting_duration(registries: &Registries, method: ProspectingMethodId) ->
 fn inspection_ready_to_complete_fixture() -> (Registries, AppState) {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("prospecting exhaustion survival setup failed: {error}"));
     let region = one_voxel(40);
     insert_copper(&registries, &mut state, region);
+    admit_prospecting_player(&registries, &mut state, region, None);
     let work = start_inspection(&registries, &mut state, region);
     let remaining = work
         .completes_at()
@@ -834,6 +824,8 @@ fn inspection_ready_to_complete_fixture() -> (Registries, AppState) {
         let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("prospecting exhaustion setup tick failed: {error}"));
     }
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("prospecting exhaustion baseline must persist: {error}"));
     (registries, state)
 }
 
@@ -880,12 +872,9 @@ fn trusted_load_rejects_active_prospecting_without_completion_knowledge_revision
 fn prospecting_admission_reserves_completion_identity_and_owner_revisions() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
-        panic!("prospecting revision-budget survival setup failed: {error}")
-    });
     let hammer = assemble_sampling_hammer(&registries, &mut state);
     let region = one_voxel(41);
-    complete_prospecting_player_logistics(&registries, &mut state, region, Some(hammer));
+    admit_prospecting_player(&registries, &mut state, region, Some(hammer));
     let encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("prospecting revision-budget serialization failed: {error}")
@@ -1124,13 +1113,11 @@ fn completed_field_inspection_provides_the_evidence_required_for_mining_target_r
 fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("refinement prospecting survival setup failed: {error}"));
     let region = one_voxel(25);
     insert_low_grade_copper(&registries, &mut state, region);
     let request = MiningTargetRequest::new(region, MATERIAL_COPPER);
     let hammer = assemble_sampling_hammer(&registries, &mut state);
-    complete_prospecting_player_logistics(&registries, &mut state, region, Some(hammer));
+    admit_prospecting_player(&registries, &mut state, region, Some(hammer));
 
     let field_work = start_prospecting(
         &registries,
@@ -1276,11 +1263,9 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
 fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("round-trip prospecting survival setup failed: {error}"));
     let region = one_voxel(30);
     insert_copper(&registries, &mut state, region);
-    complete_prospecting_player_logistics(&registries, &mut state, region, None);
+    admit_prospecting_player(&registries, &mut state, region, None);
     let work = start_inspection(&registries, &mut state, region);
     let field_duration = work
         .completes_at()
@@ -1317,12 +1302,12 @@ fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation(
 fn trusted_load_rejects_forged_field_prospecting_duration() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
-        panic!("prospecting duration-tamper survival setup failed: {error}")
-    });
     let region = one_voxel(31);
     insert_copper(&registries, &mut state, region);
+    admit_prospecting_player(&registries, &mut state, region, None);
     start_inspection(&registries, &mut state, region);
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("prospecting duration baseline must persist: {error}"));
 
     let mut tampered =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {

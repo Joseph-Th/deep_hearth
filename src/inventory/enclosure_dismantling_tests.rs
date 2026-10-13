@@ -27,7 +27,7 @@ use crate::logistics::{
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -228,23 +228,14 @@ fn trusted_load_rejects_active_dismantling_after_target_is_moved_remote() {
         panic!("remote-load dismantling enclosure build commit failed: {error}")
     });
     let player_position = VoxelCoord::new(0, 0, 0);
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("remote-load dismantling logistics setup failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("remote-load dismantling logistics commit failed: {error}"));
-    for stockpile in [target, recovery] {
-        validate_place_ground_stockpile(&state, stockpile, player_position)
-            .unwrap_or_else(|error| panic!("remote-load dismantling placement failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("remote-load dismantling placement commit failed: {error}")
-            });
-    }
+    complete_dismantling_player_logistics(&registries, &mut state, &[target, recovery]);
     let _ = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
         .unwrap_or_else(|error| panic!("remote-load dismantling start failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("remote-load dismantling start commit failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("remote-load dismantling baseline must persist: {error}"));
 
     let remote_position = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -416,6 +407,11 @@ fn fatal_tick_allows_dismantling_due_that_tick_to_complete() {
 #[test]
 fn trusted_load_rejects_dismantling_recovery_that_cannot_accept_enclosure_matter() {
     let (registries, mut state, target, construction, recovery, _food) = fixture();
+    complete_dismantling_player_logistics(
+        &registries,
+        &mut state,
+        &[target, construction, recovery],
+    );
     validate_build_storage_enclosure(
         &registries,
         &state,
@@ -432,6 +428,8 @@ fn trusted_load_rejects_dismantling_recovery_that_cannot_accept_enclosure_matter
         .unwrap_or_else(|error| {
             panic!("recovery-storage load fixture start commit failed: {error}")
         });
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("recovery-storage baseline must persist: {error}"));
 
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
@@ -1184,6 +1182,11 @@ fn dismantling_prechecks_inventory_revision_and_lot_id_exhaustion_without_mutati
 #[test]
 fn trusted_load_rejects_active_dismantling_without_both_completion_inventory_revisions() {
     let (registries, mut state, target, construction, recovery, _) = fixture();
+    complete_dismantling_player_logistics(
+        &registries,
+        &mut state,
+        &[target, construction, recovery],
+    );
     validate_build_storage_enclosure(
         &registries,
         &state,
@@ -1198,6 +1201,8 @@ fn trusted_load_rejects_active_dismantling_without_both_completion_inventory_rev
         .unwrap_or_else(|error| panic!("dismantle load-budget validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("dismantle load-budget commit failed: {error}"));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("dismantle load-budget baseline must persist: {error}"));
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("dismantle load-budget serialization failed: {error}"));

@@ -34,14 +34,15 @@ use crate::inventory::{
 };
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    PlayerEquipmentAccessError, PlayerStockpileAccessError,
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, place_equipment_for_fixture,
     validate_allocate_player_ground_stockpile, validate_initialize_player_logistics,
     validate_place_ground_stockpile, validate_player_logistics_initialization,
 };
 use crate::maintenance::{MaintenanceThresholds, calculate_condition_after_partial_recovery};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
+use crate::player::validate_admit_player;
 use crate::production::{
     ProcessDefinition, ProcessId, StartProcessCommitError, validate_start_player_process,
     validate_start_process,
@@ -171,7 +172,6 @@ fn remote_maintenance_rejects_access_before_stale_equipment_state() {
 fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
     let registries = registries_with_service_duration(TickSpan::new(4));
     let mut state = AppState::new();
-    initialize_service_player(&registries, &mut state);
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
         .unwrap_or_else(|error| panic!("remote-load maintenance equipment failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
@@ -180,17 +180,7 @@ fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
         .unwrap_or_else(|error| panic!("remote-load maintenance spent failed: {error}"));
     add_material(&registries, &mut state, source, Mass::from_milligrams(7));
     let player_position = VoxelCoord::new(0, 0, 0);
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("remote-load maintenance logistics setup failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("remote-load maintenance logistics commit failed: {error}"));
-    let logistics_revision = state.logistics().revision();
-    state.logistics_state_mut().apply_equipment_placement(
-        logistics_revision,
-        logistics_revision + 1,
-        equipment,
-        player_position,
-    );
+    place_equipment_for_fixture(&mut state, equipment, player_position);
     validate_place_ground_stockpile(&state, source, player_position)
         .unwrap_or_else(|error| panic!("remote-load maintenance source placement failed: {error}"))
         .commit(&mut state)
@@ -203,6 +193,12 @@ fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
         .unwrap_or_else(|error| {
             panic!("remote-load maintenance spent placement commit failed: {error}")
         });
+    validate_admit_player(&registries, &state, player_position)
+        .unwrap_or_else(|error| panic!("remote-load maintenance player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-load maintenance player admission commit failed: {error}")
+        });
     let resolution = resolve_equipment_maintenance(
         &registries,
         &state,
@@ -214,6 +210,8 @@ fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("remote-load maintenance commit failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("remote-load maintenance baseline must persist: {error}"));
 
     let equipment_position = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))

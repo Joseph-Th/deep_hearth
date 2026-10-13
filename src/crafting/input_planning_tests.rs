@@ -20,7 +20,8 @@ use crate::logistics::{
     validate_place_ground_stockpile,
 };
 use crate::material::CommodityKey;
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
+use crate::player::validate_admit_player;
 use crate::registry::ProcessEquipmentRole;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
@@ -176,18 +177,12 @@ fn manual_craft_rejects_unlocated_equipment_after_player_logistics_initializatio
 fn trusted_load_rejects_active_manual_craft_with_remote_output_destination() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("remote-load craft survival setup failed: {error}"));
     let player_position = VoxelCoord::new(0, 0, 0);
-    let carried = validate_initialize_player_logistics(
-        &state,
-        player_position,
-        Mass::from_milligrams(1_000_000),
-    )
-    .unwrap_or_else(|error| panic!("remote-load craft logistics setup failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("remote-load craft logistics commit failed: {error}"))
-    .carried_stockpile();
+    let carried = validate_admit_player(&registries, &state, player_position)
+        .unwrap_or_else(|error| panic!("remote-load craft player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-load craft player admission commit failed: {error}"))
+        .carried_stockpile();
     let lot = deposit_lot_for_test(
         &registries,
         &mut state,
@@ -222,6 +217,8 @@ fn trusted_load_rejects_active_manual_craft_with_remote_output_destination() {
     .unwrap_or_else(|error| panic!("remote-load craft start commit failed: {error}"));
     crate::core::state::validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("valid remote-load craft fixture failed: {error}"));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("remote-load craft baseline must persist: {error}"));
 
     let remote_position = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))

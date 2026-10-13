@@ -31,7 +31,7 @@ use crate::logistics::{
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -254,24 +254,7 @@ fn trusted_load_rejects_active_manual_power_with_remote_destination() {
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = assemble_flywheel_fixture(&registries, &mut state);
     let player_position = VoxelCoord::new(0, 0, 0);
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("remote-load power logistics setup failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("remote-load power logistics commit failed: {error}"));
-    let revision = state.logistics().revision();
-    state.logistics_state_mut().apply_equipment_placement(
-        revision,
-        revision + 1,
-        crank,
-        player_position,
-    );
-    let revision = state.logistics().revision();
-    state.logistics_state_mut().apply_energy_store_placement(
-        revision,
-        revision + 1,
-        drive,
-        player_position,
-    );
+    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
     let _ = validate_start_manual_power(
         &registries,
         &state,
@@ -286,6 +269,8 @@ fn trusted_load_rejects_active_manual_power_with_remote_destination() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("remote-load power commit failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("remote-load power baseline must persist: {error}"));
 
     let store_position = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -515,6 +500,7 @@ fn active_manual_power_load_requires_completion_owner_revisions() {
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
         .unwrap_or_else(|error| panic!("manual power load revision drive failed: {error}"));
+    complete_manual_power_player_logistics(&registries, &mut state, &[crank], &[drive]);
     validate_start_manual_power(
         &registries,
         &state,
@@ -528,6 +514,9 @@ fn active_manual_power_load_requires_completion_owner_revisions() {
     .unwrap_or_else(|error| panic!("manual power load revision start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("manual power load revision commit failed: {error}"));
+    validate_persistable_state(&registries, &state).unwrap_or_else(|error| {
+        panic!("manual power load revision baseline must persist: {error}")
+    });
     let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("manual power load revision serialization failed: {error}"));
 

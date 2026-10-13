@@ -1206,32 +1206,16 @@ fn awaiting_carried_mining_settlement_fixture()
 -> (Registries, AppState, MiningJobId, StockpileId, VoxelCoord) {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("carried-settlement survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("carried-settlement deposit failed: {error}"));
-    let position = state
-        .geology()
-        .get_deposit(deposit)
-        .map(|record| record.bounds().min())
-        .unwrap_or_else(|| panic!("carried-settlement deposit disappeared"));
-    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1_000_000))
-        .unwrap_or_else(|error| panic!("carried-settlement logistics setup failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("carried-settlement logistics commit failed: {error}"));
+    let position =
+        admit_known_mining_player_at_deposit(&registries, &mut state, deposit, &[], &[pick]);
     let carried = state
         .logistics()
         .player()
         .map(|player| player.carried_stockpile())
         .unwrap_or_else(|| panic!("carried-settlement player disappeared"));
-    let logistics_revision = state.logistics().revision();
-    state.logistics_state_mut().apply_equipment_placement(
-        logistics_revision,
-        logistics_revision + 1,
-        pick,
-        position,
-    );
     let step_destination = VoxelCoord::new(position.x() + 1, position.y(), position.z());
     add_traversable_edge_for_test(&mut state, position, step_destination);
 
@@ -1271,6 +1255,8 @@ fn awaiting_carried_mining_settlement_fixture()
             .is_some_and(MiningJobRecord::is_awaiting_settlement)
     );
     assert_eq!(state.player_work().active(), None);
+    crate::persistence::validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("carried-settlement baseline must be persistable: {error}"));
     (registries, state, job, carried, step_destination)
 }
 
@@ -1598,30 +1584,12 @@ fn mining_token_rejects_logistics_change_before_commit() {
 
 #[test]
 fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
-    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let bounds = state
         .geology()
         .get_deposit(deposit)
         .map(|record| record.bounds())
         .unwrap_or_else(|| panic!("remote-load mining deposit disappeared"));
-    let player_position = bounds.min();
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("remote-load mining logistics setup failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("remote-load mining logistics commit failed: {error}"));
-    let revision = state.logistics().revision();
-    state.logistics_state_mut().apply_equipment_placement(
-        revision,
-        revision + 1,
-        pick,
-        player_position,
-    );
-    validate_place_ground_stockpile(&state, destination, player_position)
-        .unwrap_or_else(|error| panic!("remote-load mining destination placement failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| {
-            panic!("remote-load mining destination placement commit failed: {error}")
-        });
     let job = validate_known_mining(
         &registries,
         &state,
@@ -1635,6 +1603,8 @@ fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("remote-load mining commit failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    crate::persistence::validate_persistable_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("remote-load mining baseline must persist: {error}"));
 
     let remote_position = VoxelCoord::new(10, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -1658,35 +1628,12 @@ fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
 
 #[test]
 fn trusted_load_rejects_remote_mining_equipment_before_condition_state() {
-    let (registries, mut state, deposit, destination, pick) = survival_only_mining_fixture();
+    let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let player_position = state
         .geology()
         .get_deposit(deposit)
         .map(|record| record.bounds().min())
         .unwrap_or_else(|| panic!("remote equipment load mining deposit disappeared"));
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| {
-            panic!("remote equipment load mining logistics setup failed: {error}")
-        })
-        .commit(&mut state)
-        .unwrap_or_else(|error| {
-            panic!("remote equipment load mining logistics commit failed: {error}")
-        });
-    let revision = state.logistics().revision();
-    state.logistics_state_mut().apply_equipment_placement(
-        revision,
-        revision + 1,
-        pick,
-        player_position,
-    );
-    validate_place_ground_stockpile(&state, destination, player_position)
-        .unwrap_or_else(|error| {
-            panic!("remote equipment load mining destination placement failed: {error}")
-        })
-        .commit(&mut state)
-        .unwrap_or_else(|error| {
-            panic!("remote equipment load mining destination placement commit failed: {error}")
-        });
     let job = validate_known_mining(
         &registries,
         &state,
@@ -1700,6 +1647,9 @@ fn trusted_load_rejects_remote_mining_equipment_before_condition_state() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("remote equipment load mining commit failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    crate::persistence::validate_persistable_state(&registries, &state).unwrap_or_else(|error| {
+        panic!("remote equipment load mining baseline must persist: {error}")
+    });
 
     let equipment_position = VoxelCoord::new(
         player_position.x() + 1,

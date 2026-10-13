@@ -12,14 +12,13 @@ use crate::core::state::{
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::StockpileStorageError;
 use crate::labor::PlayerWorkValidationError;
-use crate::logistics::{add_traversable_edge_for_test, validate_initialize_player_logistics};
+use crate::logistics::add_traversable_edge_for_test;
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
-use crate::survival::{
-    FoodFreshness, Vitality, assess_food_freshness, initialize_player_survival, player_record,
-};
+use crate::survival::{FoodFreshness, Vitality, assess_food_freshness, player_record};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
@@ -138,12 +137,10 @@ fn admit_player(
     state: &mut AppState,
     position: VoxelCoord,
 ) -> crate::inventory::StockpileId {
-    initialize_player_survival(registries, state)
-        .unwrap_or_else(|error| panic!("surface test survival initialization failed: {error}"));
-    validate_initialize_player_logistics(state, position, Mass::from_milligrams(10_000_000))
-        .unwrap_or_else(|error| panic!("surface test logistics initialization failed: {error}"))
+    validate_admit_player(registries, state, position)
+        .unwrap_or_else(|error| panic!("surface test player admission failed: {error}"))
         .commit(state)
-        .unwrap_or_else(|error| panic!("surface test logistics commit failed: {error}"))
+        .unwrap_or_else(|error| panic!("surface test player admission commit failed: {error}"))
         .carried_stockpile()
 }
 
