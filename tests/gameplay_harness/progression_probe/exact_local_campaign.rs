@@ -1,17 +1,17 @@
-//! Bounded exact-local replay of the primitive progression information/extraction frontier.
+//! Bounded exact-local replay of primitive progression through first mechanized convergence.
 //!
-//! The long progression campaign still owns automation, maintenance, and reinvestment evidence.
-//! This episode asks a narrower question: does the same generated world and actor-visible evidence
-//! still produce the same first scarce-copper decision when prospecting, tools, mining output, and
-//! workshop stock all have ordinary locality and the player must physically travel between them?
+//! The long progression campaign still owns sustained stockpiling, maintenance, and reinvestment
+//! evidence. This episode asks a narrower question: does the same generated world and actor-visible
+//! evidence still produce the same scarce-copper sequencing and first mechanized convergence when
+//! prospecting, tools, mining output, workshop stock, processing equipment, and the first delegated
+//! feed trip all have ordinary locality?
 
 use deep_hearth::content::gameplay_fixture::{locate_ground_stockpile, seed_traversable_edge};
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
-    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
-    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
-    PROSPECTING_REGIONAL_RECONNAISSANCE,
+    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK, FORM_NATIVE_METAL, FORM_ORE,
+    MATERIAL_COPPER, MINING_METHOD_HAND_PICK, PROSPECTING_DETAILED_FIELD_SURVEY,
+    PROSPECTING_FIELD_INSPECTION, PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -26,6 +26,7 @@ use deep_hearth::mining::{
     validate_start_mining,
 };
 use deep_hearth::player::validate_admit_player;
+use deep_hearth::production::ProductionJobId;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
@@ -38,7 +39,7 @@ const WORKSHOP: VoxelCoord = VoxelCoord::new(-1, -4, 0);
 const CORRIDOR_MAX_X: i64 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ExactLocalProgressionFrontierReview {
+pub(super) struct ExactLocalProgressionCampaignReview {
     pub(super) natural_priority: PrimitivePriority,
     pub(super) regional_upper_bounds_ppm: [u32; PROGRESSION_REGIONAL_ZONE_COUNT],
     pub(super) direct_copper_evidence_lower_ppm: u32,
@@ -54,6 +55,30 @@ pub(super) struct ExactLocalProgressionFrontierReview {
     pub(super) movement_steps: u64,
     pub(super) haul_trips: u64,
     pub(super) hard_sample_returned: Mass,
+    pub(super) selected_processing_feed_copper_ppm: u32,
+    pub(super) selected_processing_feed_is_hard: bool,
+    pub(super) separation_feed_mass: Mass,
+    pub(super) recovered_copper_mass: Mass,
+    pub(super) autonomous_overlap_ticks: u64,
+    pub(super) autonomous_idle_ticks: u64,
+    pub(super) replenishment_returned: Mass,
+    pub(super) converged_both_upgrades: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ExactLocalCrushWork {
+    job: ProductionJobId,
+    ticks: u64,
+    completes_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ExactLocalAutonomyWork {
+    crush_ticks: u64,
+    overlap_ticks: u64,
+    idle_ticks: u64,
+    mining_ticks: u64,
+    returned_feed: Mass,
 }
 
 fn assert_exact_local_progression_state(registries: &Registries, state: &AppState, context: &str) {
@@ -90,11 +115,18 @@ fn seed_progression_corridor(state: &mut AppState) {
     }
 }
 
-fn walk_step(registries: &Registries, state: &mut AppState, destination: VoxelCoord) {
+fn walk_step_with_production(
+    registries: &Registries,
+    state: &mut AppState,
+    destination: VoxelCoord,
+    concurrent_production: Option<ProductionJobId>,
+) -> u64 {
     let work = validate_start_player_step(registries, state, destination)
         .unwrap_or_else(|error| panic!("exact-local progression step admission failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("exact-local progression step commit failed: {error}"));
+    let started_at = state.tick().value();
+    let production_jobs = concurrent_production.as_slice();
     let mut completed = false;
     while state.tick() < work.completes_at() {
         let outcome = advance_tick(registries, state)
@@ -102,6 +134,7 @@ fn walk_step(registries: &Registries, state: &mut AppState, destination: VoxelCo
         assert_tick_events_within(
             &outcome,
             TickEventAllowance {
+                production_jobs,
                 player_step: true,
                 ..TickEventAllowance::default()
             },
@@ -110,6 +143,15 @@ fn walk_step(registries: &Registries, state: &mut AppState, destination: VoxelCo
         completed |= outcome.player_step().is_some();
     }
     assert!(completed, "exact-local progression step never completed");
+    state
+        .tick()
+        .value()
+        .checked_sub(started_at)
+        .unwrap_or_else(|| unreachable!("player step cannot complete before it starts"))
+}
+
+fn walk_step(registries: &Registries, state: &mut AppState, destination: VoxelCoord) {
+    let _ = walk_step_with_production(registries, state, destination, None);
 }
 
 fn walk_to_x(registries: &Registries, state: &mut AppState, x: i64, steps: &mut u64) {
@@ -136,6 +178,81 @@ fn walk_to_x(registries: &Registries, state: &mut AppState, x: i64, steps: &mut 
             .checked_add(1)
             .unwrap_or_else(|| panic!("exact-local progression movement count overflowed"));
     }
+}
+
+fn overlap_with_job(before: u64, elapsed: u64, completes_at: u64) -> u64 {
+    if before >= completes_at {
+        return 0;
+    }
+    elapsed.min(completes_at - before)
+}
+
+fn walk_to_x_during_production(
+    registries: &Registries,
+    state: &mut AppState,
+    x: i64,
+    job: ProductionJobId,
+    completes_at: u64,
+    steps: &mut u64,
+) -> u64 {
+    let mut overlap = 0_u64;
+    loop {
+        let current = state
+            .logistics()
+            .player()
+            .map(|player| player.position())
+            .unwrap_or_else(|| panic!("exact-local progression movement lost player"));
+        if current.x() == x {
+            return overlap;
+        }
+        let next_x = if current.x() < x {
+            current.x() + 1
+        } else {
+            current.x() - 1
+        };
+        let before = state.tick().value();
+        let elapsed = walk_step_with_production(
+            registries,
+            state,
+            VoxelCoord::new(next_x, current.y(), current.z()),
+            Some(job),
+        );
+        overlap = overlap
+            .checked_add(overlap_with_job(before, elapsed, completes_at))
+            .unwrap_or_else(|| panic!("exact-local progression overlap duration overflowed"));
+        *steps = steps
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("exact-local progression movement count overflowed"));
+    }
+}
+
+fn walk_to_region_during_production(
+    registries: &Registries,
+    state: &mut AppState,
+    region: VoxelBounds,
+    job: ProductionJobId,
+    completes_at: u64,
+    steps: &mut u64,
+) -> u64 {
+    let overlap = walk_to_x_during_production(
+        registries,
+        state,
+        region.min().x(),
+        job,
+        completes_at,
+        steps,
+    );
+    assert!(
+        region.has_voxel(
+            state
+                .logistics()
+                .player()
+                .unwrap_or_else(|| panic!("exact-local progression movement lost player"))
+                .position()
+        ),
+        "exact-local progression concurrent route did not enter requested mining region"
+    );
+    overlap
 }
 
 fn walk_to_region(
@@ -249,6 +366,250 @@ fn extract_and_haul(
     (total, ticks)
 }
 
+fn assert_local_machine(state: &AppState, machine: PrimitiveMachine) {
+    for equipment in [machine.crank, machine.crusher, machine.separator] {
+        assert_eq!(
+            state.logistics().equipment_position(equipment),
+            Some(WORKSHOP),
+            "exact-local progression processing equipment must remain at the workshop"
+        );
+        assert!(
+            state
+                .available_local_equipment()
+                .any(|record| record.id() == equipment),
+            "exact-local progression processing equipment must be actor-visible at the workshop"
+        );
+    }
+    assert_eq!(
+        state.logistics().energy_store_position(machine.drive),
+        Some(WORKSHOP),
+        "exact-local progression flywheel must remain at the workshop"
+    );
+    assert!(
+        state
+            .available_local_energy_stores()
+            .any(|store| store.id() == machine.drive),
+        "exact-local progression flywheel must be actor-visible at the workshop"
+    );
+}
+
+fn start_exact_local_crush(
+    registries: &Registries,
+    state: &mut AppState,
+    source: deep_hearth::inventory::StockpileId,
+    destination: deep_hearth::inventory::StockpileId,
+    machine: PrimitiveMachine,
+    mass: Mass,
+    expected_energy: deep_hearth::core::quantity::Energy,
+    feed_copper_ppm: u32,
+) -> ExactLocalCrushWork {
+    assert_eq!(state.logistics().stockpile_position(source), Some(WORKSHOP));
+    assert_eq!(
+        state.logistics().stockpile_position(destination),
+        Some(WORKSHOP)
+    );
+    assert_local_machine(state, machine);
+    let selection = select_observed_copper_grade(
+        state,
+        source,
+        mass,
+        feed_copper_ppm,
+        "exact-local progression primary crusher feed",
+    );
+    let resolved = resolve_comminution_process(
+        registries,
+        state,
+        ComminutionRequest::new(
+            PROCESS_CRUSH_ORE,
+            source,
+            selection.as_slice(),
+            machine.crusher,
+            machine.drive,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("exact-local progression primary crushing failed: {error}"));
+    assert_eq!(resolved.required_energy(), expected_energy);
+    let ticks = resolved.process_resolution().duration().value();
+    let started_at = state.tick().value();
+    let job = validate_start_process(
+        registries,
+        state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("exact-local progression primary crush start failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("exact-local progression primary crush commit failed: {error}"));
+    ExactLocalCrushWork {
+        job,
+        ticks,
+        completes_at: started_at
+            .checked_add(ticks)
+            .unwrap_or_else(|| panic!("exact-local progression primary crush schedule overflowed")),
+    }
+}
+
+fn finish_exact_local_crush(
+    registries: &Registries,
+    state: &mut AppState,
+    work: ExactLocalCrushWork,
+) -> u64 {
+    let mut ticks = 0_u64;
+    while state.production().get_job(work.job).is_some() {
+        let outcome = advance_tick(registries, state).unwrap_or_else(|error| {
+            panic!("exact-local progression autonomous crush failed: {error}")
+        });
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                production_jobs: &[work.job],
+                ..TickEventAllowance::default()
+            },
+            "exact-local primitive progression autonomous crush",
+        );
+        ticks = ticks
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("exact-local progression idle crush duration overflowed"));
+    }
+    ticks
+}
+
+fn mine_one_batch_during_production(
+    registries: &Registries,
+    state: &mut AppState,
+    target: MiningTargetRequest,
+    equipment: EquipmentId,
+    mass: Mass,
+    production: ExactLocalCrushWork,
+) -> (Mass, u64, u64) {
+    let carrying = assess_player_carrying(state)
+        .unwrap_or_else(|| panic!("exact-local progression autonomous mining lost carrying state"));
+    assert!(
+        carrying.available() >= mass,
+        "exact-local progression autonomous feed order must fit the ordinary carrying envelope"
+    );
+    let resolved = resolve_progression_mining_target(state, target);
+    let start = validate_start_mining(
+        registries,
+        state,
+        MINING_METHOD_HAND_PICK,
+        resolved,
+        carrying.stockpile(),
+        equipment,
+        mass,
+    )
+    .unwrap_or_else(|error| {
+        panic!("exact-local progression autonomous feed mining failed: {error}")
+    });
+    let job = start.commit(state).unwrap_or_else(|error| {
+        panic!("exact-local progression autonomous mining commit failed: {error}")
+    });
+    let record = state
+        .mining()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("exact-local progression autonomous mining job disappeared"));
+    let mining_ticks = duration(record.started_at().value(), record.completes_at().value());
+    let before = state.tick().value();
+    let overlap = overlap_with_job(before, mining_ticks, production.completes_at);
+    let concurrent = state
+        .production()
+        .get_job(production.job)
+        .is_some()
+        .then_some(production.job);
+    let (completed_ticks, receipt) = finish_mining_work(
+        registries,
+        state,
+        job,
+        concurrent,
+        "exact-local progression autonomous feed mining",
+    );
+    assert_eq!(completed_ticks, mining_ticks);
+    (receipt.output().mass(), mining_ticks, overlap)
+}
+
+fn run_exact_local_autonomous_replenishment(
+    registries: &Registries,
+    state: &mut AppState,
+    source: deep_hearth::inventory::StockpileId,
+    crushed_storage: deep_hearth::inventory::StockpileId,
+    machine: PrimitiveMachine,
+    feed_copper_ppm: u32,
+    bulk_target: MiningTargetRequest,
+    ore_storage: deep_hearth::inventory::StockpileId,
+    pick: EquipmentId,
+    crush_mass: Mass,
+    replenish_mass: Mass,
+    steps: &mut u64,
+    haul_trips: &mut u64,
+) -> ExactLocalAutonomyWork {
+    let crush = start_exact_local_crush(
+        registries,
+        state,
+        source,
+        crushed_storage,
+        machine,
+        crush_mass,
+        machine.required_energy,
+        feed_copper_ppm,
+    );
+    let mut overlap_ticks = walk_to_region_during_production(
+        registries,
+        state,
+        bulk_target.region(),
+        crush.job,
+        crush.completes_at,
+        steps,
+    );
+    let (mined, mining_ticks, mining_overlap) = mine_one_batch_during_production(
+        registries,
+        state,
+        bulk_target,
+        pick,
+        replenish_mass,
+        crush,
+    );
+    assert_eq!(
+        mined, replenish_mass,
+        "exact-local progression autonomous feed trip must satisfy its disclosed replenishment order"
+    );
+    overlap_ticks = overlap_ticks
+        .checked_add(mining_overlap)
+        .unwrap_or_else(|| panic!("exact-local progression overlap duration overflowed"));
+    overlap_ticks = overlap_ticks
+        .checked_add(walk_to_x_during_production(
+            registries,
+            state,
+            WORKSHOP.x(),
+            crush.job,
+            crush.completes_at,
+            steps,
+        ))
+        .unwrap_or_else(|| panic!("exact-local progression overlap duration overflowed"));
+    let idle_ticks = finish_exact_local_crush(registries, state, crush);
+    let dropped = drop_all_carried_material(registries, state, ore_storage);
+    assert_eq!(dropped, mined);
+    *haul_trips = haul_trips
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("exact-local progression haul count overflowed"));
+    assert_eq!(
+        overlap_ticks.checked_add(idle_ticks),
+        Some(crush.ticks),
+        "exact-local crusher window must partition into productive field overlap and post-return idle time"
+    );
+    assert!(
+        overlap_ticks > 0,
+        "exact-local progression automation must release some player time for the next feed trip"
+    );
+    ExactLocalAutonomyWork {
+        crush_ticks: crush.ticks,
+        overlap_ticks,
+        idle_ticks,
+        mining_ticks,
+        returned_feed: mined,
+    }
+}
+
 fn assemble_local_field_kit(
     registries: &Registries,
     state: &mut AppState,
@@ -304,10 +665,10 @@ fn assemble_local_field_kit(
     (pick, hammer)
 }
 
-pub(super) fn run_exact_local_progression_frontier(
+pub(super) fn run_exact_local_progression_campaign(
     registries: &Registries,
     case: FocusedProbeCase,
-) -> ExactLocalProgressionFrontierReview {
+) -> ExactLocalProgressionCampaignReview {
     assert!(matches!(
         case.role(),
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
@@ -328,7 +689,7 @@ pub(super) fn run_exact_local_progression_frontier(
         reinforced_hardness_limit: _,
         pick_upgrade_native,
         crank_upgrade_native,
-        concurrent_soft_mass: _,
+        concurrent_soft_mass,
         raw,
         shaped,
         ore_storage,
@@ -519,6 +880,19 @@ pub(super) fn run_exact_local_progression_frontier(
     assert_eq!(bulk_output, mined_mass);
     let bulk_sample = observe_material_sample(&state, ore_storage, "exact-local bulk ore");
     assert_eq!(bulk_sample.commodity.form(), FORM_ORE);
+    let primitive_sorting = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("exact-local progression separator process disappeared"));
+    let soft_separation_feed_mass = primitive_sorting
+        .minimum_homogeneous_feed_mass_for_target_recovery(
+            crank_upgrade_native,
+            bulk_sample.copper_ppm,
+        )
+        .unwrap_or_else(|| {
+            panic!("exact-local bulk ore cannot recover the second reinforcement parcel")
+        });
+    assert!(soft_separation_feed_mass <= mined_mass);
 
     let (first_direct, _) = extract_and_haul(
         registries,
@@ -593,7 +967,15 @@ pub(super) fn run_exact_local_progression_frontier(
 
     walk_to_x(registries, &mut state, WORKSHOP.x(), &mut movement_steps);
     let natural_priority = observed_primitive_priority(hard_clue, bulk_sample);
-    let (hard_sample_returned, investment_handling) = match natural_priority {
+    let (
+        mut machine,
+        mut hard_sample_returned,
+        first_investment_handling,
+        selected_processing_source,
+        selected_processing_feed_copper_ppm,
+        selected_processing_feed_is_hard,
+        selected_separation_feed_mass,
+    ) = match natural_priority {
         PrimitivePriority::PickFirst => {
             validate_drop_equipment(registries, &state, pick)
                 .unwrap_or_else(|error| {
@@ -627,58 +1009,231 @@ pub(super) fn run_exact_local_progression_frontier(
                 hard_ore_storage,
                 pick,
                 mined_mass,
-                stone_pick_batch_limit,
+                reinforced_pick_mining_batch_limit(registries),
                 &mut movement_steps,
                 &mut haul_trips,
             );
             assert_eq!(returned, mined_mass);
-            (returned, "drop-modify-repickup")
+            let hard_sample =
+                observe_material_sample(&state, hard_ore_storage, "exact-local hard-seam ore");
+            assert_eq!(hard_sample.commodity.form(), FORM_ORE);
+            let hard_feed_is_better = hard_sample.copper_ppm > bulk_sample.copper_ppm;
+            let (source, feed_ppm, separation_feed_mass) = if hard_feed_is_better {
+                (
+                    hard_ore_storage,
+                    hard_sample.copper_ppm,
+                    primitive_sorting
+                        .minimum_homogeneous_feed_mass_for_target_recovery(
+                            crank_upgrade_native,
+                            hard_sample.copper_ppm,
+                        )
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "exact-local hard-seam ore cannot recover the second reinforcement parcel"
+                            )
+                        }),
+                )
+            } else {
+                (
+                    ore_storage,
+                    bulk_sample.copper_ppm,
+                    soft_separation_feed_mass,
+                )
+            };
+            let base_machine = build_primitive_machine(
+                registries,
+                &mut state,
+                PrimitiveMachineBuildPlan {
+                    raw,
+                    native_storage,
+                    shaped,
+                    mined_mass,
+                    separation_feed_mass,
+                    seed: case.seed(),
+                },
+            );
+            assert_local_machine(&state, base_machine);
+            let machine = charge_primitive_machine(registries, &mut state, base_machine);
+            assert_local_machine(&state, machine);
+            (
+                machine,
+                returned,
+                "drop-modify-repickup-pick",
+                source,
+                feed_ppm,
+                hard_feed_is_better,
+                separation_feed_mass,
+            )
         }
         PrimitivePriority::CrankFirst => {
-            craft_for_profile(
+            let base_machine = build_primitive_machine(
+                registries,
+                &mut state,
+                PrimitiveMachineBuildPlan {
+                    raw,
+                    native_storage,
+                    shaped,
+                    mined_mass,
+                    separation_feed_mass: soft_separation_feed_mass,
+                    seed: case.seed(),
+                },
+            );
+            assert_local_machine(&state, base_machine);
+            reinforce_crank(
                 registries,
                 &mut state,
                 raw,
                 native_storage,
                 shaped,
-                equipment_assembly_profile(registries, EQUIPMENT_STONE_HAND_CRANK),
+                base_machine.crank,
             );
-            let crank =
-                validate_assemble_equipment(registries, &state, EQUIPMENT_STONE_HAND_CRANK, shaped)
-                    .unwrap_or_else(|error| {
-                        panic!("exact-local progression crank assembly failed: {error}")
-                    })
-                    .commit(&mut state)
-                    .unwrap_or_else(|error| {
-                        panic!("exact-local progression crank commit failed: {error}")
-                    });
-            assert!(
-                state
-                    .available_local_equipment()
-                    .any(|record| record.id() == crank),
-                "exact-local progression must rediscover its locally assembled crank"
-            );
-            reinforce_crank(registries, &mut state, raw, native_storage, shaped, crank);
+            let machine = PrimitiveMachine {
+                crank_reinforced: true,
+                ..base_machine
+            };
             assert_eq!(
                 state
                     .equipment()
-                    .get_equipment(crank)
+                    .get_equipment(machine.crank)
                     .map(|record| record.definition()),
                 Some(EQUIPMENT_COPPER_REINFORCED_HAND_CRANK)
             );
-            (Mass::ZERO, "stationary-local")
+            assert_local_machine(&state, machine);
+            let machine = charge_primitive_machine(registries, &mut state, machine);
+            assert_local_machine(&state, machine);
+            (
+                machine,
+                Mass::ZERO,
+                "stationary-local-machine-crank",
+                ore_storage,
+                bulk_sample.copper_ppm,
+                false,
+                soft_separation_feed_mass,
+            )
         }
     };
 
+    let autonomy = run_exact_local_autonomous_replenishment(
+        registries,
+        &mut state,
+        selected_processing_source,
+        crushed_storage,
+        machine,
+        selected_processing_feed_copper_ppm,
+        bulk_ore_clue.request,
+        ore_storage,
+        pick,
+        mined_mass,
+        concurrent_soft_mass,
+        &mut movement_steps,
+        &mut haul_trips,
+    );
+    assert_local_machine(&state, machine);
+    let separation = separate_native_copper(
+        registries,
+        &mut state,
+        PrimitiveSeparationPlan {
+            crushed_storage,
+            native_storage,
+            residue_storage: separation_residue_storage,
+            machine,
+            feed_mass: selected_separation_feed_mass,
+            feed_copper_ppm: selected_processing_feed_copper_ppm,
+            expected_target: crank_upgrade_native,
+        },
+    );
+    assert_eq!(separation.target_mass, crank_upgrade_native);
+
+    let second_investment_handling = match natural_priority {
+        PrimitivePriority::PickFirst => {
+            reinforce_crank(
+                registries,
+                &mut state,
+                raw,
+                native_storage,
+                shaped,
+                machine.crank,
+            );
+            machine = PrimitiveMachine {
+                crank_reinforced: true,
+                ..machine
+            };
+            assert_eq!(
+                state
+                    .equipment()
+                    .get_equipment(machine.crank)
+                    .map(|record| record.definition()),
+                Some(EQUIPMENT_COPPER_REINFORCED_HAND_CRANK)
+            );
+            "stationary-local-machine-crank"
+        }
+        PrimitivePriority::CrankFirst => {
+            validate_drop_equipment(registries, &state, pick)
+                .unwrap_or_else(|error| {
+                    panic!("exact-local progression second pick drop failed: {error}")
+                })
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("exact-local progression second pick drop commit failed: {error}")
+                });
+            reinforce_pick(registries, &mut state, raw, native_storage, shaped, pick);
+            assert!(
+                state.available_local_equipment().any(|record| {
+                    record.id() == pick && record.definition() == EQUIPMENT_COPPER_REINFORCED_PICK
+                }),
+                "exact-local progression must rediscover the second reinforced pick"
+            );
+            validate_pickup_equipment(registries, &state, pick)
+                .unwrap_or_else(|error| {
+                    panic!("exact-local progression second reinforced-pick pickup failed: {error}")
+                })
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("exact-local progression second reinforced-pick pickup commit failed: {error}")
+                });
+            let (returned, _) = extract_and_haul(
+                registries,
+                &mut state,
+                hard_clue.request,
+                hard_ore_storage,
+                pick,
+                mined_mass,
+                reinforced_pick_mining_batch_limit(registries),
+                &mut movement_steps,
+                &mut haul_trips,
+            );
+            assert_eq!(returned, mined_mass);
+            hard_sample_returned = returned;
+            let hard_sample = observe_material_sample(
+                &state,
+                hard_ore_storage,
+                "exact-local crank-first hard-seam ore",
+            );
+            assert_eq!(hard_sample.commodity.form(), FORM_ORE);
+            "drop-modify-repickup-pick"
+        }
+    };
+
+    let converged_both_upgrades = state
+        .equipment()
+        .get_equipment(pick)
+        .is_some_and(|record| record.definition() == EQUIPMENT_COPPER_REINFORCED_PICK)
+        && state
+            .equipment()
+            .get_equipment(machine.crank)
+            .is_some_and(|record| record.definition() == EQUIPMENT_COPPER_REINFORCED_HAND_CRANK)
+        && hard_sample_returned == mined_mass;
+    assert!(
+        converged_both_upgrades,
+        "exact-local progression must converge on both scarce-copper upgrades and return a hard-seam sample"
+    );
+    assert_local_machine(&state, machine);
     assert_eq!(
         state
             .equipment()
             .get_equipment(pick)
             .map(|record| record.definition()),
-        Some(match natural_priority {
-            PrimitivePriority::PickFirst => EQUIPMENT_COPPER_REINFORCED_PICK,
-            PrimitivePriority::CrankFirst => EQUIPMENT_STONE_PICK,
-        })
+        Some(EQUIPMENT_COPPER_REINFORCED_PICK)
     );
     assert_eq!(
         calculate_matter_accounting(&state)
@@ -687,12 +1242,12 @@ pub(super) fn run_exact_local_progression_frontier(
             ))
             .total(),
         matter_before,
-        "exact-local progression must conserve matter through travel, extraction, and first investment"
+        "exact-local progression must conserve matter through travel, processing, and convergence"
     );
-    assert_exact_local_progression_state(registries, &state, "completed frontier");
+    assert_exact_local_progression_state(registries, &state, "completed campaign");
 
     reviewln!(
-        "PROGRESSION LOCAL FRONTIER seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:{}] information=[regional:{}..{}ppm surface:{} resolved:{} refinement:{} hard:{}..{}ppm bulk:{}..{}ppm direct:{}..{}ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:{}mg direct-first:{}mg direct-second:{}mg shortage:{} haul-trips:{}] decision=[selected:{} rule:hard-lower>owned-bulk bulk-grade:{}ppm] first-investment=[local:true handling:{} hard-sample-returned:{}mg] matter=conserved",
+        "PROGRESSION LOCAL CAMPAIGN seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:{}] information=[regional:{}..{}ppm surface:{} resolved:{} refinement:{} hard:{}..{}ppm bulk:{}..{}ppm direct:{}..{}ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:{}mg direct-first:{}mg direct-second:{}mg shortage:{} haul-trips:{}] decision=[selected:{} rule:hard-lower>owned-bulk bulk-grade:{}ppm] first-investment=[local:true handling:{}] mechanization=[line-local:true feed:{} grade:{}ppm prep:{}t charge:{}t crush:{}t separation:{}t recovered:{}mg] autonomy=[next-feed:{}mg mining:{}t overlap:{}t idle:{}t] second-investment=[local:true handling:{}] convergence=[both-upgrades:{} hard-sample-returned:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         movement_steps,
@@ -714,11 +1269,28 @@ pub(super) fn run_exact_local_progression_frontier(
         haul_trips,
         natural_priority.label(),
         bulk_sample.copper_ppm,
-        investment_handling,
+        first_investment_handling,
+        if selected_processing_feed_is_hard {
+            "hard-sample"
+        } else {
+            "owned-bulk"
+        },
+        selected_processing_feed_copper_ppm,
+        machine.processing_line_preparation_ticks,
+        machine.charge_ticks,
+        autonomy.crush_ticks,
+        separation.ticks,
+        separation.target_mass.milligrams(),
+        autonomy.returned_feed.milligrams(),
+        autonomy.mining_ticks,
+        autonomy.overlap_ticks,
+        autonomy.idle_ticks,
+        second_investment_handling,
+        converged_both_upgrades,
         hard_sample_returned.milligrams(),
     );
 
-    ExactLocalProgressionFrontierReview {
+    ExactLocalProgressionCampaignReview {
         natural_priority,
         regional_upper_bounds_ppm,
         direct_copper_evidence_lower_ppm: direct_copper_clue.lower_ppm,
@@ -734,5 +1306,13 @@ pub(super) fn run_exact_local_progression_frontier(
         movement_steps,
         haul_trips,
         hard_sample_returned,
+        selected_processing_feed_copper_ppm,
+        selected_processing_feed_is_hard,
+        separation_feed_mass: selected_separation_feed_mass,
+        recovered_copper_mass: separation.target_mass,
+        autonomous_overlap_ticks: autonomy.overlap_ticks,
+        autonomous_idle_ticks: autonomy.idle_ticks,
+        replenishment_returned: autonomy.returned_feed,
+        converged_both_upgrades,
     }
 }

@@ -651,8 +651,8 @@ mod spatial_proxy_runtime;
 mod episode;
 use episode::run_primitive_progression_case;
 
-#[path = "progression_probe/exact_local_frontier.rs"]
-mod exact_local_frontier;
+#[path = "progression_probe/exact_local_campaign.rs"]
+mod exact_local_campaign;
 
 #[path = "progression_probe/manual_processing.rs"]
 pub(super) mod manual_processing;

@@ -233,7 +233,7 @@ fn main() {
         "DESIGN TARGET role=self-reliant-field-engineer fantasy=turn-local-scarcity-and-uncertainty-into-earned-technological-agency loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
     );
     std::println!(
-        "EVALUATION SCOPE kind=ordinary-play evidence=[generated-local-wilderness+runtime-actions-after-admission,post-bootstrap-domain-episodes] exact-local=[wilderness,survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] bounded-exact-local=[primitive-progression-frontier,fieldwork-orders] movement-abstracted=[primitive-progression-automation+reinvestment,fieldwork-multisite-search+reroute] movement-authority=adjacent-open-space-only terrain-path-authority=absent reachability-authority=STATUS.md"
+        "EVALUATION SCOPE kind=ordinary-play evidence=[generated-local-wilderness+runtime-actions-after-admission,post-bootstrap-domain-episodes] exact-local=[wilderness,survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] bounded-exact-local=[primitive-progression-through-first-convergence,fieldwork-orders] movement-abstracted=[primitive-progression-steady-stockpiling+maintenance+reinvestment,fieldwork-multisite-search+reroute] movement-authority=adjacent-open-space-only terrain-path-authority=absent reachability-authority=STATUS.md"
     );
     wilderness_contract_tests::run_wilderness_report();
 

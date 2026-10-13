@@ -159,7 +159,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "tool-policy",
     ),
     "primitive-progression": (
-        "generated-exact-local-frontier",
+        "generated-exact-local-campaign",
         "first-copper",
         "organic-first-copper",
         "sequencing-physical",

@@ -391,56 +391,103 @@ def _integration_evidence(lines: list[str], progression: list[str]) -> str:
     )
 
 
-def _exact_local_frontier_evidence(lines: list[str]) -> str | None:
-    frontiers = [line for line in lines if line.startswith("PROGRESSION LOCAL FRONTIER ")]
-    if not frontiers:
+def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
+    campaigns = [line for line in lines if line.startswith("PROGRESSION LOCAL CAMPAIGN ")]
+    if not campaigns:
         return None
     parity = [line for line in lines if line.startswith("PROGRESSION LOCAL PARITY ")]
-    frontier_keys: set[tuple[str, str]] = set()
+    campaign_keys: set[tuple[str, str]] = set()
     parity_keys: set[tuple[str, str]] = set()
     steps: list[int] = []
     hauls: list[int] = []
+    next_feed: list[int] = []
+    overlap: list[int] = []
+    idle: list[int] = []
     pick_first = 0
     crank_first = 0
     refinements = 0
-    hard_samples = 0
-    drop_modify_repickup = 0
-    for line in frontiers:
+    hard_feed = 0
+    bulk_feed = 0
+    local_lines = 0
+    converged = 0
+    first_drop_modify = 0
+    second_drop_modify = 0
+    for line in campaigns:
         seed = field(line, "seed")
         sample = field(line, "sample")
         corridor = re.search(r"\bcorridor=\[[^]]* steps:(\d+)\]", line)
         information = re.search(r"\binformation=\[[^]]* refinement:(true|false) ", line)
         extraction = re.search(r"\bextraction=\[[^]]* haul-trips:(\d+)\]", line)
         decision = re.search(r"\bdecision=\[selected:([^\s\]]+) ", line)
-        investment = re.search(
-            r"\bfirst-investment=\[local:true handling:([^\s\]]+) hard-sample-returned:(\d+)mg\]",
+        first_investment = re.search(
+            r"\bfirst-investment=\[local:true handling:([^\s\]]+)\]",
             line,
         )
-        if None in (seed, sample, corridor, information, extraction, decision, investment):
-            raise ValueError(f"malformed exact-local progression frontier: {line}")
+        mechanization = re.search(
+            r"\bmechanization=\[line-local:(true|false) feed:([^\s\]]+) grade:(\d+)ppm prep:(\d+)t charge:(\d+)t crush:(\d+)t separation:(\d+)t recovered:(\d+)mg\]",
+            line,
+        )
+        autonomy = re.search(
+            r"\bautonomy=\[next-feed:(\d+)mg mining:(\d+)t overlap:(\d+)t idle:(\d+)t\]",
+            line,
+        )
+        second_investment = re.search(
+            r"\bsecond-investment=\[local:true handling:([^\s\]]+)\]",
+            line,
+        )
+        convergence = re.search(
+            r"\bconvergence=\[both-upgrades:(true|false) hard-sample-returned:(\d+)mg\]",
+            line,
+        )
+        if None in (
+            seed,
+            sample,
+            corridor,
+            information,
+            extraction,
+            decision,
+            first_investment,
+            mechanization,
+            autonomy,
+            second_investment,
+            convergence,
+        ):
+            raise ValueError(f"malformed exact-local progression campaign: {line}")
         assert seed is not None and sample is not None
         assert corridor is not None and information is not None
-        assert extraction is not None and decision is not None and investment is not None
+        assert extraction is not None and decision is not None
+        assert first_investment is not None and mechanization is not None
+        assert autonomy is not None and second_investment is not None and convergence is not None
         if sample not in {"organic", "replay"}:
             raise ValueError(
-                "exact-local progression frontier is reserved for organic/replay cases: " + line
+                "exact-local progression campaign is reserved for organic/replay cases: " + line
             )
         key = (seed.lower(), sample)
-        if key in frontier_keys:
-            raise ValueError(f"duplicate exact-local progression frontier for {key}")
-        frontier_keys.add(key)
+        if key in campaign_keys:
+            raise ValueError(f"duplicate exact-local progression campaign for {key}")
+        campaign_keys.add(key)
         steps.append(int(corridor.group(1)))
         hauls.append(int(extraction.group(1)))
+        next_feed.append(int(autonomy.group(1)))
+        overlap.append(int(autonomy.group(3)))
+        idle.append(int(autonomy.group(4)))
         refinements += information.group(1) == "true"
         selected = decision.group(1)
         pick_first += selected == "pick-first"
         crank_first += selected == "crank-first"
         if selected not in {"pick-first", "crank-first"}:
             raise ValueError(f"unknown exact-local progression decision {selected!r}")
-        hard_samples += int(investment.group(2)) > 0
-        drop_modify_repickup += investment.group(1) == "drop-modify-repickup"
+        feed = mechanization.group(2)
+        hard_feed += feed == "hard-sample"
+        bulk_feed += feed == "owned-bulk"
+        if feed not in {"hard-sample", "owned-bulk"}:
+            raise ValueError(f"unknown exact-local progression processing feed {feed!r}")
+        local_lines += mechanization.group(1) == "true"
+        converged += convergence.group(1) == "true" and int(convergence.group(2)) > 0
+        first_drop_modify += first_investment.group(1).startswith("drop-modify-repickup")
+        second_drop_modify += second_investment.group(1).startswith("drop-modify-repickup")
         if " matter=conserved" not in line:
-            raise ValueError("exact-local progression frontier lost matter conservation evidence")
+            raise ValueError("exact-local progression campaign lost matter conservation evidence")
 
     for line in parity:
         seed = field(line, "seed")
@@ -454,6 +501,11 @@ def _exact_local_frontier_evidence(lines: list[str]) -> str | None:
             " owned-sample:matched ",
             " shortage:matched ",
             " decision:matched ",
+            " feed-selection:matched ",
+            " recovered-copper:matched ",
+            " convergence:matched ",
+            " autonomy:exact-local ",
+            " proxy-scope=steady-stockpiling+maintenance+reinvestment",
         ):
             if marker not in line:
                 raise ValueError(f"progression exact-local parity lost {marker.strip()}: {line}")
@@ -461,17 +513,20 @@ def _exact_local_frontier_evidence(lines: list[str]) -> str | None:
         if key in parity_keys:
             raise ValueError(f"duplicate progression exact-local parity for {key}")
         parity_keys.add(key)
-    if parity_keys != frontier_keys:
+    if parity_keys != campaign_keys:
         raise ValueError(
-            "progression exact-local frontier/parity case sets disagree: "
-            f"frontier={sorted(frontier_keys)} parity={sorted(parity_keys)}"
+            "progression exact-local campaign/parity case sets disagree: "
+            f"campaign={sorted(campaign_keys)} parity={sorted(parity_keys)}"
         )
     return (
-        "generated-exact-local-frontier=["
-        f"cases:{len(frontiers)} parity:{len(parity_keys)}/{len(frontier_keys)} "
+        "generated-exact-local-campaign=["
+        f"cases:{len(campaigns)} parity:{len(parity_keys)}/{len(campaign_keys)} "
         f"decision=[pick:{pick_first} crank:{crank_first}] refinement:{refinements} "
         f"steps:{_span(steps, unit='')} hauls:{_span(hauls, unit='')} "
-        f"hard-sample:{hard_samples} drop-modify-repickup:{drop_modify_repickup}]"
+        f"feed=[hard:{hard_feed} bulk:{bulk_feed}] line-local:{local_lines}/{len(campaigns)} "
+        f"autonomy=[next-feed:{_span(next_feed, unit='mg')} overlap:{_span(overlap)} idle:{_span(idle)}] "
+        f"convergence:{converged}/{len(campaigns)} "
+        f"drop-modify=[first:{first_drop_modify} second:{second_drop_modify}]]"
     )
 
 
@@ -489,11 +544,11 @@ def progression_summary(lines: list[str]) -> str | None:
         progression,
         frozen_choices,
     )
-    exact_local_frontier = _exact_local_frontier_evidence(lines)
+    exact_local_campaign = _exact_local_campaign_evidence(lines)
     return (
         "ORDINARY SUMMARY probe=primitive-progression "
         f"samples={len(progression)} sample-shape=[{sample_shape(progression)}] "
-        f"{exact_local_frontier + ' ' if exact_local_frontier else ''}"
+        f"{exact_local_campaign + ' ' if exact_local_campaign else ''}"
         f"first-copper=[pick:{sum('local-copper-sequence=pick-first' in line for line in progression)} "
         f"crank:{sum('local-copper-sequence=crank-first' in line for line in progression)}] "
         f"{feed_adaptation + ' ' if feed_adaptation else ''}"

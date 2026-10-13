@@ -922,7 +922,7 @@ pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: Foc
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
     ) {
         let local =
-            super::exact_local_frontier::run_exact_local_progression_frontier(registries, case);
+            super::exact_local_campaign::run_exact_local_progression_campaign(registries, case);
         assert_eq!(local.natural_priority, review.natural_priority);
         assert_eq!(
             local.regional_upper_bounds_ppm, review.regional_upper_bounds_ppm,
@@ -962,17 +962,58 @@ pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: Foc
             ),
             "exact-local hauling must preserve the same owned-sample evidence and scarcity result"
         );
+        let (expected_feed_ppm, expected_feed_is_hard, expected_separation_feed_mg) =
+            match review.natural_priority {
+                PrimitivePriority::PickFirst => (
+                    review.extraction_feed_copper_ppm,
+                    review.extraction_selected_hard_feed,
+                    review.extraction_separation_feed_mg,
+                ),
+                PrimitivePriority::CrankFirst => (
+                    review.mechanization_feed_copper_ppm,
+                    false,
+                    review.mechanization_separation_feed_mg,
+                ),
+            };
         assert_eq!(
-            local.hard_sample_returned.is_zero(),
-            review.natural_priority == PrimitivePriority::CrankFirst,
-            "only a selected pick-first local frontier should immediately unlock and haul hard-seam ore"
+            (
+                local.selected_processing_feed_copper_ppm,
+                local.selected_processing_feed_is_hard,
+                local.separation_feed_mass.milligrams(),
+                local.recovered_copper_mass.milligrams(),
+            ),
+            (
+                expected_feed_ppm,
+                expected_feed_is_hard,
+                expected_separation_feed_mg,
+                review.recovered_copper_mg,
+            ),
+            "exact-local progression must preserve the selected first processing feed and recovered second-upgrade copper"
+        );
+        assert!(
+            local.hard_sample_returned > Mass::ZERO,
+            "both exact-local sequencing branches must physically converge on a returned hard-seam sample"
+        );
+        assert_eq!(
+            local.converged_both_upgrades,
+            review.converged_both_upgrades
+        );
+        assert!(
+            local.autonomous_overlap_ticks > 0,
+            "exact-local mechanization must release real player time for field replenishment"
+        );
+        assert!(
+            local.replenishment_returned > Mass::ZERO,
+            "exact-local delegated work must overlap a productive feed trip rather than idle travel"
         );
         reviewln!(
-            "PROGRESSION LOCAL PARITY seed=0x{:016X} sample={} evidence=matched-generated-world exact-local=true proxy-campaign=true regional-evidence:matched clue-evidence:matched owned-sample:matched shortage:matched decision:matched steps:{} haul-trips:{} proxy-scope=automation-and-reinvestment",
+            "PROGRESSION LOCAL PARITY seed=0x{:016X} sample={} evidence=matched-generated-world exact-local=true proxy-campaign=true regional-evidence:matched clue-evidence:matched owned-sample:matched shortage:matched decision:matched feed-selection:matched recovered-copper:matched convergence:matched autonomy:exact-local steps:{} haul-trips:{} overlap:{}t idle:{}t proxy-scope=steady-stockpiling+maintenance+reinvestment",
             case.seed(),
             case.role().label(),
             local.movement_steps,
             local.haul_trips,
+            local.autonomous_overlap_ticks,
+            local.autonomous_idle_ticks,
         );
     }
     if case.role() == FocusedProbeRole::MaintainedCoverage {
