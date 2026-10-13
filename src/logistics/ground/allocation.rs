@@ -154,12 +154,12 @@ impl ValidatedGroundStockpileAllocation {
     }
 }
 
-/// Allocates one empty loose solid-matter stockpile at an explicitly authorized world voxel.
+/// Crate-owned allocation of one empty loose solid-matter stockpile at an authorized world voxel.
 ///
 /// This creates custody and location only; it creates no matter and makes no claim about terrain,
 /// resource generation, or how material arrives there. The caller supplies a finite capacity from
 /// its own world/placement contract, while inventory remains authoritative for that capacity.
-pub fn validate_allocate_ground_stockpile(
+pub(crate) fn validate_allocate_ground_stockpile(
     state: &AppState,
     position: VoxelCoord,
     capacity: Mass,

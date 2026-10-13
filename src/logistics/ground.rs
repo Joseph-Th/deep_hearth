@@ -1,21 +1,30 @@
 //! World-space placement for loose ground stockpiles.
 
+#[cfg(any(test, feature = "test-gameplay"))]
 use std::error::Error;
+#[cfg(any(test, feature = "test-gameplay"))]
 use std::fmt::{Display, Formatter};
 
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::core::quantity::Mass;
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::core::state::AppState;
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::inventory::StockpileId;
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::spatial::VoxelCoord;
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::structural::StructuralElementId;
 
 mod allocation;
 mod transfer;
 
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use allocation::validate_allocate_ground_stockpile;
 pub use allocation::{
     GroundStockpileAllocationCommitError, GroundStockpileAllocationError,
     PlayerGroundStockpileAllocationError, ValidatedGroundStockpileAllocation,
-    validate_allocate_ground_stockpile, validate_allocate_player_ground_stockpile,
+    validate_allocate_player_ground_stockpile,
 };
 pub use transfer::{
     GroundMaterialTransferCommitError, GroundMaterialTransferError,
@@ -23,8 +32,9 @@ pub use transfer::{
 };
 
 /// Failure while binding an existing unsupported stockpile to one ground voxel.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GroundStockpilePlacementError {
+pub(crate) enum GroundStockpilePlacementError {
     UnknownStockpile {
         stockpile: StockpileId,
     },
@@ -49,6 +59,7 @@ pub enum GroundStockpilePlacementError {
     LogisticsRevisionExhausted,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for GroundStockpilePlacementError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -98,11 +109,13 @@ impl Display for GroundStockpilePlacementError {
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for GroundStockpilePlacementError {}
 
 /// Failure when a validated ground placement no longer matches owner revisions.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GroundStockpilePlacementCommitError {
+pub(crate) enum GroundStockpilePlacementCommitError {
     StaleLogisticsRevision {
         expected: u64,
         actual: u64,
@@ -130,6 +143,7 @@ pub enum GroundStockpilePlacementCommitError {
     },
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for GroundStockpilePlacementCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -175,12 +189,14 @@ impl Display for GroundStockpilePlacementCommitError {
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for GroundStockpilePlacementCommitError {}
 
 /// Revision-bound placement of an existing loose stockpile into world space.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ValidatedGroundStockpilePlacement {
+pub(crate) struct ValidatedGroundStockpilePlacement {
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
     expected_inventory_support_revision: u64,
@@ -188,8 +204,12 @@ pub struct ValidatedGroundStockpilePlacement {
     position: VoxelCoord,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl ValidatedGroundStockpilePlacement {
-    pub fn commit(self, state: &mut AppState) -> Result<(), GroundStockpilePlacementCommitError> {
+    pub(crate) fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<(), GroundStockpilePlacementCommitError> {
         let actual_logistics_revision = state.logistics().revision();
         if actual_logistics_revision != self.expected_logistics_revision {
             return Err(
@@ -255,12 +275,13 @@ impl ValidatedGroundStockpilePlacement {
     }
 }
 
-/// Low-level world/bootstrap authorization for giving one unsupported stockpile a ground location.
+/// Crate-owned world/bootstrap authorization for giving one unsupported stockpile a ground location.
 ///
 /// Ordinary pickup/drop actions cannot call this to teleport matter; they only operate on stockpiles
 /// already owned by this location map. World generation and placement adapters compose this boundary
 /// only after separately proving why the stockpile exists at the requested voxel.
-pub fn validate_place_ground_stockpile(
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) fn validate_place_ground_stockpile(
     state: &AppState,
     stockpile: StockpileId,
     position: VoxelCoord,

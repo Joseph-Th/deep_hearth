@@ -4,14 +4,15 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, commit_controlled_material_delivery,
-    seed_assembled_equipment_at, seed_lot, seed_player_survival_at_full_reserve,
+    locate_fluid_store, locate_ground_stockpile, seed_assembled_equipment_at, seed_fluid_store,
+    seed_ground_stockpile, seed_lot, seed_player_survival_at_full_reserve,
     seed_preused_assembled_equipment_at, seed_stockpile, seed_surface_resource,
 };
 use deep_hearth::content::{
-    EQUIPMENT_STONE_PICK, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD,
+    EQUIPMENT_STONE_PICK, FLUID_WATER, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD,
     SURFACE_GATHERING_HAND_COLLECT_STONE, build_registries,
 };
-use deep_hearth::core::quantity::{Mass, Temperature};
+use deep_hearth::core::quantity::{Mass, Temperature, Volume};
 use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 use deep_hearth::labor::PlayerWork;
@@ -250,6 +251,63 @@ fn gameplay_bootstrap_rejects_world_seeding_after_player_admission() {
             Mass::from_milligrams(1),
             StockpileStorageProfile::unbounded_solid_only(),
         );
+    });
+}
+
+#[test]
+fn coordinate_ground_allocation_fixture_rejects_post_admission_use() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("ground-allocation fixture admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("ground-allocation fixture admission commit failed: {error}")
+        });
+
+    assert_fixture_rejected_without_mutation(&mut state, |state| {
+        let _ = seed_ground_stockpile(state, VoxelCoord::new(5, 0, 0), Mass::from_milligrams(1));
+    });
+}
+
+#[test]
+fn coordinate_ground_location_fixture_rejects_post_admission_use() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(1),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("ground-location fixture admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("ground-location fixture admission commit failed: {error}"));
+
+    assert_fixture_rejected_without_mutation(&mut state, |state| {
+        locate_ground_stockpile(state, stockpile, VoxelCoord::new(5, 0, 0));
+    });
+}
+
+#[test]
+fn coordinate_fluid_location_fixture_rejects_post_admission_use() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = seed_fluid_store(
+        &registries,
+        &mut state,
+        Volume::from_microliters(1),
+        FLUID_WATER,
+        Volume::from_microliters(1),
+        Temperature::from_millikelvin(293_150),
+    );
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("fluid-location fixture admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fluid-location fixture admission commit failed: {error}"));
+
+    assert_fixture_rejected_without_mutation(&mut state, |state| {
+        locate_fluid_store(state, store, VoxelCoord::new(5, 0, 0));
     });
 }
 

@@ -1,7 +1,7 @@
 //! Ordinary primitive liberation episode shared by progression gates and exploratory reports.
 
 use deep_hearth::capability::CapabilityValue;
-use deep_hearth::content::gameplay_fixture::seed_composed_lot;
+use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_ground_stockpile};
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_ELECTRIC_FURNACE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, PROCESS_MELT_PURE_COPPER,
@@ -12,7 +12,6 @@ use deep_hearth::energy::EnergyStoreId;
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
 use deep_hearth::labor::ManualPowerMethodId;
-use deep_hearth::logistics::validate_allocate_ground_stockpile;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -108,10 +107,7 @@ struct PrimitiveLiberationBootstrap {
 }
 
 fn allocate_liberation_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
-    validate_allocate_ground_stockpile(state, PRIMITIVE_LIBERATION_ORIGIN, capacity)
-        .unwrap_or_else(|error| panic!("liberation stockpile allocation failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("liberation stockpile allocation commit failed: {error}"))
+    seed_ground_stockpile(state, PRIMITIVE_LIBERATION_ORIGIN, capacity)
 }
 
 fn bootstrap_liberation_inventory(

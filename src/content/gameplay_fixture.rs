@@ -18,6 +18,8 @@ use crate::inventory::{
 };
 use crate::logistics::{
     PlayerLogisticsRecord, place_energy_store_for_fixture, place_equipment_for_fixture,
+    validate_allocate_ground_stockpile, validate_place_fluid_store,
+    validate_place_ground_stockpile,
 };
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId};
@@ -321,6 +323,49 @@ pub fn seed_fluid_store(
         temperature,
     )
     .unwrap_or_else(|error| panic!("gameplay bootstrap fluid seed failed: {error}"))
+}
+
+/// Creates one empty loose ground stockpile at an authored fixture voxel before actor admission.
+///
+/// Coordinate-taking allocation is deliberately hidden from ordinary runtime callers. Maintained
+/// gameplay probes that need pre-existing world custody must come through this pre-admission
+/// boundary instead of acquiring a general teleport/placement capability.
+pub fn seed_ground_stockpile(
+    state: &mut AppState,
+    position: VoxelCoord,
+    capacity: Mass,
+) -> StockpileId {
+    assert_pre_admission(state, "ground-stockpile seed");
+    validate_allocate_ground_stockpile(state, position, capacity)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap ground-stockpile seed failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap ground-stockpile seed commit failed: {error}")
+        })
+}
+
+/// Assigns one pre-existing loose stockpile to an authored fixture voxel before actor admission.
+pub fn locate_ground_stockpile(state: &mut AppState, stockpile: StockpileId, position: VoxelCoord) {
+    assert_pre_admission(state, "ground-stockpile location");
+    validate_place_ground_stockpile(state, stockpile, position)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap ground-stockpile location failed: {error}")
+        })
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap ground-stockpile location commit failed: {error}")
+        });
+}
+
+/// Assigns one pre-existing finite fluid store to an authored fixture voxel before actor admission.
+pub fn locate_fluid_store(state: &mut AppState, store: FluidStoreId, position: VoxelCoord) {
+    assert_pre_admission(state, "fluid-store location");
+    validate_place_fluid_store(state, store, position)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap fluid-store location failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap fluid-store location commit failed: {error}")
+        });
 }
 
 /// Inert authored facts for one geological deposit used only by the controlled gameplay fixture.

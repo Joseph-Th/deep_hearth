@@ -9,7 +9,7 @@ use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FluidStorePlacementError {
+pub(crate) enum FluidStorePlacementError {
     UnknownStore {
         store: FluidStoreId,
     },
@@ -62,7 +62,7 @@ impl Display for FluidStorePlacementError {
 impl Error for FluidStorePlacementError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FluidStorePlacementCommitError {
+pub(crate) enum FluidStorePlacementCommitError {
     StaleLogisticsRevision {
         expected: u64,
         actual: u64,
@@ -126,7 +126,7 @@ impl Error for FluidStorePlacementCommitError {}
 
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ValidatedFluidStorePlacement {
+pub(crate) struct ValidatedFluidStorePlacement {
     store: FluidStoreId,
     position: VoxelCoord,
     expected_logistics_revision: u64,
@@ -135,7 +135,7 @@ pub struct ValidatedFluidStorePlacement {
 }
 
 impl ValidatedFluidStorePlacement {
-    pub fn commit(self, state: &mut AppState) -> Result<(), FluidStorePlacementCommitError> {
+    pub(crate) fn commit(self, state: &mut AppState) -> Result<(), FluidStorePlacementCommitError> {
         let actual_logistics_revision = state.logistics().revision();
         if actual_logistics_revision != self.expected_logistics_revision {
             return Err(FluidStorePlacementCommitError::StaleLogisticsRevision {
@@ -179,8 +179,8 @@ impl ValidatedFluidStorePlacement {
     }
 }
 
-/// Binds one existing finite fluid store to a world voxel without moving fluid or creating matter.
-pub fn validate_place_fluid_store(
+/// Crate-owned bootstrap binding of one finite fluid store to a world voxel.
+pub(crate) fn validate_place_fluid_store(
     state: &AppState,
     store: FluidStoreId,
     position: VoxelCoord,

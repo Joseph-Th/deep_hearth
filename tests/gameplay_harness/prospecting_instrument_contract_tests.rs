@@ -2,7 +2,7 @@
 
 use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;
 use deep_hearth::content::gameplay_fixture::{
-    GeologicalDepositSeed, seed_geological_deposit, seed_lot,
+    GeologicalDepositSeed, locate_ground_stockpile, seed_geological_deposit, seed_lot,
 };
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
@@ -21,7 +21,6 @@ use deep_hearth::geology::{
     GeologicalEvidenceKind, validate_start_field_prospecting,
 };
 use deep_hearth::labor::ProspectingSpatialResolution;
-use deep_hearth::logistics::validate_place_ground_stockpile;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{
@@ -216,12 +215,7 @@ fn shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_ev
         .unwrap_or_else(|error| panic!("shallow-core matter setup failed: {error}"))
         .total();
     let position = region.min();
-    validate_place_ground_stockpile(&state, drill_source, position)
-        .unwrap_or_else(|error| panic!("shallow-core drill-source placement failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| {
-            panic!("shallow-core drill-source placement commit failed: {error}")
-        });
+    locate_ground_stockpile(&mut state, drill_source, position);
     validate_admit_player(&registries, &state, position)
         .unwrap_or_else(|error| panic!("shallow-core player admission failed: {error}"))
         .commit(&mut state)
@@ -473,14 +467,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
 
     let position = detailed_region.min();
     for stockpile in [hammer_source, reinforcement_source, recovery] {
-        validate_place_ground_stockpile(&state, stockpile, position)
-            .unwrap_or_else(|error| {
-                panic!("prospecting-instrument stockpile placement failed: {error}")
-            })
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("prospecting-instrument stockpile placement commit failed: {error}")
-            });
+        locate_ground_stockpile(&mut state, stockpile, position);
     }
     validate_admit_player(&registries, &state, position)
         .unwrap_or_else(|error| panic!("prospecting-instrument player admission failed: {error}"))

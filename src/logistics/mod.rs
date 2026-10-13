@@ -8,6 +8,7 @@
 mod access;
 #[cfg(feature = "test-gameplay")]
 mod fixture;
+#[cfg(any(test, feature = "test-gameplay"))]
 mod fluid;
 mod ground;
 mod initialization;
@@ -25,19 +26,19 @@ pub use access::{
 };
 #[cfg(feature = "test-gameplay")]
 pub(crate) use fixture::{place_energy_store_for_fixture, place_equipment_for_fixture};
-pub use fluid::{
-    FluidStorePlacementCommitError, FluidStorePlacementError, ValidatedFluidStorePlacement,
-    validate_place_fluid_store,
-};
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use fluid::validate_place_fluid_store;
+#[cfg(test)]
+pub(crate) use ground::GroundStockpilePlacementCommitError;
 pub use ground::{
     GroundMaterialTransferCommitError, GroundMaterialTransferError,
     GroundStockpileAllocationCommitError, GroundStockpileAllocationError,
-    GroundStockpilePlacementCommitError, GroundStockpilePlacementError,
     PlayerGroundStockpileAllocationError, ValidatedGroundMaterialTransfer,
-    ValidatedGroundStockpileAllocation, ValidatedGroundStockpilePlacement,
-    validate_allocate_ground_stockpile, validate_allocate_player_ground_stockpile,
-    validate_drop_to_ground, validate_pickup_from_ground, validate_place_ground_stockpile,
+    ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile,
+    validate_drop_to_ground, validate_pickup_from_ground,
 };
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use ground::{validate_allocate_ground_stockpile, validate_place_ground_stockpile};
 #[cfg(test)]
 pub(crate) use initialization::validate_initialize_player_logistics;
 pub(crate) use initialization::{

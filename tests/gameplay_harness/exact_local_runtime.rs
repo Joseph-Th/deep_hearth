@@ -2,14 +2,13 @@
 
 use std::collections::BTreeSet;
 
+use deep_hearth::content::gameplay_fixture::{locate_fluid_store, locate_ground_stockpile};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::logistics::{
-    assess_player_carrying, validate_place_fluid_store, validate_place_ground_stockpile,
-};
+use deep_hearth::logistics::assess_player_carrying;
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 
@@ -109,36 +108,10 @@ pub(super) fn locate_stationary_endpoints(
     fluid_stores: &[FluidStoreId],
 ) {
     for &stockpile in stockpiles {
-        validate_place_ground_stockpile(state, stockpile, STATIONARY_PLAYER_ORIGIN)
-            .unwrap_or_else(|error| {
-                panic!(
-                    "stationary gameplay stockpile {} placement failed: {error}",
-                    stockpile.value()
-                )
-            })
-            .commit(state)
-            .unwrap_or_else(|error| {
-                panic!(
-                    "stationary gameplay stockpile {} placement commit failed: {error}",
-                    stockpile.value()
-                )
-            });
+        locate_ground_stockpile(state, stockpile, STATIONARY_PLAYER_ORIGIN);
     }
     for &store in fluid_stores {
-        validate_place_fluid_store(state, store, STATIONARY_PLAYER_ORIGIN)
-            .unwrap_or_else(|error| {
-                panic!(
-                    "stationary gameplay fluid store {} placement failed: {error}",
-                    store.value()
-                )
-            })
-            .commit(state)
-            .unwrap_or_else(|error| {
-                panic!(
-                    "stationary gameplay fluid store {} placement commit failed: {error}",
-                    store.value()
-                )
-            });
+        locate_fluid_store(state, store, STATIONARY_PLAYER_ORIGIN);
     }
 }
 

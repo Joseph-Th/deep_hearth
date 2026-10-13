@@ -320,6 +320,7 @@ impl LogisticsState {
         self.revision = next_revision;
     }
 
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn apply_fluid_store_placement(
         &mut self,
         expected_revision: u64,

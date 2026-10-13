@@ -11,7 +11,7 @@ mod generated_raw;
 use std::collections::BTreeMap;
 
 use deep_hearth::content::gameplay_fixture::{
-    seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_lot,
+    seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_ground_stockpile, seed_lot,
     seed_preused_assembled_equipment_at,
 };
 use deep_hearth::content::{
@@ -26,10 +26,7 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::PlayerWork;
-use deep_hearth::logistics::{
-    assess_player_carrying, validate_allocate_ground_stockpile,
-    validate_allocate_player_ground_stockpile,
-};
+use deep_hearth::logistics::{assess_player_carrying, validate_allocate_player_ground_stockpile};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -202,10 +199,7 @@ fn seed_inherited_progression_infrastructure(
         .unwrap_or_else(|| panic!("liberation inherited flywheel lost authored assembly"));
     add_profile_requirements(&mut requirements, drive_profile);
     let embodied_mass = raw_requirement_mass(&requirements);
-    let source = validate_allocate_ground_stockpile(state, position, embodied_mass)
-        .unwrap_or_else(|error| panic!("liberation inherited component allocation failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("liberation inherited component commit failed: {error}"));
+    let source = seed_ground_stockpile(state, position, embodied_mass);
     for (commodity, mass) in requirements {
         seed_lot(registries, state, source, commodity, mass, ROOM_TEMPERATURE);
     }
