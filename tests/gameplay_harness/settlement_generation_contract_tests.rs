@@ -6,7 +6,9 @@ use deep_hearth::content::EQUIPMENT_TIMBER_FRAME_SAW_BENCH;
 use deep_hearth::maintenance::Condition;
 
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
-use super::settlement_demand::{organic_lumber_batch_limits, organic_lumber_batches};
+use super::settlement_demand::{
+    organic_followup_lumber_batches, organic_lumber_batch_limits, organic_lumber_batches,
+};
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
     organic_inherited_equipment_condition, organic_investment_policy,
@@ -100,6 +102,38 @@ fn organic_settlement_generation_varies_visible_demand_without_using_investment_
             "settlement pressure stratum {stratum} became a rigid fixed scenario"
         );
     }
+    let paired_demands = (1_u64..=256)
+        .map(|seed| {
+            let first = organic_lumber_batches(
+                seed & 0b11,
+                seed.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+                opportunity_batches,
+            );
+            let followup = organic_followup_lumber_batches(
+                (seed >> 2) & 0b11,
+                seed.wrapping_mul(0xD1B5_4A32_D192_ED03),
+                first,
+                opportunity_batches,
+            );
+            (first, followup)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        paired_demands
+            .iter()
+            .any(|(first, followup)| followup < first)
+    );
+    assert!(
+        paired_demands
+            .iter()
+            .any(|(first, followup)| followup > first)
+    );
+    assert!(paired_demands.iter().all(|(first, followup)| {
+        *followup > 0
+            && first
+                .checked_add(*followup)
+                .is_some_and(|total| total <= opportunity_batches)
+    }));
     assert!(
         (1_u64..=128)
             .map(organic_investment_policy)

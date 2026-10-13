@@ -31,6 +31,7 @@ from tools import (  # noqa: E402
     rust_diagnostics,
     test_catalog,
 )
+from tools.gameplay_summary import fieldwork as gameplay_fieldwork_summary  # noqa: E402
 
 
 _source_text_cache: dict[Path, str] = {}
@@ -3022,6 +3023,24 @@ class GameplayReportContractTests(unittest.TestCase):
             summary,
         )
 
+    def test_survival_summary_exposes_preservation_episode_continuity(self) -> None:
+        lines = [
+            "SURVIVAL EXPERIENCE seed=0x1 sample=organic pressure=hydration choice=[state:supply-constrained diet:balanced-recovery meal:500000mg drink:750000uL] inherited-reserve=[continuity:main-provisioning-episode storage:7:copper-crock preservation:5000000ppm rotation:consume-ambient-first retained:5800000mg age-saved:2500t] preservation-investment-episode=[continuity:separate-matched-episode protected-reserve:5800000mg raw-opportunity=[origin:5:field-box mode:scarce-timber inputs:wood:2000000mg] storage-policy:enclosure-singleton commitment:5:field-box state:invested commitment-reason:return-clears-threshold minimum-return:1000000ppm candidate-enclosure-evaluation=[policy:enclosure-singleton storage:5:field-box preservation:1750000ppm candidates:1]] work-interlock=[short-loop-serving-floor:250000uL integrated=[hydration-policy:task-floor initial-drink:250000uL/6t prospect:12t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:900000ppmE/900000ppmH warning-safe:true serving-actions=[initial:1 followup:0 power:0]]]",
+            "SURVIVAL PRESERVATION PATH seed=0x1 sample=organic continuity=separate-matched-episode actor-selected=true canonical-execution=true action=build storage=5:field-box horizon=1000t build=125t raw-spent=2000000mg outcome=fresh remaining-fresh=700t",
+        ]
+        summary = gameplay_report_summary.survival_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn(
+            "preservation-continuity=[inherited-main:1/1 investment-separate-matched:1/1]",
+            summary,
+        )
+        digest = gameplay_report_summary._digest_summary(summary)
+        self.assertIn(
+            "preservation-continuity=[inherited-main:1/1 investment-separate-matched:1/1]",
+            digest,
+        )
+
     def test_fieldwork_summary_separates_world_constraints_from_selected_tool(self) -> None:
         lines = [
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 full-order-tool=copper-reinforced-hard-pick tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
@@ -3556,6 +3575,31 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn("decision-basis=[attention:1 capacity:1]", concise)
+
+    def test_settlement_summary_keeps_followup_reassessment_after_charge_telemetry(self) -> None:
+        lines = [
+            "SETTLEMENT EXPERIENCE seed=0x2 sample=organic demand=[batches:30 mass:300mg baseline-crossover:36] decision=[choice:frame-saw basis:attention-return capacity=[frame-saw:30/30 sash-sawmill:30/30] minimum-return:150000ppm baseline:230t mechanized:228t setup:183t margin:+2t] execution=[active:230t elapsed:230t/13.8m delegated:0t charge-events:0 upgraded:false boards:270mg chips:30mg] followup=[demand-batches:52 completed:52 terminal:complete route:sash-sawmill active:276t elapsed:636t/38.1m delegated:360t charge-events:26 machine-owned-before:false reinvested:true boards-total:738mg chips-total:82mg] followup-reassessment=[basis:capacity capacity=[manual:30 powered:52] attention=[manual:372t powered:276t] minimum-return:31t result:upgrade] prior-infrastructure=[frame-saw-condition:906318ppm crank-condition:948127ppm]",
+        ]
+        summary = gameplay_report_summary.settlement_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn("followup-basis=[attention:0 capacity:1]", summary)
+        self.assertIn("reinvested:1/1", summary)
+        digest = gameplay_report_summary._digest_summary(summary)
+        self.assertIn("followup-basis=[attention:0 capacity:1]", digest)
+        self.assertIn("followup-payoff=[complete:1/1", digest)
+
+    def test_fieldwork_exact_local_summary_exposes_independent_multi_trip_order(self) -> None:
+        lines = [
+            "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[steps:12 barren-sites:1 target-distance:2 haul-trips:2] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:40000000..45000000mg] tools=[hammer:650000mg pick:2000000mg custody:player-carried] extraction=[order:30000000mg batches:60 ticks:292 complete:true] haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg utilization:360000..1000000ppm] locomotion=[outbound:981000000000nJ/287uL loaded-max:1533000000000nJ/425uL] cache=[returned:30000000mg tool-dropped:true] matter=conserved",
+        ]
+        summary = gameplay_report_summary.fieldwork_summary(lines)
+        self.assertIsNone(summary)
+        exact = gameplay_fieldwork_summary._exact_local_expedition_summary(lines)
+        self.assertEqual(
+            exact,
+            "exact-local-expedition=[steps:12 barren:1 distance:2 trips:2 survey:2+1 order:30kg batches:60 work:292t load:2kg->9kg..25kg/25kg utilization:360000..1000000ppm step-cost:+56%energy/+48%hydration returned:30kg matter:conserved]",
+        )
 
     def test_liberation_digest_prefers_organic_lifecycle_over_maintained_payback(self) -> None:
         summary = (

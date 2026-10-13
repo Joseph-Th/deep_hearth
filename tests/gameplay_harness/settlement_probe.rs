@@ -38,7 +38,7 @@ use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output
 use super::physical_time::format_physical_duration;
 use super::powered_craft_planning::authored_batch;
 use super::seed::mix64;
-use super::settlement_demand::organic_lumber_batches;
+use super::settlement_demand::{organic_followup_lumber_batches, organic_lumber_batches};
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES as SETTLEMENT_OPPORTUNITY_BATCHES,
     crossover_workloads, organic_inherited_equipment_condition, organic_investment_policy,
@@ -50,6 +50,25 @@ use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 enum LumberInvestmentChoice {
     FrameSaw,
     SashSawmill,
+}
+
+fn declared_followup_lumber_batches(case: FocusedProbeCase, first_order_batches: u64) -> u64 {
+    let remaining_opportunity_batches = SETTLEMENT_OPPORTUNITY_BATCHES
+        .checked_sub(first_order_batches)
+        .unwrap_or_else(|| unreachable!("declared settlement order fits disclosed opportunity"));
+    match case.role() {
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
+            first_order_batches.min(remaining_opportunity_batches)
+        }
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            organic_followup_lumber_batches(
+                mix64(case.seed() ^ 0x5345_5454_464F_4C53) & 0b11,
+                mix64(case.seed() ^ 0x5345_5454_464F_4C45),
+                first_order_batches,
+                SETTLEMENT_OPPORTUNITY_BATCHES,
+            )
+        }
+    }
 }
 
 fn assert_settlement_lumber_episode_available(registries: &Registries) {
@@ -802,10 +821,10 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let remaining_opportunity_batches = SETTLEMENT_OPPORTUNITY_BATCHES
         .checked_sub(order_batches)
         .unwrap_or_else(|| unreachable!("declared settlement order fits disclosed opportunity"));
-    let followup_batches = order_batches.min(remaining_opportunity_batches);
+    let followup_batches = declared_followup_lumber_batches(case, order_batches);
     assert!(
-        followup_batches > 0,
-        "settlement lived episode must leave a disclosed follow-up lumber opportunity"
+        followup_batches > 0 && followup_batches <= remaining_opportunity_batches,
+        "settlement lived episode must disclose a follow-up order inside the remaining lumber opportunity"
     );
     let initially_upgraded = upgraded;
     let followup = lumber_followup::run_lumber_followup(lumber_followup::LumberFollowupInputs {
@@ -833,6 +852,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let followup_route = followup.route;
     let followup_reinvested = followup.reinvested;
     let followup_completed_batches = followup.completed_batches;
+    let followup_service_stock_mg = followup.service_stock_mg;
     let followup_reassessment = followup.reassessment;
     let followup_elapsed = followup.elapsed_ticks;
     let followup_board_mass = followup.board_mass;
@@ -854,7 +874,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let baseline_crossover =
         baseline_crossover_batches.map_or_else(|| "none".to_owned(), |batches| batches.to_string());
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] decision=[choice:{} basis:{} capacity=[frame-saw:{}/{} sash-sawmill:{}/{}] power-cycle=[charges:{} max-batches-per-charge:{}] policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t charge-events:{} upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t charge-events:{} machine-owned-before:{} reinvested:{} boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=[frame-saw-condition:{}ppm crank-condition:{}ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] decision=[choice:{} basis:{} capacity=[frame-saw:{}/{} sash-sawmill:{}/{}] power-cycle=[charges:{} max-batches-per-charge:{}] policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t charge-events:{} upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t charge-events:{} machine-owned-before:{} reinvested:{} service-stock:{}mg boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=[frame-saw-condition:{}ppm crank-condition:{}ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         order_batches,
@@ -895,6 +915,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         followup_charge_events,
         initially_upgraded,
         followup_reinvested,
+        followup_service_stock_mg,
         followup_board_mass.milligrams(),
         followup_chip_mass.milligrams(),
         followup_reassessment,

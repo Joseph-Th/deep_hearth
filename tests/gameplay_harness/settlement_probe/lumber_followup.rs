@@ -4,8 +4,8 @@ use std::num::NonZeroU64;
 
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-    EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_BOARD, FORM_CHIP, MANUAL_POWER_HAND_CRANK, MATERIAL_WOOD,
-    PROCESS_POWER_SAW_WOOD_BOARDS,
+    EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_BOARD, FORM_CHIP, FORM_SAW_BLADE, MANUAL_POWER_HAND_CRANK,
+    MATERIAL_COPPER, MATERIAL_WOOD, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
@@ -72,6 +72,7 @@ pub(super) struct LumberFollowupResult {
     pub(super) route: &'static str,
     pub(super) reinvested: bool,
     pub(super) completed_batches: u64,
+    pub(super) service_stock_mg: u64,
     pub(super) reassessment: String,
     pub(super) elapsed_ticks: u64,
     pub(super) board_mass: Mass,
@@ -324,6 +325,14 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
         chip_mass_before,
     } = inputs;
     let started_at = state.tick().value();
+    let replacement_blade = CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE);
+    let service_stock = [upgrade_raw, upgrade_parts]
+        .into_iter()
+        .filter_map(|stockpile| state.inventory().get_stockpile(stockpile))
+        .try_fold(Mass::ZERO, |total, stockpile| {
+            total.checked_add(stockpile.get_mass(replacement_blade))
+        })
+        .unwrap_or_else(|| panic!("settlement sawmill service-stock mass overflowed"));
     let (
         active_attention,
         delegated_ticks,
@@ -576,7 +585,10 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     "blocked",
                     false,
                     0,
-                    "owned-sawmill:wear-blocked".to_owned(),
+                    format!(
+                        "owned-sawmill:wear-blocked service-stock:{}mg",
+                        service_stock.milligrams()
+                    ),
                     true,
                 )
             } else {
@@ -611,9 +623,10 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     false,
                     projection.batches,
                     format!(
-                        "owned-sawmill:reuse capacity:{}/{} power-cycle=[charges:{} max-batches-per-charge:{}]",
+                        "owned-sawmill:reuse capacity:{}/{} service-stock:{}mg power-cycle=[charges:{} max-batches-per-charge:{}]",
                         projection.batches,
                         demand_batches,
+                        service_stock.milligrams(),
                         projection.charge_events(),
                         projection.maximum_leg_batches(),
                     ),
@@ -648,6 +661,12 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
     } else {
         "wear-limited"
     };
+    if completed_batches < demand_batches {
+        assert!(
+            service_stock.is_zero(),
+            "settlement follow-up should not accept wear-limited work while a replacement blade is already available"
+        );
+    }
     LumberFollowupResult {
         active_attention,
         delegated_ticks,
@@ -655,6 +674,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
         route,
         reinvested,
         completed_batches,
+        service_stock_mg: service_stock.milligrams(),
         reassessment,
         elapsed_ticks,
         board_mass,

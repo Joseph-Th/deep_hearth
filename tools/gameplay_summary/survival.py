@@ -83,6 +83,12 @@ def survival_summary(lines: list[str]) -> str | None:
     inherited_preservation_ppm = []
     inherited_retained_mg = []
     inherited_age_saved_ticks = []
+    inherited_main_episode = count(
+        "inherited-reserve=[continuity:main-provisioning-episode "
+    )
+    matched_investment_episode = count(
+        "preservation-investment-episode=[continuity:separate-matched-episode "
+    )
     selected_remaining_fresh_ticks = [
         int(match.group(1))
         for line in preservation_paths
@@ -112,7 +118,7 @@ def survival_summary(lines: list[str]) -> str | None:
             followup_work_servings.append(int(serving_actions.group(2)))
             power_work_servings.append(int(serving_actions.group(3)))
         inherited = re.search(
-            r"inherited-reserve=\[storage:[^ ]+ preservation:(\d+)ppm "
+            r"inherited-reserve=\[(?:continuity:[^ ]+ )?storage:[^ ]+ preservation:(\d+)ppm "
             r"rotation:[^ ]+ retained:(\d+)mg age-saved:(\d+)t\]",
             line,
         )
@@ -130,6 +136,8 @@ def survival_summary(lines: list[str]) -> str | None:
         f"strength:{_span(inherited_preservation_ppm, 'ppm')} "
         f"retained:{scaled_span(inherited_retained_mg, 1_000_000, 'kg')} "
         f"age-saved:{_span(inherited_age_saved_ticks, 't')}] "
+        f"preservation-continuity=[inherited-main:{inherited_main_episode}/{len(survival)} "
+        f"investment-separate-matched:{matched_investment_episode}/{len(survival)}] "
         f"preservation-opportunity=[scarce:{count('mode:scarce-timber')} "
         f"choice-rich:{count('mode:choice-rich-timber')} "
         f"alternate:{count('mode:alternate-material')} "

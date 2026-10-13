@@ -19,6 +19,10 @@ def _span(values: list[int], unit: str) -> str:
     return f"{min(values)}..{max(values)}{unit}" if values else "n/a"
 
 
+def _signed_tick_span(values: list[int]) -> str:
+    return f"{min(values):+d}..{max(values):+d}t" if values else "n/a"
+
+
 def _storage_scale_evidence(lines: list[str]) -> str:
     experiences = [
         line for line in lines if line.startswith("SETTLEMENT STORAGE EXPERIENCE ")
@@ -132,14 +136,40 @@ def settlement_summary(lines: list[str]) -> str | None:
     organic_capacity_decisions = sum(
         " basis:capacity " in line for line in organic_settlement
     )
-    machine_repeat_drop: list[int] = []
-    manual_repeat_growth: list[int] = []
+    organic_followup_smaller = 0
+    organic_followup_equal = 0
+    organic_followup_larger = 0
+    organic_followup_batches: list[int] = []
+    for line in organic_settlement:
+        initial_match = re.search(r"\bdemand=\[batches:(\d+)", line)
+        followup_match = re.search(r"\bfollowup=\[demand-batches:(\d+)", line)
+        if initial_match is None or followup_match is None:
+            continue
+        initial = int(initial_match.group(1))
+        followup = int(followup_match.group(1))
+        organic_followup_batches.append(followup)
+        if followup < initial:
+            organic_followup_smaller += 1
+        elif followup > initial:
+            organic_followup_larger += 1
+        else:
+            organic_followup_equal += 1
+    organic_followup = ""
+    if organic_followup_batches:
+        organic_followup = (
+            " followup=["
+            f"demand:{_span(organic_followup_batches, 'batches')} "
+            f"smaller:{organic_followup_smaller} equal:{organic_followup_equal} larger:{organic_followup_larger}]"
+        )
+    machine_followup_attention_delta: list[int] = []
+    manual_followup_attention_delta: list[int] = []
     repeat_delegated: list[int] = []
     repeat_reuse = 0
     repeat_reinvested = 0
     repeat_count = 0
     followup_complete = 0
     followup_partial = 0
+    followup_partial_no_service_stock = 0
     followup_blocked = 0
     followup_capacity_decisions = 0
     followup_attention_decisions = 0
@@ -147,7 +177,7 @@ def settlement_summary(lines: list[str]) -> str | None:
         repeat = re.search(
             r"execution=\[active:(\d+)t .*? upgraded:(true|false).*?\] "
             r"followup=\[demand-batches:(\d+) completed:(\d+) terminal:([^ ]+) "
-            r"route:[^ ]+ active:(\d+)t .*? delegated:(\d+)t "
+            r"route:[^ ]+ active:(\d+)t .*? delegated:(\d+)t .*?"
             r"machine-owned-before:(true|false) reinvested:(true|false)",
             line,
         )
@@ -173,6 +203,7 @@ def settlement_summary(lines: list[str]) -> str | None:
         elif terminal == "wear-limited":
             assert 0 < completed_batches < demand_batches
             followup_partial += 1
+            followup_partial_no_service_stock += " service-stock:0mg " in line
         elif terminal == "wear-blocked":
             assert completed_batches == 0
             followup_blocked += 1
@@ -182,7 +213,7 @@ def settlement_summary(lines: list[str]) -> str | None:
             assert owned_before and not reinvested
             repeat_reuse += 1
             if completed_batches == demand_batches:
-                machine_repeat_drop.append(first_attention - followup_attention)
+                machine_followup_attention_delta.append(followup_attention - first_attention)
             repeat_delegated.append(delegated_ticks)
         elif reinvested:
             assert not owned_before
@@ -191,7 +222,7 @@ def settlement_summary(lines: list[str]) -> str | None:
         else:
             assert not owned_before
             if completed_batches == demand_batches:
-                manual_repeat_growth.append(followup_attention - first_attention)
+                manual_followup_attention_delta.append(followup_attention - first_attention)
     manual_machine_experiences = [
         line
         for line in lines
@@ -308,12 +339,13 @@ def settlement_summary(lines: list[str]) -> str | None:
             " followup-payoff=["
             f"complete:{followup_complete}/{repeat_count} "
             f"wear-limited:{followup_partial}/{repeat_count} "
+            f"wear-limited-no-service-stock:{followup_partial_no_service_stock}/{repeat_count} "
             f"wear-blocked:{followup_blocked}/{repeat_count} "
             f"owned-machine-reuse:{repeat_reuse}/{repeat_count} "
             f"reinvested:{repeat_reinvested}/{repeat_count} "
-            f"machine-active-drop:{_span(machine_repeat_drop, 't')} "
+            f"machine-followup-active-delta:{_signed_tick_span(machine_followup_attention_delta)} "
             f"machine-delegated:{_span(repeat_delegated, 't')} "
-            f"manual-wear-growth:{_span(manual_repeat_growth, 't')}]"
+            f"manual-followup-active-delta:{_signed_tick_span(manual_followup_attention_delta)}]"
         )
 
     return (
@@ -322,6 +354,7 @@ def settlement_summary(lines: list[str]) -> str | None:
         f"choice=[frame:{direct} sawmill:{mechanized}] "
         f"organic-play=[decision=[frame:{organic_direct} sawmill:{organic_mechanized}] "
         f"demand:{_span(organic_batches, 'batches')} "
+        f"{organic_followup.strip() + ' ' if organic_followup else ''}"
         f"capacity-driven:{organic_capacity_decisions}/{len(organic_settlement)} "
         f"wear=[saw:{_span(organic_frame_start_condition, 'ppm')} "
         f"crank:{_span(organic_crank_start_condition, 'ppm')}]] "

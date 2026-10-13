@@ -15,6 +15,12 @@ def _signed_span(values: list[int]) -> str:
     return f"{min(values):+d}..{max(values):+d}t" if values else "n/a"
 
 
+def _scaled_value(value: int, divisor: int, unit: str) -> str:
+    """Render one exact value with the same player-scale rounding as scaled_span."""
+
+    return scaled_span([value], divisor, unit).split("..", 1)[1]
+
+
 def _outcome_metrics(fieldwork: list[str]) -> tuple[str, str, int, int]:
     inspections = [
         int(match.group(1))
@@ -646,20 +652,20 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
         raise ValueError("fieldwork report requires at most one maintained exact-local expedition")
     line = expeditions[0]
     route = re.search(
-        r"\broute=\[steps:(\d+) barren-sites:(\d+) target-distance:(\d+)\]",
+        r"\broute=\[steps:(\d+) barren-sites:(\d+) target-distance:(\d+) haul-trips:(\d+)\]",
         line,
     )
     survey = re.search(r"\bsurvey=\[inspections:(\d+) detailed:(\d+) ", line)
     extraction = re.search(
-        r"\bextraction=\[requested:(\d+)mg batches:(\d+) ticks:(\d+)\]",
+        r"\bextraction=\[order:(\d+)mg batches:(\d+) ticks:(\d+) complete:true\]",
         line,
     )
     haul = re.search(
-        r"\bhaul=\[outbound:(\d+)mg return:(\d+)mg capacity:(\d+)mg utilization:(\d+)ppm\]",
+        r"\bhaul=\[outbound:(\d+)mg return:(\d+)\.\.(\d+)mg capacity:(\d+)mg utilization:(\d+)\.\.(\d+)ppm\]",
         line,
     )
     locomotion = re.search(
-        r"\blocomotion=\[outbound:(\d+)nJ/(\d+)uL return:(\d+)nJ/(\d+)uL\]",
+        r"\blocomotion=\[outbound:(\d+)nJ/(\d+)uL loaded-max:(\d+)nJ/(\d+)uL\]",
         line,
     )
     returned = re.search(r"\bcache=\[returned:(\d+)mg tool-dropped:true\]", line)
@@ -683,16 +689,17 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
     ) // outbound_hydration
     return (
         "exact-local-expedition=["
-        f"steps:{route.group(1)} barren:{route.group(2)} distance:{route.group(3)} "
+        f"steps:{route.group(1)} barren:{route.group(2)} distance:{route.group(3)} trips:{route.group(4)} "
         f"survey:{survey.group(1)}+{survey.group(2)} "
-        f"extracted:{scaled_span([int(extraction.group(1))], 1_000_000, 'kg')} "
+        f"order:{_scaled_value(int(extraction.group(1)), 1_000_000, 'kg')} "
         f"batches:{extraction.group(2)} work:{extraction.group(3)}t "
-        f"load:{scaled_span([int(haul.group(1))], 1_000_000, 'kg')}"
-        f"->{scaled_span([int(haul.group(2))], 1_000_000, 'kg')}"
-        f"/{scaled_span([int(haul.group(3))], 1_000_000, 'kg')} "
-        f"utilization:{haul.group(4)}ppm "
+        f"load:{_scaled_value(int(haul.group(1)), 1_000_000, 'kg')}"
+        f"->{_scaled_value(int(haul.group(2)), 1_000_000, 'kg')}.."
+        f"{_scaled_value(int(haul.group(3)), 1_000_000, 'kg')}"
+        f"/{_scaled_value(int(haul.group(4)), 1_000_000, 'kg')} "
+        f"utilization:{haul.group(5)}..{haul.group(6)}ppm "
         f"step-cost:+{energy_delta_pct}%energy/+{hydration_delta_pct}%hydration "
-        f"returned:{scaled_span([int(returned.group(1))], 1_000_000, 'kg')} "
+        f"returned:{_scaled_value(int(returned.group(1)), 1_000_000, 'kg')} "
         "matter:conserved]"
     )
 
