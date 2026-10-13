@@ -219,9 +219,12 @@ fn execute_known_site_exploitation(
 struct SiteReroute {
     search_ticks: u64,
     target_found: bool,
+    observed_hardness: Option<ExcavationHardnessEstimate>,
+    observed_resource_mass: Option<ResourceMassEstimate>,
     tool_preparation_ticks: u64,
     tool_reused: bool,
     tool_upgraded: bool,
+    tool_definition: Option<EquipmentDefinitionId>,
     tool_label: Option<String>,
     ore_recovery_ticks: u64,
     ore_feed_mass: Mass,
@@ -229,6 +232,20 @@ struct SiteReroute {
     ore_recovery_reason: Option<FieldworkOreRecoveryReason>,
     salvaged: bool,
     extraction: Option<FieldworkExtraction>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FieldworkDepletionRerouteReview {
+    pub(super) depleted_repeat_returned: Mass,
+    pub(super) depleted_repeat_stop: FieldworkStop,
+    pub(super) observed_hardness: ExcavationHardnessEstimate,
+    pub(super) observed_resource_mass: ResourceMassEstimate,
+    pub(super) search_ticks: u64,
+    pub(super) tool: EquipmentDefinitionId,
+    pub(super) preparation_ticks: u64,
+    pub(super) salvaged: bool,
+    pub(super) extracted: Mass,
+    pub(super) stop: FieldworkStop,
 }
 
 fn execute_site_reroute(
@@ -252,9 +269,12 @@ fn execute_site_reroute(
         return SiteReroute {
             search_ticks,
             target_found: false,
+            observed_hardness: None,
+            observed_resource_mass: None,
             tool_preparation_ticks: 0,
             tool_reused: false,
             tool_upgraded: false,
+            tool_definition: None,
             tool_label: None,
             ore_recovery_ticks: 0,
             ore_feed_mass: Mass::ZERO,
@@ -290,9 +310,12 @@ fn execute_site_reroute(
         return SiteReroute {
             search_ticks,
             target_found: true,
+            observed_hardness: Some(localization.hardness),
+            observed_resource_mass: Some(localization.resource_mass),
             tool_preparation_ticks: 0,
             tool_reused: false,
             tool_upgraded: false,
+            tool_definition: None,
             tool_label: None,
             ore_recovery_ticks: 0,
             ore_feed_mass: Mass::ZERO,
@@ -322,9 +345,12 @@ fn execute_site_reroute(
     SiteReroute {
         search_ticks,
         target_found: true,
+        observed_hardness: Some(localization.hardness),
+        observed_resource_mass: Some(localization.resource_mass),
         tool_preparation_ticks: tool.preparation_ticks,
         tool_reused: tool.reused_existing,
         tool_upgraded: tool.upgraded_existing,
+        tool_definition: Some(tool.definition),
         tool_label: Some(fieldwork_tool_label(FieldworkTool {
             target: tool.definition,
         })),
@@ -407,7 +433,7 @@ fn report_continuation(
 fn report_known_site_exploitation(
     review: &FieldworkEpisodeReview<'_>,
     exploitation: Option<&KnownSiteExploitation>,
-) {
+) -> Option<FieldworkDepletionRerouteReview> {
     if let Some(exploitation) = exploitation {
         reviewln!(
             "FIELDWORK DEPLETION seed=0x{:016X} eligible=true repeat-orders=[complete:{} partial:{} horizon:{}] extracted={}mg attention={}t/{} supply-ended={} terminal={} condition-after={}ppm body=[energy:{}nJ hydration:{}uL] scope=matched-orders-on-known-site no-search=true no-new-tool=true diagnostic-only=true",
@@ -448,6 +474,25 @@ fn report_known_site_exploitation(
                     extraction.extracted.milligrams(),
                     extraction.stop.label(),
                 );
+                let first = exploitation.first?;
+                return Some(FieldworkDepletionRerouteReview {
+                    depleted_repeat_returned: first.extracted,
+                    depleted_repeat_stop: first.stop,
+                    observed_hardness: reroute.observed_hardness.unwrap_or_else(|| {
+                        unreachable!("productive reroute has localized hardness evidence")
+                    }),
+                    observed_resource_mass: reroute.observed_resource_mass.unwrap_or_else(|| {
+                        unreachable!("productive reroute has localized resource evidence")
+                    }),
+                    search_ticks: reroute.search_ticks,
+                    tool: reroute.tool_definition.unwrap_or_else(|| {
+                        unreachable!("productive reroute has selected extraction tool")
+                    }),
+                    preparation_ticks: reroute.tool_preparation_ticks,
+                    salvaged: reroute.salvaged,
+                    extracted: extraction.extracted,
+                    stop: extraction.stop,
+                });
             } else {
                 reviewln!(
                     "FIELDWORK DEPLETION RECOVERY seed=0x{:016X} depletion-observed=true reroute-proved=false evidence=executed-search-from-depleted-state post-depletion-execution=false mining-tool-reused=false selected-tool=none retool=0t salvage=false survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search={}t/{} reason={}",
@@ -462,6 +507,7 @@ fn report_known_site_exploitation(
                 );
             }
         }
+        None
     } else {
         reviewln!(
             "FIELDWORK DEPLETION seed=0x{:016X} eligible=false horizon={} reason=initial-order-supply-ended scope=matched-orders-on-known-site diagnostic-only=true",
@@ -547,6 +593,7 @@ fn report_known_site_exploitation(
             recovery.remaining.milligrams(),
             shortfall_terminal_label(recovery.terminal),
         );
+        None
     }
 }
 
@@ -685,7 +732,7 @@ pub(super) fn finalize_fieldwork_episode(
         extraction.condition_after.parts_per_million(),
     );
     report_continuation(&review, followup);
-    report_known_site_exploitation(&review, exploitation.as_ref());
+    let depletion_reroute = report_known_site_exploitation(&review, exploitation.as_ref());
     report_survey_campaign(&review);
     reviewln!(
         "FIELDWORK PACING seed=0x{:016X} search={}t/{} sampling-tool={}t/{} extraction-tool={}t/{} extraction={}t/{} batches={} first-ore={}t/{} episode-end={}t/{} output={}mg outcome={} requested={}mg evidence-scope=ordinary-system-spatial-proxy movement=abstracted locality-claim=false starting-state=disclosed-raw-tools-and-preowned-copper matched-repeat-order-reported-separately=true output-grade={}ppm",
@@ -780,5 +827,6 @@ pub(super) fn finalize_fieldwork_episode(
         full_order_tool: review.full_order_tool,
         resource_knowledge_effect: review.resource_knowledge_effect,
         extraction: *extraction,
+        depletion_reroute,
     }
 }

@@ -186,6 +186,7 @@ _ORDINARY_DIGEST_FIELDS = {
     "fieldwork": (
         "exact-local-expedition",
         "generated-exact-local",
+        "exact-local-depletion-reroute",
         "outcomes",
         "organic-outcomes",
         "reserve-knowledge",
@@ -410,6 +411,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 "sample-shape",
                 "exact-local-expedition",
                 "generated-exact-local",
+                "exact-local-depletion-reroute",
                 "outcomes",
                 "organic-outcomes",
                 "orders",
@@ -448,6 +450,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                             "sample-shape",
                             "exact-local-expedition",
                             "generated-exact-local",
+                            "exact-local-depletion-reroute",
                             "outcomes",
                             "organic-outcomes",
                             "orders",

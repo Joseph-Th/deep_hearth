@@ -3624,16 +3624,44 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertIn(
-            "generated-exact-local=[cases:2 organic:1 replay:1 parity:2/2 fabricated-kit:2/2 trips:1..1 multi-trip:0 returned:2..4kg outcomes=[complete:1 supply-ended:1] tools:2]",
+            "generated-exact-local=[cases:2 coverage:0 organic:1 replay:1 parity:2/2 fabricated-kit:2/2 trips:1..1 multi-trip:0 returned:2..4kg outcomes=[complete:1 supply-ended:1] tools:2]",
             summary,
         )
         digest = gameplay_report_summary._digest_summary(summary, scoped=True)
-        self.assertIn("generated-exact-local=[cases:2 organic:1 replay:1 parity:2/2", digest)
+        self.assertIn("generated-exact-local=[cases:2 coverage:0 organic:1 replay:1 parity:2/2", digest)
         loop = gameplay_report_summary.player_loop_evidence(lines)
         self.assertIsNotNone(loop)
         assert loop is not None
         self.assertIn("generated-exact-local-field-orders:2/2", loop)
         self.assertIn("generated-local-haul:2/2", loop)
+
+    def test_fieldwork_summary_exposes_exact_local_depletion_reroute(self) -> None:
+        lines = [
+            "FIELDWORK EXPERIENCE seed=0xB sample=coverage order-horizon=bulk requested=29500000mg planned-local-work=29500000mg mining=29500000mg outcome=completed copper-opportunity=available tool=copper-reinforced-quarry resource-knowledge-effect=same-tool field-inspections=2",
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0xB geology=quarry-reinforcement policy-input=false report-only=true",
+            "FIELDWORK LOCAL ORDER seed=0xB sample=coverage evidence=ordinary-exact-local generation=[demand:independent geology:independent supply:51844616mg fixture:quarry-reinforcement] route=[steps:8 barren-sites:1 target-distance:2 haul-trips:1] survey=[inspections:2 detailed:1 observed-hardness:500000000..550000000Pa observed-mass:50000000..55000000mg] investment=[hammer:650000mg setup:80t selected:copper-reinforced-quarry tool:1020000mg preparation:120t planned-local:29500000mg] extraction=[requested:29500000mg returned:29500000mg batches:59 ticks:177 stop:order-complete] haul=[outbound:1020000mg return:25000000..25000000mg capacity:25000000mg utilization:1000000..1000000ppm] locomotion=[outbound:1nJ/1uL loaded-max:2nJ/2uL] cache=[returned:29500000mg tools-dropped:true] matter=conserved",
+            "FIELDWORK LOCAL PARITY seed=0xB sample=coverage evidence=matched-generated-world exact-local=true proxy-search=true observed-evidence:matched tool:matched extraction:matched trips:1 proxy-scope=multi-channel-search-only",
+            "FIELDWORK LOCAL DEPLETION REROUTE seed=0xB sample=coverage evidence=ordinary-exact-local depletion=[requested:29500000mg returned:22344616mg trips:1 stop:short-claim] search=[strategy:point-search travel-steps:16 path:8+8 transects:2 inspections:2 detailed:1 survey-work:72t observed-hardness:650000000..700000000Pa observed-mass:50000000..55000000mg] retool=[salvage:true selected:copper-reinforced-hard-pick preparation:40t ore-recovery:0t] extraction=[requested:29500000mg returned:29500000mg trips:2 movement-steps:32 batches:99 ticks:296 stop:order-complete] cache=[repeat:22344616mg reroute:29500000mg tools-dropped:true] matter=conserved",
+            "FIELDWORK LOCAL DEPLETION PARITY seed=0xB sample=coverage evidence=matched-generated-followup exact-local=true depletion:matched observed-evidence:matched survey-work:matched tool:matched retool:matched salvage:matched extraction:matched trips:2 proxy-scope=broader-search-campaigns-only",
+        ]
+        summary = gameplay_report_summary.fieldwork_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn(
+            "generated-exact-local=[cases:1 coverage:1 organic:0 replay:0 parity:1/1",
+            summary,
+        )
+        self.assertIn(
+            "exact-local-depletion-reroute=[cases:1 parity:1/1 depletion:22.3kg/short-claim search-travel:16steps search-work:72t survey:2+2+1 retool:40t salvage:1/1 tool:copper-reinforced-hard-pick recovery:29.5kg trips:2 movement:32steps extraction:296t/order-complete matter:conserved]",
+            summary,
+        )
+        digest = gameplay_report_summary._digest_summary(summary, scoped=True)
+        self.assertIn("exact-local-depletion-reroute=[cases:1 parity:1/1", digest)
+        loop = gameplay_report_summary.player_loop_evidence(lines)
+        self.assertIsNotNone(loop)
+        assert loop is not None
+        self.assertIn("exact-local-depletion-reroute:1/1", loop)
+        self.assertIn("depletion-reroute-haul:1/1", loop)
 
     def test_liberation_digest_prefers_organic_lifecycle_over_maintained_payback(self) -> None:
         summary = (

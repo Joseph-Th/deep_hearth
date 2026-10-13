@@ -95,6 +95,55 @@ pub(super) fn seed_generated_primary_fieldwork_site(
     }
 }
 
+/// Seeds one generated follow-up opportunity into a bounded exact-local search corridor.
+///
+/// The relative hidden channel/slot, reserve, hardness, and grade reuse the same generation
+/// channels as the spatial-proxy fieldwork world. The caller chooses only where that bounded
+/// corridor is embedded in its authored traversal graph. No hidden location is returned: an
+/// admitted actor must still acquire the target through ordinary local prospecting.
+pub(super) fn seed_generated_followup_fieldwork_site(
+    registries: &Registries,
+    state: &mut AppState,
+    seed: u64,
+    followup_index: usize,
+    channel_voxels: i64,
+    local_start_x: i64,
+) {
+    let site_seed = *followup_site_seeds(seed)
+        .get(followup_index)
+        .unwrap_or_else(|| panic!("fieldwork follow-up index exceeds generated site horizon"));
+    let Some(supply) = fieldwork_followup_opportunities(registries, seed)
+        .get(followup_index)
+        .copied()
+        .flatten()
+    else {
+        return;
+    };
+    let hidden = hidden_location(
+        site_seed,
+        channel_voxels,
+        0x4649_454C_4453_4348,
+        0x4649_454C_4453_534C,
+    );
+    let mining_limits = fieldwork_mining_limits(registries);
+    let profile = geology_profile(
+        registries,
+        mix64(site_seed ^ 0x5349_5445_5052_4F46),
+        mining_limits,
+        false,
+    )
+    .2;
+    seed_channel_deposit(
+        registries,
+        state,
+        local_start_x,
+        channel_voxels,
+        hidden,
+        supply,
+        profile,
+    );
+}
+
 /// Fixture truth retained only for post-action audit/reporting.
 ///
 /// This type is deliberately separate from [`FieldworkWorld`]. Actor planning must operate on the

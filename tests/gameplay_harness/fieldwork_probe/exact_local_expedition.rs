@@ -7,13 +7,17 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_QUARRY_PICK, FORM_ORE, MATERIAL_COPPER,
-    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROSPECTING_DETAILED_FIELD_SURVEY,
+    PROSPECTING_FIELD_INSPECTION, PROSPECTING_LOCAL_TRANSECT,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
-use deep_hearth::geology::{FieldProspectingOutcome, GeologicalEvidenceKind};
-use deep_hearth::inventory::{MaterialLotSelection, StockpileStorageProfile};
+use deep_hearth::geology::{
+    ExcavationHardnessEstimate, FieldProspectingOutcome, GeologicalEvidenceKind,
+    ResourceMassEstimate,
+};
+use deep_hearth::inventory::{MaterialLotSelection, StockpileId, StockpileStorageProfile};
 use deep_hearth::logistics::{
     assess_player_carrying, validate_drop_equipment, validate_drop_to_ground,
     validate_pickup_equipment, validate_start_player_step,
@@ -30,7 +34,8 @@ use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::assess_survival;
 
 use super::super::environment::ROOM_TEMPERATURE;
-use super::super::focused_case::FocusedProbeCase;
+use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::super::focused_witnesses::FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED;
 use super::super::ore_fixture::copper_ore_composition;
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::extraction::{FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction};
@@ -39,12 +44,19 @@ use super::planning::{
     fieldwork_mining_limits, fieldwork_tool_label,
 };
 use super::preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
-use super::survey::{horizontal_region, run_survey};
-use super::world::{generated_fieldwork_raw_opportunity, seed_generated_primary_fieldwork_site};
+use super::retooling::{
+    FieldworkOwnedOreRecovery, FieldworkSiteToolRequest, prepare_fieldwork_tool_for_site,
+};
+use super::survey::{CHANNEL_COUNT, horizontal_region, run_survey};
+use super::world::{
+    generated_fieldwork_raw_opportunity, seed_generated_followup_fieldwork_site,
+    seed_generated_primary_fieldwork_site,
+};
 
 const CAMP: VoxelCoord = VoxelCoord::new(0, -1, 0);
 const BARREN_SITE: VoxelCoord = VoxelCoord::new(1, -1, 0);
 const TARGET_SITE: VoxelCoord = VoxelCoord::new(2, -1, 0);
+const FOLLOWUP_LOCAL_START_X: i64 = 3;
 const EXPEDITION_DEPOSIT_MASS: Mass = Mass::from_milligrams(40_000_000);
 const EXPEDITION_ORDER_MASS: Mass = Mass::from_milligrams(30_000_000);
 
@@ -65,6 +77,24 @@ pub(super) struct GeneratedExactLocalFieldOrderReview {
     pub(super) returned: Mass,
     pub(super) stop: FieldworkStop,
     pub(super) trips: u64,
+    pub(super) depletion_reroute: Option<GeneratedExactLocalDepletionRerouteReview>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct GeneratedExactLocalDepletionRerouteReview {
+    pub(super) depleted_repeat_returned: Mass,
+    pub(super) depleted_repeat_stop: FieldworkStop,
+    pub(super) observed_hardness_lower_pa: u64,
+    pub(super) observed_hardness_upper_pa: u64,
+    pub(super) observed_mass_lower_mg: u64,
+    pub(super) observed_mass_upper_mg: u64,
+    pub(super) survey_ticks: u64,
+    pub(super) tool: EquipmentDefinitionId,
+    pub(super) preparation_ticks: u64,
+    pub(super) salvaged: bool,
+    pub(super) returned: Mass,
+    pub(super) stop: FieldworkStop,
+    pub(super) trips: u64,
 }
 
 fn assert_exact_local_field_state(registries: &Registries, state: &AppState, context: &str) {
@@ -81,6 +111,46 @@ fn assert_exact_local_field_state(registries: &Registries, state: &AppState, con
     );
     validate_loaded_state(registries, state)
         .unwrap_or_else(|error| panic!("exact-local field {context} state invalid: {error}"));
+}
+
+fn walk_linear_to(
+    registries: &Registries,
+    state: &mut AppState,
+    destination: VoxelCoord,
+) -> Vec<StepCost> {
+    let mut costs = Vec::new();
+    loop {
+        let current = state
+            .logistics()
+            .player()
+            .map(|player| player.position())
+            .unwrap_or_else(|| panic!("exact-local linear walk lost player position"));
+        if current == destination {
+            break;
+        }
+        assert_eq!(
+            (current.y(), current.z()),
+            (destination.y(), destination.z()),
+            "bounded exact-local field route is a horizontal authored corridor"
+        );
+        let next_x = if current.x() < destination.x() {
+            current
+                .x()
+                .checked_add(1)
+                .unwrap_or_else(|| panic!("exact-local corridor x-coordinate overflowed"))
+        } else {
+            current
+                .x()
+                .checked_sub(1)
+                .unwrap_or_else(|| panic!("exact-local corridor x-coordinate underflowed"))
+        };
+        costs.push(walk_step(
+            registries,
+            state,
+            VoxelCoord::new(next_x, current.y(), current.z()),
+        ));
+    }
+    costs
 }
 
 fn seed_field_kit(registries: &Registries, state: &mut AppState) -> (EquipmentId, EquipmentId) {
@@ -225,6 +295,142 @@ fn survey_site(
     Some(detailed)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ExactLocalSearchResult {
+    position: VoxelCoord,
+    hardness: ExcavationHardnessEstimate,
+    resource_mass: ResourceMassEstimate,
+    transects: u64,
+    field_inspections: u64,
+    detailed_surveys: u64,
+    survey_ticks: u64,
+    travel_steps: u64,
+}
+
+fn run_exact_local_point_search(
+    registries: &Registries,
+    state: &mut AppState,
+    hammer: EquipmentId,
+    channel_voxels: i64,
+    channel_start_x: i64,
+) -> ExactLocalSearchResult {
+    let mut selected_channel = None::<(i64, u32, u32)>;
+    let mut survey_ticks = 0_u64;
+    let mut travel_steps = 0_u64;
+    for channel_index in 0..CHANNEL_COUNT {
+        let channel_start = channel_start_x + channel_index * channel_voxels;
+        travel_steps = travel_steps
+            .checked_add(
+                u64::try_from(
+                    walk_linear_to(registries, state, VoxelCoord::new(channel_start, -1, 0)).len(),
+                )
+                .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
+            )
+            .unwrap_or_else(|| panic!("exact-local search travel count overflowed"));
+        let started_at = state.tick().value();
+        let outcome = run_survey(
+            registries,
+            state,
+            PROSPECTING_LOCAL_TRANSECT,
+            horizontal_region(channel_start, channel_voxels),
+            None,
+            "exact-local candidate transect",
+        );
+        survey_ticks = survey_ticks
+            .checked_add(state.tick().value() - started_at)
+            .unwrap_or_else(|| panic!("exact-local search survey time overflowed"));
+        let finding = state
+            .geological_knowledge()
+            .get_observation(outcome.observation())
+            .and_then(|record| record.finding(MATERIAL_COPPER))
+            .unwrap_or_else(|| panic!("exact-local transect copper finding disappeared"));
+        let evidence = (finding.lower_ppm(), finding.upper_ppm());
+        if selected_channel.is_none_or(|(_start, lower, upper)| evidence > (lower, upper)) {
+            selected_channel = Some((channel_start, evidence.0, evidence.1));
+        }
+    }
+    let (selected_channel_start, _, _) = selected_channel
+        .unwrap_or_else(|| unreachable!("exact-local point search has candidate channels"));
+    travel_steps = travel_steps
+        .checked_add(
+            u64::try_from(
+                walk_linear_to(
+                    registries,
+                    state,
+                    VoxelCoord::new(selected_channel_start, -1, 0),
+                )
+                .len(),
+            )
+            .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
+        )
+        .unwrap_or_else(|| panic!("exact-local search travel count overflowed"));
+
+    for (inspection_index, offset) in (0..channel_voxels).enumerate() {
+        let position = VoxelCoord::new(selected_channel_start + offset, -1, 0);
+        travel_steps = travel_steps
+            .checked_add(
+                u64::try_from(walk_linear_to(registries, state, position).len())
+                    .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
+            )
+            .unwrap_or_else(|| panic!("exact-local search travel count overflowed"));
+        let point = horizontal_region(position.x(), 1);
+        let started_at = state.tick().value();
+        let inspection = run_survey(
+            registries,
+            state,
+            PROSPECTING_FIELD_INSPECTION,
+            point,
+            None,
+            "exact-local follow-up inspection",
+        );
+        survey_ticks = survey_ticks
+            .checked_add(state.tick().value() - started_at)
+            .unwrap_or_else(|| panic!("exact-local search survey time overflowed"));
+        let finding = state
+            .geological_knowledge()
+            .get_observation(inspection.observation())
+            .and_then(|record| record.finding(MATERIAL_COPPER))
+            .unwrap_or_else(|| panic!("exact-local follow-up copper finding disappeared"));
+        if finding.lower_ppm() == 0 {
+            continue;
+        }
+        let started_at = state.tick().value();
+        let detailed = run_survey(
+            registries,
+            state,
+            PROSPECTING_DETAILED_FIELD_SURVEY,
+            point,
+            Some(hammer),
+            "exact-local follow-up detailed survey",
+        );
+        survey_ticks = survey_ticks
+            .checked_add(state.tick().value() - started_at)
+            .unwrap_or_else(|| panic!("exact-local search survey time overflowed"));
+        let record = state
+            .geological_knowledge()
+            .get_observation(detailed.observation())
+            .unwrap_or_else(|| panic!("exact-local follow-up detailed observation disappeared"));
+        assert_eq!(record.evidence(), GeologicalEvidenceKind::ExcavationSample);
+        return ExactLocalSearchResult {
+            position,
+            hardness: record
+                .excavation_hardness()
+                .unwrap_or_else(|| panic!("exact-local follow-up survey lost hardness evidence")),
+            resource_mass: record.resource_mass().unwrap_or_else(|| {
+                panic!("exact-local follow-up survey lost resource-scale evidence")
+            }),
+            transects: u64::try_from(CHANNEL_COUNT)
+                .unwrap_or_else(|_| unreachable!("positive channel count fits u64")),
+            field_inspections: u64::try_from(inspection_index + 1)
+                .unwrap_or_else(|_| unreachable!("bounded inspection count fits u64")),
+            detailed_surveys: 1,
+            survey_ticks,
+            travel_steps,
+        };
+    }
+    panic!("maintained exact-local depletion reroute found no localized follow-up target")
+}
+
 fn carried_ore_selection(
     state: &AppState,
     stockpile: deep_hearth::inventory::StockpileId,
@@ -251,6 +457,7 @@ struct ExactLocalOrderResult {
     maximum_return_step: StepCost,
     minimum_utilization_ppm: u128,
     maximum_utilization_ppm: u128,
+    movement_steps: u64,
 }
 
 fn execute_exact_local_order(
@@ -262,9 +469,10 @@ fn execute_exact_local_order(
     body_capacity: Mass,
     requested: Mass,
     batch_limit: Mass,
+    target_site: VoxelCoord,
 ) -> ExactLocalOrderResult {
     assert!(!requested.is_zero());
-    let target_region = horizontal_region(TARGET_SITE.x(), 1);
+    let target_region = horizontal_region(target_site.x(), 1);
     let mut remaining_order = requested;
     let mut trip_count = 0_u64;
     let mut total_extraction_batches = 0_u64;
@@ -276,12 +484,22 @@ fn execute_exact_local_order(
     let mut maximum_return_step = None::<StepCost>;
     let mut minimum_utilization_ppm = u128::MAX;
     let mut maximum_utilization_ppm = 0_u128;
+    let mut movement_steps = 0_u64;
     let mut stop = FieldworkStop::OrderComplete;
 
     while !remaining_order.is_zero() {
-        let outbound = walk_step(registries, state, BARREN_SITE);
-        outbound_tool_step.get_or_insert(outbound);
-        let _ = walk_step(registries, state, TARGET_SITE);
+        let outbound = walk_linear_to(registries, state, target_site);
+        movement_steps = movement_steps
+            .checked_add(
+                u64::try_from(outbound.len())
+                    .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
+            )
+            .unwrap_or_else(|| panic!("exact-local order travel count overflowed"));
+        outbound_tool_step.get_or_insert_with(|| {
+            *outbound
+                .first()
+                .unwrap_or_else(|| panic!("exact-local target must be remote from camp"))
+        });
         let target = resolve_mining_target(
             state,
             MiningTargetRequest::new(target_region, MATERIAL_COPPER),
@@ -345,7 +563,16 @@ fn execute_exact_local_order(
                 .unwrap_or_else(|| panic!("exact-local loaded custody overflowed"))
         );
         assert_eq!(loaded.capacity(), body_capacity);
-        let return_loaded_step = walk_step(registries, state, BARREN_SITE);
+        let return_steps = walk_linear_to(registries, state, CAMP);
+        movement_steps = movement_steps
+            .checked_add(
+                u64::try_from(return_steps.len())
+                    .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
+            )
+            .unwrap_or_else(|| panic!("exact-local order travel count overflowed"));
+        let return_loaded_step = *return_steps
+            .first()
+            .unwrap_or_else(|| panic!("exact-local target must be remote from camp"));
         let utilization_ppm = u128::from(return_loaded_step.load.milligrams()) * 1_000_000
             / u128::from(body_capacity.milligrams());
         minimum_return_load = Some(
@@ -359,8 +586,6 @@ fn execute_exact_local_order(
         }
         minimum_utilization_ppm = minimum_utilization_ppm.min(utilization_ppm);
         maximum_utilization_ppm = maximum_utilization_ppm.max(utilization_ppm);
-        let _ = walk_step(registries, state, CAMP);
-
         let carried = assess_player_carrying(state)
             .unwrap_or_else(|| panic!("exact-local return lost carried custody"));
         let ore_selection = carried_ore_selection(state, carried.stockpile());
@@ -398,6 +623,7 @@ fn execute_exact_local_order(
             .unwrap_or_else(|| unreachable!("nonzero local order executes one return trip")),
         minimum_utilization_ppm,
         maximum_utilization_ppm,
+        movement_steps,
     }
 }
 
@@ -496,6 +722,7 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
         body_capacity,
         requested,
         limits.base_quarry_batch,
+        TARGET_SITE,
     );
     assert_eq!(order.stop, FieldworkStop::OrderComplete);
     assert_eq!(order.returned, requested);
@@ -534,7 +761,7 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
 
     reviewln!(
         "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[steps:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:{}..{}mg] tools=[hammer:{}mg pick:{}mg custody:player-carried] extraction=[order:{}mg batches:{} ticks:{} complete:true] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm] locomotion=[outbound:{}nJ/{}uL loaded-max:{}nJ/{}uL] cache=[returned:{}mg tool-dropped:true] matter=conserved",
-        4 + order.trips * 4,
+        4 + order.movement_steps,
         order.trips,
         observed_mass.lower().milligrams(),
         observed_mass.upper().milligrams(),
@@ -555,6 +782,236 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
         order.maximum_return_step.hydration.microliters(),
         requested.milligrams(),
     );
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ExactLocalDepletionSetup {
+    repeat_cache: StockpileId,
+    reroute_cache: StockpileId,
+    recovery_crushed: StockpileId,
+    recovery_residue: StockpileId,
+    channel_voxels: i64,
+}
+
+fn seed_exact_local_depletion_setup(
+    registries: &Registries,
+    state: &mut AppState,
+    case: FocusedProbeCase,
+    requested: Mass,
+) -> Option<ExactLocalDepletionSetup> {
+    if case.role() != FocusedProbeRole::MaintainedCoverage
+        || case.seed() != FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED
+    {
+        return None;
+    }
+    let channel_voxels = i64::try_from(
+        registries
+            .labor()
+            .get_prospecting(PROSPECTING_LOCAL_TRANSECT)
+            .map(|definition| definition.maximum_region_voxels())
+            .unwrap_or_else(|| panic!("exact-local follow-up transect definition disappeared")),
+    )
+    .unwrap_or_else(|_| panic!("exact-local follow-up transect span exceeds coordinate range"));
+    assert!(channel_voxels > 0);
+    let repeat_cache = seed_ground_stockpile(state, CAMP, requested);
+    let reroute_cache = seed_ground_stockpile(state, CAMP, requested);
+    let sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("exact-local depletion recovery lost hand sorting"));
+    let recovery_crushed = seed_ground_stockpile(state, CAMP, sorting.max_batch_mass());
+    let recovery_residue = seed_ground_stockpile(state, CAMP, sorting.max_batch_mass());
+    seed_generated_followup_fieldwork_site(
+        registries,
+        state,
+        case.seed(),
+        0,
+        channel_voxels,
+        FOLLOWUP_LOCAL_START_X,
+    );
+    let corridor_voxels = CHANNEL_COUNT
+        .checked_mul(channel_voxels)
+        .unwrap_or_else(|| panic!("exact-local follow-up corridor width overflowed"));
+    let last_x = FOLLOWUP_LOCAL_START_X
+        .checked_add(corridor_voxels - 1)
+        .unwrap_or_else(|| panic!("exact-local follow-up corridor coordinate overflowed"));
+    for x in TARGET_SITE.x()..last_x {
+        seed_traversable_edge(
+            state,
+            VoxelCoord::new(x, -1, 0),
+            VoxelCoord::new(x + 1, -1, 0),
+        );
+    }
+    Some(ExactLocalDepletionSetup {
+        repeat_cache,
+        reroute_cache,
+        recovery_crushed,
+        recovery_residue,
+        channel_voxels,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_exact_local_depletion_reroute(
+    registries: &Registries,
+    state: &mut AppState,
+    setup: ExactLocalDepletionSetup,
+    raw: StockpileId,
+    parts: StockpileId,
+    primary_cache: StockpileId,
+    hammer: EquipmentId,
+    tool: EquipmentId,
+    tool_mass: Mass,
+    body_capacity: Mass,
+    requested: Mass,
+    batch_limit: Mass,
+) -> GeneratedExactLocalDepletionRerouteReview {
+    let repeat = execute_exact_local_order(
+        registries,
+        state,
+        setup.repeat_cache,
+        tool,
+        tool_mass,
+        body_capacity,
+        requested,
+        batch_limit,
+        TARGET_SITE,
+    );
+    assert!(
+        repeat.returned > Mass::ZERO && repeat.returned < requested,
+        "adaptive exact-local witness must physically deplete the known primary site during its repeat order"
+    );
+    assert_ne!(repeat.stop, FieldworkStop::OrderComplete);
+
+    validate_drop_equipment(registries, state, tool)
+        .unwrap_or_else(|error| panic!("exact-local depleted tool drop failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("exact-local depleted tool drop commit failed: {error}"));
+    validate_pickup_equipment(registries, state, hammer)
+        .unwrap_or_else(|error| panic!("exact-local reroute hammer pickup failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("exact-local reroute hammer pickup commit failed: {error}"));
+    let search = run_exact_local_point_search(
+        registries,
+        state,
+        hammer,
+        setup.channel_voxels,
+        FOLLOWUP_LOCAL_START_X,
+    );
+    let search_return_steps = u64::try_from(walk_linear_to(registries, state, CAMP).len())
+        .unwrap_or_else(|_| unreachable!("bounded exact-local search return fits u64"));
+    validate_drop_equipment(registries, state, hammer)
+        .unwrap_or_else(|error| panic!("exact-local reroute hammer drop failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("exact-local reroute hammer drop commit failed: {error}"));
+
+    let local_order = requested.min(search.resource_mass.upper());
+    let choice = prepare_fieldwork_tool_for_site(
+        registries,
+        state,
+        FieldworkSiteToolRequest::new(
+            raw,
+            parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: primary_cache,
+                crushed_destination: setup.recovery_crushed,
+                residue_destination: setup.recovery_residue,
+            },
+            &[tool],
+            search.hardness.upper(),
+            local_order,
+        ),
+    )
+    .unwrap_or_else(|| panic!("exact-local reroute found no feasible extraction-tool adaptation"));
+    assert!(
+        state
+            .available_local_equipment()
+            .any(|record| record.id() == choice.equipment),
+        "exact-local reroute tool must be actor-visible at camp after adaptation"
+    );
+    let reroute_tool_mass = equipment_mass(state, choice.equipment);
+    validate_pickup_equipment(registries, state, choice.equipment)
+        .unwrap_or_else(|error| panic!("exact-local reroute tool pickup failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("exact-local reroute tool pickup commit failed: {error}"));
+    let reroute = execute_exact_local_order(
+        registries,
+        state,
+        setup.reroute_cache,
+        choice.equipment,
+        reroute_tool_mass,
+        body_capacity,
+        local_order,
+        choice.batch,
+        search.position,
+    );
+    validate_drop_equipment(registries, state, choice.equipment)
+        .unwrap_or_else(|error| panic!("exact-local reroute tool drop failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("exact-local reroute tool drop commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(setup.repeat_cache)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_ORE))),
+        Some(repeat.returned)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(setup.reroute_cache)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_ORE))),
+        Some(reroute.returned)
+    );
+    reviewln!(
+        "FIELDWORK LOCAL DEPLETION REROUTE seed=0x{:016X} sample=coverage evidence=ordinary-exact-local depletion=[requested:{}mg returned:{}mg trips:{} stop:{}] search=[strategy:point-search travel-steps:{} path:{}+{} transects:{} inspections:{} detailed:{} survey-work:{}t observed-hardness:{}..{}Pa observed-mass:{}..{}mg] retool=[salvage:{} selected:{} preparation:{}t ore-recovery:{}t] extraction=[requested:{}mg returned:{}mg trips:{} movement-steps:{} batches:{} ticks:{} stop:{}] cache=[repeat:{}mg reroute:{}mg tools-dropped:true] matter=conserved",
+        FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED,
+        requested.milligrams(),
+        repeat.returned.milligrams(),
+        repeat.trips,
+        repeat.stop.label(),
+        search.travel_steps + search_return_steps,
+        search.travel_steps,
+        search_return_steps,
+        search.transects,
+        search.field_inspections,
+        search.detailed_surveys,
+        search.survey_ticks,
+        search.hardness.lower().pascals(),
+        search.hardness.upper().pascals(),
+        search.resource_mass.lower().milligrams(),
+        search.resource_mass.upper().milligrams(),
+        choice.salvaged_equipment.is_some(),
+        fieldwork_tool_label(super::planning::FieldworkTool {
+            target: choice.definition,
+        }),
+        choice.preparation_ticks,
+        choice.ore_recovery_ticks,
+        local_order.milligrams(),
+        reroute.returned.milligrams(),
+        reroute.trips,
+        reroute.movement_steps,
+        reroute.batches,
+        reroute.extraction_ticks,
+        reroute.stop.label(),
+        repeat.returned.milligrams(),
+        reroute.returned.milligrams(),
+    );
+    GeneratedExactLocalDepletionRerouteReview {
+        depleted_repeat_returned: repeat.returned,
+        depleted_repeat_stop: repeat.stop,
+        observed_hardness_lower_pa: search.hardness.lower().pascals(),
+        observed_hardness_upper_pa: search.hardness.upper().pascals(),
+        observed_mass_lower_mg: search.resource_mass.lower().milligrams(),
+        observed_mass_upper_mg: search.resource_mass.upper().milligrams(),
+        survey_ticks: search.survey_ticks,
+        tool: choice.definition,
+        preparation_ticks: choice.preparation_ticks,
+        salvaged: choice.salvaged_equipment.is_some(),
+        returned: reroute.returned,
+        stop: reroute.stop,
+        trips: reroute.trips,
+    }
 }
 
 pub(super) fn run_generated_exact_local_field_order(
@@ -587,6 +1044,7 @@ pub(super) fn run_generated_exact_local_field_order(
     }
     let parts = seed_ground_stockpile(&mut state, CAMP, parts_capacity);
     let cache = seed_ground_stockpile(&mut state, CAMP, requested);
+    let depletion_setup = seed_exact_local_depletion_setup(registries, &mut state, case, requested);
     let fixture = seed_generated_primary_fieldwork_site(
         registries,
         &mut state,
@@ -695,16 +1153,35 @@ pub(super) fn run_generated_exact_local_field_order(
         body_capacity,
         requested,
         estimate.batch,
+        TARGET_SITE,
     );
 
-    validate_drop_equipment(registries, &state, tool)
-        .unwrap_or_else(|error| {
-            panic!("generated exact-local extraction-tool drop failed: {error}")
-        })
-        .commit(&mut state)
-        .unwrap_or_else(|error| {
-            panic!("generated exact-local extraction-tool drop commit failed: {error}")
-        });
+    let depletion_reroute = depletion_setup.map(|setup| {
+        run_exact_local_depletion_reroute(
+            registries,
+            &mut state,
+            setup,
+            raw,
+            parts,
+            cache,
+            hammer,
+            tool,
+            tool_mass,
+            body_capacity,
+            requested,
+            estimate.batch,
+        )
+    });
+    if depletion_reroute.is_none() {
+        validate_drop_equipment(registries, &state, tool)
+            .unwrap_or_else(|error| {
+                panic!("generated exact-local extraction-tool drop failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("generated exact-local extraction-tool drop commit failed: {error}")
+            });
+    }
     let final_carry = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("generated exact-local final carrying assessment disappeared"));
     assert_eq!(final_carry.stored(), Mass::ZERO);
@@ -733,7 +1210,7 @@ pub(super) fn run_generated_exact_local_field_order(
         case.role().label(),
         fixture.deposit_mass.milligrams(),
         fixture.geology_label,
-        4 + order.trips * 4,
+        4 + order.movement_steps,
         order.trips,
         observed_hardness.lower().pascals(),
         observed_hardness.upper().pascals(),
@@ -771,5 +1248,6 @@ pub(super) fn run_generated_exact_local_field_order(
         returned: order.returned,
         stop: order.stop,
         trips: order.trips,
+        depletion_reroute,
     }
 }

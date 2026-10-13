@@ -64,7 +64,7 @@ use planning::*;
 
 #[path = "fieldwork_probe/review.rs"]
 mod review;
-use review::{FieldworkEpisodeReview, finalize_fieldwork_episode};
+use review::{FieldworkDepletionRerouteReview, FieldworkEpisodeReview, finalize_fieldwork_episode};
 
 #[path = "fieldwork_probe/recovery.rs"]
 mod recovery;
@@ -274,7 +274,9 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     let exact_local = if matches!(
         case.role(),
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
-    ) {
+    ) || (case.role() == FocusedProbeRole::MaintainedCoverage
+        && case.seed() == FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED)
+    {
         Some(
             exact_local_expedition::run_generated_exact_local_field_order(
                 registries,
@@ -319,6 +321,65 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
             case.role().label(),
             local.trips,
         );
+        if let Some(local_reroute) = local.depletion_reroute {
+            let proxy_reroute = episode.depletion_reroute.unwrap_or_else(|| {
+                panic!("exact-local depletion witness lost its matched proxy reroute")
+            });
+            assert_eq!(
+                (
+                    local_reroute.depleted_repeat_returned,
+                    local_reroute.depleted_repeat_stop,
+                ),
+                (
+                    proxy_reroute.depleted_repeat_returned,
+                    proxy_reroute.depleted_repeat_stop,
+                ),
+                "exact-local repeat haul must preserve the matched proxy depletion result"
+            );
+            assert_eq!(
+                (
+                    local_reroute.observed_hardness_lower_pa,
+                    local_reroute.observed_hardness_upper_pa,
+                    local_reroute.observed_mass_lower_mg,
+                    local_reroute.observed_mass_upper_mg,
+                ),
+                (
+                    proxy_reroute.observed_hardness.lower().pascals(),
+                    proxy_reroute.observed_hardness.upper().pascals(),
+                    proxy_reroute.observed_resource_mass.lower().milligrams(),
+                    proxy_reroute.observed_resource_mass.upper().milligrams(),
+                ),
+                "exact-local reroute travel must preserve the matched acquired secondary-site evidence"
+            );
+            assert_eq!(
+                local_reroute.survey_ticks, proxy_reroute.search_ticks,
+                "physical travel may add elapsed time but must not change canonical prospecting work"
+            );
+            assert_eq!(
+                (
+                    local_reroute.tool,
+                    local_reroute.preparation_ticks,
+                    local_reroute.salvaged,
+                ),
+                (
+                    proxy_reroute.tool,
+                    proxy_reroute.preparation_ticks,
+                    proxy_reroute.salvaged,
+                ),
+                "exact-local custody must preserve the evidence-driven reroute tool adaptation"
+            );
+            assert_eq!(
+                (local_reroute.returned, local_reroute.stop),
+                (proxy_reroute.extracted, proxy_reroute.stop),
+                "body-scale hauling may split admissions but must preserve the matched reroute geological result"
+            );
+            reviewln!(
+                "FIELDWORK LOCAL DEPLETION PARITY seed=0x{:016X} sample={} evidence=matched-generated-followup exact-local=true depletion:matched observed-evidence:matched survey-work:matched tool:matched retool:matched salvage:matched extraction:matched trips:{} proxy-scope=broader-search-campaigns-only",
+                case.seed(),
+                case.role().label(),
+                local_reroute.trips,
+            );
+        }
     }
     reviewln!(
         "FIELDWORK ENDPOINT seed=0x{:016X} tool={} full-order-tool={} resource-knowledge-effect={} observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg preparation={}t projected-order={}t actual-extraction={}t extracted={}mg outcome={}",
@@ -351,6 +412,7 @@ struct FieldworkEpisode {
     full_order_tool: Option<EquipmentDefinitionId>,
     resource_knowledge_effect: FieldworkResourceKnowledgeEffect,
     extraction: extraction::FieldworkExtraction,
+    depletion_reroute: Option<FieldworkDepletionRerouteReview>,
 }
 
 fn run_fieldwork_order(

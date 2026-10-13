@@ -717,6 +717,7 @@ def _generated_exact_local_orders_summary(lines: list[str]) -> str | None:
     complete = 0
     supply_ended = 0
     fabricated = 0
+    coverage = 0
     organic = 0
     replay = 0
     for line in orders:
@@ -740,15 +741,16 @@ def _generated_exact_local_orders_summary(lines: list[str]) -> str | None:
         assert route is not None
         assert investment is not None
         assert extraction is not None
-        if sample not in {"organic", "replay"}:
+        if sample not in {"coverage", "organic", "replay"}:
             raise ValueError(
-                "generated exact-local field orders are reserved for organic/replay cases: "
+                "generated exact-local field orders are reserved for maintained coverage or organic/replay cases: "
                 + line
             )
         key = (seed.lower(), sample)
         if key in order_keys:
             raise ValueError(f"duplicate generated exact-local field order for {key}")
         order_keys.add(key)
+        coverage += sample == "coverage"
         organic += sample == "organic"
         replay += sample == "replay"
         trip_count = int(route.group(1))
@@ -790,13 +792,103 @@ def _generated_exact_local_orders_summary(lines: list[str]) -> str | None:
 
     return (
         "generated-exact-local=["
-        f"cases:{len(orders)} organic:{organic} replay:{replay} "
+        f"cases:{len(orders)} coverage:{coverage} organic:{organic} replay:{replay} "
         f"parity:{len(parity_keys)}/{len(order_keys)} "
         f"fabricated-kit:{fabricated}/{len(orders)} "
         f"trips:{min(trips)}..{max(trips)} multi-trip:{sum(value > 1 for value in trips)} "
         f"returned:{scaled_span(returned, 1_000_000, 'kg')} "
         f"outcomes=[complete:{complete} supply-ended:{supply_ended}] "
         f"tools:{len(tools)}]"
+    )
+
+
+def _exact_local_depletion_reroute_summary(lines: list[str]) -> str | None:
+    reroutes = [
+        line
+        for line in lines
+        if line.startswith("FIELDWORK LOCAL DEPLETION REROUTE ")
+    ]
+    if not reroutes:
+        return None
+    parity = [
+        line
+        for line in lines
+        if line.startswith("FIELDWORK LOCAL DEPLETION PARITY ")
+    ]
+    if len(reroutes) != 1 or len(parity) != 1:
+        raise ValueError(
+            "fieldwork exact-local depletion evidence requires one maintained reroute and one parity witness"
+        )
+    line = reroutes[0]
+    parity_line = parity[0]
+    seed = field(line, "seed")
+    sample = field(line, "sample")
+    parity_seed = field(parity_line, "seed")
+    parity_sample = field(parity_line, "sample")
+    depletion = re.search(
+        r"\bdepletion=\[requested:(\d+)mg returned:(\d+)mg trips:(\d+) stop:([^\s\]]+)\]",
+        line,
+    )
+    search = re.search(
+        r"\bsearch=\[strategy:point-search travel-steps:(\d+) path:(\d+)\+(\d+) "
+        r"transects:(\d+) inspections:(\d+) detailed:(\d+) survey-work:(\d+)t "
+        r"observed-hardness:(\d+)\.\.(\d+)Pa observed-mass:(\d+)\.\.(\d+)mg\]",
+        line,
+    )
+    retool = re.search(
+        r"\bretool=\[salvage:(true|false) selected:([^\s\]]+) preparation:(\d+)t "
+        r"ore-recovery:(\d+)t\]",
+        line,
+    )
+    extraction = re.search(
+        r"\bextraction=\[requested:(\d+)mg returned:(\d+)mg trips:(\d+) "
+        r"movement-steps:(\d+) batches:(\d+) ticks:(\d+) stop:([^\s\]]+)\]",
+        line,
+    )
+    if None in (seed, sample, parity_seed, parity_sample, depletion, search, retool, extraction):
+        raise ValueError(f"malformed exact-local field depletion reroute: {line}")
+    assert seed is not None
+    assert sample is not None
+    assert parity_seed is not None
+    assert parity_sample is not None
+    assert depletion is not None
+    assert search is not None
+    assert retool is not None
+    assert extraction is not None
+    if sample != "coverage" or parity_sample != "coverage":
+        raise ValueError("exact-local field depletion reroute is a maintained coverage witness")
+    if (seed.lower(), sample) != (parity_seed.lower(), parity_sample):
+        raise ValueError("exact-local field depletion reroute/parity identities disagree")
+    if " evidence=ordinary-exact-local " not in line or not line.endswith(" matter=conserved"):
+        raise ValueError("exact-local field depletion reroute lost ordinary/conservation evidence")
+    if " tools-dropped:true]" not in line:
+        raise ValueError("exact-local field depletion reroute lost final tool custody evidence")
+    if not all(
+        marker in parity_line
+        for marker in (
+            " exact-local=true ",
+            " depletion:matched ",
+            " observed-evidence:matched ",
+            " survey-work:matched ",
+            " tool:matched ",
+            " retool:matched ",
+            " salvage:matched ",
+            " extraction:matched ",
+        )
+    ):
+        raise ValueError("fieldwork exact-local depletion parity is incomplete")
+    return (
+        "exact-local-depletion-reroute=["
+        "cases:1 parity:1/1 "
+        f"depletion:{_scaled_value(int(depletion.group(2)), 1_000_000, 'kg')}/"
+        f"{depletion.group(4)} "
+        f"search-travel:{search.group(1)}steps search-work:{search.group(7)}t "
+        f"survey:{search.group(4)}+{search.group(5)}+{search.group(6)} "
+        f"retool:{retool.group(3)}t salvage:{1 if retool.group(1) == 'true' else 0}/1 "
+        f"tool:{retool.group(2)} "
+        f"recovery:{_scaled_value(int(extraction.group(2)), 1_000_000, 'kg')} "
+        f"trips:{extraction.group(3)} movement:{extraction.group(4)}steps "
+        f"extraction:{extraction.group(6)}t/{extraction.group(7)} matter:conserved]"
     )
 
 
@@ -887,6 +979,7 @@ def fieldwork_summary(lines: list[str]) -> str | None:
     initial_shortfall, shortfall_recovery = _initial_shortfall_recovery_summary(lines)
     exact_local_expedition = _exact_local_expedition_summary(lines)
     generated_exact_local = _generated_exact_local_orders_summary(lines)
+    exact_local_depletion_reroute = _exact_local_depletion_reroute_summary(lines)
     inspection_span, fulfillment_span, resource_capped, organic_resource_capped = (
         _outcome_metrics(fieldwork)
     )
@@ -895,6 +988,7 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         f"samples={len(fieldwork)} sample-shape=[{sample_shape(fieldwork)}] inspections={inspection_span} "
         f"{exact_local_expedition + ' ' if exact_local_expedition else ''}"
         f"{generated_exact_local + ' ' if generated_exact_local else ''}"
+        f"{exact_local_depletion_reroute + ' ' if exact_local_depletion_reroute else ''}"
         f"outcomes=[completed:{count('outcome=completed')} "
         f"local-supply-ended:{count('outcome=known-target-supply')} "
         f"fulfillment:{fulfillment_span}] "
