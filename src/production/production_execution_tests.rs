@@ -415,7 +415,7 @@ fn carried_output_process_fixture() -> (
 fn player_step_rejects_moving_a_retained_production_output_destination() {
     let (registries, mut state, source, carried, resolved, step_destination) =
         carried_output_process_fixture();
-    let job = validate_start_process(&registries, &state, &resolved, source, carried)
+    let job = validate_start_player_process(&registries, &state, &resolved, source, carried)
         .unwrap_or_else(|error| panic!("carried-output production start failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("carried-output production commit failed: {error}"));
@@ -438,7 +438,7 @@ fn validated_player_step_rechecks_production_site_before_commit() {
         carried_output_process_fixture();
     let step = validate_start_player_step(&registries, &state, step_destination)
         .unwrap_or_else(|error| panic!("production-site race step validation failed: {error}"));
-    let job = validate_start_process(&registries, &state, &resolved, source, carried)
+    let job = validate_start_player_process(&registries, &state, &resolved, source, carried)
         .unwrap_or_else(|error| panic!("production-site race process validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("production-site race process commit failed: {error}"));
@@ -465,8 +465,10 @@ fn process_start_rejects_carried_output_destination_during_player_step() {
     let before = state.clone();
 
     assert_eq!(
-        validate_start_process(&registries, &state, &resolved, source, carried).err(),
-        Some(StartProcessError::OutputDestinationInTransit { stockpile: carried })
+        validate_start_player_process(&registries, &state, &resolved, source, carried).err(),
+        Some(StartPlayerProcessError::Process(
+            StartProcessError::OutputDestinationInTransit { stockpile: carried }
+        ))
     );
     assert_eq!(state, before);
 }
@@ -475,7 +477,7 @@ fn process_start_rejects_carried_output_destination_during_player_step() {
 fn validated_process_start_rechecks_carried_output_transit_before_commit() {
     let (registries, mut state, source, carried, resolved, step_destination) =
         carried_output_process_fixture();
-    let process = validate_start_process(&registries, &state, &resolved, source, carried)
+    let process = validate_start_player_process(&registries, &state, &resolved, source, carried)
         .unwrap_or_else(|error| panic!("in-transit commit process validation failed: {error}"));
     validate_start_player_step(&registries, &state, step_destination)
         .unwrap_or_else(|error| panic!("in-transit commit step validation failed: {error}"))
@@ -570,9 +572,10 @@ fn player_process_start_rejects_remote_co_located_process_site() {
         TEST_TARGET_TEMPERATURE,
     );
 
-    assert!(
-        validate_start_process(&registries, &state, &resolved, source, destination).is_ok(),
-        "capability-level production admission should remain independent of player locality"
+    assert_eq!(
+        validate_start_process(&registries, &state, &resolved, source, destination).err(),
+        Some(StartProcessError::PlayerAuthorizationRequired),
+        "capability-level production admission must not bypass an admitted player's locality"
     );
     let before = state.clone();
     assert_eq!(

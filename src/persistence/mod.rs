@@ -61,10 +61,23 @@ impl LoadedSaveEnvelope {
         validate_versions(schema_version, registry_schema_version, registries)?;
 
         state.rebuild_derived_indexes();
-        validate_loaded_state(registries, &state).map_err(LoadError::InvalidState)?;
-        validate_persisted_player_admission(registries, &state)?;
+        validate_persistable_state(registries, &state)?;
         Ok(state)
     }
+}
+
+/// Validates the semantic invariants required for current runtime state to round-trip through
+/// trusted persistence.
+///
+/// This includes the generic cross-owner state audit plus persistence-only ordinary-player
+/// admission and carried-custody constraints. It performs no encoding and does not rebuild derived
+/// indexes, so callers must pass live runtime state rather than an unpromoted decoded payload.
+pub fn validate_persistable_state(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), LoadError> {
+    validate_loaded_state(registries, state).map_err(LoadError::InvalidState)?;
+    validate_persisted_player_admission(registries, state)
 }
 
 fn validate_persisted_player_admission(
@@ -152,7 +165,7 @@ fn validate_versions(
     Ok(())
 }
 
-/// Semantic persistence failure after bytes have already been decoded by an adapter.
+/// Semantic persistence validation failure for current-schema runtime state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoadError {
     /// The save was produced for a semantic schema this build does not support.

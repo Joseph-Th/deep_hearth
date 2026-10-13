@@ -584,7 +584,7 @@ pub(super) fn separate_native_copper(
     );
     assert_eq!(resolved.target_mass(), expected_target);
     let ticks = resolved.process_resolution().duration().value();
-    let job = validate_start_process_routed(
+    let job = authorize_progression_powered_process_routed(
         registries,
         state,
         resolved.process_resolution(),
@@ -599,8 +599,8 @@ pub(super) fn separate_native_copper(
                 residue_storage,
             ),
         ],
+        "primitive progression separation",
     )
-    .unwrap_or_else(|error| panic!("primitive progression separation start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive progression separation commit failed: {error}"));
     finish_uninterrupted_production_job(registries, state, job, "primitive powered separation");
@@ -737,14 +737,14 @@ pub(super) fn run_uninterrupted_crush(
     .unwrap_or_else(|error| panic!("primitive reinvestment {context} resolution failed: {error}"));
     assert_eq!(resolved.required_energy(), expected_energy);
     let ticks = resolved.process_resolution().duration().value();
-    let job = validate_start_process(
+    let job = authorize_progression_powered_process(
         registries,
         state,
         resolved.process_resolution(),
         source,
         destination,
+        context,
     )
-    .unwrap_or_else(|error| panic!("primitive reinvestment {context} start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive reinvestment {context} commit failed: {error}"));
     finish_uninterrupted_production_job(registries, state, job, context);
@@ -833,14 +833,14 @@ pub(super) fn crush_while_mining(
     );
     assert_eq!(resolved.required_energy(), expected_energy);
     let crush_ticks = resolved.process_resolution().duration().value();
-    let crush_job = validate_start_process(
+    let crush_job = authorize_progression_powered_process(
         registries,
         state,
         resolved.process_resolution(),
         ore_storage,
         crushed_storage,
+        "primitive progression crushing",
     )
-    .unwrap_or_else(|error| panic!("primitive progression crushing start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive progression crushing commit failed: {error}"));
 

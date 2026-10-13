@@ -86,6 +86,13 @@ fn trusted_load_rejects_partial_player_admission() {
     initialize_player_survival(&registries, &mut survival_only)
         .unwrap_or_else(|error| panic!("survival-only persistence fixture failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &survival_only), Ok(()));
+    assert_eq!(
+        validate_persistable_state(&registries, &survival_only),
+        Err(LoadError::IncompletePlayerAdmission {
+            survival_initialized: true,
+            logistics_initialized: false,
+        })
+    );
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &survival_only))
         .unwrap_or_else(|error| panic!("survival-only persistence serialization failed: {error}"));
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
@@ -108,6 +115,13 @@ fn trusted_load_rejects_partial_player_admission() {
     .commit(&mut logistics_only)
     .unwrap_or_else(|error| panic!("logistics-only persistence commit failed: {error}"));
     assert_eq!(validate_loaded_state(&registries, &logistics_only), Ok(()));
+    assert_eq!(
+        validate_persistable_state(&registries, &logistics_only),
+        Err(LoadError::IncompletePlayerAdmission {
+            survival_initialized: false,
+            logistics_initialized: true,
+        })
+    );
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &logistics_only))
         .unwrap_or_else(|error| panic!("logistics-only persistence serialization failed: {error}"));
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)

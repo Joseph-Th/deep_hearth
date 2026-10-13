@@ -20,11 +20,12 @@ fn stone_knapping_is_timed_conserved_hand_work() {
     )
     .unwrap_or_else(|error| panic!("stone knapping resolution failed: {error}"));
     assert_eq!(resolution.duration(), TickSpan::new(40));
+    // This ordinary fixture is already fully admitted, so generic capability admission must not
+    // bypass the player boundary. Manual-process-specific capability rejection is covered by the
+    // pre-admission ore-processing contracts.
     assert_eq!(
         validate_start_process(&registries, &state, &resolution, source, destination),
-        Err(StartProcessError::ManualProcessRequiresPlayerWork {
-            process: PROCESS_KNAP_STONE_TOOL,
-        })
+        Err(StartProcessError::PlayerAuthorizationRequired)
     );
     let token = validate_start_manual_craft(
         &registries,

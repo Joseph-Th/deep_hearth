@@ -3,16 +3,26 @@
 use std::collections::BTreeSet;
 
 use deep_hearth::content::gameplay_fixture::{locate_fluid_store, locate_ground_stockpile};
-use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::core::state::AppState;
 use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::logistics::assess_player_carrying;
+use deep_hearth::persistence::validate_persistable_state;
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
 
 pub(super) const STATIONARY_PLAYER_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
+
+fn assert_trusted_persistence_ready(
+    registries: &Registries,
+    state: &AppState,
+    context: &'static str,
+) {
+    validate_persistable_state(registries, state)
+        .unwrap_or_else(|error| panic!("ordinary gameplay {context} trusted load failed: {error}"));
+}
 
 /// Verifies complete ordinary player admission and trusted-load validity without requiring every
 /// world endpoint to occupy one stationary workshop voxel.
@@ -43,8 +53,7 @@ pub(super) fn assert_ordinary_admitted_runtime_ready(
         player.position(),
         "ordinary gameplay {context} carrying observation disagrees with player locality"
     );
-    validate_loaded_state(registries, state)
-        .unwrap_or_else(|error| panic!("ordinary gameplay {context} state is invalid: {error}"));
+    assert_trusted_persistence_ready(registries, state, context);
 }
 
 #[allow(
@@ -129,8 +138,9 @@ pub(super) fn assert_exact_local_runtime_ready(
     state: &AppState,
     context: &'static str,
 ) {
+    assert_ordinary_admitted_runtime_ready(registries, state, context);
     let player = state.logistics().player().unwrap_or_else(|| {
-        panic!("stationary gameplay {context} has no admitted logistics player")
+        unreachable!("ordinary exact-local admission proved the logistics player exists")
     });
     assert_eq!(
         player.position(),
@@ -217,7 +227,4 @@ pub(super) fn assert_exact_local_runtime_ready(
             .collect::<BTreeSet<_>>(),
         "stationary gameplay {context} actor-visible ground stockpiles diverged from exact-local runtime custody"
     );
-    validate_loaded_state(registries, state).unwrap_or_else(|error| {
-        panic!("stationary gameplay {context} admitted invalid runtime state: {error}")
-    });
 }

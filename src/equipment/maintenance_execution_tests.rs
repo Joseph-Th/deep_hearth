@@ -43,7 +43,8 @@ use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
-    ProcessDefinition, ProcessId, StartProcessCommitError, validate_start_process,
+    ProcessDefinition, ProcessId, StartProcessCommitError, validate_start_player_process,
+    validate_start_process,
 };
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};

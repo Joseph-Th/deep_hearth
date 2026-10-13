@@ -17,6 +17,7 @@ use crate::energy::{EnergyConsumptionReservation, EnergyIngressReservation};
 use crate::equipment::ValidatedEquipmentUse;
 use crate::inventory::{ConsumptionReservation, StockpileId, ValidatedStockpileStructuralLoad};
 use crate::labor::PlayerWork;
+use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
 
 use super::super::resolution::{ProcessOutputStreamId, ProcessResolution};
@@ -107,7 +108,11 @@ fn moving_player_output_destination(
         .find(|destination| *destination == carried)
 }
 
-/// Validates all preconditions for starting a timed material transformation without mutating state.
+/// Validates capability-level preconditions for starting a timed material transformation without
+/// mutating state.
+///
+/// This surface is for worlds without a fully admitted player. Ordinary admitted-player runtime
+/// must use [`validate_start_player_process`] so locality and vitality cannot be bypassed.
 pub fn validate_start_process(
     registries: &Registries,
     state: &AppState,
@@ -115,6 +120,7 @@ pub fn validate_start_process(
     source: StockpileId,
     destination: StockpileId,
 ) -> Result<ValidatedStartProcess, StartProcessError> {
+    validate_capability_start_context(state)?;
     let Some(stream) = resolution.single_output_stream() else {
         return Err(StartProcessError::OutputRouteCountMismatch {
             streams: resolution.output_streams().len(),
@@ -164,10 +170,12 @@ pub(crate) fn validate_start_manual_process_routed(
     validate_start_process_routed_internal(registries, state, resolution, source, routes, true)
 }
 
-/// Validates a resolved process while assigning one destination to each inseparable output stream.
+/// Validates capability-level resolved production while assigning one destination to each
+/// inseparable output stream.
 ///
 /// Routes bind typed stream identities rather than relying on vector position. Multiple streams may
-/// intentionally share one stockpile; their capacity reservation is aggregated atomically.
+/// intentionally share one stockpile; their capacity reservation is aggregated atomically. Fully
+/// admitted player worlds must use [`validate_start_player_process_routed`].
 pub fn validate_start_process_routed(
     registries: &Registries,
     state: &AppState,
@@ -175,7 +183,15 @@ pub fn validate_start_process_routed(
     source: StockpileId,
     routes: &[ProcessOutputRoute],
 ) -> Result<ValidatedStartProcess, StartProcessError> {
+    validate_capability_start_context(state)?;
     validate_start_process_routed_internal(registries, state, resolution, source, routes, false)
+}
+
+fn validate_capability_start_context(state: &AppState) -> Result<(), StartProcessError> {
+    if player_admission_state(state) == PlayerAdmissionState::Admitted {
+        return Err(StartProcessError::PlayerAuthorizationRequired);
+    }
+    Ok(())
 }
 
 fn validate_resolution_contract(

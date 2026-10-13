@@ -12,7 +12,8 @@ use crate::logistics::{
 use crate::registry::Registries;
 
 use super::{
-    ProcessOutputRoute, StartProcessError, ValidatedStartProcess, validate_start_process_routed,
+    ProcessOutputRoute, StartProcessError, ValidatedStartProcess,
+    validate_start_process_routed_internal,
 };
 use crate::inventory::StockpileId;
 use crate::player::{PlayerAdmissionState, player_admission_state};
@@ -96,9 +97,9 @@ fn validate_player_process_access(
 /// Authorizes one single-output resolved process for an admitted player's current exact-local
 /// custody before entering capability-level production admission.
 ///
-/// Controlled fixtures without a fully admitted player must use capability-level
-/// [`super::validate_start_process`] directly. Ordinary player-facing callers should use this
-/// surface so living player admission and exact-local access are both enforced.
+/// Controlled fixtures without a fully admitted player may use capability-level
+/// [`super::validate_start_process`] directly. Once a player is fully admitted, the generic
+/// capability surface rejects admission so ordinary runtime cannot bypass locality or vitality.
 pub fn validate_start_player_process(
     registries: &Registries,
     state: &AppState,
@@ -133,7 +134,9 @@ pub fn validate_start_player_process_routed(
     routes: &[ProcessOutputRoute],
 ) -> Result<ValidatedStartProcess, StartPlayerProcessError> {
     validate_player_process_access(state, resolution, routes)?;
-    let validated = validate_start_process_routed(registries, state, resolution, source, routes)
-        .map_err(StartPlayerProcessError::Process)?;
+    let validated = validate_start_process_routed_internal(
+        registries, state, resolution, source, routes, false,
+    )
+    .map_err(StartPlayerProcessError::Process)?;
     Ok(validated.bind_player_survival_revision(state.survival().revision()))
 }

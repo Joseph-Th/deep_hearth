@@ -78,7 +78,9 @@ use deep_hearth::ore_processing::{
     resolve_comminution_process, resolve_constituent_separation_process,
 };
 use deep_hearth::production::{
-    ProcessOutputRoute, ProductionJobId, validate_start_process, validate_start_process_routed,
+    ProcessOutputRoute, ProcessResolution, ProductionJobId, ValidatedStartProcess,
+    validate_start_player_process, validate_start_player_process_routed, validate_start_process,
+    validate_start_process_routed,
 };
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -87,6 +89,46 @@ use deep_hearth::survival::assess_survival;
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
+
+fn authorize_progression_powered_process(
+    registries: &Registries,
+    state: &AppState,
+    resolution: &ProcessResolution,
+    source: deep_hearth::inventory::StockpileId,
+    destination: deep_hearth::inventory::StockpileId,
+    context: &'static str,
+) -> ValidatedStartProcess {
+    if state.logistics().player().is_some() {
+        validate_start_player_process(registries, state, resolution, source, destination)
+            .unwrap_or_else(|error| {
+                panic!("{context} player production authorization failed: {error}")
+            })
+    } else {
+        validate_start_process(registries, state, resolution, source, destination).unwrap_or_else(
+            |error| panic!("{context} capability production authorization failed: {error}"),
+        )
+    }
+}
+
+fn authorize_progression_powered_process_routed(
+    registries: &Registries,
+    state: &AppState,
+    resolution: &ProcessResolution,
+    source: deep_hearth::inventory::StockpileId,
+    routes: &[ProcessOutputRoute],
+    context: &'static str,
+) -> ValidatedStartProcess {
+    if state.logistics().player().is_some() {
+        validate_start_player_process_routed(registries, state, resolution, source, routes)
+            .unwrap_or_else(|error| {
+                panic!("{context} player production authorization failed: {error}")
+            })
+    } else {
+        validate_start_process_routed(registries, state, resolution, source, routes).unwrap_or_else(
+            |error| panic!("{context} capability production authorization failed: {error}"),
+        )
+    }
+}
 
 fn progression_world_parameters(case: FocusedProbeCase) -> (bool, u64) {
     let low_trace_grade_regime = match case.role() {

@@ -191,7 +191,7 @@ fn run_reinvestment_separation(
     .unwrap_or_else(|error| panic!("primitive reinvestment {context} resolution failed: {error}"));
     assert_eq!(resolved.required_energy(), required_energy);
     let ticks = resolved.process_resolution().duration().value();
-    let job = validate_start_process_routed(
+    let job = authorize_progression_powered_process_routed(
         registries,
         state,
         resolved.process_resolution(),
@@ -206,8 +206,8 @@ fn run_reinvestment_separation(
                 residue_storage,
             ),
         ],
+        context,
     )
-    .unwrap_or_else(|error| panic!("primitive reinvestment {context} start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive reinvestment {context} commit failed: {error}"));
     finish_uninterrupted_production_job(registries, state, job, context);

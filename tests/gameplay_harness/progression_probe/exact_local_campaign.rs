@@ -14,7 +14,7 @@ use deep_hearth::content::{
     PROSPECTING_FIELD_INSPECTION, PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
 use deep_hearth::core::quantity::Mass;
-use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::core::state::AppState;
 use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::logistics::{
@@ -25,8 +25,9 @@ use deep_hearth::mining::{
     MiningStartError, MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target,
     validate_start_mining,
 };
+use deep_hearth::persistence::validate_persistable_state;
 use deep_hearth::player::validate_admit_player;
-use deep_hearth::production::ProductionJobId;
+use deep_hearth::production::{ProductionJobId, validate_start_player_process};
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
@@ -92,8 +93,9 @@ fn assert_exact_local_progression_state(registries: &Registries, state: &AppStat
         state.logistics().player().map(|player| player.position()),
         Some(carrying.position())
     );
-    validate_loaded_state(registries, state)
-        .unwrap_or_else(|error| panic!("exact-local progression {context} state invalid: {error}"));
+    validate_persistable_state(registries, state).unwrap_or_else(|error| {
+        panic!("exact-local progression {context} state is not persistable: {error}")
+    });
 }
 
 fn locate_workshop_stockpiles(
@@ -431,7 +433,7 @@ fn start_exact_local_crush(
     assert_eq!(resolved.required_energy(), expected_energy);
     let ticks = resolved.process_resolution().duration().value();
     let started_at = state.tick().value();
-    let job = validate_start_process(
+    let job = validate_start_player_process(
         registries,
         state,
         resolved.process_resolution(),

@@ -15,7 +15,7 @@ use crate::logistics::{add_traversable_edge_for_test, validate_place_ground_stoc
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
 use crate::player::validate_admit_player;
-use crate::production::{ProcessId, validate_start_process};
+use crate::production::{ProcessId, validate_start_player_process};
 use crate::spatial::VoxelCoord;
 use crate::thermal::{SensibleHeatingRequest, resolve_sensible_heating_process};
 
@@ -122,7 +122,7 @@ fn trusted_step_rejects_retained_production_output_in_carried_custody() {
         ),
     )
     .unwrap_or_else(|error| panic!("retained-site process resolution failed: {error}"));
-    let job = validate_start_process(
+    let job = validate_start_player_process(
         &registries,
         &state,
         resolved.process_resolution(),

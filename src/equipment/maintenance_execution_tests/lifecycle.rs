@@ -514,7 +514,7 @@ fn maintenance_start_preserves_equipment_revision_owed_to_running_production() {
         ),
     )
     .unwrap_or_else(|error| panic!("shared-budget heating resolution failed: {error}"));
-    validate_start_process(
+    validate_start_player_process(
         &registries,
         &state,
         heating.process_resolution(),

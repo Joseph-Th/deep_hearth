@@ -10,6 +10,9 @@ impl Display for StartProcessError {
             Self::UnknownProcess { process } => {
                 write!(formatter, "unknown process id {}", process.value())
             }
+            Self::PlayerAuthorizationRequired => formatter.write_str(
+                "production in a fully admitted player world must start through the player authorization boundary",
+            ),
             Self::ManualProcessRequiresPlayerWork { process } => write!(
                 formatter,
                 "manual process {} must start through the player-work boundary",

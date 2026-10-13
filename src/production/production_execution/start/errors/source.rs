@@ -10,6 +10,7 @@ impl Error for StartProcessError {
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownProcess { .. }
+            | Self::PlayerAuthorizationRequired
             | Self::ManualProcessRequiresPlayerWork { .. }
             | Self::ResolutionEquipmentTopologyMismatch { .. }
             | Self::ResolutionEnergyTopologyMismatch { .. }

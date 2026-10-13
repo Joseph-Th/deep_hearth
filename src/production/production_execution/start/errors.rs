@@ -24,6 +24,7 @@ pub enum StartProcessError {
     UnknownProcess {
         process: ProcessId,
     },
+    PlayerAuthorizationRequired,
     ManualProcessRequiresPlayerWork {
         process: ProcessId,
     },
