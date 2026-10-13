@@ -254,19 +254,19 @@ pub enum StateValidationError {
     },
     ProductionInventoryRevisionCapacityExhausted {
         revision: u64,
-        completion_buckets: u64,
+        required: u64,
     },
     ProductionEquipmentRevisionCapacityExhausted {
         revision: u64,
-        completion_buckets: u64,
+        required: u64,
     },
     ProductionEnergyRevisionCapacityExhausted {
         revision: u64,
-        completion_buckets: u64,
+        required: u64,
     },
     ProductionStructureRevisionCapacityExhausted {
         revision: u64,
-        completion_buckets: u64,
+        required: u64,
     },
     FutureMaterialLotIdCapacityExhausted {
         next_lot_id: u64,

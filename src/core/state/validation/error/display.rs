@@ -405,31 +405,31 @@ impl Display for StateValidationError {
             ),
             Self::ProductionInventoryRevisionCapacityExhausted {
                 revision,
-                completion_buckets,
+                required,
             } => write!(
                 formatter,
-                "inventory revision {revision} cannot reserve {completion_buckets} scheduled production completion revisions"
+                "inventory revision {revision} cannot reserve {required} already-admitted production completion revisions"
             ),
             Self::ProductionEquipmentRevisionCapacityExhausted {
                 revision,
-                completion_buckets,
+                required,
             } => write!(
                 formatter,
-                "equipment revision {revision} cannot reserve {completion_buckets} scheduled production wear revisions"
+                "equipment revision {revision} cannot reserve {required} already-admitted production wear revisions"
             ),
             Self::ProductionEnergyRevisionCapacityExhausted {
                 revision,
-                completion_buckets,
+                required,
             } => write!(
                 formatter,
-                "energy revision {revision} cannot reserve {completion_buckets} scheduled production release revisions"
+                "energy revision {revision} cannot reserve {required} already-admitted production release revisions"
             ),
             Self::ProductionStructureRevisionCapacityExhausted {
                 revision,
-                completion_buckets,
+                required,
             } => write!(
                 formatter,
-                "structural revision {revision} cannot reserve {completion_buckets} scheduled supported-output revisions"
+                "structural revision {revision} cannot reserve {required} already-admitted supported-output revisions"
             ),
             Self::FutureMaterialLotIdCapacityExhausted {
                 next_lot_id,

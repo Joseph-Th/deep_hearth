@@ -2,6 +2,7 @@
 
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
+use crate::logistics::validate_player_stockpile_access;
 use crate::production::{ProductionAvailabilityChange, find_availability_change};
 use crate::registry::Registries;
 
@@ -38,6 +39,13 @@ pub(crate) fn decide_manual_production_player_work_start(
             "runtime invariant broken: manual production resume references missing production job"
         )
     });
+    if record
+        .output_streams()
+        .iter()
+        .any(|stream| validate_player_stockpile_access(state, stream.destination()).is_err())
+    {
+        return Ok(None);
+    }
     let exertion = registries
         .manual_process_exertion(record.process())
         .unwrap_or_else(|| {

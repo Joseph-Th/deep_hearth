@@ -133,6 +133,114 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         });
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 
+    let suspended_save = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("suspended headroom serialization failed: {error}"));
+    let mut exhausted_production = suspended_save.clone();
+    exhausted_production["state"]["systems"]["production"]["revision"] =
+        serde_json::json!(u64::MAX);
+    let exhausted_production: LoadedSaveEnvelope = serde_json::from_value(exhausted_production)
+        .unwrap_or_else(|error| panic!("suspended production-headroom decode failed: {error}"));
+    assert_eq!(
+        exhausted_production.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            crate::production::ProductionValidationError::FutureCompletionRevisionCapacityExhausted {
+                revision: u64::MAX,
+                required: 1,
+            }
+        ))),
+        "suspension must not release the production revision owed by retained completion"
+    );
+
+    let mut exhausted_inventory = suspended_save.clone();
+    exhausted_inventory["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
+    let exhausted_inventory: LoadedSaveEnvelope = serde_json::from_value(exhausted_inventory)
+        .unwrap_or_else(|error| panic!("suspended inventory-headroom decode failed: {error}"));
+    assert_eq!(
+        exhausted_inventory.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionInventoryRevisionCapacityExhausted {
+                revision: u64::MAX,
+                required: 1,
+            }
+        )),
+        "suspension must not release the inventory revision owed by retained work"
+    );
+
+    let mut exhausted_equipment = suspended_save.clone();
+    exhausted_equipment["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX);
+    let exhausted_equipment: LoadedSaveEnvelope = serde_json::from_value(exhausted_equipment)
+        .unwrap_or_else(|error| panic!("suspended equipment-headroom decode failed: {error}"));
+    assert_eq!(
+        exhausted_equipment.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionEquipmentRevisionCapacityExhausted {
+                revision: u64::MAX,
+                required: 1,
+            }
+        )),
+        "suspension must not release the equipment revision owed by retained wear"
+    );
+
+    let mut exhausted_structure = suspended_save.clone();
+    exhausted_structure["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
+    let exhausted_structure: LoadedSaveEnvelope = serde_json::from_value(exhausted_structure)
+        .unwrap_or_else(|error| panic!("suspended structure-headroom decode failed: {error}"));
+    assert_eq!(
+        exhausted_structure.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionStructureRevisionCapacityExhausted {
+                revision: u64::MAX,
+                required: 1,
+            }
+        )),
+        "suspension must not release the structure revision owed by supported output"
+    );
+
+    let mut near_exhausted_structure = suspended_save.clone();
+    near_exhausted_structure["state"]["systems"]["structures"]["revision"] =
+        serde_json::json!(u64::MAX - 1);
+    let near_exhausted_structure: LoadedSaveEnvelope =
+        serde_json::from_value(near_exhausted_structure).unwrap_or_else(|error| {
+            panic!("suspended support-reprojection decode failed: {error}")
+        });
+    let mut support_budget = near_exhausted_structure
+        .into_state(&registries)
+        .unwrap_or_else(|error| {
+            panic!("suspended support-reprojection state should load: {error}")
+        });
+    let _ = validate_unmount_stockpile(&registries, &support_budget, destination)
+        .unwrap_or_else(|error| panic!("suspended support-budget unmount failed: {error}"))
+        .commit(&mut support_budget)
+        .unwrap_or_else(|error| panic!("suspended support-budget unmount commit failed: {error}"));
+    assert_eq!(support_budget.structures().revision(), u64::MAX - 1);
+    let _ = validate_set_structural_load(
+        &registries,
+        &support_budget,
+        recovery_support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(1),
+    )
+    .unwrap_or_else(|error| panic!("suspended support-budget competing load failed: {error}"))
+    .commit(&mut support_budget)
+    .unwrap_or_else(|error| {
+        panic!("suspended support-budget competing load commit failed: {error}")
+    });
+    assert_eq!(support_budget.structures().revision(), u64::MAX);
+    let remount =
+        validate_mount_stockpile(&registries, &support_budget, destination, recovery_support);
+    assert!(
+        matches!(
+            remount,
+            Err(crate::inventory::StockpileSupportError::Load(
+                crate::inventory::StockpileStructuralLoadError::Structure(
+                    crate::structural::StructuralMutationError::RevisionExhausted
+                )
+            ))
+        ),
+        "unexpected suspended support-budget remount result: {remount:?}"
+    );
+    assert_eq!(validate_loaded_state(&registries, &support_budget), Ok(()));
+
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("suspended heating save failed: {error}"));
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)

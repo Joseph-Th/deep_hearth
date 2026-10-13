@@ -46,9 +46,9 @@ pub enum ProductionValidationError {
         due: SimulationTick,
         current: SimulationTick,
     },
-    ScheduledRevisionCapacityExhausted {
+    FutureCompletionRevisionCapacityExhausted {
         revision: u64,
-        completion_buckets: u64,
+        required: u64,
     },
     ZeroActiveDuration {
         job: ProductionJobId,

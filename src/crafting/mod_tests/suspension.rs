@@ -125,6 +125,94 @@ fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered(
 }
 
 #[test]
+fn suspended_manual_craft_does_not_resume_after_player_leaves_retained_site() {
+    let (registries, mut state, source, lot, destination) = make_fixture();
+    let origin = VoxelCoord::new(0, 0, 0);
+    let remote = VoxelCoord::new(1, 0, 0);
+    add_traversable_edge_for_test(&mut state, origin, remote);
+    let support = active_stockpile_support(&registries, &mut state);
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap_or_else(|error| panic!("remote-resume destination mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-resume destination mount commit failed: {error}"));
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("remote-resume manual craft start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote-resume manual craft commit failed: {error}"));
+
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("remote-resume support failure failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote-resume support failure commit failed: {error}"));
+    let paused = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote-resume suspension tick failed: {error}"));
+    assert!(matches!(
+        paused.production_availability_changes(),
+        [ProductionAvailabilityChange::Suspended {
+            job: suspended_job,
+            reason: ProductionSuspensionReason::OutputSupportUnavailable { stockpile },
+            ..
+        }] if *suspended_job == job && *stockpile == destination
+    ));
+    assert_eq!(state.player_work().active(), None);
+
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("remote-resume destination recovery failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-resume destination recovery commit failed: {error}")
+        });
+    validate_start_player_step(&registries, &state, remote)
+        .unwrap_or_else(|error| panic!("remote-resume player step failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-resume player step commit failed: {error}"));
+    let moved = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote-resume movement tick failed: {error}"));
+    assert!(matches!(
+        moved.production_availability_changes(),
+        [ProductionAvailabilityChange::SuspensionReasonChanged {
+            job: changed_job,
+            previous: ProductionSuspensionReason::OutputSupportUnavailable { stockpile },
+            reason: ProductionSuspensionReason::PlayerLaborUnavailable,
+        }] if *changed_job == job && *stockpile == destination
+    ));
+    assert_eq!(
+        state.logistics().player().map(|player| player.position()),
+        Some(remote)
+    );
+    assert_eq!(state.player_work().active(), None);
+
+    let blocked = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote-resume locality tick failed: {error}"));
+    assert!(blocked.production_availability_changes().is_empty());
+    assert_eq!(
+        state
+            .production()
+            .get_job(job)
+            .and_then(|record| record.suspension())
+            .map(|suspension| suspension.reason()),
+        Some(ProductionSuspensionReason::PlayerLaborUnavailable)
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_runs() {
     let (registries, mut state, source, lot, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);

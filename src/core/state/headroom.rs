@@ -27,7 +27,7 @@ impl AppState {
 
     pub(crate) fn checked_future_inventory_revision_demand(&self) -> Option<u64> {
         checked_combined_demand(
-            self.systems.production.scheduled_completion_bucket_count(),
+            self.systems.production.future_inventory_revision_demand(),
             self.future_nonproduction_inventory_revision_demand(),
         )
     }
@@ -46,7 +46,7 @@ impl AppState {
         checked_combined_demand(
             self.systems
                 .production
-                .scheduled_released_energy_revision_bucket_count(),
+                .future_released_energy_revision_demand(),
             self.future_nonproduction_energy_revision_demand(),
         )
     }
@@ -57,9 +57,7 @@ impl AppState {
 
     pub(crate) fn checked_future_equipment_revision_demand(&self) -> Option<u64> {
         checked_combined_demand(
-            self.systems
-                .production
-                .scheduled_equipment_revision_bucket_count(),
+            self.systems.production.future_equipment_revision_demand(),
             self.checked_future_nonproduction_equipment_revision_demand()?,
         )
     }
@@ -94,7 +92,7 @@ impl AppState {
         checked_combined_demand(
             self.systems
                 .production
-                .scheduled_supported_output_revision_bucket_count(&self.systems.inventory),
+                .future_supported_output_revision_demand(&self.systems.inventory),
             self.future_nonproduction_structure_revision_demand(),
         )
     }

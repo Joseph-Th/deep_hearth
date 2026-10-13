@@ -1,148 +1,160 @@
 //! Future revision and material-identity headroom reserved by durable production schedules.
 
-use crate::core::time::SimulationTick;
 use crate::inventory::InventoryState;
 
-use super::{ProductionJobRecord, ProductionState};
+use super::ProductionState;
 
 impl ProductionState {
-    pub(crate) fn has_scheduled_revision_capacity_from(&self, revision: u64) -> bool {
-        revision
-            .checked_add(self.scheduled_completion_bucket_count())
-            .is_some()
+    /// Conservative cross-owner inventory revisions still owed by durable production jobs.
+    ///
+    /// Completion execution may batch jobs that happen to share a due tick, but suspension can
+    /// later separate those schedules. Headroom therefore reserves one eventual inventory
+    /// mutation per retained job instead of relying on present due-bucket coalescing.
+    pub(crate) fn future_inventory_revision_demand(&self) -> u64 {
+        u64::try_from(self.jobs.len())
+            .unwrap_or_else(|_| unreachable!("resident production job count fits u64"))
     }
 
-    pub(in crate::production) fn has_scheduled_revision_capacity_with_tick_from(
+    pub(crate) fn future_completion_revision_demand(&self) -> u64 {
+        u64::try_from(self.jobs.len())
+            .unwrap_or_else(|_| unreachable!("resident production completion demand fits u64"))
+    }
+
+    pub(crate) fn has_future_completion_revision_capacity_from(
         &self,
         revision: u64,
-        completes_at: SimulationTick,
+        additional_jobs: u64,
     ) -> bool {
         revision
-            .checked_add(
-                self.indexes
-                    .scheduled_bucket_count_with_additional_tick_where(completes_at, |_| true),
-            )
+            .checked_add(self.future_completion_revision_demand())
+            .and_then(|revision| revision.checked_add(additional_jobs))
             .is_some()
     }
 
-    pub(crate) fn scheduled_completion_bucket_count(&self) -> u64 {
-        self.indexes.scheduled_bucket_count()
+    pub(crate) fn future_equipment_revision_demand(&self) -> u64 {
+        u64::try_from(
+            self.jobs
+                .values()
+                .filter(|job| job.requires_equipment_revision_at_completion())
+                .count(),
+        )
+        .unwrap_or_else(|_| unreachable!("resident production equipment revision demand fits u64"))
+    }
+
+    pub(crate) fn future_released_energy_revision_demand(&self) -> u64 {
+        u64::try_from(
+            self.jobs
+                .values()
+                .filter(|job| job.requires_energy_revision_at_completion())
+                .count(),
+        )
+        .unwrap_or_else(|_| unreachable!("resident production energy revision demand fits u64"))
+    }
+
+    pub(crate) fn future_supported_output_revision_demand(
+        &self,
+        inventory: &InventoryState,
+    ) -> u64 {
+        u64::try_from(
+            self.jobs
+                .values()
+                .filter(|job| job.requires_structure_revision_at_completion(inventory))
+                .count(),
+        )
+        .unwrap_or_else(|_| unreachable!("resident production structure revision demand fits u64"))
+    }
+
+    pub(crate) fn has_future_inventory_revision_capacity_from(
+        &self,
+        revision: u64,
+        additional_jobs: u64,
+    ) -> bool {
+        revision
+            .checked_add(self.future_inventory_revision_demand())
+            .and_then(|revision| revision.checked_add(additional_jobs))
+            .is_some()
+    }
+
+    pub(crate) fn has_future_equipment_revision_capacity_from(
+        &self,
+        revision: u64,
+        additional_jobs: u64,
+    ) -> bool {
+        revision
+            .checked_add(self.future_equipment_revision_demand())
+            .and_then(|revision| revision.checked_add(additional_jobs))
+            .is_some()
+    }
+
+    pub(crate) fn has_future_released_energy_revision_capacity_from(
+        &self,
+        revision: u64,
+        additional_jobs: u64,
+    ) -> bool {
+        revision
+            .checked_add(self.future_released_energy_revision_demand())
+            .and_then(|revision| revision.checked_add(additional_jobs))
+            .is_some()
+    }
+
+    pub(crate) fn has_future_supported_output_revision_capacity_from(
+        &self,
+        revision: u64,
+        inventory: &InventoryState,
+        additional_jobs: u64,
+    ) -> bool {
+        revision
+            .checked_add(self.future_supported_output_revision_demand(inventory))
+            .and_then(|revision| revision.checked_add(additional_jobs))
+            .is_some()
+    }
+
+    /// Future structural-demand change if one stockpile's support status is replaced.
+    pub(crate) fn future_supported_output_revision_adjustment_for_stockpile(
+        &self,
+        inventory: &InventoryState,
+        stockpile: crate::inventory::StockpileId,
+        supported_after: bool,
+    ) -> (u64, u64) {
+        let mut additional = 0_u64;
+        let mut released = 0_u64;
+        for job in self.jobs.values() {
+            let before = job.requires_structure_revision_at_completion(inventory);
+            let after = job.output_streams().iter().any(|stream| {
+                if stream.destination() == stockpile {
+                    supported_after
+                } else {
+                    inventory
+                        .get_stockpile(stream.destination())
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "runtime invariant broken: production job {} output references missing stockpile {}",
+                                job.id().value(),
+                                stream.destination().value()
+                            )
+                        })
+                        .supported_by()
+                        .is_some()
+                }
+            });
+            match (before, after) {
+                (false, true) => {
+                    additional = additional.checked_add(1).unwrap_or_else(|| {
+                        unreachable!("resident production structural demand fits u64")
+                    })
+                }
+                (true, false) => {
+                    released = released.checked_add(1).unwrap_or_else(|| {
+                        unreachable!("resident production structural demand fits u64")
+                    })
+                }
+                _ => {}
+            }
+        }
+        (additional, released)
     }
 
     pub(crate) const fn future_material_lot_id_demand(&self) -> u64 {
         self.indexes.future_material_lot_id_demand()
-    }
-
-    pub(in crate::production) fn has_scheduled_revision_capacity(&self) -> bool {
-        self.has_scheduled_revision_capacity_from(self.revision)
-    }
-
-    pub(crate) fn has_scheduled_equipment_revision_capacity_from(&self, revision: u64) -> bool {
-        revision
-            .checked_add(self.scheduled_equipment_revision_bucket_count())
-            .is_some()
-    }
-
-    pub(crate) fn scheduled_equipment_revision_bucket_count(&self) -> u64 {
-        self.indexes.scheduled_equipment_revision_bucket_count()
-    }
-
-    pub(in crate::production) fn has_scheduled_equipment_revision_capacity_with_tick_from(
-        &self,
-        revision: u64,
-        completes_at: SimulationTick,
-    ) -> bool {
-        revision
-            .checked_add(
-                self.indexes
-                    .scheduled_equipment_revision_bucket_count_with_tick(completes_at),
-            )
-            .is_some()
-    }
-
-    pub(crate) fn has_scheduled_released_energy_revision_capacity_from(
-        &self,
-        revision: u64,
-    ) -> bool {
-        revision
-            .checked_add(self.scheduled_released_energy_revision_bucket_count())
-            .is_some()
-    }
-
-    pub(crate) fn scheduled_released_energy_revision_bucket_count(&self) -> u64 {
-        self.indexes.scheduled_energy_revision_bucket_count()
-    }
-
-    pub(in crate::production) fn has_scheduled_released_energy_revision_capacity_with_tick_from(
-        &self,
-        revision: u64,
-        completes_at: SimulationTick,
-    ) -> bool {
-        revision
-            .checked_add(
-                self.indexes
-                    .scheduled_energy_revision_bucket_count_with_tick(completes_at),
-            )
-            .is_some()
-    }
-
-    pub(crate) fn has_scheduled_supported_output_revision_capacity_from(
-        &self,
-        revision: u64,
-        inventory: &InventoryState,
-    ) -> bool {
-        revision
-            .checked_add(self.scheduled_supported_output_revision_bucket_count(inventory))
-            .is_some()
-    }
-
-    pub(crate) fn scheduled_supported_output_revision_bucket_count(
-        &self,
-        inventory: &InventoryState,
-    ) -> u64 {
-        self.scheduled_completion_bucket_count_where(|job| {
-            job.requires_structure_revision_at_completion(inventory)
-        })
-    }
-
-    pub(in crate::production) fn has_scheduled_supported_output_revision_capacity_with_tick_from(
-        &self,
-        revision: u64,
-        inventory: &InventoryState,
-        completes_at: SimulationTick,
-    ) -> bool {
-        revision
-            .checked_add(
-                self.scheduled_completion_bucket_count_with_tick_where(completes_at, |job| {
-                    job.requires_structure_revision_at_completion(inventory)
-                }),
-            )
-            .is_some()
-    }
-
-    fn scheduled_completion_bucket_count_where(
-        &self,
-        mut predicate: impl FnMut(&ProductionJobRecord) -> bool,
-    ) -> u64 {
-        self.indexes.scheduled_bucket_count_where(|id| {
-            let job = self.jobs.get(&id).unwrap_or_else(|| {
-                panic!("runtime invariant broken: production due index references missing job")
-            });
-            predicate(job)
-        })
-    }
-
-    fn scheduled_completion_bucket_count_with_tick_where(
-        &self,
-        completes_at: SimulationTick,
-        mut predicate: impl FnMut(&ProductionJobRecord) -> bool,
-    ) -> u64 {
-        self.indexes
-            .scheduled_bucket_count_with_additional_tick_where(completes_at, |id| {
-                let job = self.jobs.get(&id).unwrap_or_else(|| {
-                    panic!("runtime invariant broken: production due index references missing job")
-                });
-                predicate(job)
-            })
     }
 }

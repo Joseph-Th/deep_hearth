@@ -17,6 +17,10 @@ pub enum StartProcessCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleProductionRevision {
         expected: u64,
         actual: u64,
@@ -67,6 +71,10 @@ impl Display for StartProcessCommitError {
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated process start expected logistics revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "player-authorized process start expected survival revision {expected} but current revision is {actual}"
             ),
             Self::OutputDestinationInTransit { stockpile } => write!(
                 formatter,
@@ -140,6 +148,7 @@ impl Error for StartProcessCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::StaleLogisticsRevision { .. }
+            | Self::StaleSurvivalRevision { .. }
             | Self::StaleProductionRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleEnergyRevision { .. }

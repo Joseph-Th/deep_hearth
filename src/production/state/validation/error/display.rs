@@ -45,12 +45,9 @@ impl Display for ProductionValidationError {
                 due.value(),
                 current.value()
             ),
-            Self::ScheduledRevisionCapacityExhausted {
-                revision,
-                completion_buckets,
-            } => write!(
+            Self::FutureCompletionRevisionCapacityExhausted { revision, required } => write!(
                 formatter,
-                "production revision {revision} cannot reserve {completion_buckets} scheduled completion revisions"
+                "production revision {revision} cannot reserve {required} already-admitted completion revisions"
             ),
             Self::ZeroActiveDuration { job } => write!(
                 formatter,

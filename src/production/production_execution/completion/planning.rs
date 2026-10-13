@@ -23,7 +23,7 @@ use super::{
 
 mod revision_capacity;
 
-use revision_capacity::{build_completion_revision_plan, validate_resumed_job_revision_capacity};
+use revision_capacity::{build_completion_revision_plan, validate_remaining_job_revision_capacity};
 
 struct DueCompletionPlanning {
     jobs: Vec<ProductionJobId>,
@@ -97,6 +97,7 @@ pub(crate) fn plan_player_death_suspension(
         expected_player_work_revision: state.player_work().revision(),
         expected_survival_revision: Some(state.survival().revision()),
     });
+    validate_remaining_job_revision_capacity(state, plan)?;
     Ok(())
 }
 
@@ -179,7 +180,7 @@ pub(crate) fn decide_due_completions(
         released_energy_outcomes: planning.released_energy_outcomes,
         structural_load,
     };
-    validate_resumed_job_revision_capacity(state, &due_ids, &plan)?;
+    validate_remaining_job_revision_capacity(state, &plan)?;
     Ok(plan)
 }
 

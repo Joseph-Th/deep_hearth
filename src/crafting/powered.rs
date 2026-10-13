@@ -23,9 +23,10 @@ use crate::logistics::{
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
+use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::production::{
-    ProcessId, ProcessResolution, ValidatedStartProcess, validate_process_inputs,
-    validate_start_process,
+    ProcessId, ProcessResolution, StartPlayerProcessError, ValidatedStartProcess,
+    validate_process_inputs, validate_start_player_process, validate_start_process,
 };
 use crate::registry::Registries;
 
@@ -451,6 +452,25 @@ pub fn validate_start_powered_craft(
         .map_err(StartPoweredCraftError::EnergyStoreAccess)?;
     let resolution = resolve_powered_craft(registries, state, &request)
         .map_err(StartPoweredCraftError::Resolution)?;
+    if player_admission_state(state) == PlayerAdmissionState::Admitted {
+        return validate_start_player_process(registries, state, &resolution, source, destination)
+            .map_err(|error| match error {
+                StartPlayerProcessError::PlayerNotAdmitted => {
+                    unreachable!("powered craft just observed a fully admitted player")
+                }
+                StartPlayerProcessError::PlayerDead => StartPoweredCraftError::PlayerDead,
+                StartPlayerProcessError::StockpileAccess(error) => {
+                    StartPoweredCraftError::StockpileAccess(error)
+                }
+                StartPlayerProcessError::EquipmentAccess(error) => {
+                    StartPoweredCraftError::EquipmentAccess(error)
+                }
+                StartPlayerProcessError::EnergyStoreAccess(error) => {
+                    StartPoweredCraftError::EnergyStoreAccess(error)
+                }
+                StartPlayerProcessError::Process(error) => StartPoweredCraftError::Process(error),
+            });
+    }
     validate_start_process(registries, state, &resolution, source, destination)
         .map_err(StartPoweredCraftError::Process)
 }

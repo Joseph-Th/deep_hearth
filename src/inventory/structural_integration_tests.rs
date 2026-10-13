@@ -30,7 +30,7 @@ use crate::production::{
     ProcessId, ProcessResolution, ProductionAvailabilityChange, ProductionSuspensionReason,
     StartProcessError, validate_start_process,
 };
-use crate::simulation::{TickError, advance_tick};
+use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralCommitError, StructuralLifecycle, StructuralLoadKind, StructuralMutationError,
@@ -317,7 +317,7 @@ fn player_carried_stockpile_cannot_also_be_structurally_mounted() {
 }
 
 #[test]
-fn suspended_production_rechecks_inventory_revision_capacity_before_resume() {
+fn suspended_production_retains_inventory_revision_capacity_before_resume() {
     let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_013));
     let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
@@ -378,16 +378,16 @@ fn suspended_production_rechecks_inventory_revision_capacity_before_resume() {
     encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("resume-budget decode failed: {error}"));
-    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
-        panic!("suspended work should not reserve an unscheduled completion revision: {error}")
-    });
-    let before = loaded.clone();
-
     assert_eq!(
-        advance_tick(&registries, &mut loaded),
-        Err(TickError::InventoryRevisionExhausted)
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionInventoryRevisionCapacityExhausted {
+                revision: u64::MAX,
+                required: 1,
+            }
+        )),
+        "suspended work must retain the inventory revision owed by eventual completion"
     );
-    assert_eq!(loaded, before);
 }
 
 fn active_support(registries: &Registries, state: &mut AppState, x: i64) -> StructuralElementId {

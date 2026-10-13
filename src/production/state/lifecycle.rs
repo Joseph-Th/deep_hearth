@@ -95,23 +95,13 @@ impl ProductionState {
         reason: ProductionSuspensionReason,
     ) {
         self.assert_suspend_job_available(id, suspended_at, remaining_active_time);
-        let (due, requires_energy_revision, requires_equipment_revision) = {
-            let record = self
-                .jobs
-                .get(&id)
-                .unwrap_or_else(|| unreachable!("production suspension job was prechecked"));
-            (
-                record.schedule.completes_at,
-                record.requires_energy_revision_at_completion(),
-                record.requires_equipment_revision_at_completion(),
-            )
-        };
-        self.indexes.remove_due_job_with_requirements(
-            id,
-            due,
-            requires_energy_revision,
-            requires_equipment_revision,
-        );
+        let due = self
+            .jobs
+            .get(&id)
+            .unwrap_or_else(|| unreachable!("production suspension job was prechecked"))
+            .schedule
+            .completes_at;
+        self.indexes.remove_due_job(id, due);
         self.indexes.set_suspended(id, true);
         if reason == ProductionSuspensionReason::PlayerLaborUnavailable {
             self.indexes.set_player_labor_suspended(id, true);
@@ -191,19 +181,15 @@ impl ProductionState {
     ) {
         let completed_suspension_time =
             self.assert_resume_job_available(id, resumed_at, scheduled_completion);
-        let (was_player_labor_suspended, requires_energy_revision, requires_equipment_revision) = {
-            let record = self
-                .jobs
-                .get(&id)
-                .unwrap_or_else(|| unreachable!("production resume job was prechecked"));
-            (
-                record.schedule.suspension.is_some_and(|suspension| {
-                    suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
-                }),
-                record.requires_energy_revision_at_completion(),
-                record.requires_equipment_revision_at_completion(),
-            )
-        };
+        let was_player_labor_suspended = self
+            .jobs
+            .get(&id)
+            .unwrap_or_else(|| unreachable!("production resume job was prechecked"))
+            .schedule
+            .suspension
+            .is_some_and(|suspension| {
+                suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
+            });
         if was_player_labor_suspended {
             self.indexes.set_player_labor_suspended(id, false);
         }
@@ -215,12 +201,7 @@ impl ProductionState {
         record.schedule.completed_suspension_time = TickSpan::new(completed_suspension_time);
         record.schedule.completes_at = scheduled_completion;
         record.schedule.suspension = None;
-        self.indexes.insert_due_job_with_requirements(
-            id,
-            scheduled_completion,
-            requires_energy_revision,
-            requires_equipment_revision,
-        );
+        self.indexes.insert_due_job(id, scheduled_completion);
     }
 
     pub(in crate::production) fn assert_suspension_reason_change_available(

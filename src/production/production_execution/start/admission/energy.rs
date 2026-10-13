@@ -1,7 +1,6 @@
 //! Finite-energy reservation and cross-owner occupancy admission.
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::energy::{
     ConsumedEnergyTrace, EnergyConsumptionReservation, EnergyIngressReservation,
     EnergyIngressReservationError, EnergyReservationError, EnergyStoreId, EnergyStoreOccupancy,
@@ -25,7 +24,6 @@ pub(in super::super) fn validate_energy_reservations(
     registries: &Registries,
     state: &AppState,
     resolution: &ProcessResolution,
-    completes_at: SimulationTick,
 ) -> Result<ValidatedEnergyReservations, StartProcessError> {
     let consumption = match resolution.energy_supply() {
         Some(selection) => Some(
@@ -58,20 +56,12 @@ pub(in super::super) fn validate_energy_reservations(
     let post_nonproduction_revision = post_admission_revision
         .checked_add(state.future_nonproduction_energy_revision_demand())
         .ok_or(StartProcessError::EnergyRevisionExhausted)?;
-    if released.is_some()
-        && !state
-            .production()
-            .has_scheduled_released_energy_revision_capacity_with_tick_from(
-                post_nonproduction_revision,
-                completes_at,
-            )
-    {
-        return Err(StartProcessError::EnergyRevisionExhausted);
-    }
-    if released.is_none()
-        && !state
-            .production()
-            .has_scheduled_released_energy_revision_capacity_from(post_nonproduction_revision)
+    if !state
+        .production()
+        .has_future_released_energy_revision_capacity_from(
+            post_nonproduction_revision,
+            u64::from(released.is_some()),
+        )
     {
         return Err(StartProcessError::EnergyRevisionExhausted);
     }

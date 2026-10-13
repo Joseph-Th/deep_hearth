@@ -291,7 +291,7 @@ impl ProductionJobRecord {
     }
 
     /// Whether completing this job changes its occupied equipment condition and therefore consumes
-    /// one equipment-owner revision in its completion bucket.
+    /// one equipment-owner revision when it eventually completes.
     #[must_use]
     pub(crate) fn requires_equipment_revision_at_completion(&self) -> bool {
         let (Some(provider), Some(after)) =
@@ -303,14 +303,14 @@ impl ProductionJobRecord {
     }
 
     /// Whether completing this job releases finite energy and therefore consumes one energy-owner
-    /// revision in its completion bucket.
+    /// revision when it eventually completes.
     #[must_use]
     pub(crate) const fn requires_energy_revision_at_completion(&self) -> bool {
         self.resources.released_energy.is_some()
     }
 
     /// Whether any output currently targets a structurally supported stockpile and therefore makes
-    /// this completion bucket capable of mutating the structural owner.
+    /// this job's eventual completion capable of mutating the structural owner.
     #[must_use]
     pub(crate) fn requires_structure_revision_at_completion(
         &self,

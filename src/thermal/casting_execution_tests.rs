@@ -1392,7 +1392,7 @@ fn trusted_load_rejects_active_casting_without_released_energy_revision_capacity
         Err(LoadError::InvalidState(
             StateValidationError::ProductionEnergyRevisionCapacityExhausted {
                 revision: u64::MAX,
-                completion_buckets: 1,
+                required: 1,
             }
         ))
     );

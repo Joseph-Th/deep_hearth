@@ -119,12 +119,7 @@ impl ProductionIndexes {
             .checked_add(projection.future_material_lot_id_demand)
             .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"));
         if let Some(due_tick) = projection.due_tick {
-            self.insert_due_job_with_requirements(
-                id,
-                due_tick,
-                projection.requires_energy_revision,
-                projection.requires_equipment_revision,
-            );
+            self.insert_due_job(id, due_tick);
         }
         for store in projection.energy_stores() {
             assert!(
@@ -181,12 +176,7 @@ impl ProductionIndexes {
             .checked_sub(projection.future_material_lot_id_demand)
             .unwrap_or_else(|| panic!("production future lot-id demand underflowed"));
         if let Some(due_tick) = projection.due_tick {
-            self.remove_due_job_with_requirements(
-                id,
-                due_tick,
-                projection.requires_energy_revision,
-                projection.requires_equipment_revision,
-            );
+            self.remove_due_job(id, due_tick);
         }
         for store in projection.energy_stores() {
             assert_eq!(

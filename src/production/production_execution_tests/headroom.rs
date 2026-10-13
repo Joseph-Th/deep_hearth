@@ -191,7 +191,7 @@ fn process_start_reserves_revision_capacity_for_admission_and_completion() {
 }
 
 #[test]
-fn trusted_load_rejects_running_production_without_scheduled_completion_revision_capacity() {
+fn trusted_load_rejects_running_production_without_future_completion_revision_capacity() {
     let (registries, mut state, source, destination) = unstarted_process_fixture();
     let resolution = make_test_resolution(&registries, &mut state, source);
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
@@ -207,9 +207,9 @@ fn trusted_load_rejects_running_production_without_scheduled_completion_revision
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Production(
-            ProductionValidationError::ScheduledRevisionCapacityExhausted {
+            ProductionValidationError::FutureCompletionRevisionCapacityExhausted {
                 revision: u64::MAX,
-                completion_buckets: 1,
+                required: 1,
             }
         )))
     );
@@ -238,14 +238,78 @@ fn trusted_load_rejects_running_production_without_inventory_completion_revision
         Err(LoadError::InvalidState(
             StateValidationError::ProductionInventoryRevisionCapacityExhausted {
                 revision: u64::MAX,
-                completion_buckets: 1,
+                required: 1,
             }
         ))
     );
 }
 
 #[test]
-fn process_start_preserves_inventory_revisions_owed_to_existing_due_buckets() {
+fn trusted_load_reserves_distinct_inventory_revisions_for_same_tick_jobs() {
+    let registries = make_test_registries();
+    let mut state = AppState::new();
+    let first_source = add_test_stockpile(&mut state, 100);
+    let first_destination = add_test_stockpile(&mut state, 100);
+    let second_source = add_test_stockpile(&mut state, 100);
+    let second_destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, first_source, 20);
+    deposit_test_wood(&registries, &mut state, second_source, 20);
+
+    let first_resolution = make_test_resolution(&registries, &mut state, first_source);
+    let first = validate_start_process(
+        &registries,
+        &state,
+        &first_resolution,
+        first_source,
+        first_destination,
+    )
+    .unwrap_or_else(|error| panic!("same-tick first production validation failed: {error}"));
+    let first_job = commit_process_for_test(first, &mut state);
+    let second_resolution = make_test_resolution(&registries, &mut state, second_source);
+    let second = validate_start_process(
+        &registries,
+        &state,
+        &second_resolution,
+        second_source,
+        second_destination,
+    )
+    .unwrap_or_else(|error| panic!("same-tick second production validation failed: {error}"));
+    let second_job = commit_process_for_test(second, &mut state);
+    let first_due = state
+        .production()
+        .get_job(first_job)
+        .map(ProductionJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("same-tick first production job disappeared"));
+    let second_due = state
+        .production()
+        .get_job(second_job)
+        .map(ProductionJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("same-tick second production job disappeared"));
+    assert_eq!(
+        first_due, second_due,
+        "fixture must share one current due tick"
+    );
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("same-tick headroom serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("same-tick headroom decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionInventoryRevisionCapacityExhausted {
+                revision: u64::MAX - 1,
+                required: 2,
+            }
+        )),
+        "same-tick batching cannot collapse durable headroom because later suspension may separate the jobs"
+    );
+}
+
+#[test]
+fn process_start_preserves_inventory_revisions_owed_to_existing_jobs() {
     let registries = make_test_registries();
     let mut state = AppState::new();
     let first_source = add_test_stockpile(&mut state, 100);
@@ -286,7 +350,7 @@ fn process_start_preserves_inventory_revisions_owed_to_existing_due_buckets() {
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("production inventory headroom decode failed: {error}"));
     let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
-        panic!("one scheduled completion must fit at inventory revision MAX-2: {error}")
+        panic!("one retained completion must fit at inventory revision MAX-2: {error}")
     });
     let second_resolution = make_test_resolution(&registries, &mut loaded, second_source);
     let before = loaded.clone();
@@ -366,14 +430,14 @@ fn trusted_load_rejects_running_production_without_equipment_completion_revision
         Err(LoadError::InvalidState(
             StateValidationError::ProductionEquipmentRevisionCapacityExhausted {
                 revision: u64::MAX,
-                completion_buckets: 1,
+                required: 1,
             }
         ))
     );
 }
 
 #[test]
-fn process_start_preserves_equipment_revisions_owed_to_existing_wear_buckets() {
+fn process_start_preserves_equipment_revisions_owed_to_existing_wear_jobs() {
     let registries = make_test_registries();
     let mut state = AppState::new();
     let first_source = add_test_stockpile(&mut state, 100);
@@ -423,7 +487,7 @@ fn process_start_preserves_equipment_revisions_owed_to_existing_wear_buckets() {
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("production equipment headroom decode failed: {error}"));
     let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
-        panic!("one scheduled wear completion must fit at equipment revision MAX-1: {error}")
+        panic!("one retained wear completion must fit at equipment revision MAX-1: {error}")
     });
     let second_resolution = resolve_test_heating(
         &registries,
@@ -502,14 +566,14 @@ fn trusted_load_rejects_supported_output_without_structure_completion_revision_c
         Err(LoadError::InvalidState(
             StateValidationError::ProductionStructureRevisionCapacityExhausted {
                 revision: u64::MAX,
-                completion_buckets: 1,
+                required: 1,
             }
         ))
     );
 }
 
 #[test]
-fn process_start_preserves_structure_revisions_owed_to_existing_supported_output_buckets() {
+fn process_start_preserves_structure_revisions_owed_to_existing_supported_output_jobs() {
     let registries = make_test_registries();
     let mut state = AppState::new();
     let first_source = add_test_stockpile(&mut state, 100);
@@ -571,7 +635,7 @@ fn process_start_preserves_structure_revisions_owed_to_existing_supported_output
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("production structure headroom decode failed: {error}"));
     let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
-        panic!("one supported completion must fit at structural revision MAX-1: {error}")
+        panic!("one retained supported completion must fit at structural revision MAX-1: {error}")
     });
     let second_resolution = resolve_test_heating(
         &registries,

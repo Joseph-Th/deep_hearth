@@ -27,6 +27,7 @@ impl ValidatedStartProcess {
             expected_production_revision,
             next_production_revision,
             expected_logistics_revision,
+            expected_player_survival_revision,
             reservation,
             energy_reservation,
             energy_ingress_reservation,
@@ -46,6 +47,9 @@ impl ValidatedStartProcess {
         }
         validate_commit_occupancy(state, &job)?;
         validate_logistics_revision(state, expected_logistics_revision)?;
+        if let Some(expected_survival_revision) = expected_player_survival_revision {
+            validate_survival_revision(state, expected_survival_revision)?;
+        }
         validate_production_revision(state, expected_production_revision)?;
         if let Some(energy) = &energy_ingress_reservation {
             validate_energy_revision(state, energy.expected_revision())?;
@@ -91,6 +95,17 @@ impl ValidatedStartProcess {
             .insert_job(job, next_job_id, next_production_revision);
         Ok(job_id)
     }
+}
+
+fn validate_survival_revision(
+    state: &AppState,
+    expected: u64,
+) -> Result<(), StartProcessCommitError> {
+    let actual = state.survival().revision();
+    if actual != expected {
+        return Err(StartProcessCommitError::StaleSurvivalRevision { expected, actual });
+    }
+    Ok(())
 }
 
 fn validate_logistics_revision(

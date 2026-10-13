@@ -30,6 +30,7 @@ use crate::maintenance::Condition;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
@@ -393,6 +394,105 @@ fn powered_craft_rejects_remote_input_after_player_logistics_initialization() {
         ))
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn powered_craft_rejects_dead_fully_admitted_player_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let assembly = stockpile(&mut state, 4_000_000);
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL), 900_000),
+        (CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT), 100_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 1_600_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 800_000),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            20_000,
+        ),
+    ] {
+        deposit(&registries, &mut state, assembly, commodity, mass);
+    }
+    let drill = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("dead powered-craft drill assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("dead powered-craft drill commit failed: {error}"));
+    let source = stockpile(&mut state, 20_000);
+    let reinforcement = deposit(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        20_000,
+    );
+    let destination = stockpile(&mut state, 20_000);
+    let drive = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("dead powered-craft drive fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| {
+                panic!("dead powered-craft stockpile placement failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("dead powered-craft stockpile placement commit failed: {error}")
+            });
+    }
+    let revision = state.logistics().revision();
+    state
+        .logistics_state_mut()
+        .apply_equipment_placement(revision, revision + 1, drill, position);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        drive,
+        position,
+    );
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("dead powered-craft player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("dead powered-craft player admission commit failed: {error}")
+        });
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("dead powered-craft serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("dead powered-craft decode failed: {error}"));
+    let dead = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("idle dead powered-craft player should remain a valid persisted state: {error}")
+    });
+    let before = dead.clone();
+
+    assert_eq!(
+        validate_start_powered_craft(
+            &registries,
+            &dead,
+            PoweredCraftRequest::single(
+                PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+                source,
+                MaterialLotSelection::new(reinforcement, Mass::from_milligrams(20_000)),
+                drill,
+                drive,
+            ),
+            destination,
+        )
+        .err(),
+        Some(StartPoweredCraftError::PlayerDead)
+    );
+    assert_eq!(dead, before);
 }
 
 #[test]

@@ -1,7 +1,6 @@
 //! Source stored-matter structural-load admission for production start.
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::inventory::{
     ConsumptionReservation, StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
     validate_stockpile_stored_mass_changes,
@@ -29,7 +28,6 @@ pub(in super::super) fn validate_structural_revision_budget(
     state: &AppState,
     source_load: Option<&ValidatedStockpileStructuralLoad>,
     destination_structure_revision: Option<u64>,
-    completes_at: SimulationTick,
 ) -> Result<(), StartProcessError> {
     let admission_steps = source_load.map_or(0, ValidatedStockpileStructuralLoad::revision_delta);
     let post_admission_revision = state
@@ -40,22 +38,13 @@ pub(in super::super) fn validate_structural_revision_budget(
             revision.checked_add(state.future_nonproduction_structure_revision_demand())
         })
         .ok_or(StartProcessError::StructureRevisionExhausted)?;
-    let has_capacity = if destination_structure_revision.is_some() {
-        state
-            .production()
-            .has_scheduled_supported_output_revision_capacity_with_tick_from(
-                post_admission_revision,
-                state.inventory(),
-                completes_at,
-            )
-    } else {
-        state
-            .production()
-            .has_scheduled_supported_output_revision_capacity_from(
-                post_admission_revision,
-                state.inventory(),
-            )
-    };
+    let has_capacity = state
+        .production()
+        .has_future_supported_output_revision_capacity_from(
+            post_admission_revision,
+            state.inventory(),
+            u64::from(destination_structure_revision.is_some()),
+        );
     if !has_capacity {
         return Err(StartProcessError::StructureRevisionExhausted);
     }

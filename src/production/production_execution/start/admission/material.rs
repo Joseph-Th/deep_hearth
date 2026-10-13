@@ -49,15 +49,15 @@ pub(in super::super) fn validate_material_reservation(
         .expected_revision()
         .checked_add(1)
         .ok_or(StartProcessError::InventoryRevisionExhausted)?;
-    // Admission consumes one inventory revision. Every running production due bucket later lands
-    // its reserved matter in one inventory batch, so preserve the headroom already owed to
-    // existing work as well as this new completion.
+    // Admission consumes one inventory revision. Preserve one eventual completion revision for
+    // every durable production job, including jobs that may later suspend and diverge from a
+    // currently shared due tick.
     let post_nonproduction_revision = next_inventory_revision
         .checked_add(state.future_nonproduction_inventory_revision_demand())
         .ok_or(StartProcessError::InventoryRevisionExhausted)?;
     if !state
         .production()
-        .has_scheduled_revision_capacity_with_tick_from(post_nonproduction_revision, completes_at)
+        .has_future_inventory_revision_capacity_from(post_nonproduction_revision, 1)
     {
         return Err(StartProcessError::InventoryRevisionExhausted);
     }

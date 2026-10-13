@@ -30,12 +30,12 @@ pub(super) fn validate_production_references(
     if !state
         .systems
         .production
-        .has_scheduled_revision_capacity_from(inventory_revision)
+        .has_future_inventory_revision_capacity_from(inventory_revision, 0)
     {
         return Err(
             StateValidationError::ProductionInventoryRevisionCapacityExhausted {
                 revision: inventory_revision,
-                completion_buckets: state.systems.production.scheduled_completion_bucket_count(),
+                required: state.systems.production.future_inventory_revision_demand(),
             },
         );
     }
@@ -43,15 +43,12 @@ pub(super) fn validate_production_references(
     if !state
         .systems
         .production
-        .has_scheduled_equipment_revision_capacity_from(equipment_revision)
+        .has_future_equipment_revision_capacity_from(equipment_revision, 0)
     {
         return Err(
             StateValidationError::ProductionEquipmentRevisionCapacityExhausted {
                 revision: equipment_revision,
-                completion_buckets: state
-                    .systems
-                    .production
-                    .scheduled_equipment_revision_bucket_count(),
+                required: state.systems.production.future_equipment_revision_demand(),
             },
         );
     }
@@ -59,15 +56,15 @@ pub(super) fn validate_production_references(
     if !state
         .systems
         .production
-        .has_scheduled_released_energy_revision_capacity_from(energy_revision)
+        .has_future_released_energy_revision_capacity_from(energy_revision, 0)
     {
         return Err(
             StateValidationError::ProductionEnergyRevisionCapacityExhausted {
                 revision: energy_revision,
-                completion_buckets: state
+                required: state
                     .systems
                     .production
-                    .scheduled_released_energy_revision_bucket_count(),
+                    .future_released_energy_revision_demand(),
             },
         );
     }
@@ -75,18 +72,19 @@ pub(super) fn validate_production_references(
     if !state
         .systems
         .production
-        .has_scheduled_supported_output_revision_capacity_from(
+        .has_future_supported_output_revision_capacity_from(
             structure_revision,
             &state.systems.inventory,
+            0,
         )
     {
         return Err(
             StateValidationError::ProductionStructureRevisionCapacityExhausted {
                 revision: structure_revision,
-                completion_buckets: state
+                required: state
                     .systems
                     .production
-                    .scheduled_supported_output_revision_bucket_count(&state.systems.inventory),
+                    .future_supported_output_revision_demand(&state.systems.inventory),
             },
         );
     }

@@ -50,7 +50,7 @@ use crate::structural::{
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_set_structural_load,
 };
-use crate::survival::{FoodFreshness, assess_food_freshness};
+use crate::survival::{FoodFreshness, Vitality, assess_food_freshness, player_record};
 use crate::thermal::{
     ResolvedSensibleHeating, SensibleHeatingRequest, ThermalJobValidationError,
     resolve_sensible_heating_process,
@@ -78,6 +78,60 @@ fn player_process_start_requires_complete_player_admission() {
     assert_eq!(
         validate_start_player_process(&registries, &state, &resolved, source, destination).err(),
         Some(StartPlayerProcessError::PlayerNotAdmitted)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn player_process_start_rejects_dead_admitted_player_without_mutation() {
+    let (registries, state, source, carried, resolved, _step_destination) =
+        carried_output_process_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("dead player production serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("dead player production decode failed: {error}"));
+    let dead = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("idle dead admitted player should remain a valid persisted state: {error}")
+    });
+    let before = dead.clone();
+
+    assert_eq!(
+        validate_start_player_process(&registries, &dead, &resolved, source, carried).err(),
+        Some(StartPlayerProcessError::PlayerDead)
+    );
+    assert_eq!(dead, before);
+}
+
+#[test]
+fn validated_player_process_rejects_survival_change_before_commit() {
+    let (registries, mut state, source, carried, resolved, _step_destination) =
+        carried_output_process_fixture();
+    let validated = validate_start_player_process(&registries, &state, &resolved, source, carried)
+        .unwrap_or_else(|error| panic!("player production validation failed: {error}"));
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("player production survival state disappeared"));
+    let expected = state.survival().revision();
+    let actual = expected + 1;
+    state.survival_state_mut().apply_player(
+        expected,
+        actual,
+        player_record(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(StartProcessCommitError::StaleSurvivalRevision { expected, actual })
     );
     assert_eq!(state, before);
 }

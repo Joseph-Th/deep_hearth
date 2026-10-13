@@ -24,8 +24,6 @@ pub(super) struct ProductionJobIndexProjection {
     suspended: bool,
     player_labor_suspended: bool,
     requires_active_support: bool,
-    requires_energy_revision: bool,
-    requires_equipment_revision: bool,
 }
 
 impl ProductionJobIndexProjection {
@@ -48,8 +46,6 @@ impl ProductionJobIndexProjection {
                 suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
             }),
             requires_active_support: job.has_required_active_support(),
-            requires_energy_revision: job.requires_energy_revision_at_completion(),
-            requires_equipment_revision: job.requires_equipment_revision_at_completion(),
         }
     }
 
@@ -92,8 +88,6 @@ mod tests;
 #[derive(Clone, Debug, Default)]
 pub(super) struct ProductionIndexes {
     pub(super) due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
-    energy_revision_jobs_by_due: BTreeMap<SimulationTick, u64>,
-    equipment_revision_jobs_by_due: BTreeMap<SimulationTick, u64>,
     energy_occupancy: BTreeMap<EnergyStoreId, ProductionJobId>,
     equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
     output_stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
@@ -107,8 +101,6 @@ pub(super) struct ProductionIndexes {
 impl PartialEq for ProductionIndexes {
     fn eq(&self, other: &Self) -> bool {
         self.due_jobs == other.due_jobs
-            && self.energy_revision_jobs_by_due == other.energy_revision_jobs_by_due
-            && self.equipment_revision_jobs_by_due == other.equipment_revision_jobs_by_due
             && self.energy_occupancy == other.energy_occupancy
             && self.equipment_occupancy == other.equipment_occupancy
             && self.output_stockpile_occupancy == other.output_stockpile_occupancy
@@ -125,8 +117,6 @@ impl ProductionIndexes {
     pub(super) const fn new() -> Self {
         Self {
             due_jobs: BTreeMap::new(),
-            energy_revision_jobs_by_due: BTreeMap::new(),
-            equipment_revision_jobs_by_due: BTreeMap::new(),
             energy_occupancy: BTreeMap::new(),
             equipment_occupancy: BTreeMap::new(),
             output_stockpile_occupancy: BTreeMap::new(),
@@ -154,12 +144,7 @@ impl ProductionIndexes {
             .checked_add(projection.future_material_lot_id_demand)
             .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"));
         if let Some(due_tick) = projection.due_tick {
-            self.insert_due_job_with_requirements(
-                id,
-                due_tick,
-                projection.requires_energy_revision,
-                projection.requires_equipment_revision,
-            );
+            self.insert_due_job(id, due_tick);
         }
         for store in projection.energy_stores() {
             self.energy_occupancy.entry(store).or_insert(id);

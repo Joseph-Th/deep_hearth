@@ -1,16 +1,14 @@
-//! Future revision-capacity forecasting for production completion and resume plans.
+//! Future revision-capacity forecasting for production completion and availability plans.
 
 use std::collections::BTreeSet;
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::inventory::{StockpileStructuralLoadError, ValidatedStockpileStructuralLoad};
 use crate::production::state::{ProductionJobId, ProductionJobRecord};
 use crate::structural::StructuralMutationError;
 
 use super::super::{
     CompletionPlan, CompletionPlanError, CompletionRevisionPlan, PlayerLaborRevisionDependencies,
-    ProductionAvailabilityChange, find_availability_change,
 };
 
 fn planned_revision(
@@ -58,28 +56,6 @@ pub(super) fn build_completion_revision_plan(
     })
 }
 
-fn projected_completion_tick(
-    job: &ProductionJobRecord,
-    due_ids: &BTreeSet<ProductionJobId>,
-    availability_changes: &[ProductionAvailabilityChange],
-) -> Option<SimulationTick> {
-    if due_ids.contains(&job.id()) {
-        return None;
-    }
-    match find_availability_change(availability_changes, job.id()) {
-        Some(ProductionAvailabilityChange::Resumed {
-            scheduled_completion,
-            ..
-        }) => Some(scheduled_completion),
-        Some(
-            ProductionAvailabilityChange::Suspended { .. }
-            | ProductionAvailabilityChange::SuspensionReasonChanged { .. },
-        ) => None,
-        None if job.is_suspended() => None,
-        None => Some(job.completes_at()),
-    }
-}
-
 fn checked_revision_capacity(revision: u64, steps: impl IntoIterator<Item = u64>) -> bool {
     steps
         .into_iter()
@@ -99,61 +75,31 @@ fn require_revision_capacity(
     }
 }
 
-fn bucket_count(ticks: &BTreeSet<SimulationTick>) -> u64 {
-    u64::try_from(ticks.len())
-        .unwrap_or_else(|_| unreachable!("projected production bucket count fits memory"))
-}
-
-#[derive(Default)]
-struct ProjectedRevisionBuckets {
-    completion_ticks: BTreeSet<SimulationTick>,
-    equipment_ticks: BTreeSet<SimulationTick>,
-    energy_ticks: BTreeSet<SimulationTick>,
-    structure_ticks: BTreeSet<SimulationTick>,
-}
-
-fn project_revision_buckets(
+fn remaining_job_count_where(
     state: &AppState,
-    due_ids: &BTreeSet<ProductionJobId>,
-    availability_changes: &[ProductionAvailabilityChange],
-) -> ProjectedRevisionBuckets {
-    let mut buckets = ProjectedRevisionBuckets::default();
-    for job in state.production().jobs() {
-        let Some(completes_at) = projected_completion_tick(job, due_ids, availability_changes)
-        else {
-            continue;
-        };
-        buckets.completion_ticks.insert(completes_at);
-        if job.requires_equipment_revision_at_completion() {
-            buckets.equipment_ticks.insert(completes_at);
-        }
-        if job.requires_energy_revision_at_completion() {
-            buckets.energy_ticks.insert(completes_at);
-        }
-        if job.requires_structure_revision_at_completion(state.inventory()) {
-            buckets.structure_ticks.insert(completes_at);
-        }
-    }
-    buckets
+    completing: &BTreeSet<ProductionJobId>,
+    mut predicate: impl FnMut(&ProductionJobRecord) -> bool,
+) -> u64 {
+    u64::try_from(
+        state
+            .production()
+            .jobs()
+            .filter(|job| !completing.contains(&job.id()) && predicate(job))
+            .count(),
+    )
+    .unwrap_or_else(|_| unreachable!("resident production revision demand fits u64"))
 }
 
-pub(super) fn validate_resumed_job_revision_capacity(
+/// Prevents the current plan from spending revision capacity retained by jobs that will remain.
+pub(super) fn validate_remaining_job_revision_capacity(
     state: &AppState,
-    due_ids: &BTreeSet<ProductionJobId>,
     plan: &CompletionPlan,
 ) -> Result<(), CompletionPlanError> {
-    let availability_changes = &plan.availability_changes;
-    if !availability_changes
-        .iter()
-        .any(|change| matches!(change, ProductionAvailabilityChange::Resumed { .. }))
-    {
-        return Ok(());
-    }
-
-    let buckets = project_revision_buckets(state, due_ids, availability_changes);
+    let completing = plan.jobs.iter().copied().collect::<BTreeSet<_>>();
+    let remaining_jobs = remaining_job_count_where(state, &completing, |_| true);
     require_revision_capacity(
         plan.revisions.next_production_revision,
-        [bucket_count(&buckets.completion_ticks)],
+        [remaining_jobs],
         CompletionPlanError::ProductionRevision,
     )?;
     require_revision_capacity(
@@ -161,7 +107,7 @@ pub(super) fn validate_resumed_job_revision_capacity(
         [
             u64::from(!plan.inventory_deposits.is_empty()),
             state.future_nonproduction_inventory_revision_demand(),
-            bucket_count(&buckets.completion_ticks),
+            remaining_jobs,
         ],
         CompletionPlanError::InventoryRevision,
     )?;
@@ -173,7 +119,9 @@ pub(super) fn validate_resumed_job_revision_capacity(
         [
             u64::from(!plan.equipment_outcomes.is_empty()),
             nonproduction_equipment_revision_demand,
-            bucket_count(&buckets.equipment_ticks),
+            remaining_job_count_where(state, &completing, |job| {
+                job.requires_equipment_revision_at_completion()
+            }),
         ],
         CompletionPlanError::EquipmentRevision,
     )?;
@@ -182,7 +130,9 @@ pub(super) fn validate_resumed_job_revision_capacity(
         [
             u64::from(!plan.released_energy_outcomes.is_empty()),
             state.future_nonproduction_energy_revision_demand(),
-            bucket_count(&buckets.energy_ticks),
+            remaining_job_count_where(state, &completing, |job| {
+                job.requires_energy_revision_at_completion()
+            }),
         ],
         CompletionPlanError::EnergyRevision,
     )?;
@@ -193,7 +143,9 @@ pub(super) fn validate_resumed_job_revision_capacity(
                 .as_ref()
                 .map_or(0, ValidatedStockpileStructuralLoad::revision_delta),
             state.future_nonproduction_structure_revision_demand(),
-            bucket_count(&buckets.structure_ticks),
+            remaining_job_count_where(state, &completing, |job| {
+                job.requires_structure_revision_at_completion(state.inventory())
+            }),
         ],
         CompletionPlanError::StructuralLoad(StockpileStructuralLoadError::Structure(
             StructuralMutationError::RevisionExhausted,

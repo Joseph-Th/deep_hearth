@@ -59,6 +59,20 @@ pub(crate) fn validate_stockpile_support_for_new_inbound(
     Ok(Some(state.structures().revision()))
 }
 
+fn production_support_revision_adjustment(
+    state: &AppState,
+    stockpile: StockpileId,
+    supported_after: bool,
+) -> (u64, u64) {
+    state
+        .production()
+        .future_supported_output_revision_adjustment_for_stockpile(
+            state.inventory(),
+            stockpile,
+            supported_after,
+        )
+}
+
 /// Successful support assignment change plus any resulting structural damage.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
@@ -253,11 +267,17 @@ pub fn validate_mount_stockpile(
         BTreeMap::from([(element, next_load)]),
     )
     .map_err(StockpileSupportError::Load)?;
+    let (production_additional, production_released) =
+        production_support_revision_adjustment(state, stockpile, true);
+    let additional_future_demand = state
+        .retained_mining_settlement_count_for_stockpile(stockpile)
+        .checked_add(production_additional)
+        .unwrap_or_else(|| unreachable!("resident retained structural demand fits u64"));
     validate_support_change_structural_headroom(
         state,
         &structural,
-        state.retained_mining_settlement_count_for_stockpile(stockpile),
-        0,
+        additional_future_demand,
+        production_released,
     )?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {
@@ -303,11 +323,17 @@ pub fn validate_unmount_stockpile(
         BTreeMap::from([(element, next_load)]),
     )
     .map_err(StockpileSupportError::Load)?;
+    let (production_additional, production_released) =
+        production_support_revision_adjustment(state, stockpile, false);
+    let released_future_demand = state
+        .retained_mining_settlement_count_for_stockpile(stockpile)
+        .checked_add(production_released)
+        .unwrap_or_else(|| unreachable!("resident released structural demand fits u64"));
     validate_support_change_structural_headroom(
         state,
         &structural,
-        0,
-        state.retained_mining_settlement_count_for_stockpile(stockpile),
+        production_additional,
+        released_future_demand,
     )?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {

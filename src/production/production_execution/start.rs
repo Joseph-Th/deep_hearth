@@ -71,12 +71,24 @@ pub struct ValidatedStartProcess {
     expected_production_revision: u64,
     next_production_revision: u64,
     expected_logistics_revision: u64,
+    expected_player_survival_revision: Option<u64>,
     reservation: ConsumptionReservation,
     energy_reservation: Option<EnergyConsumptionReservation>,
     energy_ingress_reservation: Option<EnergyIngressReservation>,
     equipment_use: Option<ValidatedEquipmentUse>,
     destination_structure_revision: Option<u64>,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
+}
+
+impl ValidatedStartProcess {
+    fn bind_player_survival_revision(mut self, revision: u64) -> Self {
+        debug_assert!(
+            self.expected_player_survival_revision.is_none(),
+            "player production authorization cannot bind survival twice"
+        );
+        self.expected_player_survival_revision = Some(revision);
+        self
+    }
 }
 
 fn moving_player_output_destination(
@@ -260,17 +272,16 @@ fn validate_start_process_routed_internal(
         ingress: energy_ingress_reservation,
         consumed: consumed_energy,
         released: released_energy,
-    } = validate_energy_reservations(registries, state, resolution, completes_at)?;
+    } = validate_energy_reservations(registries, state, resolution)?;
     let ValidatedEquipmentResources {
         selection: equipment_use,
         provider: equipment_provider,
-    } = validate_equipment_resources(state, resolution, completes_at)?;
+    } = validate_equipment_resources(state, resolution)?;
     let structural_load = validate_source_structural_load(registries, state, &reservation)?;
     validate_structural_revision_budget(
         state,
         structural_load.as_ref(),
         destination_structure_revision,
-        completes_at,
     )?;
 
     Ok(ValidatedStartProcess {
@@ -305,6 +316,7 @@ fn validate_start_process_routed_internal(
         expected_production_revision,
         next_production_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_survival_revision: None,
         reservation,
         energy_reservation,
         energy_ingress_reservation,

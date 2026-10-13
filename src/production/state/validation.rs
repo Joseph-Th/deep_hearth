@@ -27,14 +27,11 @@ pub(crate) fn validate_loaded_production(
     }
     validate_due_index(state)?;
     validate_occupancy_indexes(state)?;
-    if !state.has_scheduled_revision_capacity() {
-        let completion_buckets = u64::try_from(state.indexes.due_jobs.len()).unwrap_or_else(|_| {
-            unreachable!("production due-bucket count fits represented memory")
-        });
+    if !state.has_future_completion_revision_capacity_from(state.revision, 0) {
         return Err(
-            ProductionValidationError::ScheduledRevisionCapacityExhausted {
+            ProductionValidationError::FutureCompletionRevisionCapacityExhausted {
                 revision: state.revision,
-                completion_buckets,
+                required: state.future_completion_revision_demand(),
             },
         );
     }

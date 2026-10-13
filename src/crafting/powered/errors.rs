@@ -190,6 +190,7 @@ pub(super) fn batch_error(error: ManualCraftBatchError) -> PoweredCraftError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartPoweredCraftError {
+    PlayerDead,
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
     EnergyStoreAccess(PlayerEnergyStoreAccessError),
@@ -200,6 +201,7 @@ pub enum StartPoweredCraftError {
 impl Display for StartPoweredCraftError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot start powered crafting"),
             Self::StockpileAccess(error) => {
                 write!(formatter, "powered craft stockpile access failed: {error}")
             }
@@ -223,6 +225,7 @@ impl Display for StartPoweredCraftError {
 impl Error for StartPoweredCraftError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::PlayerDead => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
             Self::EnergyStoreAccess(error) => Some(error),

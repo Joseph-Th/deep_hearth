@@ -1,7 +1,6 @@
 //! Equipment binding, support, and cross-owner occupancy admission.
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::equipment::{
     EquipmentId, EquipmentOccupancy, EquipmentOperationTrace, ValidatedEquipmentUse,
     equipment_occupancy,
@@ -20,7 +19,6 @@ pub(in super::super) struct ValidatedEquipmentResources {
 pub(in super::super) fn validate_equipment_resources(
     state: &AppState,
     resolution: &ProcessResolution,
-    completes_at: SimulationTick,
 ) -> Result<ValidatedEquipmentResources, StartProcessError> {
     let Some(selection) = resolution.equipment_use() else {
         return Ok(ValidatedEquipmentResources {
@@ -59,20 +57,12 @@ pub(in super::super) fn validate_equipment_resources(
         .checked_future_nonproduction_equipment_revision_demand()
         .and_then(|future| actual.checked_add(future))
         .ok_or(StartProcessError::EquipmentRevisionExhausted)?;
-    if changes_condition
-        && !state
-            .production()
-            .has_scheduled_equipment_revision_capacity_with_tick_from(
-                post_nonproduction_revision,
-                completes_at,
-            )
-    {
-        return Err(StartProcessError::EquipmentRevisionExhausted);
-    }
-    if !changes_condition
-        && !state
-            .production()
-            .has_scheduled_equipment_revision_capacity_from(post_nonproduction_revision)
+    if !state
+        .production()
+        .has_future_equipment_revision_capacity_from(
+            post_nonproduction_revision,
+            u64::from(changes_condition),
+        )
     {
         return Err(StartProcessError::EquipmentRevisionExhausted);
     }

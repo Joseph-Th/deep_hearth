@@ -415,11 +415,19 @@ interpret the selected matter; production does not maintain a second recipe.
 `ProcessResolution` binds one concrete operation to exact selected inputs, duration, outputs, and finite resource
 consequences. Production start transfers selected matter into durable work-in-process, reserves output capacity,
 binds provider occupancy and required owner revisions, and records any modeled energy consequences needed for
-continuation. Storage exposure remains wall-clock based while matter is in process.
+continuation. Ordinary player-facing production authorization additionally requires a fully admitted living player,
+exact-local access to every retained endpoint, and an unchanged survival revision through commit; capability-level
+setup remains separate for controlled fixtures.
+Storage exposure remains wall-clock based while matter is in process.
 
 Completion is revision-bound and moves exact outputs to their reserved destinations, applies resolved wear/energy
-effects, releases occupancy/reservations, and emits merge-aware landing receipts. Loss of required support/provider
-availability may suspend a job while preserving work-in-process, reservations, and remaining active duration.
+effects, releases occupancy/reservations, and emits merge-aware landing receipts. Future revision headroom is
+reserved conservatively per durable job for production completion and every cross-owner completion mutation it
+will eventually require, rather than relying on current due-tick coalescing. Same-tick completions may still batch
+at execution, but suspension can separate schedules, so availability transitions may consume only revision slack
+beyond the final-completion obligations retained by jobs that remain. Output support mount/unmount reprojects the
+retained structural obligation atomically. Loss of required support/provider availability may suspend a job while
+preserving work-in-process, reservations, remaining active duration, and those future completion obligations.
 Manual production releases player attention while suspended and must reacquire labor/survival budget before
 resumption.
 
