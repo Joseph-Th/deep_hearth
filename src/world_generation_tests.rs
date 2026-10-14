@@ -6,12 +6,13 @@ use crate::content::{
 };
 use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::logistics::{add_traversable_edge_for_test, validate_allocate_ground_stockpile};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
+use crate::simulation::advance_control_tick;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
     GeneratedSurfaceResourceSpec, available_adjacent_surface_resources,
@@ -338,6 +339,34 @@ fn initial_wilderness_generation_requires_fresh_pre_admission_world_state() {
         })
     );
     assert_eq!(aged, before_aged);
+}
+
+#[test]
+fn initial_wilderness_generation_requires_exact_initial_control_tick() {
+    let registries = build_registries();
+    let spawn = VoxelCoord::new(0, 0, 0);
+    let seed = WorldGenerationSeed::new(73);
+    let mut state = AppState::new();
+    let validated = validate_generate_initial_wilderness(&registries, &state, seed, spawn)
+        .unwrap_or_else(|error| panic!("initial-control generation validation failed: {error}"));
+
+    let outcome = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("initial-control advance failed: {error}"));
+    assert_eq!(outcome.control_tick(), ControlTick::new(1));
+    assert!(outcome.simulation().is_none());
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(InitialWildernessGenerationCommitError::ControlTickChanged {
+            expected: ControlTick::ZERO,
+            actual: ControlTick::new(1),
+        })
+    );
+    assert_eq!(
+        validate_generate_initial_wilderness(&registries, &state, seed, spawn).err(),
+        Some(InitialWildernessGenerationError::NotInitialControlTick {
+            control_tick: ControlTick::new(1),
+        })
+    );
 }
 
 #[test]

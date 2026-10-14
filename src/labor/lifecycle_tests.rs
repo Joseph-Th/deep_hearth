@@ -3,10 +3,56 @@
 use super::*;
 use crate::content::build_registries;
 use crate::core::state::AppState;
+use crate::core::time::ControlTick;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::production::ProductionJobId;
+use crate::simulation::advance_control_tick;
 use crate::spatial::VoxelCoord;
+
+#[test]
+fn slow_player_work_requires_a_control_boundary_and_commit_cannot_cross_one() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("boundary fixture player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("boundary fixture player commit failed: {error}"));
+    let work = PlayerWork::ManualProduction {
+        job: ProductionJobId::new(1),
+    };
+    let token = validate_player_work_start(
+        &registries,
+        &state,
+        work,
+        TickSpan::new(1),
+        SurvivalExertion::REST,
+    )
+    .unwrap_or_else(|error| panic!("boundary fixture work validation failed: {error}"));
+
+    let outcome = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("boundary fixture control advance failed: {error}"));
+    assert_eq!(outcome.control_tick(), ControlTick::new(1));
+    assert!(outcome.simulation().is_none());
+    assert_eq!(
+        token.precheck(&state),
+        Err(PlayerWorkCommitError::StaleControlTick {
+            expected: ControlTick::ZERO,
+            actual: ControlTick::new(1),
+        })
+    );
+    assert!(matches!(
+        validate_player_work_start(
+            &registries,
+            &state,
+            work,
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+        ),
+        Err(PlayerWorkStartError::SimulationBoundary(error))
+            if error.control_tick() == ControlTick::new(1)
+    ));
+}
 
 #[test]
 fn player_work_admission_requires_revision_capacity_for_later_release() {

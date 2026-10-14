@@ -18,7 +18,7 @@ use crate::surface::{SurfaceResourceRecord, SurfaceResourceState};
 use crate::survival::SurvivalState;
 use crate::world::WorldState;
 
-use super::time::SimulationTick;
+use super::time::{ControlTick, SimulationTick};
 
 /// Mutable runtime state that must survive execution and restart boundaries.
 #[cfg_attr(any(test, feature = "test-gameplay"), derive(Clone, PartialEq, Eq))]
@@ -58,7 +58,8 @@ impl Debug for AppState {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("AppState")
-            .field("tick", &self.clock.tick)
+            .field("simulation_tick", &self.clock.simulation_tick)
+            .field("control_tick", &self.clock.control_tick)
             .field("energy", &self.systems.energy)
             .field("fluid", &self.systems.fluid)
             .field("equipment", &self.systems.equipment)
@@ -128,7 +129,8 @@ struct SystemState {
 #[cfg_attr(any(test, feature = "test-gameplay"), derive(Clone, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
 struct ClockState {
-    tick: SimulationTick,
+    simulation_tick: SimulationTick,
+    control_tick: ControlTick,
 }
 
 impl AppState {
@@ -137,7 +139,8 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             clock: ClockState {
-                tick: SimulationTick::ZERO,
+                simulation_tick: SimulationTick::ZERO,
+                control_tick: ControlTick::ZERO,
             },
             systems: SystemState {
                 energy: EnergyState::new(),
@@ -161,7 +164,13 @@ impl AppState {
     /// Returns the current authoritative simulation tick.
     #[must_use]
     pub const fn tick(&self) -> SimulationTick {
-        self.clock.tick
+        self.clock.simulation_tick
+    }
+
+    /// Returns the current high-frequency authoritative control/kinematic tick.
+    #[must_use]
+    pub const fn control_tick(&self) -> ControlTick {
+        self.clock.control_tick
     }
 
     /// Returns read-only authoritative finite-energy state.
@@ -467,7 +476,19 @@ pub(crate) use validation::debug_assert_runtime_invariants;
 pub use validation::{StateValidationError, validate_loaded_state};
 
 pub(crate) fn apply_clock_advance(state: &mut AppState, next_tick: SimulationTick) {
-    state.clock.tick = next_tick;
+    let control_tick = ControlTick::from_simulation_tick(next_tick)
+        .unwrap_or_else(|| panic!("simulation tick has no representable control boundary"));
+    state.clock.simulation_tick = next_tick;
+    state.clock.control_tick = control_tick;
+}
+
+pub(crate) fn apply_control_clock_advance(state: &mut AppState, next_tick: ControlTick) {
+    assert_eq!(
+        next_tick.simulation_tick(),
+        state.clock.simulation_tick,
+        "control-only clock advance cannot cross a slow-simulation boundary"
+    );
+    state.clock.control_tick = next_tick;
 }
 
 #[cfg(test)]

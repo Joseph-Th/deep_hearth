@@ -34,6 +34,20 @@ pub fn validate_loaded_state(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
+    if state.control_tick() > crate::core::time::ControlTick::MAX_COMPLETE {
+        return Err(StateValidationError::ControlTickPastFinalBoundary {
+            control: state.control_tick(),
+            maximum: crate::core::time::ControlTick::MAX_COMPLETE,
+        });
+    }
+    let derived_simulation = state.control_tick().simulation_tick();
+    if derived_simulation != state.tick() {
+        return Err(StateValidationError::ClockMismatch {
+            control: state.control_tick(),
+            stored_simulation: state.tick(),
+            derived_simulation,
+        });
+    }
     validate_loaded_energy(
         registries.energy(),
         registries.materials(),
@@ -231,6 +245,11 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
 
 /// Debug-asserts every cheap runtime invariant after an authoritative simulation mutation.
 pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &AppState) {
+    debug_assert!(
+        state.control_tick() <= crate::core::time::ControlTick::MAX_COMPLETE
+            && state.control_tick().simulation_tick() == state.tick(),
+        "Runtime Invariant 6 (Lifecycle Validity): control and slow-simulation clocks must remain synchronized"
+    );
     debug_assert!(
         state.systems.mining.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain above every allocated job"

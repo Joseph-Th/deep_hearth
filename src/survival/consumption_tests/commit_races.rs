@@ -3,6 +3,57 @@
 use super::*;
 
 #[test]
+fn direct_consumption_requires_a_control_boundary_and_commit_cannot_cross_one() {
+    let registries = build_registries();
+    let (mut state, stockpile, food, water) = direct_consumption_fixture(&registries);
+    let meal_mass = minimum_meal_mass(&registries);
+    let drink_volume = minimum_drink_volume(&registries);
+    let eat = validate_eat(
+        &registries,
+        &state,
+        stockpile,
+        &[MaterialLotSelection::new(food, meal_mass)],
+    )
+    .unwrap_or_else(|error| panic!("boundary eating validation failed: {error}"));
+    let drink = validate_drink(&registries, &state, water, drink_volume)
+        .unwrap_or_else(|error| panic!("boundary drinking validation failed: {error}"));
+
+    let outcome = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("boundary consumption control advance failed: {error}"));
+    assert_eq!(outcome.control_tick(), ControlTick::new(361));
+    assert!(outcome.simulation().is_none());
+    assert_eq!(
+        eat.commit(&mut state),
+        Err(EatCommitError::StaleControlTick {
+            expected: ControlTick::new(360),
+            actual: ControlTick::new(361),
+        })
+    );
+    assert_eq!(
+        drink.commit(&mut state),
+        Err(DrinkCommitError::StaleControlTick {
+            expected: ControlTick::new(360),
+            actual: ControlTick::new(361),
+        })
+    );
+    assert!(matches!(
+        validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(food, meal_mass)],
+        ),
+        Err(EatError::SimulationBoundary(error))
+            if error.control_tick() == ControlTick::new(361)
+    ));
+    assert!(matches!(
+        validate_drink(&registries, &state, water, drink_volume),
+        Err(DrinkError::SimulationBoundary(error))
+            if error.control_tick() == ControlTick::new(361)
+    ));
+}
+
+#[test]
 fn eating_and_drinking_reject_active_player_work_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();

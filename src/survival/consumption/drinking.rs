@@ -12,7 +12,7 @@ pub use projection::{
 
 use crate::core::quantity::{AggregateVolume, Temperature, Volume};
 use crate::core::state::AppState;
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::{ControlTick, SimulationTick, TickSpan, require_simulation_boundary};
 use crate::fluid::{
     FluidDefinitionId, FluidEgressCommitError, FluidEgressError, FluidStoreId,
     ValidatedFluidEgress, validate_fluid_egress,
@@ -283,6 +283,7 @@ impl DrinkOutcome {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedDrink {
     attention: ValidatedPlayerAttentionHold,
+    expected_control_tick: ControlTick,
     expected_survival_revision: u64,
     next_survival_revision: u64,
     expected_logistics_revision: u64,
@@ -299,6 +300,7 @@ pub fn validate_drink(
     store: FluidStoreId,
     volume: Volume,
 ) -> Result<ValidatedDrink, DrinkError> {
+    require_simulation_boundary(state.control_tick()).map_err(DrinkError::SimulationBoundary)?;
     let attention = validate_player_attention(state).map_err(map_player_attention_error)?;
     validate_player_fluid_store_access(state, store).map_err(DrinkError::Access)?;
     let source = resolve_drink_source(registries, state, store)?;
@@ -337,6 +339,7 @@ pub fn validate_drink(
         .ok_or(DrinkError::ConsumedFluidOverflow)?;
     Ok(ValidatedDrink {
         attention,
+        expected_control_tick: state.control_tick(),
         expected_survival_revision,
         next_survival_revision,
         expected_logistics_revision: state.logistics().revision(),
@@ -362,6 +365,15 @@ pub fn validate_drink(
 
 impl ValidatedDrink {
     pub fn commit(self, state: &mut AppState) -> Result<DrinkOutcome, DrinkCommitError> {
+        let actual_control_tick = state.control_tick();
+        if state.tick() == self.expected_control_tick.simulation_tick()
+            && actual_control_tick != self.expected_control_tick
+        {
+            return Err(DrinkCommitError::StaleControlTick {
+                expected: self.expected_control_tick,
+                actual: actual_control_tick,
+            });
+        }
         let actual_logistics_revision = state.logistics().revision();
         if actual_logistics_revision != self.expected_logistics_revision {
             return Err(DrinkCommitError::StaleLogisticsRevision {

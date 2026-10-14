@@ -7,6 +7,7 @@ use super::StartProcessError;
 impl Display for StartProcessError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SimulationBoundary(error) => Display::fmt(error, formatter),
             Self::UnknownProcess { process } => {
                 write!(formatter, "unknown process id {}", process.value())
             }

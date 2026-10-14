@@ -68,9 +68,13 @@ authorization remain with the canonical resolver/validator path.
 
 ### Temporal stepping contract
 
-`advance_tick(registries, state)` is the authoritative time mutation. A batching helper may execute that
-operation repeatedly up to a declared horizon and may stop on declared observable events, but it must preserve the
-same state and ordered `TickOutcome` sequence as repeated calls.
+`advance_control_tick(registries, state)` is the canonical 20 Hz direct-control mutation. It advances one
+`ControlTick`; every 72nd call executes the same slow-simulation transaction used by `advance_tick`.
+
+`advance_tick(registries, state)` is the atomic headless/process helper for exactly one next slow boundary. While
+control-rate gameplay phases are clock-only, it may jump directly to that boundary so a failure leaves the whole
+state unchanged. Once control-rate phases gain authoritative effects, this helper must plan or replay those
+intervening effects before it may remain valid.
 
 A known due tick is a bound, not permission to skip intervening semantics. Semantic fast-forward requires a
 separate authoritative transition with proved equivalence across every skipped phase.
@@ -103,7 +107,7 @@ then read the owning section/source for exact semantics and errors.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |
-| Root simulation and time | core definitions, typed quantities/time | `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_tick`; direct clock/owner applies stay crate-private |
+| Root simulation and time | core definitions, typed quantities/time | `AppState::control_tick()`, `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_control_tick` is the canonical 20 Hz step; `advance_tick` atomically advances one slow boundary while control-rate phases are clock-only; direct clock/owner applies stay crate-private |
 | Registries and built-in content | `Registries` plus domain registries; `build_registries` validates cross-references | public immutable `Registries::*()` accessors; derived authored topology may provide goal-directed reverse lookup | callers inspect authored possibilities; topology never claims current legality or ordinary reachability | none; registries and derived definition indexes are immutable after construction |
 | Block world | `WorldRegistry` block/state definitions plus explicit `WorldGenerationSeed` input | `AppState::world()`, generated chunk/section records, exact block lookup inside generated chunks | `validate_generate_chunk` derives one deterministic compact terrain chunk; future placement/breaking must coordinate material custody rather than expose generic cell mutation | `ValidatedChunkGeneration::commit`; no public arbitrary block setter, demand streaming, breaking, or placement yet |
 | Inventory and storage | material/form/storage definitions | `AppState::inventory()`, stockpile/lot records and stable iterators | feature owners construct explicit lot selections; enclosure validators derive storage consequences | no generic public transport command; feature-specific validators own ingress/egress/reform, enclosure, and support transitions |
@@ -132,18 +136,19 @@ or whether the caller is crossing an ownership boundary it does not control.
 
 ## Global runtime facts
 
-- `SimulationTick` is absolute world time; `TickSpan` is relative duration.
-- The built-in calendar maps 24,000 ticks to 86,400 seconds; one tick is 3.6 seconds.
-- Rate-authored physics integrate against physical tick duration. Per-tick gameplay costs use world ticks.
+- `ControlTick` is the persisted high-frequency direct-control/kinematic clock at 20 Hz (50 ms). `SimulationTick` is the persisted slow physical/accounting/calendar clock; exactly 72 control ticks form one 3.6-second simulation quantum. `TickSpan` remains relative slow-simulation duration.
+- The built-in calendar maps 24,000 simulation ticks to 86,400 seconds. Calendar acceleration therefore does not define the direct-control timestep.
+- Rate-authored slow physics integrate against the 3.6-second physical simulation quantum. Existing survival, wear, production, mining, thermal, storage-age, and other `TickSpan` schedules remain on that exact accounting clock rather than being rounded across 50 ms steps.
+- Work expressed in `TickSpan` may be admitted only on an exact control/simulation boundary. Validation tokens that can create such work bind the exact `ControlTick`, so a validate/commit race across a 50 ms control advance cannot shorten the authored interval. Direct movement, collision, targeting, block interaction, and similar responsive mechanics should use `ControlTick` instead of weakening this boundary.
 - Runtime has no stochastic owner; authoritative results derive from persisted state and explicit inputs.
 - Fresh-world generation uses explicit caller-provided seeds rather than ambient randomness. `validate_generate_chunk`
   deterministically materializes compact block-state chunks, while initial wilderness generation separately persists
   distributed surface resources, opening-water custody/location, and the bounded five-edge opportunity graph.
 - Implemented authoritative physical calculations use checked integer arithmetic, not floating point.
 - Dynamic scheduled work persists as explicit records.
-- Known due ticks may bound batched caller stepping, but do not authorize skipping intervening canonical tick
-  semantics.
-- `advance_tick` decides all fallible phase work against one pre-tick snapshot. Its application stage
+- Known due simulation ticks may bound batched caller stepping, but do not authorize skipping intervening canonical control-tick semantics.
+- `advance_control_tick` is the high-frequency clock mutation surface. Most calls advance only the control clock; every 72nd call executes one complete slow-simulation transaction. `advance_tick` invokes that same slow transaction atomically at the next exact boundary and may bypass only clock-only intermediate control steps; it must not skip future control-rate gameplay effects.
+- The slow transaction decides all fallible phase work against one pre-tick snapshot. Its application stage
   prechecks shared-owner revisions before mutation; after the completion transaction succeeds, remaining
   phase applies are infallible and assertion-backed before the clock advances.
 - `CURRENT_SAVE_SCHEMA_VERSION` is the only accepted runtime payload shape; `RegistrySchemaVersion` identifies

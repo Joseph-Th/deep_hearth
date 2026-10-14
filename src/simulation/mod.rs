@@ -6,9 +6,11 @@ mod planning;
 mod player_death;
 
 pub use error::TickError;
-pub use outcome::TickOutcome;
+pub use outcome::{ControlTickOutcome, TickOutcome};
 
-use crate::core::state::{AppState, apply_clock_advance, debug_assert_runtime_invariants};
+use crate::core::state::{
+    AppState, apply_clock_advance, apply_control_clock_advance, debug_assert_runtime_invariants,
+};
 use crate::core::time::SimulationTick;
 use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
 use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
@@ -33,20 +35,67 @@ use planning::{
 };
 use player_death::{apply_player_death_effects, decide_player_death_effects};
 
-/// Advances the full authoritative simulation by exactly one base tick.
+/// Advances one canonical 20 Hz direct-control tick.
 ///
-/// Every authoritative subsystem phase is sequenced here. Decisions read the pre-tick state or an
-/// explicit same-tick projection when an earlier completion changes a downstream admission fact,
-/// then mutations apply in one deterministic order.
+/// Most control ticks only advance the high-frequency clock today. Every 72nd control tick runs
+/// one complete slow-simulation quantum before committing the boundary clock. Future movement,
+/// collision, direct block interaction, and combat phases belong on this surface rather than
+/// forcing slow industrial/survival accounting to 20 Hz.
+pub fn advance_control_tick(
+    registries: &Registries,
+    state: &mut AppState,
+) -> Result<ControlTickOutcome, TickError> {
+    let current = state.control_tick();
+    let next_control = current
+        .checked_next()
+        .ok_or(TickError::ControlClockExhausted { current })?;
+    if next_control.simulation_tick() == state.tick() {
+        apply_control_clock_advance(state, next_control);
+        debug_assert_eq!(state.control_tick().simulation_tick(), state.tick());
+        return Ok(ControlTickOutcome::new(next_control, None));
+    }
+    debug_assert!(next_control.is_simulation_boundary());
+    let simulation = advance_simulation_tick(registries, state, next_control.simulation_tick())?;
+    debug_assert_eq!(state.control_tick(), next_control);
+    Ok(ControlTickOutcome::new(next_control, Some(simulation)))
+}
+
+/// Advances atomically to the next slow-simulation boundary.
+///
+/// No control-rate gameplay phase exists yet, so this headless/process helper may jump directly to
+/// the next exact control/simulation boundary and execute the same slow transaction used by
+/// `advance_control_tick`. Direct-control adapters must use `advance_control_tick`. Once control-
+/// rate gameplay mutation exists, this helper must plan or replay those intervening phases rather
+/// than skip them.
 pub fn advance_tick(
     registries: &Registries,
     state: &mut AppState,
 ) -> Result<TickOutcome, TickError> {
     let current = state.tick();
-    let Some(next_value) = current.value().checked_add(1) else {
-        return Err(TickError::ClockExhausted { current });
-    };
-    let next_tick = SimulationTick::new(next_value);
+    let next_tick = SimulationTick::new(current.value().checked_add(1).ok_or(
+        TickError::ControlClockExhausted {
+            current: state.control_tick(),
+        },
+    )?);
+    if crate::core::time::ControlTick::from_simulation_tick(next_tick).is_none() {
+        return Err(TickError::ControlClockExhausted {
+            current: state.control_tick(),
+        });
+    }
+    advance_simulation_tick(registries, state, next_tick)
+}
+
+/// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
+///
+/// Every authoritative subsystem phase is sequenced here. Decisions read the pre-tick state or an
+/// explicit same-tick projection when an earlier completion changes a downstream admission fact,
+/// then mutations apply in one deterministic order.
+fn advance_simulation_tick(
+    registries: &Registries,
+    state: &mut AppState,
+    next_tick: SimulationTick,
+) -> Result<TickOutcome, TickError> {
+    debug_assert_eq!(next_tick.value(), state.tick().value() + 1);
 
     // Due jobs are indexed by exact authoritative tick. Downstream enclosure dismantling and
     // structural activation use projected owner state because production completion commits first.

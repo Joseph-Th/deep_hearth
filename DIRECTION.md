@@ -95,9 +95,13 @@ deterministic stone terrain through a revision-bound transaction. That is infras
 play. The next world slice is demand streaming plus continuous body collision/access over those cells; block
 breaking/placement must then cross world state and conserved material custody in one canonical operation.
 
-Refactor authoritative time before using it for body kinematics. The fixed simulation tick must be frequent
-enough for responsive movement/collision; calendar progression must be independently scaled instead of deriving
-that timestep from a 24-hour day. Preserve one canonical tick mutation and deterministic ordering.
+The authoritative-time foundation now separates a persisted 20 Hz `ControlTick` from the existing 3.6-second
+physical/accounting `SimulationTick`. One canonical `advance_control_tick` owns high-frequency progression and
+runs the slow transaction exactly every 72 control steps; headless `advance_tick` atomically advances one slow
+boundary while the intervening control phases are clock-only, preserving the existing no-partial-mutation error contract.
+Existing `TickSpan` work is boundary-gated so subsecond control progress cannot shorten industrial, survival, or
+labor schedules. The next movement slice should put body kinematics directly on `ControlTick`, not migrate slow
+accounting to 20 Hz. Once control-rate body mutation exists, the slow helper must replay/plan those steps or be retired.
 
 Direct player movement then becomes continuous fixed-point world motion with gravity, swept collision and
 terrain contact rather than a reserved one-voxel labor step. Camera raycasting and the familiar primary/secondary

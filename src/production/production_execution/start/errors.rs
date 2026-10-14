@@ -1,7 +1,7 @@
 //! Public validation errors for durable process-start admission.
 
 use crate::core::quantity::Mass;
-use crate::core::time::SimulationTick;
+use crate::core::time::{SimulationBoundaryError, SimulationTick};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
@@ -21,6 +21,7 @@ mod source;
 /// Failure while validating the start of one durable material-processing job.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartProcessError {
+    SimulationBoundary(SimulationBoundaryError),
     UnknownProcess {
         process: ProcessId,
     },

@@ -6,6 +6,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::apply_clock_advance;
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture,
@@ -75,6 +76,37 @@ fn canonical_tick_advances_exactly_once() {
 
     assert_eq!(outcome.tick(), SimulationTick::new(1));
     assert_eq!(state.tick(), SimulationTick::new(1));
+    assert_eq!(
+        state.control_tick(),
+        ControlTick::from_simulation_tick(SimulationTick::new(1))
+            .unwrap_or_else(|| panic!("first simulation tick must have a control boundary"))
+    );
+}
+
+#[test]
+fn control_ticks_hold_slow_simulation_until_exact_boundary() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+
+    for expected in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let outcome = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("control tick {expected} failed: {error}"));
+        assert_eq!(outcome.control_tick(), ControlTick::new(expected));
+        assert!(outcome.simulation().is_none());
+        assert_eq!(state.tick(), SimulationTick::ZERO);
+    }
+
+    let boundary = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("control boundary failed: {error}"));
+    assert_eq!(
+        boundary.control_tick(),
+        ControlTick::new(CONTROL_TICKS_PER_SIMULATION_TICK)
+    );
+    assert_eq!(
+        boundary.simulation().map(TickOutcome::tick),
+        Some(SimulationTick::new(1))
+    );
+    assert_eq!(state.tick(), SimulationTick::new(1));
 }
 
 #[test]
@@ -105,15 +137,15 @@ fn canonical_tick_applies_exact_passive_energy_dissipation() {
 fn clock_exhaustion_leaves_state_unchanged() {
     let registries = build_registries();
     let mut state = AppState::new();
-    apply_clock_advance(&mut state, SimulationTick::new(u64::MAX));
+    apply_clock_advance(&mut state, SimulationTick::MAX_CONTROL_ALIGNED);
     let before = state.clone();
 
     let result = advance_tick(&registries, &mut state);
 
     assert_eq!(
         result,
-        Err(TickError::ClockExhausted {
-            current: SimulationTick::new(u64::MAX),
+        Err(TickError::ControlClockExhausted {
+            current: ControlTick::MAX_COMPLETE,
         })
     );
     assert_eq!(state, before);

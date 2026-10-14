@@ -10,7 +10,7 @@ use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Temper
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::{ControlTick, SimulationTick, TickSpan};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::fluid::{add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting};
 use crate::inventory::{
@@ -28,7 +28,7 @@ use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::registry::Registries;
-use crate::simulation::advance_tick;
+use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::VoxelCoord;
 use crate::survival::{
     FoodCategory, NUTRITION_PARTS_PER_MILLION, NutritionReserves, SurvivalValidationError,

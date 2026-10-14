@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
@@ -13,6 +13,14 @@ use crate::structural::StructuralCommitError;
 /// Failure when a validated process start is committed after an owning state has changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartProcessCommitError {
+    StaleControlTick {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
     StaleLogisticsRevision {
         expected: u64,
         actual: u64,
@@ -68,6 +76,18 @@ pub enum StartProcessCommitError {
 impl Display for StartProcessCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleControlTick { expected, actual } => write!(
+                formatter,
+                "validated process start expected control tick {} but current control tick is {}",
+                expected.value(),
+                actual.value()
+            ),
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "validated process start was resolved at simulation tick {} but current simulation tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated process start expected logistics revision {expected} but current revision is {actual}"
@@ -147,7 +167,9 @@ impl Error for StartProcessCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogisticsRevision { .. }
+            Self::StaleControlTick { .. }
+            | Self::StaleSimulationTick { .. }
+            | Self::StaleLogisticsRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleProductionRevision { .. }
             | Self::StaleInventoryRevision { .. }

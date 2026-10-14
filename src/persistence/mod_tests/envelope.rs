@@ -79,6 +79,75 @@ fn save_round_trip_preserves_authoritative_runtime_state() {
 }
 
 #[test]
+fn partial_control_tick_progress_round_trips_exactly() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for expected in 1..=17 {
+        let outcome = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("control persistence fixture tick failed: {error}"));
+        assert_eq!(outcome.control_tick(), ControlTick::new(expected));
+        assert!(outcome.simulation().is_none());
+    }
+    assert_eq!(state.tick(), SimulationTick::ZERO);
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("control persistence serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("control persistence decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("control persistence validation failed: {error}"));
+
+    assert_eq!(loaded, state);
+    assert_eq!(loaded.control_tick(), ControlTick::new(17));
+    assert_eq!(loaded.tick(), SimulationTick::ZERO);
+}
+
+#[test]
+fn trusted_load_rejects_incoherent_multirate_clock() {
+    let registries = build_registries();
+    let state = AppState::new();
+    let base = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("clock-tamper serialization failed: {error}"));
+
+    let mut mismatch = base.clone();
+    mismatch["state"]["clock"]["simulation_tick"] = serde_json::json!(1_u64);
+    mismatch["state"]["clock"]["control_tick"] = serde_json::json!(17_u64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(mismatch)
+        .unwrap_or_else(|error| panic!("clock mismatch failed structural decode: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ClockMismatch {
+                control: ControlTick::new(17),
+                stored_simulation: SimulationTick::new(1),
+                derived_simulation: SimulationTick::ZERO,
+            }
+        ))
+    );
+
+    let invalid_control = ControlTick::MAX_COMPLETE
+        .value()
+        .checked_add(1)
+        .unwrap_or_else(|| unreachable!("final complete control boundary is below u64::MAX"));
+    let mut past_final_boundary = base;
+    past_final_boundary["state"]["clock"]["simulation_tick"] =
+        serde_json::json!(ControlTick::new(invalid_control).simulation_tick().value());
+    past_final_boundary["state"]["clock"]["control_tick"] = serde_json::json!(invalid_control);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(past_final_boundary)
+        .unwrap_or_else(|error| panic!("terminal clock tamper failed structural decode: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ControlTickPastFinalBoundary {
+                control: ControlTick::new(invalid_control),
+                maximum: ControlTick::MAX_COMPLETE,
+            }
+        ))
+    );
+}
+
+#[test]
 fn trusted_load_rejects_partial_player_admission() {
     let registries = build_registries();
 
@@ -206,7 +275,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
             "schema_version": 999,
             "registry_schema_version": 5,
             "state": {
-                "clock": {"tick": 0},
+                "clock": {"simulation_tick": 0, "control_tick": 0},
                 "systems": {
                     "energy": {"revision": 0, "next_store_id": 1, "records": {}, "combusted_matter": {}},
                 "fluid": {

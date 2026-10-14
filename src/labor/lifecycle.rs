@@ -5,7 +5,9 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
+use crate::core::time::{
+    ControlTick, SimulationBoundaryError, TickSpan, require_simulation_boundary,
+};
 use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
 
@@ -23,6 +25,7 @@ pub(crate) use tick::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerWorkStartError {
+    SimulationBoundary(SimulationBoundaryError),
     SurvivalNotInitialized,
     PlayerDead,
     Busy { active: Box<PlayerWork> },
@@ -37,6 +40,7 @@ pub enum PlayerWorkStartError {
 impl Display for PlayerWorkStartError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SimulationBoundary(error) => Display::fmt(error, formatter),
             Self::SurvivalNotInitialized => {
                 formatter.write_str("player work requires initialized survival state")
             }
@@ -82,17 +86,48 @@ impl Display for PlayerWorkStartError {
     }
 }
 
-impl Error for PlayerWorkStartError {}
+impl Error for PlayerWorkStartError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::SimulationBoundary(error) => Some(error),
+            Self::SurvivalNotInitialized
+            | Self::PlayerDead
+            | Self::Busy { .. }
+            | Self::MetabolicCostOverflow { .. }
+            | Self::InsufficientMetabolicEnergy { .. }
+            | Self::HydrationCostOverflow { .. }
+            | Self::InsufficientHydration { .. }
+            | Self::RevisionExhausted
+            | Self::SurvivalRevisionExhausted { .. } => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWorkCommitError {
-    StaleRevision { expected: u64, actual: u64 },
-    StaleSurvivalRevision { expected: u64, actual: u64 },
+    StaleControlTick {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
+    StaleRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for PlayerWorkCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleControlTick { expected, actual } => write!(
+                formatter,
+                "player-work admission expected control tick {} but current control tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleRevision { expected, actual } => write!(
                 formatter,
                 "player-work revision changed from {expected} to {actual} after validation"
@@ -111,6 +146,7 @@ impl Error for PlayerWorkCommitError {}
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerWorkStart {
     attention: ValidatedPlayerAttentionHold,
+    expected_control_tick: ControlTick,
     expected_survival_revision: u64,
     resource_budget: super::PlayerWorkResourceBudget,
 }
@@ -121,6 +157,15 @@ impl ValidatedPlayerWorkStart {
     }
 
     pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerWorkCommitError> {
+        let actual_control_tick = state.control_tick();
+        if state.tick() == self.expected_control_tick.simulation_tick()
+            && actual_control_tick != self.expected_control_tick
+        {
+            return Err(PlayerWorkCommitError::StaleControlTick {
+                expected: self.expected_control_tick,
+                actual: actual_control_tick,
+            });
+        }
         self.attention.precheck(state).map_err(|conflict| {
             PlayerWorkCommitError::StaleRevision {
                 expected: conflict.expected(),
@@ -149,6 +194,8 @@ pub(crate) fn validate_player_work_start(
     duration: TickSpan,
     exertion: SurvivalExertion,
 ) -> Result<ValidatedPlayerWorkStart, PlayerWorkStartError> {
+    require_simulation_boundary(state.control_tick())
+        .map_err(PlayerWorkStartError::SimulationBoundary)?;
     let attention = validate_player_attention(state).map_err(|error| match error {
         PlayerAttentionError::SurvivalNotInitialized => {
             PlayerWorkStartError::SurvivalNotInitialized
@@ -192,6 +239,7 @@ pub(crate) fn validate_player_work_start(
         .ok_or(PlayerWorkStartError::RevisionExhausted)?;
     Ok(ValidatedPlayerWorkStart {
         attention,
+        expected_control_tick: state.control_tick(),
         expected_survival_revision: state.survival().revision(),
         resource_budget: budget,
     })

@@ -1,8 +1,16 @@
 //! Strong types for authoritative simulation time.
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
 use serde::{Deserialize, Serialize};
 
 const MICROSECONDS_PER_SECOND: u64 = 1_000_000;
+
+/// High-frequency direct-control cadence: 20 Hz, with one slow simulation quantum every 72 steps.
+pub const CONTROL_TICKS_PER_SIMULATION_TICK: u64 = 72;
+pub const CONTROL_TICK_DURATION: PhysicalTickDuration =
+    PhysicalTickDuration::from_microseconds(50_000);
 
 /// Exact physical world-time represented by one authoritative simulation tick.
 ///
@@ -29,6 +37,98 @@ impl PhysicalTickDuration {
     #[must_use]
     pub(crate) fn span_microseconds(self, span: TickSpan) -> u128 {
         u128::from(self.0) * u128::from(span.value())
+    }
+}
+
+/// High-frequency authoritative control/kinematic tick used by direct world interaction.
+///
+/// Slow simulation state advances only at deterministic boundaries of
+/// [`CONTROL_TICKS_PER_SIMULATION_TICK`] control ticks. This preserves exact coarse physical
+/// accounting while providing a 20 Hz interaction clock.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
+pub struct ControlTick(u64);
+
+impl ControlTick {
+    pub const ZERO: Self = Self(0);
+    /// Last control tick from which the slow simulation and control clocks remain mutually representable.
+    pub const MAX_COMPLETE: Self =
+        Self((u64::MAX / CONTROL_TICKS_PER_SIMULATION_TICK) * CONTROL_TICKS_PER_SIMULATION_TICK);
+
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn value(self) -> u64 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn simulation_tick(self) -> SimulationTick {
+        SimulationTick::new(self.0 / CONTROL_TICKS_PER_SIMULATION_TICK)
+    }
+
+    #[must_use]
+    pub const fn is_simulation_boundary(self) -> bool {
+        self.0.is_multiple_of(CONTROL_TICKS_PER_SIMULATION_TICK)
+    }
+
+    #[must_use]
+    pub const fn checked_next(self) -> Option<Self> {
+        if self.0 >= Self::MAX_COMPLETE.0 {
+            return None;
+        }
+        match self.0.checked_add(1) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_simulation_tick(tick: SimulationTick) -> Option<Self> {
+        match tick.0.checked_mul(CONTROL_TICKS_PER_SIMULATION_TICK) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+}
+
+/// Slow-scheduled work may begin only where the 20 Hz control clock and slow simulation coincide.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SimulationBoundaryError {
+    control_tick: ControlTick,
+}
+
+impl SimulationBoundaryError {
+    #[must_use]
+    pub const fn control_tick(self) -> ControlTick {
+        self.control_tick
+    }
+}
+
+impl Display for SimulationBoundaryError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "slow-scheduled work cannot begin at control tick {}; wait for the next 3.6-second simulation boundary",
+            self.control_tick.value()
+        )
+    }
+}
+
+impl Error for SimulationBoundaryError {}
+
+/// Requires an exact slow-simulation boundary before admitting work expressed in [`TickSpan`].
+pub const fn require_simulation_boundary(
+    control_tick: ControlTick,
+) -> Result<(), SimulationBoundaryError> {
+    if control_tick.is_simulation_boundary() {
+        Ok(())
+    } else {
+        Err(SimulationBoundaryError { control_tick })
     }
 }
 
@@ -242,6 +342,8 @@ pub struct SimulationTick(u64);
 impl SimulationTick {
     /// First simulation tick before any advancement has occurred.
     pub const ZERO: Self = Self(0);
+    /// Largest slow-simulation tick that still has an exact high-frequency control boundary.
+    pub const MAX_CONTROL_ALIGNED: Self = Self(u64::MAX / CONTROL_TICKS_PER_SIMULATION_TICK);
 
     /// Creates a tick from its stable integer representation.
     #[must_use]

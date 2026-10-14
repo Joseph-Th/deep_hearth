@@ -3,6 +3,28 @@
 use super::*;
 
 #[test]
+fn control_clock_is_exactly_twenty_hertz_and_maps_to_slow_boundaries() {
+    assert_eq!(CONTROL_TICK_DURATION.microseconds(), 50_000);
+    assert_eq!(CONTROL_TICKS_PER_SIMULATION_TICK, 72);
+    assert_eq!(ControlTick::new(71).simulation_tick(), SimulationTick::ZERO);
+    assert!(!ControlTick::new(71).is_simulation_boundary());
+    assert_eq!(
+        ControlTick::new(72).simulation_tick(),
+        SimulationTick::new(1)
+    );
+    assert!(ControlTick::new(72).is_simulation_boundary());
+    assert_eq!(
+        ControlTick::from_simulation_tick(SimulationTick::new(2)),
+        Some(ControlTick::new(144))
+    );
+    assert_eq!(ControlTick::MAX_COMPLETE.checked_next(), None);
+    assert_eq!(
+        ControlTick::MAX_COMPLETE.simulation_tick(),
+        SimulationTick::MAX_CONTROL_ALIGNED
+    );
+}
+
+#[test]
 fn absolute_tick_and_relative_span_add_without_wraparound() {
     assert_eq!(
         SimulationTick::new(10).checked_add_span(TickSpan::new(7)),

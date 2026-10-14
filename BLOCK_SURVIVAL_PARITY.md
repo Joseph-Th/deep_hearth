@@ -78,14 +78,14 @@ continue to get farther ahead of it.
 ## 1. Runtime, time, and authority
 
 Minecraft's server owns the world at a fixed 20 ticks per second. The client renders independently, predicts
-selected actions, and is corrected by server authority. Deep Hearth already has a stronger explicit authority
-model for headless simulation, but its current time scale is unsuitable for direct movement.
+selected actions, and is corrected by server authority. Deep Hearth now has a persisted 20 Hz direct-control
+clock while retaining a slower exact accounting clock for its materially richer long-running simulation.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
-| Authoritative world tick | 20 Hz, 50 ms game tick | One `SimulationTick`; calendar currently derives 3.6 physical seconds per tick | `GAP-P0` | Make the authoritative game tick high-frequency enough for movement and collision. Do not create a second mutation path. |
-| Calendar scale | Day/night is a world clock layered on the tick | 24,000 ticks are bound directly to 86,400 physical seconds | `GAP-P0` | Decouple calendar progression from the fixed simulation delta. Calendar acceleration is presentation/environment time, not the definition of kinematic tick duration. |
-| Long-running work | Furnaces, growth, effects, block ticks advance over many game ticks | Persisted jobs and work records with exact schedules | `PARITY+` | Keep durable work. Express it in the revised high-frequency time model without losing exact due-state semantics. |
+| Authoritative world tick | 20 Hz, 50 ms game tick | Persisted `ControlTick` advances at 20 Hz; one canonical orchestrator runs a slow `SimulationTick` transaction every 72 control ticks | `DIFFERENT+` foundation | Put continuous movement/collision and direct world interaction on `ControlTick`; keep one canonical mutation path. |
+| Calendar scale | Day/night is a world clock layered on the tick | Calendar remains 24,000 slow ticks per 86,400 represented seconds; the 50 ms control clock is independent | `DIFFERENT+` foundation | Keep direct-control cadence independent from accelerated calendar/slow physical accounting. |
+| Long-running work | Furnaces, growth, effects, block ticks advance over many game ticks | Persisted jobs/work retain exact 3.6-second `TickSpan` schedules and can start only at exact control/simulation boundaries | `PARITY+` | Keep durable exact work; new genuinely responsive mechanics should use control-time schedules rather than fractionalizing every slow owner. |
 | Client frame cadence | Independent of server tick | No client/render loop in project scope | `GAP-P0` | Adapter must render independently from simulation and interpolate authoritative transforms. |
 | Prediction | Client predicts movement, breaking, inventory and selected interactions | No interactive client | `GAP-P1` | Singleplayer can begin without network prediction, but the adapter boundary should not prevent prediction later. |
 | Server/client split | Real logical client/server separation even in integrated singleplayer | Headless core plus future adapters, no network protocol | `DIFFERENT+` | Do not copy the packet architecture prematurely. Preserve a clean command/read boundary so a client/server split can be added without rewriting simulation ownership. |
@@ -95,15 +95,17 @@ model for headless simulation, but its current time scale is unsuitable for dire
 
 ### Time decision
 
-The current 3.6-second authoritative tick cannot be the final player movement timestep. A player cannot have
-Minecraft-like walking, jumping, collision, block breaking, knockback, projectiles, fluid contact, and responsive
-interaction if the smallest authoritative body update is 3.6 seconds of represented time.
+The timing blocker is now closed at the substrate level. `ControlTick` is authoritative at 20 Hz, persists through
+save/load, and is advanced only by `advance_control_tick`. Every 72nd control step executes the existing
+3.6-second `SimulationTick` transaction. The headless `advance_tick` helper atomically advances one slow boundary
+while intermediate control phases are clock-only, so a failed slow transaction cannot partially advance time.
+Trusted load rejects incoherent clock pairs and unrepresentable terminal substeps.
 
-The clean target is one high-frequency authoritative simulation tick, initially 20 Hz unless profiling gives a
-good reason to choose another rate. `CalendarDefinition` should advance a separate accelerated world clock rather
-than derive `PhysicalTickDuration` from a 24-hour day. Industrial rates, movement, damage windows, and timed
-actions then share one game-time delta; the calendar can progress faster than literal real-world astronomy
-without redefining a watt or a metre per second.
+This deliberate multi-rate design is stronger for Deep Hearth than forcing all industrial and physiological
+accounting to 20 Hz. Existing slow work can start only on an exact 72-step boundary, and validated schedule
+tokens bind the exact control tick so a commit after even one 50 ms step is stale. Continuous player motion,
+collision, targeting, breaking, combat windows, and other responsive mechanics should use control time directly.
+The remaining P0 is therefore kinematics and world interaction, not the clock substrate.
 
 ## 2. World address space, chunks, sections, and streaming
 

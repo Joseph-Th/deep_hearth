@@ -53,7 +53,7 @@ establish current reachability.
 
 | Concern | Owner and canonical boundary | Contract |
 | --- | --- | --- |
-| Time, root state, tick order | `src/core/`, `src/simulation/`; `AppState`, `advance_tick` | [Global runtime facts](TECHNICAL_DESIGN.md#global-runtime-facts) |
+| Time, root state, tick order | `src/core/`, `src/simulation/`; `AppState`, `advance_control_tick`, `advance_tick` | [Global runtime facts](TECHNICAL_DESIGN.md#global-runtime-facts) |
 | Save admission and graph validation | `src/persistence/`, `src/core/state/`; `LoadedSaveEnvelope::into_state`, `validate_loaded_state` | [Trusted load](TECHNICAL_DESIGN.md#trusted-load) |
 | Materials, inventory, matter | `src/material/`, `src/inventory/`, `src/matter/`; owner ingress/egress/reform validators | [Materials, inventory, and geology](TECHNICAL_DESIGN.md#materials-inventory-and-geology) |
 | Geology, knowledge, mining | `src/geology/`, `src/mining/`; prospecting, target resolution, mining validation | [Materials, inventory, and geology](TECHNICAL_DESIGN.md#materials-inventory-and-geology) |

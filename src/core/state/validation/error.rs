@@ -1,7 +1,7 @@
 //! Root-state validation error taxonomy and diagnostics.
 
 use crate::core::quantity::{Energy, Force, Mass};
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::crafting::CraftingJobValidationError;
 use crate::energy::EnergyValidationError;
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentValidationError};
@@ -35,6 +35,15 @@ use crate::world::WorldValidationError;
 /// Error returned when decoded runtime state violates a required persistent invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateValidationError {
+    ControlTickPastFinalBoundary {
+        control: ControlTick,
+        maximum: ControlTick,
+    },
+    ClockMismatch {
+        control: ControlTick,
+        stored_simulation: SimulationTick,
+        derived_simulation: SimulationTick,
+    },
     Energy(EnergyValidationError),
     Fluid(FluidValidationError),
     Equipment(EquipmentValidationError),

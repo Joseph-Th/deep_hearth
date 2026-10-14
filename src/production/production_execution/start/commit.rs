@@ -23,6 +23,7 @@ impl ValidatedStartProcess {
     pub fn commit(self, state: &mut AppState) -> Result<ProductionJobId, StartProcessCommitError> {
         let Self {
             job,
+            expected_control_tick,
             next_job_id,
             expected_production_revision,
             next_production_revision,
@@ -36,6 +37,16 @@ impl ValidatedStartProcess {
             structural_load,
         } = self;
         let job_id = job.id();
+
+        let actual_control_tick = state.control_tick();
+        if state.tick() == expected_control_tick.simulation_tick()
+            && actual_control_tick != expected_control_tick
+        {
+            return Err(StartProcessCommitError::StaleControlTick {
+                expected: expected_control_tick,
+                actual: actual_control_tick,
+            });
+        }
 
         if let Some(stockpile) = moving_player_output_destination(
             state,
@@ -69,6 +80,14 @@ impl ValidatedStartProcess {
         }
         if let Some(structural_load) = &structural_load {
             validate_structure_revision(state, structural_load.expected_revision())?;
+        }
+        let expected_tick = job.started_at();
+        let actual_tick = state.tick();
+        if actual_tick != expected_tick {
+            return Err(StartProcessCommitError::StaleSimulationTick {
+                expected: expected_tick,
+                actual: actual_tick,
+            });
         }
         reservation.assert_matches_state(state.inventory());
         if let Some(energy) = &energy_reservation {

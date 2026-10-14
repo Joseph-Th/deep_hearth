@@ -9,6 +9,23 @@ use super::StateValidationError;
 impl Display for StateValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ControlTickPastFinalBoundary { control, maximum } => write!(
+                formatter,
+                "control tick {} lies beyond the final complete control/simulation boundary {}",
+                control.value(),
+                maximum.value()
+            ),
+            Self::ClockMismatch {
+                control,
+                stored_simulation,
+                derived_simulation,
+            } => write!(
+                formatter,
+                "control tick {} derives simulation tick {} but persisted simulation tick is {}",
+                control.value(),
+                derived_simulation.value(),
+                stored_simulation.value()
+            ),
             Self::Energy(error) => write!(formatter, "invalid energy state: {error}"),
             Self::Fluid(error) => write!(formatter, "invalid fluid state: {error}"),
             Self::Equipment(error) => write!(formatter, "invalid equipment state: {error}"),

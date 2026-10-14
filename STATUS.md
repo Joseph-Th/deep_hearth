@@ -45,7 +45,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 
 | Area | Implemented capability |
 | --- | --- |
-| Core | Deterministic headless simulation, validated immutable registries, generated `AppState`, typed time, checked physical quantities, and explicit tick order. |
+| Core | Deterministic headless simulation; persisted 20 Hz `ControlTick`; exact 72:1 slow 3.6-second `SimulationTick`; boundary-gated slow work; validated state and phase order. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
 | Logistics | Persistent player/carried custody, locations, traversable neighbor edges, timed load-sensitive steps, exact-local observation, storage allocation, pickup/drop, and access checks. |
@@ -72,7 +72,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | --- | --- |
 | Wilderness opening | Travel beyond the bounded graph, shelter/weather, light, and one continuous empty-inventory first-day loop. The graph is not pathfinding, hydrology, climate, or enclosure simulation. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
-| World representation | Demand streaming, world-scale indexing, height/light summaries, mutation, collision/access, geology/biome/ecology composition, and clue-location discovery. Compact chunks and seeded stone terrain are implemented infrastructure. |
+| World representation | Demand streaming, indexing, height/light summaries, mutation, continuous collision/access, geology/biome/ecology composition, and clue discovery. Compact chunks, seeded terrain, and 20 Hz control time exist. |
 | Logistics | General access generation, multi-step routing, haulage, delivery/transport, remote acquisition, container/hotbar presentation, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, general combustion/fuel chemistry/emissions, mixed/alloy phases, reduction/smelting, alloying, forging, machining, and broad recycling. The campfire is not a general combustion or atmospheric model. |

@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass};
 use crate::core::state::AppState;
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::{ControlTick, SimulationTick, TickSpan, require_simulation_boundary};
 use crate::inventory::{
     ConsumptionSelection, ExplicitConsumptionSelectionError, MaterialEgressError, MaterialLotId,
     MaterialLotSelection, StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
@@ -161,6 +161,7 @@ impl EatOutcome {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEat {
     attention: ValidatedPlayerAttentionHold,
+    expected_control_tick: ControlTick,
     expected_logistics_revision: u64,
     expected_survival_revision: u64,
     next_survival_revision: u64,
@@ -268,6 +269,7 @@ pub fn validate_eat(
     source: StockpileId,
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedEat, EatError> {
+    require_simulation_boundary(state.control_tick()).map_err(EatError::SimulationBoundary)?;
     let attention = validate_player_attention(state).map_err(|error| match error {
         PlayerAttentionError::SurvivalNotInitialized => EatError::SurvivalNotInitialized,
         PlayerAttentionError::PlayerDead => EatError::PlayerDead,
@@ -337,6 +339,7 @@ pub fn validate_eat(
 
     Ok(ValidatedEat {
         attention,
+        expected_control_tick: state.control_tick(),
         expected_logistics_revision: state.logistics().revision(),
         expected_survival_revision,
         next_survival_revision,
@@ -357,6 +360,15 @@ pub fn validate_eat(
 
 impl ValidatedEat {
     pub fn commit(self, state: &mut AppState) -> Result<EatOutcome, EatCommitError> {
+        let actual_control_tick = state.control_tick();
+        if state.tick() == self.expected_control_tick.simulation_tick()
+            && actual_control_tick != self.expected_control_tick
+        {
+            return Err(EatCommitError::StaleControlTick {
+                expected: self.expected_control_tick,
+                actual: actual_control_tick,
+            });
+        }
         let actual_logistics_revision = state.logistics().revision();
         if actual_logistics_revision != self.expected_logistics_revision {
             return Err(EatCommitError::StaleLogisticsRevision {

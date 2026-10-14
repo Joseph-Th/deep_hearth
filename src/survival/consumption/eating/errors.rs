@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Mass, Temperature};
-use crate::core::time::TickSpan;
+use crate::core::time::{ControlTick, SimulationBoundaryError, TickSpan};
 use crate::inventory::{MaterialLotId, StockpileId, StockpileStructuralLoadError};
 use crate::labor::PlayerWork;
 use crate::logistics::PlayerStockpileAccessError;
@@ -14,6 +14,7 @@ use crate::structural::StructuralCommitError;
 /// Failure while validating one exact eating action.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EatError {
+    SimulationBoundary(SimulationBoundaryError),
     SurvivalNotInitialized,
     PlayerDead,
     Access(PlayerStockpileAccessError),
@@ -90,6 +91,7 @@ pub enum EatError {
 impl Display for EatError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SimulationBoundary(error) => Display::fmt(error, formatter),
             Self::SurvivalNotInitialized => {
                 formatter.write_str("player survival is not initialized")
             }
@@ -222,6 +224,7 @@ impl Display for EatError {
 impl Error for EatError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::SimulationBoundary(error) => Some(error),
             Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::SurvivalNotInitialized
@@ -257,16 +260,38 @@ impl Error for EatError {
 /// Failure when a validated eating action is committed against changed owners.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EatCommitError {
-    StaleLogisticsRevision { expected: u64, actual: u64 },
-    StalePlayerWorkRevision { expected: u64, actual: u64 },
-    StaleSurvivalRevision { expected: u64, actual: u64 },
-    StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleControlTick {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
     Structure(StructuralCommitError),
 }
 
 impl Display for EatCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleControlTick { expected, actual } => write!(
+                formatter,
+                "validated eating expected control tick {} but current control tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated eating expected logistics revision {expected} but current revision is {actual}"
@@ -295,7 +320,8 @@ impl Error for EatCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogisticsRevision { .. }
+            Self::StaleControlTick { .. }
+            | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleInventoryRevision { .. } => None,

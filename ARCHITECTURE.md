@@ -118,10 +118,12 @@ Do not use `reachable`, `available`, or `can` as synonyms across these levels.
 
 ### Temporal control
 
-`advance_tick` is the only authoritative simulation-time mutation. Batching may call canonical tick semantics
-repeatedly and stop on declared observable events; it may not skip hidden intermediate semantics. A true
-fast-forward path would require a separately proved equivalent authoritative transition. The concrete stepping
-contract lives in [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract).
+`advance_control_tick` is the authoritative 20 Hz direct-control time mutation. `advance_tick` is the atomic
+slow-boundary helper used by headless/process stepping; while control-rate phases are clock-only it may jump to
+the next exact 72-step boundary and execute the same slow transaction. Once control-rate gameplay mutation
+exists, that helper must plan/replay the intervening control phases or be retired. No batching surface may skip
+authoritative effects. The concrete stepping contract lives in
+[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract).
 
 ## Abstraction and dependency direction
 

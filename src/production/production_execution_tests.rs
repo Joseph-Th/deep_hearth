@@ -14,7 +14,7 @@ use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::{ControlTick, SimulationTick, TickSpan};
 use crate::energy::{EnergyStoreId, add_energy_store_with_initial_for_fixture};
 use crate::equipment::{EquipmentId, add_equipment};
 use crate::inventory::{
@@ -43,7 +43,7 @@ use crate::production::{
     validate_process_inputs,
 };
 use crate::registry::Registries;
-use crate::simulation::advance_tick;
+use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralElementId, StructuralLoadKind, add_structural_element,
@@ -340,6 +340,50 @@ fn unstarted_process_fixture() -> (Registries, AppState, StockpileId, StockpileI
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
     (registries, state, source, destination)
+}
+
+#[test]
+fn slow_production_requires_a_control_boundary_and_commit_cannot_cross_one() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("boundary production validation failed: {error}"));
+
+    let outcome = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("boundary production control advance failed: {error}"));
+    assert_eq!(outcome.control_tick(), ControlTick::new(1));
+    assert!(outcome.simulation().is_none());
+    assert_eq!(
+        token.commit(&mut state),
+        Err(StartProcessCommitError::StaleControlTick {
+            expected: ControlTick::ZERO,
+            actual: ControlTick::new(1),
+        })
+    );
+    assert!(matches!(
+        validate_start_process(&registries, &state, &resolution, source, destination),
+        Err(StartProcessError::SimulationBoundary(error))
+            if error.control_tick() == ControlTick::new(1)
+    ));
+}
+
+#[test]
+fn validated_production_start_cannot_survive_a_slow_tick_without_owner_changes() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("slow-stale production validation failed: {error}"));
+    let expected = state.tick();
+
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("slow-stale production tick failed: {error}"));
+    assert_eq!(
+        token.commit(&mut state),
+        Err(StartProcessCommitError::StaleSimulationTick {
+            expected,
+            actual: state.tick(),
+        })
+    );
 }
 
 fn carried_output_process_fixture() -> (

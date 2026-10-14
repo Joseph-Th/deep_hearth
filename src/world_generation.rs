@@ -14,7 +14,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::{
     FluidGenerationCommitError, FluidGenerationError, FluidStoreId, GeneratedFluidStoreSpec,
     ValidatedFluidGeneration, validate_generate_fluid_store,
@@ -64,6 +64,9 @@ pub const INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_STEPS: u64 = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InitialWildernessGenerationError {
+    NotInitialControlTick {
+        control_tick: ControlTick,
+    },
     NotInitialTick {
         tick: SimulationTick,
     },
@@ -86,6 +89,11 @@ pub enum InitialWildernessGenerationError {
 impl Display for InitialWildernessGenerationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NotInitialControlTick { control_tick } => write!(
+                formatter,
+                "initial wilderness generation requires control tick 0, current control tick is {}",
+                control_tick.value()
+            ),
             Self::NotInitialTick { tick } => write!(
                 formatter,
                 "initial wilderness generation requires tick 0, current tick is {}",
@@ -137,7 +145,8 @@ impl Error for InitialWildernessGenerationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidGeneratedResource(error) => Some(error),
-            Self::NotInitialTick { .. }
+            Self::NotInitialControlTick { .. }
+            | Self::NotInitialTick { .. }
             | Self::PlayerAlreadyInitialized { .. }
             | Self::SurfaceAlreadyGenerated
             | Self::FluidAlreadyGenerated
@@ -154,6 +163,10 @@ impl Error for InitialWildernessGenerationError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InitialWildernessGenerationCommitError {
+    ControlTickChanged {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
     TickChanged {
         expected: SimulationTick,
         actual: SimulationTick,
@@ -190,6 +203,12 @@ pub enum InitialWildernessGenerationCommitError {
 impl Display for InitialWildernessGenerationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ControlTickChanged { expected, actual } => write!(
+                formatter,
+                "initial wilderness generation expected control tick {} but state advanced to {} before commit",
+                expected.value(),
+                actual.value()
+            ),
             Self::TickChanged { expected, actual } => write!(
                 formatter,
                 "initial wilderness generation expected tick {} but state advanced to {} before commit",
@@ -236,6 +255,7 @@ impl Error for InitialWildernessGenerationCommitError {}
 
 #[must_use]
 pub struct ValidatedInitialWildernessGeneration {
+    expected_control_tick: ControlTick,
     expected_tick: SimulationTick,
     surface_generation: ValidatedSurfaceGeneration,
     water_generation: ValidatedFluidGeneration,
@@ -255,6 +275,13 @@ impl ValidatedInitialWildernessGeneration {
             return Err(InitialWildernessGenerationCommitError::TickChanged {
                 expected: self.expected_tick,
                 actual: actual_tick,
+            });
+        }
+        let actual_control_tick = state.control_tick();
+        if actual_control_tick != self.expected_control_tick {
+            return Err(InitialWildernessGenerationCommitError::ControlTickChanged {
+                expected: self.expected_control_tick,
+                actual: actual_control_tick,
             });
         }
         if player_admission_state(state) != PlayerAdmissionState::Absent {
@@ -367,6 +394,11 @@ pub fn validate_generate_initial_wilderness(
 ) -> Result<ValidatedInitialWildernessGeneration, InitialWildernessGenerationError> {
     if state.tick() != SimulationTick::ZERO {
         return Err(InitialWildernessGenerationError::NotInitialTick { tick: state.tick() });
+    }
+    if state.control_tick() != ControlTick::ZERO {
+        return Err(InitialWildernessGenerationError::NotInitialControlTick {
+            control_tick: state.control_tick(),
+        });
     }
     if player_admission_state(state) != PlayerAdmissionState::Absent {
         let (survival_initialized, logistics_initialized) = player_initialization_flags(state);
@@ -506,6 +538,7 @@ pub fn validate_generate_initial_wilderness(
             unreachable!("logistics headroom check includes generated water placement")
         });
     Ok(ValidatedInitialWildernessGeneration {
+        expected_control_tick: state.control_tick(),
         expected_tick: state.tick(),
         surface_generation,
         water_generation,

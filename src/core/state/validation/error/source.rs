@@ -7,6 +7,8 @@ use super::StateValidationError;
 impl Error for StateValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::ControlTickPastFinalBoundary { .. } => None,
+            Self::ClockMismatch { .. } => None,
             Self::Energy(error) => Some(error),
             Self::Fluid(error) => Some(error),
             Self::Equipment(error) => Some(error),

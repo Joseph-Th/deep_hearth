@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Temperature, Volume};
-use crate::core::time::TickSpan;
+use crate::core::time::{ControlTick, SimulationBoundaryError, TickSpan};
 use crate::fluid::{FluidStoreId, FluidStructuralLoadError};
 use crate::labor::PlayerWork;
 use crate::logistics::PlayerFluidStoreAccessError;
@@ -13,6 +13,7 @@ use crate::structural::StructuralCommitError;
 /// Failure while validating finite-fluid drinking.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DrinkError {
+    SimulationBoundary(SimulationBoundaryError),
     Access(PlayerFluidStoreAccessError),
     SurvivalNotInitialized,
     PlayerDead,
@@ -63,6 +64,7 @@ pub enum DrinkError {
 impl Display for DrinkError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SimulationBoundary(error) => Display::fmt(error, formatter),
             Self::Access(error) => write!(formatter, "drink source access failed: {error}"),
             Self::SurvivalNotInitialized => {
                 formatter.write_str("player survival is not initialized")
@@ -156,6 +158,7 @@ impl Display for DrinkError {
 impl Error for DrinkError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::SimulationBoundary(error) => Some(error),
             Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::SurvivalNotInitialized
@@ -183,17 +186,41 @@ impl Error for DrinkError {
 /// Failure when a validated drinking action is committed against changed owners.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DrinkCommitError {
-    StaleLogisticsRevision { expected: u64, actual: u64 },
-    StalePlayerWorkRevision { expected: u64, actual: u64 },
-    StaleSurvivalRevision { expected: u64, actual: u64 },
-    StaleFluidRevision { expected: u64, actual: u64 },
-    FluidSourceChanged { store: FluidStoreId },
+    StaleControlTick {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleFluidRevision {
+        expected: u64,
+        actual: u64,
+    },
+    FluidSourceChanged {
+        store: FluidStoreId,
+    },
     Structure(StructuralCommitError),
 }
 
 impl Display for DrinkCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleControlTick { expected, actual } => write!(
+                formatter,
+                "validated drinking expected control tick {} but current control tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated drinking expected logistics revision {expected} but current revision is {actual}"
@@ -229,7 +256,8 @@ impl Error for DrinkCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleLogisticsRevision { .. }
+            Self::StaleControlTick { .. }
+            | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleFluidRevision { .. }

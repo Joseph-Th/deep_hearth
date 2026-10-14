@@ -62,6 +62,11 @@ pub(crate) fn decide_manual_production_player_work_start(
     ) {
         Ok(start) => Ok(Some(start)),
         Err(PlayerWorkStartError::RevisionExhausted) => Err(PlayerWorkTickError::RevisionExhausted),
+        Err(PlayerWorkStartError::SimulationBoundary(_)) => {
+            panic!(
+                "runtime invariant broken: slow simulation resumed player work off its control boundary"
+            )
+        }
         Err(PlayerWorkStartError::MetabolicCostOverflow { .. })
         | Err(PlayerWorkStartError::HydrationCostOverflow { .. }) => {
             panic!(

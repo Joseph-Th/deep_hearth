@@ -1,6 +1,6 @@
 //! Public observable result of one canonical simulation tick.
 
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::equipment::EquipmentMaintenanceOutcome;
 use crate::geology::FieldProspectingOutcome;
 use crate::inventory::StorageEnclosureDismantlingOutcome;
@@ -11,6 +11,34 @@ use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
 use crate::structural::StructuralElementId;
 use crate::surface::SurfaceGatheringOutcome;
 use crate::survival::SurvivalAssessment;
+
+/// Result of one canonical 20 Hz control/kinematic tick.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ControlTickOutcome {
+    control_tick: ControlTick,
+    simulation: Option<TickOutcome>,
+}
+
+impl ControlTickOutcome {
+    pub(super) const fn new(control_tick: ControlTick, simulation: Option<TickOutcome>) -> Self {
+        Self {
+            control_tick,
+            simulation,
+        }
+    }
+
+    #[must_use]
+    pub const fn control_tick(&self) -> ControlTick {
+        self.control_tick
+    }
+
+    /// Slow-simulation outcome when this control tick crossed its 72-step boundary.
+    #[must_use]
+    pub const fn simulation(&self) -> Option<&TickOutcome> {
+        self.simulation.as_ref()
+    }
+}
 
 /// Successful result of one canonical simulation tick.
 #[must_use]

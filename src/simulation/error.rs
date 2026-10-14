@@ -5,7 +5,7 @@ mod conversions;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::{ControlTick, SimulationTick, TickSpan};
 use crate::inventory::StockpileStructuralLoadError;
 use crate::production::ProductionJobId;
 use crate::structural::StructuralCommitError;
@@ -13,8 +13,8 @@ use crate::structural::StructuralCommitError;
 /// Failure returned before any mutation when a simulation tick cannot advance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TickError {
-    /// The authoritative tick counter has reached its representable maximum.
-    ClockExhausted { current: SimulationTick },
+    /// The high-frequency control clock has reached its representable maximum.
+    ControlClockExhausted { current: ControlTick },
     /// Due output lots cannot be allocated without exhausting persistent lot identity space.
     MaterialLotIdExhausted,
     /// Inventory cannot advance its persisted revision for this tick's consequences.
@@ -74,9 +74,9 @@ pub enum TickError {
 impl Display for TickError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ClockExhausted { current } => write!(
+            Self::ControlClockExhausted { current } => write!(
                 formatter,
-                "simulation clock exhausted at tick {}",
+                "control clock exhausted at tick {}",
                 current.value()
             ),
             Self::SurvivalRevisionExhausted => {
@@ -183,7 +183,7 @@ impl Error for TickError {
         match self {
             Self::StructuralLoad(error) => Some(error),
             Self::Structure(error) => Some(error),
-            Self::ClockExhausted { .. }
+            Self::ControlClockExhausted { .. }
             | Self::ProductionResumeTickOverflow { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleProductionRevision { .. }

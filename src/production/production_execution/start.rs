@@ -12,7 +12,7 @@ pub use player::{
 };
 
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
+use crate::core::time::{ControlTick, TickSpan, require_simulation_boundary};
 use crate::energy::{EnergyConsumptionReservation, EnergyIngressReservation};
 use crate::equipment::ValidatedEquipmentUse;
 use crate::inventory::{ConsumptionReservation, StockpileId, ValidatedStockpileStructuralLoad};
@@ -68,6 +68,7 @@ impl ProcessOutputRoute {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedStartProcess {
     job: ProductionJobRecord,
+    expected_control_tick: ControlTick,
     next_job_id: u64,
     expected_production_revision: u64,
     next_production_revision: u64,
@@ -252,6 +253,8 @@ fn validate_start_process_routed_internal(
     routes: &[ProcessOutputRoute],
     allow_player_labor: bool,
 ) -> Result<ValidatedStartProcess, StartProcessError> {
+    require_simulation_boundary(state.control_tick())
+        .map_err(StartProcessError::SimulationBoundary)?;
     let process = validate_resolution_contract(registries, resolution, source, allow_player_labor)?;
     let ValidatedOutputRouting {
         output_streams,
@@ -328,6 +331,7 @@ fn validate_start_process_routed_internal(
             },
             output_streams,
         },
+        expected_control_tick: state.control_tick(),
         next_job_id,
         expected_production_revision,
         next_production_revision,

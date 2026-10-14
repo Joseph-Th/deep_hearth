@@ -12,7 +12,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Force, Mass, Power, Temperature};
 use crate::core::state::apply_clock_advance;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyValidationError,
     add_energy_store_with_initial_for_fixture,
@@ -31,7 +31,7 @@ use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, M
 use crate::production::{
     ProcessDefinition, ProcessId, ProductionValidationError, validate_start_process,
 };
-use crate::simulation::advance_tick;
+use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralDamageEvent, StructuralElementId, StructuralFailureCause, StructuralLoadKind,

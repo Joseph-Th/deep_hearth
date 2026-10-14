@@ -7,6 +7,7 @@ use super::StartProcessError;
 impl Error for StartProcessError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::SimulationBoundary(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownProcess { .. }
