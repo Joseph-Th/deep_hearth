@@ -12,6 +12,7 @@ task queue; re-evaluate it when the integration frontier changes.
 | Planning question | Read |
 | --- | --- |
 | What kinds of work have the most connective leverage? | [Accretion objective](#accretion-objective) |
+| What block-survival substrate must exist before deeper breadth is the main frontier? | [Block-world parity gate](#block-world-parity-gate) |
 | Which agent/player control-surface debts are worth paying down, and in what refinement order? | [Control-surface program](#control-surface-program) |
 | What broad integration order best reuses existing abstractions? | [Default integration sequence](#default-integration-sequence) |
 | When is a vertical slice actually complete and accretive? | [Vertical-slice completion contract](#vertical-slice-completion-contract) |
@@ -27,6 +28,28 @@ requiring broad scenario evidence.
 Prefer a smaller connected graph over a larger disconnected catalog. A feature that adds many definitions but
 no new owner interaction, decision surface, or recovery path has low priority unless it is required to close a
 specific vertical slice.
+
+## Block-world parity gate
+
+The immediate integration frontier is the missing block-survival substrate identified in
+[`BLOCK_SURVIVAL_PARITY.md`](BLOCK_SURVIVAL_PARITY.md). Deep Hearth's deeper simulation owners are not a substitute
+for the ordinary world shell that makes those systems playable.
+
+Before additional industrial breadth becomes the default priority, ordinary play should have one coherent route
+through these foundations:
+
+1. a high-frequency authoritative game tick suitable for direct movement, with calendar progression no longer
+   defining the kinematic timestep;
+2. compact runtime block states in streamed chunk/section ownership with deterministic seeded terrain;
+3. continuous player transform, gravity, collision, jump/crouch/sprint and terrain contact;
+4. camera targeting plus primary break/attack and secondary place/use interaction composition;
+5. generic world drops, pickup/drop, hotbar/stack projection, inventory/container transfer and personal crafting;
+6. block/sky lighting, section meshing and enough renderer/input/save adapters to experience the real generated
+   world rather than a harness-only abstraction.
+
+This gate is mechanical, not a demand to clone Minecraft's implementation or content. Deep Hearth should keep
+its stronger conservation, material, structure, survival, process, determinism and ownership models underneath
+the familiar shell. A difference must have a concrete reason and cannot remove the basic player verb.
 
 ## Control-surface program
 
@@ -58,27 +81,46 @@ does not substitute for industrial power, and chemical reduction requires an exp
 Completion criterion: the capability can move from controlled/capability-only evidence toward ordinary play
 without adding an alternate semantic path.
 
-### 2. Establish world-space action and logistics
+### 2. Establish the block world and first-person action
 
-Build world-space action on the existing custody/location model. Logistics owns placement, carrying/haulage,
-delivery, access, path cost, and transport resource cost while inventory retains matter custody. Use the same
-model for movement, source acquisition, mounted-production geometry, fluid transport, and equipment transport.
+Build a real persistent voxel world around the existing spatial, material, custody and location vocabulary.
+Introduce compact block definitions/states, chunk/section ownership, deterministic terrain generation, streaming,
+world alteration and chunk-granular persistence. Keep block identity, physical material identity and domain-owner
+attachments distinct so ordinary cells stay compact while exceptional temperature, damage, moisture, embodied
+matter or machine state can live in sparse owner-controlled state.
+
+Refactor authoritative time before using it for body kinematics. The fixed simulation tick must be frequent
+enough for responsive movement/collision; calendar progression must be independently scaled instead of deriving
+that timestep from a 24-hour day. Preserve one canonical tick mutation and deterministic ordering.
+
+Direct player movement then becomes continuous fixed-point world motion with gravity, swept collision and
+terrain contact rather than a reserved one-voxel labor step. Camera raycasting and the familiar primary/secondary
+action grammar compose block breaking, placement, gathering, equipment use, consumption and interaction into the
+existing owner validators. Generic world drops and hotbar/inventory/container projections complete the direct
+matter loop without creating a second simplified simulation.
+
+Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
+inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and
+movement capability rather than requiring hand-authored traversal edges.
 
 The current timed face-adjacent step fails closed behind persisted logistics-owned traversal edges. Fresh world
 generation now authors a short five-edge opening opportunity graph, while `AppState::available_player_steps` exposes only
 choices from the actor's current voxel and immediate source observation is gated by those same edges. This
-establishes bounded access authorization plus load-sensitive body cost, not terrain geometry, collision shape,
-slope, general route generation, path cost, or haulage; those remaining world authorities should extend this
-movement boundary rather than add a teleporting shortcut.
+remains useful bounded evidence that locality, physiology and carried load affect decisions. It is not the target
+ordinary movement architecture and should not be extended into a hand-authored world graph. Once continuous
+world motion owns direct locomotion, retain or replace the step abstraction only where logistics/AI planning still
+needs a discrete route-cost representation.
 
 The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
 secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,
 encumbrance, path, exertion, temperature, spoilage, reservations, and commit boundaries remain underneath those
 interactions. Reuse persistent spatial identity and make carried inventory explicit finite custody.
 
-Completion criterion: important material transitions can state not only what moves between owners, but how the
-world authorizes and pays for that movement, while ordinary direct manipulation still feels like a conventional
-block-survival inventory and interaction loop.
+Completion criterion: from a generated spawn, the player can look, walk, sprint, crouch, jump, fall and collide
+through streamed block terrain; raycast and break a visible world block; receive or leave its conserved matter as
+a world drop; manipulate it through a familiar hotbar/inventory shell; and place/use a basic block or object
+through canonical owner operations. Save/reload preserves the altered world and player continuation. No authored
+traversal edge is required merely to walk across otherwise traversable terrain.
 
 ### 3. Close the familiar wilderness shell
 

@@ -10,7 +10,7 @@ This page is not implementation evidence. Use
 | Design question | Read |
 | --- | --- |
 | What is the core experience and what laws govern it? | [Core experience](#core-experience); [Design laws](#design-laws) |
-| How should the game stay immediately familiar while deeper systems remain learnable? | [Familiar interaction shell](#familiar-interaction-shell); [Control-oriented legibility](#control-oriented-legibility) |
+| How should the game stay immediately familiar while deeper systems remain learnable? | [Familiar interaction shell](#familiar-interaction-shell); [Mechanical parity floor](#mechanical-parity-floor); [Control-oriented legibility](#control-oriented-legibility) |
 | What does the player repeatedly do and which economies interact? | [Player loop](#player-loop) |
 | What experience should each major system eventually create? | [System direction](#system-direction) |
 | How should capability and industrial scale progress? | [Progression](#progression) |
@@ -97,6 +97,35 @@ break/harvest action.
 Implementation transactions are not automatically player actions. Validation/commit tokens, output claims,
 lot selection, reservations, and owner revisions may be necessary atomic boundaries internally; the ordinary UI
 should compose them behind one expected action when no meaningful player decision exists between the steps.
+
+### Mechanical parity floor
+
+Deep Hearth may replace Minecraft-like internal rules with deeper physical models, but it must not replace the
+basic player verb with simulation bookkeeping. A stronger underlying model is an improvement only when the
+familiar action remains at least as direct and the difference produces a concrete benefit in causality,
+decision-making, recovery, scale, or performance.
+
+The foundational block-survival shell therefore requires ordinary play to support, through production paths:
+
+- continuous first-person looking and locomotion through a persistent voxel world, including collision,
+  gravity, jumping, crouching, sprinting, falling, and terrain contact;
+- visible generated terrain made from runtime block states rather than an abstract opportunity graph;
+- crosshair/raycast targeting, hold-to-break work, contextual placement/use, and direct entity interaction;
+- world drops, automatic pickup when capacity permits, active hotbar context, familiar stack manipulation,
+  carried inventory, container transfer, and personal crafting;
+- block geometry and collision shapes sufficient for full and common partial blocks, plus world lighting and
+  enough environmental feedback to make darkness, shelter, fire, and exposure readable;
+- deterministic world streaming and persistence so exploration, alteration, and return to the same place are
+  ordinary gameplay rather than controlled setup.
+
+Physical depth layers underneath that shell. Exact mass may constrain a familiar inventory; finite hydrology may
+replace infinite water sources; structural support may make an apparently valid build fail; actual material
+hardness may replace tool-tier tags. Those differences are desirable when they preserve the familiar action and
+make its consequence more coherent. A one-voxel traversal command, a domain validator, or an abstract resource
+record is not mechanical parity merely because it can prove the same downstream owner transition.
+
+[`BLOCK_SURVIVAL_PARITY.md`](BLOCK_SURVIVAL_PARITY.md) owns the comparative checklist against Minecraft's
+mechanical substrate. It is a design/audit reference, not evidence of current implementation.
 
 ## Control-oriented legibility
 

@@ -26,6 +26,7 @@ consequential work, identify the owner, operation stage, crossed flow, and proof
 | How are ownership, mutation, determinism, persistence, and APIs structured? | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | What player experience and progression are intended? | [`GAME_DESIGN.md`](GAME_DESIGN.md) |
 | What should be integrated next? | [`DIRECTION.md`](DIRECTION.md) |
+| How does the block-survival substrate compare mechanically with Minecraft? | [`BLOCK_SURVIVAL_PARITY.md`](BLOCK_SURVIVAL_PARITY.md) |
 | How may automated gameplay actors reason and what can their evidence establish? | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) |
 | How are tests selected and work completed? | [`TESTING.md`](TESTING.md) |
 
