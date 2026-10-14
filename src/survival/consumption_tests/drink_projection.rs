@@ -4,7 +4,8 @@ use super::*;
 use crate::survival::{
     DirectConsumptionDefinition, DrinkHydrationProjectionError, HydrationDefinition,
     LocomotionDefinition, MetabolismDefinition, NutritionDefinition, PhysiologyDefinition,
-    SurvivalExertion, VitalityLossDefinition, project_minimum_drink_to_hydration_target,
+    SurvivalExertion, SurvivalStressDefinition, ThermalComfortDefinition,
+    project_minimum_drink_to_hydration_target,
 };
 
 #[test]
@@ -175,7 +176,11 @@ fn minimum_drink_projection_reports_canonical_resource_budget_overflow() {
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
         ),
         Mass::from_milligrams(1),
-        VitalityLossDefinition::new(1, 1),
+        SurvivalStressDefinition::new(
+            1,
+            1,
+            ThermalComfortDefinition::new(1, 1, 1, Energy::from_nanojoules(1), 1),
+        ),
     );
 
     assert_eq!(

@@ -58,11 +58,49 @@ pub enum PlayerStructuralConstructionError {
 
 impl Display for PlayerStructuralConstructionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "player structural construction failed: {self:?}")
+        match self {
+            Self::PlayerNotAdmitted => formatter.write_str("structural construction requires an admitted player"),
+            Self::UnknownMethod { method } => write!(formatter, "unknown structural construction method {}", method.value()),
+            Self::UnknownElement { element } => write!(formatter, "unknown structural element {}", element.value()),
+            Self::ElementNotPlanned { element } => write!(formatter, "structural element {} is not awaiting construction", element.value()),
+            Self::ElementNotGrounded { element } => write!(formatter, "structural element {} is not grounded for direct player construction", element.value()),
+            Self::ElementNotLocal { element } => write!(formatter, "structural element {} is not in a face-adjacent construction voxel", element.value()),
+            Self::MemberTooHeavy { required, maximum } => write!(
+                formatter,
+                "structural member requires {} mg but the construction method permits at most {} mg",
+                required.milligrams(), maximum.milligrams()
+            ),
+            Self::CompletionTickOverflow => formatter.write_str("structural construction completion tick overflowed"),
+            Self::UnexpectedMaterialSelection => formatter.write_str("already-materialized structural construction cannot accept another material selection"),
+            Self::MaterialStateChanged { element } => write!(formatter, "structural element {} material state is inconsistent with its geometry", element.value()),
+            Self::StructureRevisionExhausted => formatter.write_str("structural revision space is exhausted for construction"),
+            Self::Binding(error) => write!(formatter, "structural construction material selection is invalid: {error}"),
+            Self::Material(error) => write!(formatter, "structural construction materialization failed: {error}"),
+            Self::Work(error) => write!(formatter, "structural construction cannot reserve player work: {error}"),
+        }
     }
 }
 
-impl Error for PlayerStructuralConstructionError {}
+impl Error for PlayerStructuralConstructionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Binding(error) => Some(error),
+            Self::Material(error) => Some(error),
+            Self::Work(error) => Some(error),
+            Self::PlayerNotAdmitted
+            | Self::UnknownMethod { .. }
+            | Self::UnknownElement { .. }
+            | Self::ElementNotPlanned { .. }
+            | Self::ElementNotGrounded { .. }
+            | Self::ElementNotLocal { .. }
+            | Self::MemberTooHeavy { .. }
+            | Self::CompletionTickOverflow
+            | Self::UnexpectedMaterialSelection
+            | Self::MaterialStateChanged { .. }
+            | Self::StructureRevisionExhausted => None,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStructuralConstructionCommitError {
@@ -80,14 +118,55 @@ pub enum PlayerStructuralConstructionCommitError {
 
 impl Display for PlayerStructuralConstructionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "validated player construction changed before commit: {self:?}"
-        )
+        match self {
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "structural construction logistics revision changed from {expected} to {actual} before commit"
+            ),
+            Self::PlayerMoved {
+                expected,
+                actual: Some(actual),
+            } => write!(
+                formatter,
+                "player moved from expected construction position ({},{},{}) to ({},{},{}) before commit",
+                expected.x(),
+                expected.y(),
+                expected.z(),
+                actual.x(),
+                actual.y(),
+                actual.z()
+            ),
+            Self::PlayerMoved {
+                expected,
+                actual: None,
+            } => write!(
+                formatter,
+                "player disappeared from expected construction position ({},{},{}) before commit",
+                expected.x(),
+                expected.y(),
+                expected.z()
+            ),
+            Self::Material(error) => write!(
+                formatter,
+                "structural construction material commit failed: {error}"
+            ),
+            Self::Work(error) => write!(
+                formatter,
+                "structural construction player-work commit failed: {error}"
+            ),
+        }
     }
 }
 
-impl Error for PlayerStructuralConstructionCommitError {}
+impl Error for PlayerStructuralConstructionCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Material(error) => Some(error),
+            Self::Work(error) => Some(error),
+            Self::StaleLogistics { .. } | Self::PlayerMoved { .. } => None,
+        }
+    }
+}
 
 #[must_use]
 pub struct ValidatedPlayerStructuralConstructionStart {

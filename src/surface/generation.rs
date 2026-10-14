@@ -136,7 +136,22 @@ pub(crate) enum SurfaceGenerationCommitError {
 
 impl Display for SurfaceGenerationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "surface generation became stale: {self:?}")
+        match self {
+            Self::Tick { expected, actual } => write!(
+                formatter,
+                "surface generation expected tick {} but state advanced to {} before commit",
+                expected.value(),
+                actual.value()
+            ),
+            Self::Revision { expected, actual } => write!(
+                formatter,
+                "surface generation revision changed from {expected} to {actual} before commit"
+            ),
+            Self::NextResourceId { expected, actual } => write!(
+                formatter,
+                "surface generation expected next resource id {expected} but found {actual} before commit"
+            ),
+        }
     }
 }
 

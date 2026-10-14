@@ -216,10 +216,53 @@ pub enum PlanPlayerStructuralElementCommitError {
 
 impl Display for PlanPlayerStructuralElementCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "validated structural plan changed before commit: {self:?}"
-        )
+        match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "structural planning survival revision changed from {expected} to {actual} before commit"
+            ),
+            Self::TickChanged { expected, actual } => write!(
+                formatter,
+                "structural planning expected tick {} but state advanced to {} before commit",
+                expected.value(),
+                actual.value()
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "structural revision changed from {expected} to {actual} before planning commit"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "structural planning logistics revision changed from {expected} to {actual} before commit"
+            ),
+            Self::PlayerMoved {
+                expected,
+                actual: Some(actual),
+            } => write!(
+                formatter,
+                "player moved from structural planning origin ({},{},{}) to ({},{},{}) before commit",
+                expected.x(),
+                expected.y(),
+                expected.z(),
+                actual.x(),
+                actual.y(),
+                actual.z()
+            ),
+            Self::PlayerMoved {
+                expected,
+                actual: None,
+            } => write!(
+                formatter,
+                "player disappeared from structural planning origin ({},{},{}) before commit",
+                expected.x(),
+                expected.y(),
+                expected.z()
+            ),
+            Self::StructureIdentityChanged { expected, actual } => write!(
+                formatter,
+                "next structural element id changed from {expected} to {actual} before planning commit"
+            ),
+        }
     }
 }
 

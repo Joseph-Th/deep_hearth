@@ -1,5 +1,8 @@
 //! Exact inventory binding for structural materialization.
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
@@ -40,6 +43,25 @@ impl StructuralConstructionResolution {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StructuralConstructionBindingError {
     Inventory(ExplicitConsumptionSelectionError),
+}
+
+impl Display for StructuralConstructionBindingError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Inventory(error) => write!(
+                formatter,
+                "structural construction inventory selection is invalid: {error}"
+            ),
+        }
+    }
+}
+
+impl Error for StructuralConstructionBindingError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Inventory(error) => Some(error),
+        }
+    }
 }
 
 pub(crate) fn bind_structural_construction_selection(

@@ -93,14 +93,159 @@ pub enum SurfaceResourceValidationError {
 
 impl Display for SurfaceResourceValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "surface resource state invariant failed: {self:?}"
-        )
+        match self {
+            Self::ZeroNextResourceId => {
+                formatter.write_str("surface next resource id must be nonzero")
+            }
+            Self::NextIdNotAfterExisting { next, highest } => write!(
+                formatter,
+                "surface next resource id {next} does not follow highest existing resource {}",
+                highest.value()
+            ),
+            Self::ZeroResourceId => formatter.write_str("surface resource id must be nonzero"),
+            Self::IdMismatch { key, record } => write!(
+                formatter,
+                "surface resource map key {} does not match record id {}",
+                key.value(),
+                record.value()
+            ),
+            Self::ZeroInitialMass { resource } => write!(
+                formatter,
+                "surface resource {} has zero initial mass",
+                resource.value()
+            ),
+            Self::RemainingMassExceedsInitial { resource } => write!(
+                formatter,
+                "surface resource {} remaining mass exceeds its initial mass",
+                resource.value()
+            ),
+            Self::AvailableWithoutMass { resource } => write!(
+                formatter,
+                "available surface resource {} has no remaining mass",
+                resource.value()
+            ),
+            Self::DepletedWithRemainingMass { resource } => write!(
+                formatter,
+                "depleted surface resource {} still has remaining mass",
+                resource.value()
+            ),
+            Self::AvailableHasDepletionTick { resource } => write!(
+                formatter,
+                "available surface resource {} already records a depletion tick",
+                resource.value()
+            ),
+            Self::DepletedMissingDepletionTick { resource } => write!(
+                formatter,
+                "depleted surface resource {} has no depletion tick",
+                resource.value()
+            ),
+            Self::GeneratedInFuture { resource } => write!(
+                formatter,
+                "surface resource {} was generated after the current simulation tick",
+                resource.value()
+            ),
+            Self::DepletionBeforeGeneration { resource } => write!(
+                formatter,
+                "surface resource {} depletion predates generation",
+                resource.value()
+            ),
+            Self::DepletedInFuture { resource } => write!(
+                formatter,
+                "surface resource {} depletion tick is in the future",
+                resource.value()
+            ),
+            Self::InvalidComposition { resource, error } => write!(
+                formatter,
+                "surface resource {} has invalid composition: {error}",
+                resource.value()
+            ),
+            Self::CompositionMissingHost { resource, host } => write!(
+                formatter,
+                "surface resource {} composition omits host material {}",
+                resource.value(),
+                host.value()
+            ),
+            Self::UnknownMaterial { resource, material } => write!(
+                formatter,
+                "surface resource {} references unknown material {}",
+                resource.value(),
+                material.value()
+            ),
+            Self::UnknownForm { resource, form } => write!(
+                formatter,
+                "surface resource {} references unknown form {}",
+                resource.value(),
+                form.value()
+            ),
+            Self::UnsupportedCommodity {
+                resource,
+                commodity,
+            } => write!(
+                formatter,
+                "surface resource {} references unsupported commodity material {} form {}",
+                resource.value(),
+                commodity.material().value(),
+                commodity.form().value()
+            ),
+            Self::UnsupportedPhase {
+                resource,
+                form,
+                phase: _,
+            } => write!(
+                formatter,
+                "surface resource {} form {} is not solid",
+                resource.value(),
+                form.value()
+            ),
+            Self::UnsupportedParticulateForm { resource, form } => write!(
+                formatter,
+                "surface resource {} form {} requires particulate state that surface custody does not track",
+                resource.value(),
+                form.value()
+            ),
+            Self::UnknownCompositionMaterial { resource, material } => write!(
+                formatter,
+                "surface resource {} composition references unknown material {}",
+                resource.value(),
+                material.value()
+            ),
+            Self::InvalidPhaseState { resource, error } => write!(
+                formatter,
+                "surface resource {} has invalid material phase state: {error}",
+                resource.value()
+            ),
+        }
     }
 }
 
-impl Error for SurfaceResourceValidationError {}
+impl Error for SurfaceResourceValidationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidComposition { error, .. } => Some(error),
+            Self::InvalidPhaseState { error, .. } => Some(error),
+            Self::ZeroNextResourceId
+            | Self::NextIdNotAfterExisting { .. }
+            | Self::ZeroResourceId
+            | Self::IdMismatch { .. }
+            | Self::ZeroInitialMass { .. }
+            | Self::RemainingMassExceedsInitial { .. }
+            | Self::AvailableWithoutMass { .. }
+            | Self::DepletedWithRemainingMass { .. }
+            | Self::AvailableHasDepletionTick { .. }
+            | Self::DepletedMissingDepletionTick { .. }
+            | Self::GeneratedInFuture { .. }
+            | Self::DepletionBeforeGeneration { .. }
+            | Self::DepletedInFuture { .. }
+            | Self::CompositionMissingHost { .. }
+            | Self::UnknownMaterial { .. }
+            | Self::UnknownForm { .. }
+            | Self::UnsupportedCommodity { .. }
+            | Self::UnsupportedPhase { .. }
+            | Self::UnsupportedParticulateForm { .. }
+            | Self::UnknownCompositionMaterial { .. } => None,
+        }
+    }
+}
 
 fn validate_material_profile(
     materials: &MaterialRegistry,

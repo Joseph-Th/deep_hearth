@@ -8,7 +8,7 @@ use crate::survival::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
     FoodDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
     NutritionDefinition, PhysiologyDefinition, SurvivalExertion, SurvivalRegistry,
-    VitalityLossDefinition,
+    SurvivalStressDefinition, ThermalComfortDefinition,
 };
 
 use super::{
@@ -72,7 +72,17 @@ fn physiology() -> PhysiologyDefinition {
             ),
         ),
         Mass::from_milligrams(PLAYER_CARRIED_MASS_CAPACITY_MG),
-        VitalityLossDefinition::new(25, 50),
+        SurvivalStressDefinition::new(
+            25,
+            50,
+            ThermalComfortDefinition::new(
+                800_000,
+                1_000,
+                20_000,
+                Energy::from_nanojoules(10_800_000_000_000),
+                25,
+            ),
+        ),
     )
 }
 

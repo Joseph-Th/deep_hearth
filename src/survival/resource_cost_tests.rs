@@ -5,7 +5,7 @@ use crate::core::quantity::Mass;
 use crate::core::time::TickSpan;
 use crate::survival::{
     DirectConsumptionDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
-    NutritionDefinition, VitalityLossDefinition,
+    NutritionDefinition, SurvivalStressDefinition, ThermalComfortDefinition,
 };
 
 fn physiology(
@@ -32,7 +32,11 @@ fn physiology(
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
         ),
         Mass::from_milligrams(1),
-        VitalityLossDefinition::new(1, 1),
+        SurvivalStressDefinition::new(
+            1,
+            1,
+            ThermalComfortDefinition::new(1, 1, 1, Energy::from_nanojoules(1), 1),
+        ),
     )
 }
 

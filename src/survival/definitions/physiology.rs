@@ -319,16 +319,21 @@ impl DirectConsumptionDefinition {
     }
 }
 
-/// Authored vitality loss applied when survival resources cannot cover a tick.
+/// Authored survival stresses that can deplete vitality.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct VitalityLossDefinition {
+pub struct SurvivalStressDefinition {
     starvation_ppm_per_tick: u32,
     dehydration_ppm_per_tick: u32,
+    thermal_comfort: ThermalComfortDefinition,
 }
 
-impl VitalityLossDefinition {
+impl SurvivalStressDefinition {
     #[must_use]
-    pub fn new(starvation_ppm_per_tick: u32, dehydration_ppm_per_tick: u32) -> Self {
+    pub fn new(
+        starvation_ppm_per_tick: u32,
+        dehydration_ppm_per_tick: u32,
+        thermal_comfort: ThermalComfortDefinition,
+    ) -> Self {
         assert!(
             starvation_ppm_per_tick > 0,
             "starvation vitality loss must be nonzero"
@@ -348,6 +353,7 @@ impl VitalityLossDefinition {
         Self {
             starvation_ppm_per_tick,
             dehydration_ppm_per_tick,
+            thermal_comfort,
         }
     }
 
@@ -359,6 +365,11 @@ impl VitalityLossDefinition {
     #[must_use]
     pub const fn dehydration_ppm_per_tick(self) -> u32 {
         self.dehydration_ppm_per_tick
+    }
+
+    #[must_use]
+    pub const fn thermal_comfort(self) -> ThermalComfortDefinition {
+        self.thermal_comfort
     }
 }
 
@@ -440,8 +451,7 @@ pub struct PhysiologyDefinition {
     direct_consumption: DirectConsumptionDefinition,
     locomotion: LocomotionDefinition,
     carried_mass_capacity: Mass,
-    vitality_loss: VitalityLossDefinition,
-    thermal_comfort: ThermalComfortDefinition,
+    stress: SurvivalStressDefinition,
 }
 
 impl PhysiologyDefinition {
@@ -453,7 +463,7 @@ impl PhysiologyDefinition {
         direct_consumption: DirectConsumptionDefinition,
         locomotion: LocomotionDefinition,
         carried_mass_capacity: Mass,
-        vitality_loss: VitalityLossDefinition,
+        stress: SurvivalStressDefinition,
     ) -> Self {
         assert!(
             !carried_mass_capacity.is_zero(),
@@ -466,21 +476,8 @@ impl PhysiologyDefinition {
             direct_consumption,
             locomotion,
             carried_mass_capacity,
-            vitality_loss,
-            thermal_comfort: ThermalComfortDefinition::new(
-                800_000,
-                1_000,
-                20_000,
-                Energy::from_nanojoules(10_800_000_000_000),
-                25,
-            ),
+            stress,
         }
-    }
-
-    #[must_use]
-    pub fn with_thermal_comfort(mut self, thermal_comfort: ThermalComfortDefinition) -> Self {
-        self.thermal_comfort = thermal_comfort;
-        self
     }
 
     #[must_use]
@@ -540,16 +537,16 @@ impl PhysiologyDefinition {
 
     #[must_use]
     pub const fn starvation_vitality_loss_ppm_per_tick(self) -> u32 {
-        self.vitality_loss.starvation_ppm_per_tick()
+        self.stress.starvation_ppm_per_tick()
     }
 
     #[must_use]
     pub const fn dehydration_vitality_loss_ppm_per_tick(self) -> u32 {
-        self.vitality_loss.dehydration_ppm_per_tick()
+        self.stress.dehydration_ppm_per_tick()
     }
 
     #[must_use]
     pub const fn thermal_comfort(self) -> ThermalComfortDefinition {
-        self.thermal_comfort
+        self.stress.thermal_comfort()
     }
 }

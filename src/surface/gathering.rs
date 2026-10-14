@@ -103,7 +103,99 @@ pub enum SurfaceGatheringError {
 
 impl Display for SurfaceGatheringError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "surface gathering unavailable: {self:?}")
+        match self {
+            Self::PlayerNotLocated => {
+                formatter.write_str("surface gathering requires an admitted player location")
+            }
+            Self::UnknownMethod { method } => write!(
+                formatter,
+                "unknown surface gathering method {}",
+                method.value()
+            ),
+            Self::ResourceUnavailableAtPlayer { resource } => write!(
+                formatter,
+                "surface resource {} is not available at the player's location",
+                resource.value()
+            ),
+            Self::CommodityMismatch {
+                method,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "surface gathering method {} expects commodity {} but resource contains {}",
+                method.value(),
+                expected.value(),
+                actual.value()
+            ),
+            Self::ZeroMass => formatter.write_str("surface gathering mass must be nonzero"),
+            Self::BatchTooLarge { requested, maximum } => write!(
+                formatter,
+                "surface gathering requested {} mg but the method permits at most {} mg per batch",
+                requested.milligrams(),
+                maximum.milligrams()
+            ),
+            Self::InsufficientResource {
+                requested,
+                remaining,
+            } => write!(
+                formatter,
+                "surface gathering requested {} mg but only {} mg remains",
+                requested.milligrams(),
+                remaining.milligrams()
+            ),
+            Self::DestinationAccess(error) => write!(
+                formatter,
+                "surface gathering destination is inaccessible: {error}"
+            ),
+            Self::DestinationMissing { stockpile } => write!(
+                formatter,
+                "surface gathering destination stockpile {} is missing",
+                stockpile.value()
+            ),
+            Self::DestinationMounted { stockpile } => write!(
+                formatter,
+                "surface gathering destination stockpile {} is mounted and cannot receive direct gathering",
+                stockpile.value()
+            ),
+            Self::DestinationStorage(error) => write!(
+                formatter,
+                "surface gathering destination cannot store the resource: {error}"
+            ),
+            Self::DestinationMassOverflow { stockpile } => write!(
+                formatter,
+                "surface gathering destination stockpile {} mass overflowed",
+                stockpile.value()
+            ),
+            Self::DestinationCapacityExceeded {
+                stockpile,
+                capacity,
+                committed,
+                requested,
+            } => write!(
+                formatter,
+                "surface gathering destination stockpile {} has {} mg capacity with {} mg committed and cannot reserve another {} mg",
+                stockpile.value(),
+                capacity.milligrams(),
+                committed.milligrams(),
+                requested.milligrams()
+            ),
+            Self::MaterialLotIdExhausted => formatter
+                .write_str("material lot identifier space is exhausted for surface gathering"),
+            Self::InventoryRevisionExhausted => {
+                formatter.write_str("inventory revision space is exhausted for surface gathering")
+            }
+            Self::SurfaceRevisionExhausted => {
+                formatter.write_str("surface revision space is exhausted for gathering")
+            }
+            Self::CompletionTickOverflow => {
+                formatter.write_str("surface gathering completion tick overflowed")
+            }
+            Self::PlayerWork(error) => write!(
+                formatter,
+                "surface gathering cannot reserve player work: {error}"
+            ),
+        }
     }
 }
 
@@ -215,11 +307,41 @@ pub enum SurfaceGatheringCommitError {
 
 impl Display for SurfaceGatheringCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "surface gathering start became stale: {self:?}")
+        match self {
+            Self::StaleSurfaceRevision { expected, actual } => write!(
+                formatter,
+                "surface gathering revision changed from {expected} to {actual} before commit"
+            ),
+            Self::StaleInventoryRevision { expected, actual } => write!(
+                formatter,
+                "surface gathering inventory revision changed from {expected} to {actual} before commit"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "surface gathering logistics revision changed from {expected} to {actual} before commit"
+            ),
+            Self::ResourceChanged => {
+                formatter.write_str("surface gathering resource changed before commit")
+            }
+            Self::PlayerWork(error) => write!(
+                formatter,
+                "surface gathering player-work commit failed: {error}"
+            ),
+        }
     }
 }
 
-impl Error for SurfaceGatheringCommitError {}
+impl Error for SurfaceGatheringCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::PlayerWork(error) => Some(error),
+            Self::StaleSurfaceRevision { .. }
+            | Self::StaleInventoryRevision { .. }
+            | Self::StaleLogisticsRevision { .. }
+            | Self::ResourceChanged => None,
+        }
+    }
+}
 
 impl ValidatedSurfaceGatheringStart {
     pub fn commit(self, state: &mut AppState) -> Result<(), SurfaceGatheringCommitError> {

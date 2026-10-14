@@ -38,12 +38,25 @@ fn physiology_with_carry(
             SurvivalExertion::new(Energy::from_nanojoules(2), Volume::from_microliters(1)),
         ),
         carried_mass_capacity,
-        VitalityLossDefinition::new(starvation_loss, dehydration_loss),
+        SurvivalStressDefinition::new(
+            starvation_loss,
+            dehydration_loss,
+            ThermalComfortDefinition::new(500_000, 1, 2, Energy::from_nanojoules(3), 4),
+        ),
     )
 }
 
 fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
     physiology_with_carry(Mass::from_milligrams(1), starvation_loss, dehydration_loss)
+}
+
+#[test]
+fn physiology_exposes_explicit_thermal_definition() {
+    let physiology = physiology(1, 1);
+    assert_eq!(
+        physiology.thermal_comfort(),
+        ThermalComfortDefinition::new(500_000, 1, 2, Energy::from_nanojoules(3), 4)
+    );
 }
 
 #[test]

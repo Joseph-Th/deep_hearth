@@ -203,10 +203,46 @@ pub enum InitialWildernessGenerationCommitError {
 
 impl Display for InitialWildernessGenerationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "initial wilderness generation became stale: {self:?}"
-        )
+        match self {
+            Self::TickChanged { expected, actual } => write!(
+                formatter,
+                "initial wilderness generation expected tick {} but state advanced to {} before commit",
+                expected.value(),
+                actual.value()
+            ),
+            Self::PlayerInitialized {
+                survival_initialized,
+                logistics_initialized,
+            } => write!(
+                formatter,
+                "player admission changed before wilderness commit: survival initialized={survival_initialized}, logistics initialized={logistics_initialized}"
+            ),
+            Self::StaleSurfaceRevision { expected, actual } => write!(
+                formatter,
+                "surface revision changed from {expected} to {actual} before wilderness commit"
+            ),
+            Self::StaleSurfaceIdentity { expected, actual } => write!(
+                formatter,
+                "next surface resource id changed from {expected} to {actual} before wilderness commit"
+            ),
+            Self::StaleFluidRevision { expected, actual } => write!(
+                formatter,
+                "fluid revision changed from {expected} to {actual} before wilderness commit"
+            ),
+            Self::StaleFluidIdentity { expected, actual } => write!(
+                formatter,
+                "next fluid store id changed from {expected} to {actual} before wilderness commit"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "logistics revision changed from {expected} to {actual} before wilderness commit"
+            ),
+            Self::WaterAlreadyLocated { store } => write!(
+                formatter,
+                "generated water store {} acquired a logistics location before wilderness commit",
+                store.value()
+            ),
+        }
     }
 }
 

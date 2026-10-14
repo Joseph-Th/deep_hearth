@@ -63,11 +63,101 @@ pub enum CombustionError {
 
 impl Display for CombustionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "solid-fuel combustion failed: {self:?}")
+        match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot combust fuel"),
+            Self::StoreAccess(error) => {
+                write!(formatter, "combustion store is inaccessible: {error}")
+            }
+            Self::SourceAccess(error) => {
+                write!(formatter, "combustion fuel source is inaccessible: {error}")
+            }
+            Self::UnknownStore { store } => write!(
+                formatter,
+                "unknown combustion energy store {}",
+                store.value()
+            ),
+            Self::UnknownDefinition => {
+                formatter.write_str("combustion energy store references an unknown definition")
+            }
+            Self::NoCombustionProfile { store } => write!(
+                formatter,
+                "energy store {} does not accept solid-fuel combustion",
+                store.value()
+            ),
+            Self::StoreBusy { store } => {
+                write!(formatter, "energy store {} is occupied", store.value())
+            }
+            Self::InsufficientFuel {
+                source,
+                available,
+                required,
+            } => write!(
+                formatter,
+                "fuel source {} contains {} mg but combustion requires {} mg",
+                source.value(),
+                available.milligrams(),
+                required.milligrams()
+            ),
+            Self::SourceMassOverflow { source } => write!(
+                formatter,
+                "fuel source {} stored mass overflowed",
+                source.value()
+            ),
+            Self::StaleInventorySelection { expected, actual } => write!(
+                formatter,
+                "combustion fuel selection inventory revision changed from {expected} to {actual}"
+            ),
+            Self::InventoryRevisionExhausted => {
+                formatter.write_str("inventory revision space is exhausted for combustion")
+            }
+            Self::EnergyRevisionExhausted => {
+                formatter.write_str("energy revision space is exhausted for combustion")
+            }
+            Self::CombustedMassOverflow => {
+                formatter.write_str("combusted terminal mass accounting overflowed")
+            }
+            Self::InsufficientThermalCapacity {
+                store,
+                stored,
+                released,
+                capacity,
+            } => write!(
+                formatter,
+                "energy store {} has {} nJ stored and {} nJ capacity, insufficient for {} nJ combustion release",
+                store.value(),
+                stored.nanojoules(),
+                capacity.nanojoules(),
+                released.nanojoules()
+            ),
+            Self::StructuralLoad(error) => write!(
+                formatter,
+                "combustion fuel removal violates structural load constraints: {error}"
+            ),
+        }
     }
 }
 
-impl Error for CombustionError {}
+impl Error for CombustionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::StoreAccess(error) => Some(error),
+            Self::SourceAccess(error) => Some(error),
+            Self::StructuralLoad(error) => Some(error),
+            Self::PlayerDead
+            | Self::UnknownStore { .. }
+            | Self::UnknownDefinition
+            | Self::NoCombustionProfile { .. }
+            | Self::StoreBusy { .. }
+            | Self::InsufficientFuel { .. }
+            | Self::SourceMassOverflow { .. }
+            | Self::StaleInventorySelection { .. }
+            | Self::InventoryRevisionExhausted
+            | Self::EnergyRevisionExhausted
+            | Self::CombustedMassOverflow
+            | Self::InsufficientThermalCapacity { .. } => None,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CombustionCommitError {
@@ -81,11 +171,48 @@ pub enum CombustionCommitError {
 
 impl Display for CombustionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "solid-fuel combustion commit failed: {self:?}")
+        match self {
+            Self::StaleSurvival { expected, actual } => write!(
+                formatter,
+                "combustion survival revision changed from {expected} to {actual} before commit"
+            ),
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "combustion logistics revision changed from {expected} to {actual} before commit"
+            ),
+            Self::StaleInventory { expected, actual } => write!(
+                formatter,
+                "combustion inventory revision changed from {expected} to {actual} before commit"
+            ),
+            Self::StaleEnergy { expected, actual } => write!(
+                formatter,
+                "combustion energy revision changed from {expected} to {actual} before commit"
+            ),
+            Self::StoreChanged { store } => write!(
+                formatter,
+                "combustion energy store {} changed before commit",
+                store.value()
+            ),
+            Self::Structure(error) => write!(
+                formatter,
+                "combustion structural-load commit failed: {error}"
+            ),
+        }
     }
 }
 
-impl Error for CombustionCommitError {}
+impl Error for CombustionCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleSurvival { .. }
+            | Self::StaleLogistics { .. }
+            | Self::StaleInventory { .. }
+            | Self::StaleEnergy { .. }
+            | Self::StoreChanged { .. } => None,
+        }
+    }
+}
 
 #[must_use]
 pub struct ValidatedCombustion {

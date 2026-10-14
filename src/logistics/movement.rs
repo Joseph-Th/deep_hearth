@@ -150,7 +150,45 @@ pub enum PlayerStepCommitError {
 
 impl Display for PlayerStepCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "player step commit failed: {self:?}")
+        match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "player step logistics revision changed from {expected} to {actual} before commit"
+            ),
+            Self::PlayerPositionChanged { expected, actual } => write!(
+                formatter,
+                "player moved from expected step origin ({},{},{}) to ({},{},{}) before commit",
+                expected.x(),
+                expected.y(),
+                expected.z(),
+                actual.x(),
+                actual.y(),
+                actual.z()
+            ),
+            Self::PlayerDisappeared => {
+                formatter.write_str("player disappeared from logistics before step commit")
+            }
+            Self::ProductionSiteConflict { stockpile, job } => write!(
+                formatter,
+                "player step cannot move carried stockpile {} away from retained production job {}",
+                stockpile.value(),
+                job.value()
+            ),
+            Self::MiningSettlementPending { stockpile, job } => write!(
+                formatter,
+                "player step cannot move carried stockpile {} while mining job {} still awaits settlement into it",
+                stockpile.value(),
+                job.value()
+            ),
+            Self::CarriedEquipmentBusy { equipment } => write!(
+                formatter,
+                "player step cannot move carried equipment {} while it is occupied",
+                equipment.value()
+            ),
+            Self::PlayerWork(error) => {
+                write!(formatter, "player step labor commit failed: {error}")
+            }
+        }
     }
 }
 
