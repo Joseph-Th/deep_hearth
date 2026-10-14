@@ -92,6 +92,9 @@ pub(super) fn validate_registry_domains(core: &CoreDefinitions, domains: &Regist
         .validate_references(&domains.capabilities, &domains.materials);
     domains.storage.validate_references(&domains.materials);
     domains
+        .world
+        .validate_references(&domains.materials, &domains.presentation.textures);
+    domains
         .production
         .validate_references(&domains.capabilities);
     domains

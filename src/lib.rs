@@ -27,6 +27,7 @@ pub mod production;
 pub mod structural;
 pub mod surface;
 pub mod survival;
+pub mod world;
 
 // Stateless/read-mostly transformation overlays that resolve work into durable owner operations.
 pub mod crafting;

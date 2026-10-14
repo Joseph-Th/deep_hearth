@@ -16,6 +16,7 @@ use crate::production::ProductionState;
 use crate::structural::StructureState;
 use crate::surface::{SurfaceResourceRecord, SurfaceResourceState};
 use crate::survival::SurvivalState;
+use crate::world::WorldState;
 
 use super::time::SimulationTick;
 
@@ -62,6 +63,7 @@ impl Debug for AppState {
             .field("fluid", &self.systems.fluid)
             .field("equipment", &self.systems.equipment)
             .field("structures", &self.systems.structures)
+            .field("world", &self.systems.world)
             .field("surface", &self.systems.surface)
             .field("geological_knowledge", &self.systems.geological_knowledge)
             .field("inventory", &self.systems.inventory)
@@ -107,6 +109,7 @@ struct SystemState {
     fluid: FluidState,
     equipment: EquipmentState,
     structures: StructureState,
+    world: WorldState,
     #[serde(serialize_with = "crate::surface::serialize_surface_resource_state")]
     surface: SurfaceResourceState,
     geology: GeologyState,
@@ -141,6 +144,7 @@ impl AppState {
                 fluid: FluidState::new(),
                 equipment: EquipmentState::new(),
                 structures: StructureState::new(),
+                world: WorldState::new(),
                 surface: SurfaceResourceState::new(),
                 geology: GeologyState::new(),
                 geological_knowledge: GeologicalKnowledgeState::new(),
@@ -272,6 +276,16 @@ impl AppState {
         &mut self.systems.structures
     }
 
+    /// Returns read-only authoritative generated block-world state.
+    #[must_use]
+    pub const fn world(&self) -> &WorldState {
+        &self.systems.world
+    }
+
+    pub(crate) fn world_state_mut(&mut self) -> &mut WorldState {
+        &mut self.systems.world
+    }
+
     /// Returns finite loose world matter to owning core systems only.
     #[must_use]
     pub(crate) const fn surface(&self) -> &SurfaceResourceState {
@@ -394,7 +408,7 @@ impl AppState {
         self.systems.geological_knowledge.rebuild_derived_indexes();
         self.systems.production.rebuild_derived_indexes();
         self.systems.mining.rebuild_derived_indexes();
-        // Survival, player work, logistics, geology, and surface resources hold no derived indexes:
+        // Survival, player work, logistics, world, geology, and surface resources hold no derived indexes:
         // their persisted records are the complete continuation state, so there is nothing to
         // rebuild.
     }

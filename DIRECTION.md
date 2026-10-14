@@ -89,6 +89,12 @@ world alteration and chunk-granular persistence. Keep block identity, physical m
 attachments distinct so ordinary cells stay compact while exceptional temperature, damage, moisture, embodied
 matter or machine state can live in sparse owner-controlled state.
 
+The first storage slice now exists: `WorldState` owns persisted 16x16 chunk columns containing palette-compressed
+16-cubed sections, `WorldRegistry` owns authored block/state identity, and explicit-seed generation can commit
+deterministic stone terrain through a revision-bound transaction. That is infrastructure, not ordinary terrain
+play. The next world slice is demand streaming plus continuous body collision/access over those cells; block
+breaking/placement must then cross world state and conserved material custody in one canonical operation.
+
 Refactor authoritative time before using it for body kinematics. The fixed simulation tick must be frequent
 enough for responsive movement/collision; calendar progression must be independently scaled instead of deriving
 that timestep from a 24-hour day. Preserve one canonical tick mutation and deterministic ordering.

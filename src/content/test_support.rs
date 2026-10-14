@@ -21,6 +21,10 @@ use crate::thermal::{
     CastingProcessDefinition, MeltingProcessDefinition, SensibleHeatingProcessDefinition,
     ThermalRegistry,
 };
+use crate::world::{
+    BlockCollisionShape, BlockDefinition, BlockDefinitionId, BlockPhysicalDefinition,
+    BlockStateDefinition, BlockStateId, WorldRegistry,
+};
 
 #[path = "test_support/standard_processes.rs"]
 mod standard_processes;
@@ -39,6 +43,7 @@ struct TestRegistryDomains {
     labor: LaborRegistry,
     equipment: EquipmentRegistry,
     storage: StorageRegistry,
+    world: WorldRegistry,
     mining: MiningRegistry,
     ore_processing: OreProcessingRegistry,
     thermal: ThermalRegistry,
@@ -56,6 +61,7 @@ impl TestRegistryDomains {
             labor: labor::empty_labor_registry(),
             equipment: empty_equipment_registry(),
             storage: StorageRegistry::new(std::iter::empty()),
+            world: air_only_world_registry(),
             mining: MiningRegistry::new(std::iter::empty()),
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
@@ -84,6 +90,7 @@ impl TestRegistryDomains {
             labor,
             equipment,
             storage,
+            world,
             mining,
             ore_processing,
             thermal,
@@ -102,6 +109,7 @@ impl TestRegistryDomains {
                 equipment,
                 storage,
                 structural: structural::build_structural_registry(),
+                world,
                 materials: materials::build_material_registry(),
                 mining,
                 ore_processing,
@@ -142,6 +150,27 @@ pub(super) fn empty_texture_registry() -> TextureRegistry {
 
 pub(super) fn empty_shader_registry() -> ShaderRegistry {
     ShaderRegistry::new(std::iter::empty())
+}
+
+pub(super) fn air_only_world_registry() -> WorldRegistry {
+    WorldRegistry::new(
+        [BlockDefinition::new(
+            BlockDefinitionId::AIR,
+            "air",
+            BlockStateId::AIR,
+            BlockPhysicalDefinition::new(
+                None,
+                crate::core::quantity::Mass::ZERO,
+                BlockCollisionShape::Empty,
+                false,
+            ),
+            None,
+        )],
+        [BlockStateDefinition::new(
+            BlockStateId::AIR,
+            BlockDefinitionId::AIR,
+        )],
+    )
 }
 
 fn build_capability_registry(

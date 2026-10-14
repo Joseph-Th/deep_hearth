@@ -35,7 +35,8 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::surface::{SurfaceResourceId, validate_start_player_surface_gathering};
 use deep_hearth::survival::assess_survival;
-use deep_hearth::world_generation::{WorldGenerationSeed, validate_generate_initial_wilderness};
+use deep_hearth::world::WorldGenerationSeed;
+use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::exact_local_runtime::{

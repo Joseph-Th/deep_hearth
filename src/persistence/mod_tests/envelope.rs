@@ -226,6 +226,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                     "elements": {},
                     "supports_by_element": {}
                 },
+                "world": {"revision": 0, "chunks": []},
                 "surface": {"revision": 0, "next_resource_id": 1, "resources": {}},
                 "geology": {"revision": 0, "next_deposit_id": 1, "deposits": {}},
                 "geological_knowledge": {

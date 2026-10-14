@@ -29,6 +29,7 @@ use crate::surface::{
     SurfaceGenerationError, SurfaceResourceValidationError, ValidatedSurfaceGeneration,
     validate_generate_surface_resources,
 };
+use crate::world::WorldGenerationSeed;
 
 use opening::{
     OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_layout, generated_volume,
@@ -60,21 +61,6 @@ pub const INITIAL_WILDERNESS_ACCESS_EDGES: usize = 5;
 ///
 /// The optional water branch is not part of this material-acquisition route.
 pub const INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_STEPS: u64 = 8;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct WorldGenerationSeed(u64);
-
-impl WorldGenerationSeed {
-    #[must_use]
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn value(self) -> u64 {
-        self.0
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InitialWildernessGenerationError {

@@ -22,6 +22,7 @@ mod survival;
 mod test_support;
 mod textures;
 mod thermal;
+mod world;
 
 use crate::core::quantity::Acceleration;
 use crate::core::time::CalendarDefinition;
@@ -53,8 +54,8 @@ pub(crate) use test_support::{
 };
 #[cfg(test)]
 use test_support::{
-    empty_energy_registry, empty_equipment_registry, empty_shader_registry, empty_texture_registry,
-    empty_thermal_registry,
+    air_only_world_registry, empty_energy_registry, empty_equipment_registry,
+    empty_shader_registry, empty_texture_registry, empty_thermal_registry,
 };
 
 pub use energy::{
@@ -92,15 +93,15 @@ pub use equipment::{
     EQUIPMENT_TIMBER_WIRE_DRAWBENCH,
 };
 pub use materials::{
-    FORM_BOARD, FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED,
-    FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_DOUBLE_WALL_CHEST_BODY, FORM_DRAWPLATE,
-    FORM_DRILL_BIT, FORM_ELECTRICAL_WINDING, FORM_EXHAUSTED_TAILINGS, FORM_FLYWHEEL, FORM_FOOD,
-    FORM_GRINDSTONE_WHEEL, FORM_HANDLE, FORM_INGOT, FORM_INSULATED_PANTRY_BODY, FORM_LOG,
-    FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_PACKED_CLAY_BINDER,
-    FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE,
-    FORM_STONE_CROCK_BODY, FORM_TAILINGS, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_BERRIES,
-    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_GRAIN, MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_SLAG,
-    MATERIAL_STONE, MATERIAL_WATER, MATERIAL_WOOD,
+    FORM_BLOCK, FORM_BOARD, FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_CHIP, FORM_CONCENTRATE,
+    FORM_CRUSHED, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_DOUBLE_WALL_CHEST_BODY,
+    FORM_DRAWPLATE, FORM_DRILL_BIT, FORM_ELECTRICAL_WINDING, FORM_EXHAUSTED_TAILINGS,
+    FORM_FLYWHEEL, FORM_FOOD, FORM_GRINDSTONE_WHEEL, FORM_HANDLE, FORM_INGOT,
+    FORM_INSULATED_PANTRY_BODY, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE,
+    FORM_PACKED_CLAY_BINDER, FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, FORM_SAW_BLADE, FORM_SCRAP,
+    FORM_SCREEN_PLATE, FORM_STONE_CROCK_BODY, FORM_TAILINGS, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL,
+    MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_GRAIN, MATERIAL_LEGUMES,
+    MATERIAL_MEAT, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WATER, MATERIAL_WOOD,
 };
 pub use processes::{
     PROCESS_ASSEMBLE_BULK_TIMBER_CRATE, PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
@@ -145,7 +146,7 @@ pub use storage::{
 };
 pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
 pub use textures::{
-    BLOCK_COPPER, BLOCK_COPPER_ORE, BLOCK_TIMBER, OBJECT_BULK_TIMBER_CRATE_BODY,
+    BLOCK_COPPER, BLOCK_COPPER_ORE, BLOCK_STONE, BLOCK_TIMBER, OBJECT_BULK_TIMBER_CRATE_BODY,
     OBJECT_CASTING_MOLD, OBJECT_CLAY_EARTH_LUMP, OBJECT_CLAY_FACED_STONE_CASTING_BED,
     OBJECT_COPPER_ELECTRICAL_WINDING, OBJECT_COPPER_INGOT, OBJECT_COPPER_ORE,
     OBJECT_COPPER_PLATE_SIZING_SCREEN, OBJECT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
@@ -179,13 +180,14 @@ pub use textures::{
     TEXTURE_MACHINE_PANEL, TEXTURE_MOLTEN_COPPER, TEXTURE_REFRACTORY, TEXTURE_SCREEN_MESH,
     TEXTURE_SLAG, TEXTURE_STONE, TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE, TEXTURE_WORKING_METAL,
 };
+pub use world::{BLOCK_STATE_STONE, WORLD_BLOCK_STONE};
 
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
 const DEFAULT_TICKS_PER_DAY: u64 = 24_000;
 const DEFAULT_PHYSICAL_SECONDS_PER_DAY: u32 = 86_400;
 const DEFAULT_DAYS_PER_MONTH: u16 = 8;
 const DEFAULT_MONTHS_PER_YEAR: u16 = 12;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(127);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(128);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(
@@ -204,6 +206,7 @@ fn build_core_definitions() -> CoreDefinitions {
 /// Builds the immutable built-in registry set used by a new application instance.
 #[must_use]
 pub fn build_registries() -> Registries {
+    let materials = materials::build_material_registry();
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
         build_core_definitions(),
@@ -216,7 +219,8 @@ pub fn build_registries() -> Registries {
             equipment: equipment::build_equipment_registry(),
             storage: storage::build_storage_registry(),
             structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
+            world: world::build_world_registry(&materials),
+            materials,
             mining: mining::build_mining_registry(),
             ore_processing: ore_processing::build_ore_processing_registry(),
             thermal: thermal::build_thermal_registry(),

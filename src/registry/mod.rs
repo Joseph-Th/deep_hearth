@@ -22,6 +22,7 @@ use crate::structural::StructuralRegistry;
 use crate::survival::{SurvivalExertion, SurvivalRegistry};
 use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
+use crate::world::WorldRegistry;
 
 mod commodity_handbook;
 mod process_topology;
@@ -108,6 +109,7 @@ pub(crate) struct RegistryDomains {
     pub(crate) equipment: EquipmentRegistry,
     pub(crate) storage: StorageRegistry,
     pub(crate) structural: StructuralRegistry,
+    pub(crate) world: WorldRegistry,
     pub(crate) materials: MaterialRegistry,
     pub(crate) mining: MiningRegistry,
     pub(crate) ore_processing: OreProcessingRegistry,
@@ -200,6 +202,12 @@ impl Registries {
     #[must_use]
     pub const fn structural(&self) -> &StructuralRegistry {
         &self.domains.structural
+    }
+
+    /// Returns immutable block and block-state definitions.
+    #[must_use]
+    pub const fn world(&self) -> &WorldRegistry {
+        &self.domains.world
     }
 
     /// Returns immutable material and physical-form definitions.

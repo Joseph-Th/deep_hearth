@@ -113,6 +113,7 @@ fn augmented_powered_registries(
             equipment: base.equipment().clone(),
             storage: base.storage().clone(),
             structural: base.structural().clone(),
+            world: base.world().clone(),
             materials: base.materials().clone(),
             mining: base.mining().clone(),
             ore_processing: base.ore_processing().clone(),

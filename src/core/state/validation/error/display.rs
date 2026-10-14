@@ -13,6 +13,7 @@ impl Display for StateValidationError {
             Self::Fluid(error) => write!(formatter, "invalid fluid state: {error}"),
             Self::Equipment(error) => write!(formatter, "invalid equipment state: {error}"),
             Self::Structure(error) => write!(formatter, "invalid structural state: {error}"),
+            Self::World(error) => write!(formatter, "invalid block-world state: {error}"),
             Self::Surface(error) => write!(formatter, "invalid surface-resource state: {error}"),
             Self::StructureAnalysis(error) => {
                 write!(formatter, "structural state cannot be analyzed: {error}")

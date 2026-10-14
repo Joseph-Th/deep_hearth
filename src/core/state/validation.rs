@@ -13,6 +13,7 @@ use crate::registry::Registries;
 use crate::structural::validate_loaded_structure;
 use crate::surface::validate_loaded_surface_resources;
 use crate::survival::validate_loaded_survival;
+use crate::world::validate_loaded_world;
 
 use super::AppState;
 
@@ -62,6 +63,8 @@ pub fn validate_loaded_state(
         registries.core().gravity(),
     )
     .map_err(StateValidationError::Structure)?;
+    validate_loaded_world(registries.world(), &state.systems.world)
+        .map_err(StateValidationError::World)?;
     validate_loaded_surface_resources(registries.materials(), &state.systems.surface, state.tick())
         .map_err(StateValidationError::Surface)?;
     validate_loaded_inventory(
@@ -260,6 +263,10 @@ pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &A
     debug_assert!(
         state.systems.structures.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): structural ID cursor must remain valid"
+    );
+    debug_assert!(
+        validate_loaded_world(registries.world(), &state.systems.world).is_ok(),
+        "Runtime Invariants 6/8: generated world chunks must retain valid compact block-state storage"
     );
     debug_assert!(
         state.systems.surface.has_valid_id_cursor(),

@@ -211,6 +211,19 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         }
     }
 
+    let block_commodity = CommodityKey::new(MATERIAL_STONE, FORM_BLOCK);
+    let block_binding = textures
+        .get_commodity_appearance(block_commodity)
+        .unwrap_or_else(|| {
+            panic!(
+                "missing block commodity appearance {}",
+                block_commodity.value()
+            )
+        });
+    assert_eq!(block_binding.block(), Some(BLOCK_STONE));
+    assert_eq!(block_binding.object(), None);
+    assert!(baked.get_block(BLOCK_STONE).is_some());
+
     for (equipment, object) in [
         (EQUIPMENT_JAW_CRUSHER, OBJECT_JAW_CRUSHER),
         (EQUIPMENT_ELECTRIC_FURNACE, OBJECT_ELECTRIC_FURNACE),

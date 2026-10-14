@@ -105,6 +105,7 @@ then read the owning section/source for exact semantics and errors.
 | --- | --- | --- | --- | --- |
 | Root simulation and time | core definitions, typed quantities/time | `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_tick`; direct clock/owner applies stay crate-private |
 | Registries and built-in content | `Registries` plus domain registries; `build_registries` validates cross-references | public immutable `Registries::*()` accessors; derived authored topology may provide goal-directed reverse lookup | callers inspect authored possibilities; topology never claims current legality or ordinary reachability | none; registries and derived definition indexes are immutable after construction |
+| Block world | `WorldRegistry` block/state definitions plus explicit `WorldGenerationSeed` input | `AppState::world()`, generated chunk/section records, exact block lookup inside generated chunks | `validate_generate_chunk` derives one deterministic compact terrain chunk; future placement/breaking must coordinate material custody rather than expose generic cell mutation | `ValidatedChunkGeneration::commit`; no public arbitrary block setter, demand streaming, breaking, or placement yet |
 | Inventory and storage | material/form/storage definitions | `AppState::inventory()`, stockpile/lot records and stable iterators | feature owners construct explicit lot selections; enclosure validators derive storage consequences | no generic public transport command; feature-specific validators own ingress/egress/reform, enclosure, and support transitions |
 | Surface gathering | `LaborRegistry` gathering methods plus finite surface-resource records | `AppState::available_surface_resources()` for exact-local resources and `available_adjacent_surface_resources` for traversal-gated orientation | `validate_start_player_surface_gathering` derives carried custody for ordinary pickup; `validate_start_surface_gathering` retains explicit destination routing for deliberate subsystem use | `advance_tick` atomically depletes the source and lands the admitted parcel in reserved inventory custody |
 | Geological knowledge | prospecting methods plus hidden finite geology | `AppState::geological_knowledge()`, `assess_geological_knowledge`, knowledge map | field prospecting authorization; evidence combination remains actor-safe | `validate_start_field_prospecting` -> tick records observations |
@@ -135,8 +136,9 @@ or whether the caller is crossing an ownership boundary it does not control.
 - The built-in calendar maps 24,000 ticks to 86,400 seconds; one tick is 3.6 seconds.
 - Rate-authored physics integrate against physical tick duration. Per-tick gameplay costs use world ticks.
 - Runtime has no stochastic owner; authoritative results derive from persisted state and explicit inputs.
-- Initial wilderness generation consumes an explicit caller-provided seed once before admission; generated
-  distributed surface resources, opening-water custody/location, and the five-edge opening opportunity graph become persisted world truth.
+- Fresh-world generation uses explicit caller-provided seeds rather than ambient randomness. `validate_generate_chunk`
+  deterministically materializes compact block-state chunks, while initial wilderness generation separately persists
+  distributed surface resources, opening-water custody/location, and the bounded five-edge opportunity graph.
 - Implemented authoritative physical calculations use checked integer arithmetic, not floating point.
 - Dynamic scheduled work persists as explicit records.
 - Known due ticks may bound batched caller stepping, but do not authorize skipping intervening canonical tick
@@ -161,6 +163,7 @@ synchronized indexes.
 | `FluidState` | `AppState::fluid()` plus `AppState::available_local_fluid_stores()` | public read plus exact-player-local observation | Finite homogeneous fluid stores and support assignments, including the one generated finite opening-water opportunity; this does not imply general hydrology, refill, or remote source generation |
 | `EquipmentState` | `AppState::equipment()` plus `AppState::available_local_equipment()` | public read plus exact-player-local observation | Equipment instances, condition, embodied traces, support assignments; actor-safe local observation excludes remote and unlocated instances |
 | `StructureState` | `AppState::structures()` | public read | Members, topology, embodied matter, source-separated loads, damage |
+| `WorldState` | `AppState::world()` | public read | Generated 16x16 chunk columns containing sorted 16-cubed sections with local block-state palettes, bit-packed indices, exact non-air and represented-mass summaries, and a revision; missing chunk means no generated world truth and missing section inside a generated chunk means canonical air |
 | `SurfaceResourceState` | `AppState::available_surface_resources()` plus `available_adjacent_surface_resources` | public exact-player-local observation plus traversal-gated immediate-neighbor orientation | Finite loose world-space matter, source lifecycle, and depletion, including generated opening-graph forage/stone/timber; exact remote state, arbitrary-voxel queries, and persistence remain privileged |
 | `GeologyState` | `AppState::geology()` | core-only hidden truth | Finite hidden geological deposits and depletion; actor code must not enumerate this owner |
 | `GeologicalKnowledgeState` | `AppState::geological_knowledge()` | public actor-safe evidence | Acquired bounded observations only |
@@ -193,6 +196,7 @@ player locality + carried rigid matter -> grounded planned structural member -> 
 finite loose surface matter -> timed same-voxel gathering -> inventory lot
 explicit fresh-world seed + spawn voxel -> deterministic opening-graph forage/stone/timber -> SurfaceResourceState
 explicit fresh-world seed + spawn voxel -> finite optional-branch water + five traversal edges -> FluidState + LogisticsState
+explicit fresh-world seed + chunk coordinate + authored solid block state + material density -> deterministic mass-backed terrain chunk -> WorldState
 local ground storage observation -> same-voxel player allocation / pickup / drop <-> player-carried inventory lot
 player voxel + persisted traversal edge + carried mass + physiology -> timed adjacent step -> logistics player voxel
 inventory traces -> equipment @ player voxel -> optional structural support
@@ -222,6 +226,7 @@ semantic entry point; inspect its implementation and adjacent tests before readi
 | Edge | Canonical boundary | Authoritative handoff and continuation |
 | --- | --- | --- |
 | Survival + logistics + carried inventory -> ordinary player | `validate_admit_player` | Admission authorizes survival reserves, player world position, and the physiology-sized inventory-owned carried stockpile against one pre-admission snapshot. Commit prechecks survival, logistics, and inventory revisions before any mutation. Spatial-proxy gameplay fixtures may seed survival without logistics only when they explicitly do not claim ordinary locality. |
+| Explicit terrain input -> generated block world | `validate_generate_chunk` -> `ValidatedChunkGeneration::commit` | A seed, representable chunk coordinate, and registered non-air block state deterministically resolve one compact terrain column. Full-cube represented mass is derived from authoritative material density, persisted section summaries are recomputed at trusted load, and whole-world matter accounting includes generated terrain. Validation rejects existing chunks, unknown states, coordinate overflow, and exhausted revision capacity. Commit binds the world revision and refuses replacement. Generated chunks persist as authoritative world truth; no ambient randomness or generic public cell mutation is involved. This proves storage/generation, not streaming, geology/biome integration, collision, breaking, or placement. |
 | Player locality + world access + carried load -> adjacent movement | `AppState::available_player_steps` -> `validate_start_player_step` -> `advance_tick` | Logistics owns both player voxel and normalized persisted traversal edges; `PlayerWorkState` owns the one-tick attention interval; survival owns basal plus load-sensitive locomotion cost. Admission requires a face-adjacent edge already authorized by logistics and reserves the completion revision; unknown adjacent coordinates fail closed. The player remains at the origin until the tick atomically moves locality and releases work. Locomotion prices total body load: carried material plus the embodied mass of player-carried portable equipment against the authored physiology capacity. Occupied carried equipment blocks movement, and a carried tool cannot start new work while a step is already active. Instantaneous actions cannot increase carried load after the survival budget was admitted; existing load-reducing material transfers remain valid because they only reduce the remaining locomotion burden, while equipment pickup/drop itself requires an idle player. This proves immediate access only: terrain geometry/collision, slope, pathfinding, route cost, and automatic multi-step route planning remain unmodeled. |
 | Local loose surface matter -> carried inventory | `AppState::available_surface_resources` -> `validate_start_player_surface_gathering` -> `advance_tick` | The ordinary player adapter derives the admitted player's carried stockpile rather than asking the caller to route a stockpile ID. Admission proves exact locality, method/commodity compatibility, batch size, carried capacity, lot/revision headroom, and player attention while reserving destination capacity. Completion lands the parcel and depletes the finite surface record in one tick transaction. The explicit-destination `validate_start_surface_gathering` boundary remains for deliberate routing and subsystem evidence. |
 | Hidden geology -> acquired knowledge | `validate_start_field_prospecting` -> tick | Player work owns the timed action; completion records bounded actor-safe observations in `GeologicalKnowledgeState`. Hidden deposit identity never enters the observation. |
@@ -553,9 +558,11 @@ changes are planned against final aggregate load so results do not depend on mut
 
 ## Spatial and presentation boundaries
 
-Persistent spatial references use checked chunk-independent 64-bit voxel coordinates and half-open
-bounds. Runtime records do not depend on a chunk layout, ECS, scene graph, renderer object, or streaming
-policy.
+Persistent spatial references use checked 64-bit voxel coordinates and half-open bounds. `WorldState` partitions
+generated terrain into 16x16 chunk columns and sorted 16-cubed sections for compact storage, while other domain
+records remain addressed by world coordinates rather than renderer/ECS identities. Chunk residency, streaming,
+scene graphs, renderer objects, and frame scheduling remain adapter/orchestration concerns rather than simulation
+authority.
 
 Texture and shader definitions are immutable registry content. Texture baking is deterministic and
 renderer-neutral. WGSL libraries/programs have typed identities, deterministic assembly, validated

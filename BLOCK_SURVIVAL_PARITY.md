@@ -57,8 +57,7 @@ Strong current foundations:
 
 Foundational blockers:
 
-- no runtime voxel/chunk world owner;
-- no general block-state storage, block shapes, block updates, scheduled block behavior, or block entities;
+- no general block mutation, rich block shapes, block updates, scheduled block behavior, or sparse voxel-to-owner attachments;
 - no continuous first-person position, velocity, gravity, jumping, falling, collision, crouching, sprinting, or
   swimming;
 - no camera/input/raycast action shell;
@@ -70,10 +69,11 @@ Foundational blockers:
 - no world-space fluid field or fluid flow;
 - no graphics backend, section mesher, visibility system, audio, input adapter, or save-file storage adapter.
 
-The practical conclusion is that Deep Hearth should stop using the bounded five-edge opening graph as the shape
-of future world interaction. It remains useful evidence for existing owner interactions, but the next substrate
-must be a real block world with continuous player control. Deeper industrial work should build on that substrate,
-not continue to get farther ahead of it.
+The first compact block-world storage/generation slice now exists, so the practical conclusion has narrowed:
+Deep Hearth should stop using the bounded five-edge opening graph as the shape of future world interaction. It
+remains useful evidence for existing owner interactions, but ordinary play still needs demand streaming and
+continuous player control over the generated cells. Deeper industrial work should build on that substrate, not
+continue to get farther ahead of it.
 
 ## 1. Runtime, time, and authority
 
@@ -108,20 +108,20 @@ without redefining a watt or a metre per second.
 ## 2. World address space, chunks, sections, and streaming
 
 Minecraft stores a huge world in chunk columns and 16x16x16 sections. Each section palette-compresses 4,096 block
-states and tracks cheap counters so empty or inactive sections can be skipped. Deep Hearth currently has checked
-voxel coordinates and bounds, but no world cell storage.
+states and tracks cheap counters so empty or inactive sections can be skipped. Deep Hearth now uses the same
+proven spatial granularity for authoritative storage while retaining wider coordinates and its own ownership model.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
 | Integer voxel coordinates | Integer block positions | `VoxelCoord` uses checked-friendly signed `i64` axes | `PARITY+` | Keep the wider coordinate vocabulary. |
-| World cells | Every loaded position resolves to a block state | No runtime voxel cell owner | `GAP-P0` | Add a world owner whose fundamental query is block state at a voxel. |
-| Chunking | 16x16 horizontal chunk columns | None | `GAP-P0` | Start with 16x16 columns unless measurement justifies a different size. Familiar/proven cache geometry is a stronger default than novelty. |
-| Vertical sections | 16x16x16 block sections | None | `GAP-P0` | Use sectioned storage so palette compression, lighting, meshing, dirtiness, and activity can be bounded locally. |
-| Palette compression | Section-local palette plus bit-packed indices; 2-16 distinct states use 4 bits per cell, so the 4,096-state section payload is 2,048 bytes before palette/owner overhead | No cell storage | `GAP-P0` | Use palette-compressed `BlockStateId` values with similarly compact local encodings. Do not store full physical records in every ordinary cell. |
-| Empty-section fast path | Counters allow all-air/tickless sections to skip work | No sections | `GAP-P0` | Maintain nonempty/ticking/fluid/activity counters or equivalent summaries as derived section state. |
+| World cells | Every generated/loaded position resolves to a block state | `WorldState::block_at` distinguishes generated air from absent chunk truth | `PARITY` substrate | Extend this read surface into collision/raycast/render snapshots without creating another world authority. |
+| Chunking | 16x16 horizontal chunk columns | Persisted sorted 16x16 `WorldChunk` columns | `PARITY` | Keep unless measurement later justifies a different derived render partition. |
+| Vertical sections | 16x16x16 block sections | Sorted 16-cubed `WorldSection` records; absent sections in a generated chunk are canonical air | `PARITY` | Reuse section bounds for later lighting, meshing and activity summaries. |
+| Palette compression | Section-local palette plus bit-packed indices | Local `BlockStateId` palette with minimum-width packed `u64` indices; one-state sections store no index words | `PARITY+` | Keep the compact common case and add only measured summaries/sidecars. |
+| Empty-section fast path | Counters allow all-air/tickless sections to skip work | Empty sections are omitted; stored sections maintain validated exact `non_air_count` | `PARITY` foundation | Add ticking/fluid/light/activity summaries only when those owners exist. |
 | Heightmaps | Several heightmaps accelerate surface queries | No terrain | `GAP-P1` | Derive height summaries for sky exposure, spawning, generation, visibility, and surface queries. |
 | Block entities | Sparse per-position extended objects for chests, furnaces, etc. | Equipment/stores are independent owner records with optional voxel locations | `DIFFERENT+` | Keep domain owners for consequential machine/storage state. Add a sparse voxel attachment/index that points from world cells to owner identities rather than duplicating owner state inside a generic block entity blob. |
-| Chunk lifecycle | Generated, loaded, ticking, visible states differ | None | `GAP-P0` | Separate generated/persisted world truth from loaded simulation detail and renderer residency. |
+| Chunk lifecycle | Generated, loaded, ticking, visible states differ | Generated/persisted truth exists; residency/ticking/visibility tiers do not | `GAP-P0` | Add deterministic demand residency without making renderer distance authoritative. |
 | Render distance | Client loads/renders a bounded chunk radius | None | `GAP-P0` | Adapter owns render residency. It must not define simulation authority. |
 | Simulation distance | Server ticks a bounded region | Current state is small enough to tick globally | `GAP-P1` | Add explicit activity levels when world scale demands them. Far industry/ecology may use deterministic coarse continuation rather than Minecraft-style total freezing where a better model is justified. |
 | Streaming | Chunks enter/leave memory around demand | None | `GAP-P0` | Add deterministic chunk load/generate/unload boundaries before claiming persistent world scale. |
@@ -132,7 +132,8 @@ voxel coordinates and bounds, but no world cell storage.
 Deep Hearth should not answer richer physics by making every voxel enormous. The efficient target is two-tiered:
 
 1. a compact palette-compressed cell stores the ordinary block state needed for geometry, interaction class,
-   appearance, and default physical material;
+   appearance, and default physical material; full-cube default mass is derived from material density and
+   section summaries retain exact represented mass for conservation accounting;
 2. sparse per-section sidecars store exceptional generated state such as temperature departure, moisture,
    damage, contamination, exact embodied trace, active process identity, or other values that actually differ
    from the block-state default.
@@ -150,14 +151,14 @@ but that is presentation metadata, not a runtime block model.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
-| Block type registry | Stable block definitions | Material/form registries exist, no block registry | `GAP-P0` | Add `BlockDefinition` as world-interaction semantics, distinct from material and appearance. |
-| Block state | Compact state from finite properties | No runtime block state | `GAP-P0` | Add immutable interned `BlockState` definitions referenced by compact IDs. |
-| Material vs block | Blocks often encode gameplay properties separately from item/material concepts | Deep Hearth has much richer actual material definitions | `DIFFERENT+` | A block references physical material/form defaults. Do not collapse material identity into a block ID. |
-| Full cube | Common 1x1x1 solid | `VoxelBounds` can represent regions; appearances assume six cube faces | `GAP-P0` | Add standard full-cube collision/occlusion shape as the cheapest block shape. |
+| Block type registry | Stable block definitions | `WorldRegistry` owns `BlockDefinition` separately from material and appearance | `PARITY` foundation | Extend behavior fields only when a real world verb needs them. |
+| Block state | Compact state from finite properties | Immutable `BlockStateDefinition` values are referenced by compact `BlockStateId` in sections | `PARITY` foundation | Add finite state properties/orientation as placement/update mechanics arrive. |
+| Material vs block | Blocks often encode gameplay properties separately from item/material concepts | `BlockDefinition` references commodity identity and exact represented mass; full-cube mass is validated from material density | `DIFFERENT+` | Keep material/form authority separate from block identity and preserve exact matter through generation, breaking, and placement. |
+| Full cube | Common 1x1x1 solid | Blocks currently classify collision as `Empty` or `FullCube` | `PARITY` foundation | Use full cube as the fast path for collision/meshing; richer shapes follow. |
 | Partial block shapes | Slabs, stairs, fences, doors, snow layers, etc. | None | `GAP-P1` | Add immutable voxel-shape/collision-shape definitions with orientation/state variants. |
 | Replaceability | Grass, fluids, snow etc. have placement replacement rules | No block placement model | `GAP-P1` | Define replacement/placement legality by block state and target face. |
 | Orientation | Placement derives facing/axis/half from click and player direction | No generic placement | `GAP-P1` | Placement resolver derives the candidate state from hit face, hit point and player orientation. |
-| Collision shape | State-specific | No world collision | `GAP-P0` | Block state exposes one or more local AABBs or a compact convex voxel shape. |
+| Collision shape | State-specific | Definition distinguishes empty/full-cube collision, but player collision does not consume it yet | `GAP-P0` integration | Continuous movement must query these shapes; partial shape representation follows. |
 | Visual shape | May differ from collision | Appearance only, no geometry | `GAP-P1` | Keep render shape separate from collision and interaction shape. |
 | Occlusion | Faces can cull against neighbouring geometry | No mesh world | `GAP-P0` | State exposes face-occlusion masks for meshing. |
 | Light emission/opacity | State-specific | Shader vocabulary exists, no world light source | `GAP-P1` | State supplies gameplay light emission and light obstruction independent of texture brightness. |

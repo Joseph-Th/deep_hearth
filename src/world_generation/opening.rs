@@ -3,7 +3,7 @@
 use crate::core::quantity::{Mass, Volume};
 use crate::spatial::VoxelCoord;
 
-use super::WorldGenerationSeed;
+use crate::world::WorldGenerationSeed;
 
 const OPENING_SPINE_DIRECTION_SALT: u64 = 0x5452_4149_4C5F_4449;
 const OPENING_BRANCH_DIRECTION_SALT: u64 = 0x4252_414E_4348_4449;

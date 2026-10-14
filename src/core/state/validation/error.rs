@@ -30,6 +30,7 @@ use crate::structural::{
 use crate::surface::SurfaceResourceValidationError;
 use crate::survival::SurvivalValidationError;
 use crate::thermal::ThermalJobValidationError;
+use crate::world::WorldValidationError;
 
 /// Error returned when decoded runtime state violates a required persistent invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,6 +39,7 @@ pub enum StateValidationError {
     Fluid(FluidValidationError),
     Equipment(EquipmentValidationError),
     Structure(StructureValidationError),
+    World(WorldValidationError),
     Surface(SurfaceResourceValidationError),
     StructureAnalysis(StructuralAnalysisError),
     UnresolvedStructuralDamage {

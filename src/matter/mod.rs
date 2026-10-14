@@ -19,6 +19,7 @@ use crate::core::state::AppState;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MatterAccounting {
     geological: AggregateMass,
+    world: AggregateMass,
     surface: AggregateMass,
     structural: AggregateMass,
     equipment: AggregateMass,
@@ -36,6 +37,12 @@ impl MatterAccounting {
     #[must_use]
     pub const fn geological(self) -> AggregateMass {
         self.geological
+    }
+
+    /// Matter embodied directly in generated block-world cells.
+    #[must_use]
+    pub const fn world(self) -> AggregateMass {
+        self.world
     }
 
     /// Matter still owned by finite loose surface resources across the complete world state.
@@ -104,6 +111,7 @@ impl MatterAccounting {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MatterAccountingError {
     GeologicalMassOverflow,
+    WorldMassOverflow,
     SurfaceMassOverflow,
     StructuralMassOverflow,
     EquipmentMassOverflow,
@@ -121,6 +129,9 @@ impl Display for MatterAccountingError {
         match self {
             Self::GeologicalMassOverflow => {
                 formatter.write_str("geological world matter exceeds aggregate mass range")
+            }
+            Self::WorldMassOverflow => {
+                formatter.write_str("block-world matter exceeds aggregate mass range")
             }
             Self::SurfaceMassOverflow => {
                 formatter.write_str("surface-resource world matter exceeds aggregate mass range")
@@ -162,6 +173,17 @@ fn calculate_surface_mass(state: &AppState) -> Result<AggregateMass, MatterAccou
             .resources()
             .map(|resource| AggregateMass::from_mass(resource.remaining_mass())),
         MatterAccountingError::SurfaceMassOverflow,
+    )
+}
+
+fn calculate_world_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    sum_masses(
+        state.world().chunks().flat_map(|chunk| {
+            chunk
+                .sections()
+                .map(|section| AggregateMass::from_mass(section.represented_mass()))
+        }),
+        MatterAccountingError::WorldMassOverflow,
     )
 }
 
@@ -294,6 +316,7 @@ pub fn calculate_matter_accounting(
     state: &AppState,
 ) -> Result<MatterAccounting, MatterAccountingError> {
     let geological = calculate_geological_mass(state)?;
+    let world = calculate_world_mass(state)?;
     let surface = calculate_surface_mass(state)?;
     let structural = calculate_structural_mass(state)?;
     let equipment = calculate_equipment_mass(state)?;
@@ -305,6 +328,7 @@ pub fn calculate_matter_accounting(
     let combusted = calculate_combusted_mass(state)?;
     let total = calculate_total_mass(&[
         geological,
+        world,
         surface,
         structural,
         equipment,
@@ -317,6 +341,7 @@ pub fn calculate_matter_accounting(
     ])?;
     Ok(MatterAccounting {
         geological,
+        world,
         surface,
         structural,
         equipment,

@@ -61,7 +61,8 @@ use deep_hearth::survival::{
     project_survival_resource_budget, validate_drink_store_to_hydration_target,
     validate_eat_lot_to_metabolic_target,
 };
-use deep_hearth::world_generation::{WorldGenerationSeed, validate_generate_initial_wilderness};
+use deep_hearth::world::WorldGenerationSeed;
+use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
 use super::exact_local_runtime::{
     STATIONARY_PLAYER_ORIGIN, assert_ordinary_admitted_runtime_ready,

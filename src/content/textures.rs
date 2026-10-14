@@ -46,6 +46,7 @@ pub const TEXTURE_STONE: TextureId = TextureId::new(13);
 pub const TEXTURE_CLAY_EARTH: TextureId = TextureId::new(14);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
+pub const BLOCK_STONE: BlockAppearanceId = BlockAppearanceId::new(2);
 pub const BLOCK_COPPER_ORE: BlockAppearanceId = BlockAppearanceId::new(3);
 pub const BLOCK_COPPER: BlockAppearanceId = BlockAppearanceId::new(4);
 
@@ -368,6 +369,7 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             TEXTURE_WOOD_SIDE,
             TEXTURE_WOOD_END,
         ),
+        BlockAppearanceDefinition::uniform(BLOCK_STONE, "stone block", TEXTURE_STONE),
         BlockAppearanceDefinition::uniform(
             BLOCK_COPPER_ORE,
             "copper ore block",

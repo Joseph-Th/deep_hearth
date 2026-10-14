@@ -17,6 +17,7 @@ fn process_registry_domains(
         equipment: empty_equipment_registry(),
         storage: crate::inventory::StorageRegistry::new(std::iter::empty()),
         structural: structural::build_structural_registry(),
+        world: air_only_world_registry(),
         materials: materials::build_material_registry(),
         mining: crate::mining::MiningRegistry::new(std::iter::empty()),
         ore_processing,

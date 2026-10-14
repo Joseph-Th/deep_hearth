@@ -55,6 +55,7 @@ pub const FORM_DRAWPLATE: FormId = FormId::new(31);
 pub const FORM_PACKED_CLAY_BINDER: FormId = FormId::new(32);
 pub const FORM_CRUSHER_JAW_FACE: FormId = FormId::new(33);
 pub const FORM_CRUSHER_BLOCK: FormId = FormId::new(34);
+pub const FORM_BLOCK: FormId = FormId::new(35);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -123,6 +124,7 @@ fn register_forms(registry: &mut MaterialRegistry) {
         consolidated_form(FORM_PACKED_CLAY_BINDER, "packed clay binder"),
         consolidated_form(FORM_CRUSHER_JAW_FACE, "crusher jaw face"),
         consolidated_form(FORM_CRUSHER_BLOCK, "crusher structural block"),
+        consolidated_form(FORM_BLOCK, "solid block"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
         loose_form(
@@ -357,6 +359,7 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             "roasted legumes",
         ),
         (CommodityKey::new(MATERIAL_STONE, FORM_LUMP), "stone"),
+        (CommodityKey::new(MATERIAL_STONE, FORM_BLOCK), "stone block"),
         (
             CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
             "carved stone provisions crock body",
