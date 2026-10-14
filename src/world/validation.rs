@@ -12,6 +12,12 @@ use super::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorldValidationError {
+    GenerationProfileWithoutChunks,
+    ChunksWithoutGenerationProfile,
+    UnknownGenerationSolidState {
+        state: BlockStateId,
+    },
+    AirGenerationSolidState,
     EmptyStateWithNonzeroRevision {
         revision: u64,
     },
@@ -84,6 +90,18 @@ pub enum WorldValidationError {
 impl Display for WorldValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::GenerationProfileWithoutChunks => formatter
+                .write_str("world persists a terrain generation profile without generated chunks"),
+            Self::ChunksWithoutGenerationProfile => formatter.write_str(
+                "world persists generated chunks without their terrain generation profile",
+            ),
+            Self::UnknownGenerationSolidState { state } => write!(
+                formatter,
+                "world generation profile references unknown block state {}",
+                state.value()
+            ),
+            Self::AirGenerationSolidState => formatter
+                .write_str("world generation profile cannot use air as its terrain solid state"),
             Self::EmptyStateWithNonzeroRevision { revision } => write!(
                 formatter,
                 "empty world state has nonzero revision {revision}"
@@ -206,12 +224,39 @@ pub fn validate_loaded_world(
     registry: &WorldRegistry,
     state: &WorldState,
 ) -> Result<(), WorldValidationError> {
+    validate_generation_profile(registry, state)?;
     validate_revision(state)?;
     let mut previous_chunk = None;
     for chunk in state.chunks() {
         validate_chunk_order(previous_chunk, chunk.coord())?;
         previous_chunk = Some(chunk.coord());
         validate_chunk(registry, chunk)?;
+    }
+    Ok(())
+}
+
+fn validate_generation_profile(
+    registry: &WorldRegistry,
+    state: &WorldState,
+) -> Result<(), WorldValidationError> {
+    let chunk_count = state.chunks().len();
+    let Some(profile) = state.generation_profile() else {
+        return if chunk_count == 0 {
+            Ok(())
+        } else {
+            Err(WorldValidationError::ChunksWithoutGenerationProfile)
+        };
+    };
+    if chunk_count == 0 {
+        return Err(WorldValidationError::GenerationProfileWithoutChunks);
+    }
+    if profile.solid_state() == BlockStateId::AIR {
+        return Err(WorldValidationError::AirGenerationSolidState);
+    }
+    if registry.get_state(profile.solid_state()).is_none() {
+        return Err(WorldValidationError::UnknownGenerationSolidState {
+            state: profile.solid_state(),
+        });
     }
     Ok(())
 }

@@ -9,9 +9,11 @@ pub use definitions::{
     BlockCollisionShape, BlockDefinition, BlockDefinitionId, BlockPhysicalDefinition,
     BlockStateDefinition, BlockStateId, WorldRegistry,
 };
+pub(crate) use generation::WorldGenerationProfile;
 pub use generation::{
     ChunkGenerationCommitError, ChunkGenerationError, ValidatedChunkGeneration,
-    WorldGenerationSeed, validate_generate_chunk,
+    ValidatedPlayerChunkDemand, WorldGenerationSeed, validate_generate_chunk,
+    validate_generate_player_neighborhood,
 };
 #[cfg(test)]
 pub(crate) use state::set_generated_block_for_test;

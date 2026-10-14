@@ -12,7 +12,7 @@ use super::WorldRegistry;
 #[cfg(test)]
 use crate::core::state::AppState;
 
-use super::BlockStateId;
+use super::{BlockStateId, WorldGenerationProfile};
 
 pub const CHUNK_SIDE: usize = 16;
 pub const SECTION_SIDE: usize = 16;
@@ -441,6 +441,7 @@ impl WorldChunk {
 #[serde(deny_unknown_fields)]
 pub struct WorldState {
     revision: u64,
+    generation_profile: Option<WorldGenerationProfile>,
     chunks: Vec<WorldChunk>,
 }
 
@@ -449,6 +450,7 @@ impl WorldState {
     pub(crate) const fn new() -> Self {
         Self {
             revision: 0,
+            generation_profile: None,
             chunks: Vec::new(),
         }
     }
@@ -456,6 +458,11 @@ impl WorldState {
     #[must_use]
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    #[must_use]
+    pub(crate) const fn generation_profile(&self) -> Option<WorldGenerationProfile> {
+        self.generation_profile
     }
 
     pub fn chunks(&self) -> impl ExactSizeIterator<Item = &WorldChunk> {
@@ -481,26 +488,35 @@ impl WorldState {
             .map(|chunk| chunk.block_at(voxel))
     }
 
-    pub(crate) fn insert_generated_chunk(
+    pub(crate) fn insert_generated_chunks(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
-        chunk: WorldChunk,
+        profile: WorldGenerationProfile,
+        chunks: Vec<WorldChunk>,
     ) {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
-        let coord = chunk.coord();
-        let index = self
-            .chunks
-            .binary_search_by_key(&coord, WorldChunk::coord)
-            .unwrap_or_else(|index| index);
         assert!(
-            self.chunks
-                .get(index)
-                .is_none_or(|existing| existing.coord() != coord),
-            "generated chunk insertion cannot replace existing world truth"
+            self.generation_profile
+                .is_none_or(|existing| existing == profile),
+            "generated chunk insertion cannot change persistent world generation identity"
         );
-        self.chunks.insert(index, chunk);
+        self.generation_profile = Some(profile);
+        for chunk in chunks {
+            let coord = chunk.coord();
+            let index = self
+                .chunks
+                .binary_search_by_key(&coord, WorldChunk::coord)
+                .unwrap_or_else(|index| index);
+            assert!(
+                self.chunks
+                    .get(index)
+                    .is_none_or(|existing| existing.coord() != coord),
+                "generated chunk insertion cannot replace existing world truth"
+            );
+            self.chunks.insert(index, chunk);
+        }
         self.revision = next_revision;
     }
 }

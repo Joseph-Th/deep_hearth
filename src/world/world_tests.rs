@@ -21,6 +21,125 @@ fn generate(state: &mut AppState, coord: ChunkCoord) {
 }
 
 #[test]
+fn terrain_generation_persists_one_canonical_profile_and_rejects_seed_changes() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let first = ChunkCoord::new(0, 0);
+    generate(&mut state, first);
+    let profile = WorldGenerationProfile::new(SEED, BLOCK_STATE_STONE);
+    assert_eq!(state.world().generation_profile(), Some(profile));
+
+    let requested = WorldGenerationProfile::new(
+        WorldGenerationSeed::new(SEED.value().wrapping_add(1)),
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            requested.seed(),
+            ChunkCoord::new(1, 0),
+            requested.solid_state(),
+        )
+        .err(),
+        Some(ChunkGenerationError::GenerationProfileConflict)
+    );
+    assert_eq!(state.world().chunks().len(), 1);
+}
+
+#[test]
+fn player_chunk_demand_requires_profile_then_generates_missing_neighborhood_once() {
+    let registries = build_registries();
+    let mut missing_profile = AppState::new();
+    validate_admit_player(&registries, &missing_profile, VoxelCoord::new(0, 100, 0))
+        .unwrap_or_else(|error| panic!("demand missing-profile admission failed: {error}"))
+        .commit(&mut missing_profile)
+        .unwrap_or_else(|error| panic!("demand missing-profile commit failed: {error}"));
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &missing_profile).err(),
+        Some(ChunkGenerationError::GenerationProfileMissing)
+    );
+
+    let mut state = AppState::new();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("demand terrain column has no solid surface"));
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, surface_y + 1, 0))
+        .unwrap_or_else(|error| panic!("demand player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("demand player commit failed: {error}"));
+    let revision_before = state.world().revision();
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("demand matter accounting before failed: {error}"))
+        .world();
+
+    let demand = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap_or_else(|error| panic!("player chunk demand failed: {error}"))
+        .unwrap_or_else(|| panic!("player chunk demand found no missing neighborhood"));
+    assert_eq!(demand.chunks().len(), 8);
+    let generated = demand
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("player chunk demand commit failed: {error}"));
+    assert_eq!(generated.len(), 8);
+    assert_eq!(state.world().chunks().len(), 9);
+    assert_eq!(state.world().revision(), revision_before + 1);
+    assert_eq!(
+        state.world().generation_profile(),
+        Some(WorldGenerationProfile::new(SEED, BLOCK_STATE_STONE))
+    );
+    let matter_after = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("demand matter accounting after failed: {error}"))
+        .world();
+    assert!(matter_after > matter_before);
+    assert!(
+        validate_generate_player_neighborhood(&registries, &state)
+            .unwrap_or_else(|error| panic!("idempotent player chunk demand failed: {error}"))
+            .is_none()
+    );
+}
+
+#[test]
+fn player_chunk_demand_commit_is_world_revision_bound() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("stale-demand terrain column has no solid surface"));
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, surface_y + 1, 0))
+        .unwrap_or_else(|error| panic!("stale-demand player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale-demand player commit failed: {error}"));
+    let demand = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap_or_else(|error| panic!("stale-demand validation failed: {error}"))
+        .unwrap_or_else(|| panic!("stale-demand fixture has no missing chunks"));
+    let expected = state.world().revision();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        SEED,
+        ChunkCoord::new(2, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("stale-demand intervening chunk failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("stale-demand intervening commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        demand.commit(&mut state),
+        Err(ChunkGenerationCommitError::StaleWorldRevision {
+            expected,
+            actual: expected + 1,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn chunk_coordinates_use_euclidean_partitioning_across_zero() {
     for (x, expected) in [(-17, -2), (-16, -1), (-1, -1), (0, 0), (15, 0), (16, 1)] {
         assert_eq!(
@@ -28,6 +147,45 @@ fn chunk_coordinates_use_euclidean_partitioning_across_zero() {
             ChunkCoord::new(expected, expected)
         );
     }
+}
+
+#[test]
+fn trusted_load_rejects_generated_chunks_without_generation_profile() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("world profile tamper serialization failed: {error}"));
+    encoded["state"]["systems"]["world"]["generation_profile"] = serde_json::Value::Null;
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("world profile tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::World(
+            WorldValidationError::ChunksWithoutGenerationProfile
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_air_generation_profile() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("air profile tamper serialization failed: {error}"));
+    encoded["state"]["systems"]["world"]["generation_profile"]["solid_state"] =
+        serde_json::json!(BlockStateId::AIR.value());
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("air profile tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::World(
+            WorldValidationError::AirGenerationSolidState
+        )))
+    );
 }
 
 #[test]

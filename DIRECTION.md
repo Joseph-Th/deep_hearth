@@ -95,10 +95,11 @@ deterministic stone terrain through a revision-bound transaction. That is infras
 play. The body path now persists a fixed-point bottom-center transform plus horizontal/vertical velocity in
 logistics and runs 20 Hz normalized walking input, authored acceleration/braking, gravity, and swept full-cube
 wall/floor/ceiling collision wherever the current footprint has generated chunk truth. Missing destination chunks
-are hard authority boundaries rather than air. The same path now owns persisted standing/crouching stance,
-ledge-safe crouching, load-limited sprinting, and grounded load-sensitive jumping. The next world slice is demand
-streaming/access over those cells, followed by direct camera/raycast interaction; block breaking/placement must
-cross world state and conserved material custody in one canonical operation.
+remain hard authority boundaries rather than air, but the first terrain seed/state pair is now persisted as world
+generation identity and `validate_generate_player_neighborhood` can atomically fill the missing 3x3 neighborhood
+around the admitted player in one revision. The same body path owns stance, ledge-safe crouching, load-limited
+sprinting, and load-sensitive jumping. Adapter residency/unload remains open; the next gameplay slice can move to
+camera/raycast interaction while streaming composition is added around this demand boundary.
 
 The authoritative-time foundation separates a persisted 20 Hz `ControlTick` from the existing 3.6-second
 physical/accounting `SimulationTick`. `advance_control_tick` now owns both high-frequency progression and active
@@ -111,7 +112,8 @@ position, horizontal/vertical velocity, persisted standing/crouching stance, wal
 grounded load-sensitive jumping, gravity, swept full-cube collision, crouched ledge protection, save/load
 continuation, and body/terrain race rejection are authoritative. Realized horizontal effort is speed- and
 load-sensitive and settles through the existing slow survival owner. Step-up, partial shapes, surface traction,
-fall injury, and streaming remain open; the timed one-voxel labor step is rejected once generated-world body
+fall injury, and adapter residency/unload remain open; deterministic player-neighborhood terrain demand now exists,
+and the timed one-voxel labor step is rejected once generated-world body
 physics is active. Camera raycasting and the familiar primary/secondary action grammar should next compose block breaking, placement, gathering, equipment use,
 consumption and interaction into the existing owner validators. Generic world drops and hotbar/inventory/container
 projections then complete the direct matter loop without creating a second simplified simulation.

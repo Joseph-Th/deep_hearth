@@ -125,10 +125,10 @@ proven spatial granularity for authoritative storage while retaining wider coord
 | Empty-section fast path | Counters allow all-air/tickless sections to skip work | Empty sections are omitted; stored sections maintain validated exact `non_air_count` | `PARITY` foundation | Add ticking/fluid/light/activity summaries only when those owners exist. |
 | Heightmaps | Several heightmaps accelerate surface queries | Seeded terrain exists, but no persisted/derived height summaries | `GAP-P1` | Derive height summaries for sky exposure, spawning, visibility, and repeated surface queries. |
 | Block entities | Sparse per-position extended objects for chests, furnaces, etc. | Equipment/stores are independent owner records with optional voxel locations | `DIFFERENT+` | Keep domain owners for consequential machine/storage state. Add a sparse voxel attachment/index that points from world cells to owner identities rather than duplicating owner state inside a generic block entity blob. |
-| Chunk lifecycle | Generated, loaded, ticking, visible states differ | Generated/persisted truth exists; residency/ticking/visibility tiers do not | `GAP-P0` | Add deterministic demand residency without making renderer distance authoritative. |
+| Chunk lifecycle | Generated, loaded, ticking, visible states differ | Persistent generation identity plus atomic admitted-player 3x3 demand generation exists; residency/ticking/visibility tiers do not | `GAP-P0` | Add adapter-driven residency/unload without making renderer distance authoritative. |
 | Render distance | Client loads/renders a bounded chunk radius | None | `GAP-P0` | Adapter owns render residency. It must not define simulation authority. |
 | Simulation distance | Server ticks a bounded region | Current state is small enough to tick globally | `GAP-P1` | Add explicit activity levels when world scale demands them. Far industry/ecology may use deterministic coarse continuation rather than Minecraft-style total freezing where a better model is justified. |
-| Streaming | Chunks enter/leave memory around demand | None | `GAP-P0` | Add deterministic chunk load/generate/unload boundaries before claiming persistent world scale. |
+| Streaming | Chunks enter/leave memory around demand | Missing player-neighborhood chunks can be generated deterministically and atomically from persisted world identity; no unload/IO residency layer | `GAP-P0` | Compose demand with adapter residency/loading and deterministic unload policy. |
 | World border | Bounded gameplay border despite large address space | No border | `OUT-OF-SCOPE` | Not needed for parity. Coordinate and generation limits should still fail safely. |
 
 ### Better-than-Minecraft storage target
@@ -162,7 +162,7 @@ but that is presentation metadata, not a runtime block model.
 | Partial block shapes | Slabs, stairs, fences, doors, snow layers, etc. | None | `GAP-P1` | Add immutable voxel-shape/collision-shape definitions with orientation/state variants. |
 | Replaceability | Grass, fluids, snow etc. have placement replacement rules | No block placement model | `GAP-P1` | Define replacement/placement legality by block state and target face. |
 | Orientation | Placement derives facing/axis/half from click and player direction | No generic placement | `GAP-P1` | Placement resolver derives the candidate state from hit face, hit point and player orientation. |
-| Collision shape | State-specific | Definition distinguishes empty/full-cube collision, but player collision does not consume it yet | `GAP-P0` integration | Continuous movement must query these shapes; partial shape representation follows. |
+| Collision shape | State-specific | Direct player movement consumes `Empty`/`FullCube` collision definitions | `PARITY` foundation | Extend the same query path to partial immutable shapes. |
 | Visual shape | May differ from collision | Appearance only, no geometry | `GAP-P1` | Keep render shape separate from collision and interaction shape. |
 | Occlusion | Faces can cull against neighbouring geometry | No mesh world | `GAP-P0` | State exposes face-occlusion masks for meshing. |
 | Light emission/opacity | State-specific | Shader vocabulary exists, no world light source | `GAP-P1` | State supplies gameplay light emission and light obstruction independent of texture brightness. |

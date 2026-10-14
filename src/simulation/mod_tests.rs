@@ -22,7 +22,7 @@ use crate::spatial::{NANOMETERS_PER_VOXEL, VoxelCoord};
 use crate::survival::{SurvivalAssessment, Vitality, initialize_player_survival, player_record};
 use crate::world::{
     BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
-    set_generated_block_for_test, validate_generate_chunk,
+    set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 
 const DISSIPATIVE_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(510_001);
@@ -39,6 +39,50 @@ fn passive_dissipation_registries() -> Registries {
         )
         .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
     )
+}
+
+#[test]
+fn generated_neighborhood_demand_removes_the_missing_chunk_movement_wall() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(15, 0);
+    let demand = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap_or_else(|error| panic!("movement-demand validation failed: {error}"))
+        .unwrap_or_else(|| panic!("movement-demand fixture had no missing chunks"));
+    demand
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("movement-demand commit failed: {error}"));
+
+    for x in 15..=18 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, floor_y - 1, 0),
+            BLOCK_STATE_STONE,
+        );
+        for y in floor_y..=floor_y + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(x, y, 0),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("movement-demand input fixture failed: {error}")),
+    );
+    for _ in 0..8 {
+        let _ = advance_control_tick_with_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("movement-demand control tick failed: {error}"));
+    }
+    let body = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("movement-demand player disappeared"))
+        .body();
+    assert!(body.foot_position().x_nanometers() > 16 * NANOMETERS_PER_VOXEL);
+    assert!(body.voxel_position().x() >= 16);
 }
 
 #[test]
