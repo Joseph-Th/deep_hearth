@@ -12,6 +12,60 @@ pub struct BodyStanceDefinition {
     crouching_height: Length,
 }
 
+/// Authored first-person view geometry derived from the authoritative player body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BodyViewDefinition {
+    standing_eye_height: Length,
+    crouching_eye_height: Length,
+    interaction_reach: Length,
+}
+
+impl BodyViewDefinition {
+    #[must_use]
+    pub fn new(
+        standing_eye_height: Length,
+        crouching_eye_height: Length,
+        interaction_reach: Length,
+    ) -> Self {
+        assert!(
+            !standing_eye_height.is_zero(),
+            "player standing eye height must be nonzero"
+        );
+        assert!(
+            !crouching_eye_height.is_zero(),
+            "player crouching eye height must be nonzero"
+        );
+        assert!(
+            crouching_eye_height < standing_eye_height,
+            "player crouching eye height must be below standing eye height"
+        );
+        assert!(
+            !interaction_reach.is_zero(),
+            "player interaction reach must be nonzero"
+        );
+        Self {
+            standing_eye_height,
+            crouching_eye_height,
+            interaction_reach,
+        }
+    }
+
+    #[must_use]
+    pub const fn standing_eye_height(self) -> Length {
+        self.standing_eye_height
+    }
+
+    #[must_use]
+    pub const fn crouching_eye_height(self) -> Length {
+        self.crouching_eye_height
+    }
+
+    #[must_use]
+    pub const fn interaction_reach(self) -> Length {
+        self.interaction_reach
+    }
+}
+
 impl BodyStanceDefinition {
     #[must_use]
     pub fn new(standing_height: Length, crouching_height: Length) -> Self {
@@ -139,6 +193,7 @@ impl LocomotionSpeedDefinition {
 pub struct BodyKinematicsDefinition {
     body_width: Length,
     stances: BodyStanceDefinition,
+    view: BodyViewDefinition,
     speeds: LocomotionSpeedDefinition,
     horizontal_acceleration: Acceleration,
 }
@@ -148,10 +203,19 @@ impl BodyKinematicsDefinition {
     pub fn new(
         body_width: Length,
         stances: BodyStanceDefinition,
+        view: BodyViewDefinition,
         speeds: LocomotionSpeedDefinition,
         horizontal_acceleration: Acceleration,
     ) -> Self {
         assert!(!body_width.is_zero(), "player body width must be nonzero");
+        assert!(
+            view.standing_eye_height() < stances.standing_height(),
+            "player standing eye height must be below standing body height"
+        );
+        assert!(
+            view.crouching_eye_height() < stances.crouching_height(),
+            "player crouching eye height must be below crouching body height"
+        );
         assert!(
             !horizontal_acceleration.is_zero(),
             "player horizontal acceleration must be nonzero"
@@ -159,6 +223,7 @@ impl BodyKinematicsDefinition {
         Self {
             body_width,
             stances,
+            view,
             speeds,
             horizontal_acceleration,
         }
@@ -177,6 +242,21 @@ impl BodyKinematicsDefinition {
     #[must_use]
     pub const fn crouching_height(self) -> Length {
         self.stances.crouching_height()
+    }
+
+    #[must_use]
+    pub const fn standing_eye_height(self) -> Length {
+        self.view.standing_eye_height()
+    }
+
+    #[must_use]
+    pub const fn crouching_eye_height(self) -> Length {
+        self.view.crouching_eye_height()
+    }
+
+    #[must_use]
+    pub const fn interaction_reach(self) -> Length {
+        self.view.interaction_reach()
     }
 
     #[must_use]
@@ -274,6 +354,21 @@ impl LocomotionDefinition {
     #[must_use]
     pub const fn crouching_height(self) -> Length {
         self.body_kinematics.crouching_height()
+    }
+
+    #[must_use]
+    pub const fn standing_eye_height(self) -> Length {
+        self.body_kinematics.standing_eye_height()
+    }
+
+    #[must_use]
+    pub const fn crouching_eye_height(self) -> Length {
+        self.body_kinematics.crouching_eye_height()
+    }
+
+    #[must_use]
+    pub const fn interaction_reach(self) -> Length {
+        self.body_kinematics.interaction_reach()
     }
 
     #[must_use]

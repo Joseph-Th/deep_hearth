@@ -2,11 +2,14 @@
 
 use crate::content::{BLOCK_STATE_STONE, build_registries};
 use crate::core::state::{AppState, StateValidationError};
-use crate::logistics::{add_traversable_edge_for_test, validate_start_player_step};
+use crate::logistics::{
+    PlayerControlInput, add_traversable_edge_for_test, validate_start_player_step,
+};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::{PlayerAdmissionCommitError, validate_admit_player};
-use crate::spatial::VoxelCoord;
+use crate::simulation::advance_control_tick_with_input;
+use crate::spatial::{CubeFace, VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
 
 use super::*;
 
@@ -18,6 +21,192 @@ fn generate(state: &mut AppState, coord: ChunkCoord) {
         .unwrap_or_else(|error| panic!("terrain generation validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("terrain generation commit failed: {error}"));
+}
+
+fn generated_targeting_player_at(x: i64, z: i64) -> (crate::registry::Registries, AppState, i64) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let coord = ChunkCoord::containing(VoxelCoord::new(x, 0, z));
+    validate_generate_chunk(&registries, &state, SEED, coord, BLOCK_STATE_STONE)
+        .unwrap_or_else(|error| panic!("targeting terrain generation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("targeting terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(x, *y, z)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("targeting terrain column has no solid surface"));
+    let floor_y = surface_y + 1;
+    validate_admit_player(&registries, &state, VoxelCoord::new(x, floor_y, z))
+        .unwrap_or_else(|error| panic!("targeting player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("targeting player commit failed: {error}"));
+    (registries, state, floor_y)
+}
+
+fn positive_x_view() -> ViewDirection {
+    ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
+        .unwrap_or_else(|error| panic!("positive-X view fixture failed: {error}"))
+}
+
+#[test]
+fn player_block_targeting_requires_complete_player_admission() {
+    let registries = build_registries();
+    assert_eq!(
+        raycast_player_block(&registries, &AppState::new(), positive_x_view()),
+        Err(PlayerBlockTargetError::PlayerNotAdmitted)
+    );
+}
+
+#[test]
+fn player_block_targeting_hits_first_full_cube_and_reports_entry_face() {
+    let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
+    let eye_voxel_y = floor_y + 1;
+    for x in 1..=4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, eye_voxel_y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let target_voxel = VoxelCoord::new(3, eye_voxel_y, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        target_voxel,
+        BLOCK_STATE_STONE,
+    );
+
+    let target = raycast_player_block(&registries, &state, positive_x_view())
+        .unwrap_or_else(|error| panic!("player block raycast failed: {error}"))
+        .unwrap_or_else(|| panic!("player block raycast missed authored target"));
+    assert_eq!(target.voxel(), target_voxel);
+    assert_eq!(target.state(), BLOCK_STATE_STONE);
+    assert_eq!(target.face(), CubeFace::West);
+}
+
+#[test]
+fn player_block_targeting_includes_exact_reach_boundary_and_excludes_beyond_it() {
+    let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
+    let eye_voxel_y = floor_y + 1;
+    for x in 1..=6 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, eye_voxel_y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let exact_reach = VoxelCoord::new(5, eye_voxel_y, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        exact_reach,
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        raycast_player_block(&registries, &state, positive_x_view())
+            .unwrap_or_else(|error| panic!("exact-reach raycast failed: {error}"))
+            .map(PlayerBlockTarget::voxel),
+        Some(exact_reach)
+    );
+
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        exact_reach,
+        BlockStateId::AIR,
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(6, eye_voxel_y, 0),
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        raycast_player_block(&registries, &state, positive_x_view())
+            .unwrap_or_else(|error| panic!("beyond-reach raycast failed: {error}")),
+        None
+    );
+}
+
+#[test]
+fn player_block_targeting_fails_closed_at_missing_chunk_authority() {
+    let (registries, state, floor_y) = generated_targeting_player_at(15, 0);
+    let unavailable = VoxelCoord::new(16, floor_y + 1, 0);
+    assert_eq!(
+        raycast_player_block(&registries, &state, positive_x_view()),
+        Err(PlayerBlockTargetError::WorldAuthorityUnavailable { voxel: unavailable })
+    );
+}
+
+#[test]
+fn player_block_targeting_uses_deterministic_axis_precedence_at_corner_entry() {
+    let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
+    let eye_voxel_y = floor_y + 1;
+    for voxel in [
+        VoxelCoord::new(1, eye_voxel_y, 0),
+        VoxelCoord::new(0, eye_voxel_y, 1),
+        VoxelCoord::new(1, eye_voxel_y, 1),
+    ] {
+        set_generated_block_for_test(registries.world(), &mut state, voxel, BlockStateId::AIR);
+    }
+    let diagonal_target = VoxelCoord::new(1, eye_voxel_y, 1);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        diagonal_target,
+        BLOCK_STATE_STONE,
+    );
+    let direction = ViewDirection::new(707_107, 0, 707_107)
+        .unwrap_or_else(|error| panic!("diagonal view fixture failed: {error}"));
+    let target = raycast_player_block(&registries, &state, direction)
+        .unwrap_or_else(|error| panic!("diagonal player block raycast failed: {error}"))
+        .unwrap_or_else(|| panic!("diagonal player block raycast missed target"));
+    assert_eq!(target.voxel(), diagonal_target);
+    assert_eq!(target.face(), CubeFace::West);
+}
+
+#[test]
+fn player_block_targeting_derives_eye_origin_from_persisted_stance() {
+    let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
+    for x in 1..=4 {
+        for y in floor_y + 1..=floor_y + 4 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(x, y, 0),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let target_voxel = VoxelCoord::new(3, floor_y + 3, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        target_voxel,
+        BLOCK_STATE_STONE,
+    );
+    let direction = ViewDirection::new(866_025, 500_000, 0)
+        .unwrap_or_else(|error| panic!("stance-sensitive view fixture failed: {error}"));
+
+    let standing = raycast_player_block(&registries, &state, direction)
+        .unwrap_or_else(|error| panic!("standing stance raycast failed: {error}"))
+        .unwrap_or_else(|| panic!("standing stance raycast missed target"));
+    assert_eq!(standing.voxel(), target_voxel);
+    assert_eq!(standing.face(), CubeFace::West);
+
+    let _ = advance_control_tick_with_input(
+        &registries,
+        &mut state,
+        PlayerControlInput::NEUTRAL.with_crouch(true),
+    )
+    .unwrap_or_else(|error| panic!("crouching stance control tick failed: {error}"));
+    let crouching = raycast_player_block(&registries, &state, direction)
+        .unwrap_or_else(|error| panic!("crouching stance raycast failed: {error}"))
+        .unwrap_or_else(|| panic!("crouching stance raycast missed target"));
+    assert_eq!(crouching.voxel(), target_voxel);
+    assert_eq!(crouching.face(), CubeFace::Bottom);
 }
 
 #[test]

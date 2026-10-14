@@ -437,7 +437,7 @@ impl TextureDefinition {
 
 mod appearance;
 pub use appearance::{
-    BlockAppearanceDefinition, CommodityAppearanceBinding, CubeFace, EquipmentAppearanceBinding,
+    BlockAppearanceDefinition, CommodityAppearanceBinding, EquipmentAppearanceBinding,
     ObjectAppearanceDefinition, ObjectTextureSlot,
 };
 

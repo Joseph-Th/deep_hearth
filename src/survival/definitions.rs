@@ -9,9 +9,10 @@ pub use intake::{
     calculate_food_hydration_offer,
 };
 pub use physiology::{
-    BodyKinematicsDefinition, BodyStanceDefinition, DirectConsumptionDefinition,
-    HydrationDefinition, LocomotionDefinition, LocomotionSpeedDefinition, MetabolismDefinition,
-    NutritionDefinition, PhysiologyDefinition, SurvivalStressDefinition, ThermalComfortDefinition,
+    BodyKinematicsDefinition, BodyStanceDefinition, BodyViewDefinition,
+    DirectConsumptionDefinition, HydrationDefinition, LocomotionDefinition,
+    LocomotionSpeedDefinition, MetabolismDefinition, NutritionDefinition, PhysiologyDefinition,
+    SurvivalStressDefinition, ThermalComfortDefinition,
 };
 pub use registry::SurvivalRegistry;
 

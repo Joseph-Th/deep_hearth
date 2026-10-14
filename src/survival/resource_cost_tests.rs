@@ -37,6 +37,11 @@ fn physiology(
                     crate::core::quantity::Length::from_micrometers(1_800_000),
                     crate::core::quantity::Length::from_micrometers(1_500_000),
                 ),
+                crate::survival::BodyViewDefinition::new(
+                    crate::core::quantity::Length::from_micrometers(1_620_000),
+                    crate::core::quantity::Length::from_micrometers(1_270_000),
+                    crate::core::quantity::Length::from_micrometers(4_500_000),
+                ),
                 crate::survival::LocomotionSpeedDefinition::new(
                     crate::core::quantity::Speed::from_nanometers_per_second(1_300_000_000),
                     crate::core::quantity::Speed::from_nanometers_per_second(4_300_000_000),

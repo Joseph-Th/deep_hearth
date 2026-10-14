@@ -1,10 +1,11 @@
 //! Bakes immutable texture definitions into compact deterministic GPU upload data.
 
 use super::{
-    BLOCK_FACE_COUNT, BlockAppearanceId, ColorRgba8, CubeFace, ObjectAppearanceId,
-    ObjectTextureSlot, PALETTE_RAMP_COLOR_COUNT, PackedTexel, TEXTURE_PALETTE_SLOT_COUNT,
-    TextureAlphaMode, TextureId, TextureRegistry,
+    BLOCK_FACE_COUNT, BlockAppearanceId, ColorRgba8, ObjectAppearanceId, ObjectTextureSlot,
+    PALETTE_RAMP_COLOR_COUNT, PackedTexel, TEXTURE_PALETTE_SLOT_COUNT, TextureAlphaMode, TextureId,
+    TextureRegistry,
 };
+use crate::spatial::CubeFace;
 
 mod appearance;
 mod layout;

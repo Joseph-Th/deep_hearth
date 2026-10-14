@@ -3,6 +3,34 @@
 use super::*;
 
 #[test]
+fn view_direction_accepts_rounded_unit_vectors_and_rejects_wrong_magnitude() {
+    assert_eq!(
+        ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
+            .unwrap_or_else(|error| panic!("axis view direction failed: {error}"))
+            .x_parts_per_million(),
+        VIEW_DIRECTION_PARTS_PER_MILLION
+    );
+    let diagonal = ViewDirection::new(577_350, 577_350, 577_350)
+        .unwrap_or_else(|error| panic!("rounded diagonal view direction failed: {error}"));
+    assert_eq!(diagonal.y_parts_per_million(), 577_350);
+    assert!(matches!(
+        ViewDirection::new(0, 0, 0),
+        Err(ViewDirectionError::NotNormalized { .. })
+    ));
+    assert!(matches!(
+        ViewDirection::new(900_000, 0, 0),
+        Err(ViewDirectionError::NotNormalized { .. })
+    ));
+    assert_eq!(
+        ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION + 1, 0, 0),
+        Err(ViewDirectionError::ComponentOutsideUnitRange {
+            axis: Axis::X,
+            value: VIEW_DIRECTION_PARTS_PER_MILLION + 1,
+        })
+    );
+}
+
+#[test]
 fn voxel_face_adjacency_is_exact_and_overflow_safe() {
     let origin = VoxelCoord::new(0, 0, 0);
     assert!(origin.is_face_adjacent_to(VoxelCoord::new(1, 0, 0)));

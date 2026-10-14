@@ -29,7 +29,7 @@ These are current graph boundaries, not priorities.
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Generated chunks + terrestrial body physics + neighborhood demand | Residency/unload adapters, richer collision/contact, routed haulage/path cost, and remote discovery. |
+| Generated chunks + body physics + demand + targeting | Block actions, residency/unload, richer contact, routed haulage/path cost, and remote discovery. |
 | Structural physics | Non-grounded construction, joints/panels, deconstruction/salvage, and terrain support. |
 | Equipment maintenance | Maintenance tools and general transport to service sites. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
@@ -53,8 +53,8 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure physics plus grounded hand-setting from exact material. |
-| Block world | Persistent compact chunks, represented mass, persisted generation identity, atomic player-neighborhood demand, body-safe terrain, and full-cube collision. Residency/unload, richer shapes, mutation/composition, and block actions remain absent. |
-| Spatial and presentation | Checked voxel coordinates plus deterministic renderer-neutral texture and shader assembly. |
+| Block world | Compact chunks, represented mass, persisted generation identity, atomic neighborhood demand, body-safe terrain, full-cube collision, and stance-derived 4.5 m fixed-point targeting. Residency/unload, richer shapes, mutation/composition, and block actions remain absent. |
+| Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
 
@@ -72,7 +72,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | --- | --- |
 | Wilderness opening | Travel beyond the bounded graph, shelter/weather, light, and one continuous empty-inventory first-day loop. The graph is not pathfinding, hydrology, climate, or enclosure simulation. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
-| World representation | Residency/unload, indexing, height/light summaries, mutation, partial collision, geology/biome/ecology composition, and clue discovery. Compact terrain demand and terrestrial locomotion exist. |
+| World representation | Residency/unload, indexing, height/light summaries, mutation, partial shapes, geology/biome/ecology composition, and clue discovery. Terrain demand, locomotion, and full-cube targeting exist. |
 | Logistics | General access generation, multi-step routing, haulage, delivery/transport, remote acquisition, container/hotbar presentation, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, general combustion/fuel chemistry/emissions, mixed/alloy phases, reduction/smelting, alloying, forging, machining, and broad recycling. The campfire is not a general combustion or atmospheric model. |

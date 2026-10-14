@@ -3,6 +3,7 @@
 mod definitions;
 mod generation;
 mod state;
+mod targeting;
 mod validation;
 
 pub use definitions::{
@@ -21,6 +22,7 @@ pub use state::{
     CHUNK_SIDE, ChunkCoord, SECTION_CELL_COUNT, SECTION_SIDE, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
     WorldChunk, WorldSection, WorldState,
 };
+pub use targeting::{PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
 pub use validation::{WorldValidationError, validate_loaded_world};
 
 #[cfg(test)]

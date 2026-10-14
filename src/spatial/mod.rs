@@ -6,8 +6,39 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Deserializer, Serialize};
 
 mod motion;
+mod view;
 
 pub use motion::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VerticalVelocity, WorldPoint};
+pub use view::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, ViewDirectionError};
+
+/// Canonical axis-aligned face of one unit world cube.
+///
+/// This vocabulary is shared by gameplay targeting and presentation. Horizontal directions use
+/// the conventional world axes: north is `-Z`, south is `+Z`, east is `+X`, and west is `-X`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CubeFace {
+    Top,
+    Bottom,
+    North,
+    South,
+    East,
+    West,
+}
+
+impl CubeFace {
+    /// Deterministic face-to-slot index used by block appearance arrays.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Top => 0,
+            Self::Bottom => 1,
+            Self::North => 2,
+            Self::South => 3,
+            Self::East => 4,
+            Self::West => 5,
+        }
+    }
+}
 
 /// Persistent integer coordinate of one voxel in authoritative world space.
 ///

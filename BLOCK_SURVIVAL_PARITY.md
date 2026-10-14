@@ -61,10 +61,12 @@ Foundational blockers:
 - continuous fixed-point body position, persisted velocity/stance, 20 Hz walk/sprint/crouch/jump control,
   gravity, falling, ledge-safe crouching, and swept full-cube collision now exist; swimming and general shape
   collision do not;
-- no camera/input/raycast action shell;
+- no camera/input adapter or composed primary/secondary action shell; bounded fixed-point player-eye block
+  raycast targeting now exists;
 - no generic hold-to-break or contextual place/use pipeline over world blocks;
 - no generic dropped-item world entity, hotbar, familiar stack projection, or container UI shell;
-- no terrain generation, chunk streaming, biome/climate field, or general world discovery;
+- deterministic terrain generation and admitted-player neighborhood demand exist; residency/unload streaming,
+  biome/climate fields, and general world discovery do not;
 - no world lighting, sky light, darkness gameplay, weather, or environmental heat transport;
 - no entity runtime for creatures, combat, projectiles, item entities, vehicles, or AI;
 - no world-space fluid field or fluid flow;
@@ -72,8 +74,8 @@ Foundational blockers:
 
 The first compact block-world storage/generation slice now exists, so the practical conclusion has narrowed:
 Deep Hearth should stop using the bounded five-edge opening graph as the shape of future world interaction. It
-remains useful evidence for existing owner interactions, but ordinary play still needs demand streaming and
-continuous player control over the generated cells. Deeper industrial work should build on that substrate, not
+remains useful evidence for existing owner interactions, but ordinary play still needs adapter residency,
+direct block actions, and the first-person presentation/input shell over generated cells. Deeper industrial work should build on that substrate, not
 continue to get farther ahead of it.
 
 ## 1. Runtime, time, and authority
@@ -218,14 +220,16 @@ when the actual mesher and GPU adapter are built.
 
 ## 5. Camera, input, targeting, movement, and collision
 
-This remains a P0 integration disparity because there is no camera/platform input shell or streamed world, but the
-basic terrestrial body verbs now use the authoritative path. Deep Hearth persists fixed-point position, velocity,
-and stance; consumes normalized world-space control at 20 Hz; accelerates/brakes deterministically; integrates
-gravity and grounded jumping; and sweeps standing/crouching bodies against generated full-cube terrain.
+This remains a P0 integration disparity because there is no camera/platform input shell or residency/unload
+streaming layer, but the terrestrial body and block-target query now use authoritative geometry. Deep Hearth
+persists fixed-point position, velocity, and stance; consumes normalized world-space control at 20 Hz;
+accelerates/brakes deterministically; integrates gravity and grounded jumping; sweeps standing/crouching bodies
+against generated full-cube terrain; and resolves bounded fixed-point view rays from authored stance-specific eye
+height.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
-| Mouse/controller look | Continuous yaw/pitch camera | No input/camera adapter | `GAP-P0` | Add camera orientation and input sampling in adapter/client state. |
+| Mouse/controller look | Continuous yaw/pitch camera | No input/camera adapter; core accepts a validated normalized fixed-point `ViewDirection` | `GAP-P0` | Add camera orientation and input sampling in adapter/client state; convert the resulting forward vector at the command boundary. |
 | Player position | Continuous 3D position | Persisted fixed-point `WorldPoint`; voxel locality is derived | `PARITY` foundation | Keep one transform authority. |
 | Velocity | 3D delta/velocity affected by input and environment | Persisted signed horizontal and vertical velocity; horizontal control is normalized fixed-point input | `PARITY` foundation | Extend only with live stance/environmental effects rather than speculative components. |
 | Collision box | Player AABB | Authored 0.6 m width with persisted 1.8 m standing / 1.5 m crouching height | `PARITY` foundation | Add richer block/body shapes only when required. |
@@ -257,8 +261,8 @@ interaction composition layer.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
-| Camera raycast | Crosshair selects block/entity within reach | No camera/raycast | `GAP-P0` | Add deterministic fixed-point ray query against block interaction shapes and entities. |
-| Reach | Player has bounded interaction distance | Locality is mostly same/adjacent voxel | `GAP-P0` | Replace coarse voxel-local checks at direct-action surface with ray/reach authorization; owners still validate exact targets. |
+| Camera raycast | Crosshair selects block/entity within reach | `raycast_player_block` performs deterministic fixed-point 3D voxel traversal from the stance-derived player eye, returns the first `FullCube` block plus entry face, and fails closed at absent world truth | `PARITY` foundation | Extend the same query grammar to richer block interaction shapes and entities; adapter camera state remains non-authoritative. |
+| Reach | Player has bounded interaction distance | Physiology authors 1.62 m standing / 1.27 m crouching eye height and a 4.5 m block-interaction reach; exact boundary contact is included | `PARITY` foundation | Direct actions should consume this target result while owning validators still recheck exact target legality and mutation freshness. |
 | Hold-to-break | Break progress accrues every tick from tool speed, block hardness and player modifiers; client predicts while server validates | Gathering/mining are admitted timed jobs | `GAP-P0` shell | Map held primary action to canonical break work with deterministic progress from material resistance, tool capability, condition, stance and environment. Progress is owner-derived work, not an extra confirmation action. |
 | Crack/progress feedback | Visual breaking stages | Timed work can expose schedule but no renderer | `GAP-P1` | Expose normalized progress and target identity for adapter feedback. |
 | Tool selection | Held hotbar item defines tool context | Equipment can be carried but no hotbar | `GAP-P0` | Add active-hand/hotbar projection that resolves to canonical equipment/material identity. |

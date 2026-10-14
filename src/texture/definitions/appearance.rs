@@ -2,34 +2,9 @@
 
 use crate::equipment::EquipmentDefinitionId;
 use crate::material::CommodityKey;
+use crate::spatial::CubeFace;
 
 use super::{BLOCK_FACE_COUNT, BlockAppearanceId, ObjectAppearanceId, TextureId};
-
-/// Canonical cube-face vocabulary used by block mesh adapters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum CubeFace {
-    Top,
-    Bottom,
-    North,
-    South,
-    East,
-    West,
-}
-
-impl CubeFace {
-    /// Deterministic face-to-slot index shared by definition and baking views.
-    #[must_use]
-    pub const fn index(self) -> usize {
-        match self {
-            Self::Top => 0,
-            Self::Bottom => 1,
-            Self::North => 2,
-            Self::South => 3,
-            Self::East => 4,
-            Self::West => 5,
-        }
-    }
-}
 
 /// Immutable face-to-texture mapping for one block appearance.
 #[derive(Clone, Debug, PartialEq, Eq)]

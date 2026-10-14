@@ -99,7 +99,10 @@ remain hard authority boundaries rather than air, but the first terrain seed/sta
 generation identity and `validate_generate_player_neighborhood` can atomically fill the missing 3x3 neighborhood
 around the admitted player in one revision. The same body path owns stance, ledge-safe crouching, load-limited
 sprinting, and load-sensitive jumping. Adapter residency/unload remains open; the next gameplay slice can move to
-camera/raycast interaction while streaming composition is added around this demand boundary.
+direct block action composition while streaming composition is added around this demand boundary. The core now
+accepts a normalized fixed-point view direction and deterministically raycasts from authored stance-specific eye
+height through generated full-cube terrain, with a 4.5 m authored reach and missing world truth treated as a hard
+authority boundary.
 
 The authoritative-time foundation separates a persisted 20 Hz `ControlTick` from the existing 3.6-second
 physical/accounting `SimulationTick`. `advance_control_tick` now owns both high-frequency progression and active
@@ -114,8 +117,9 @@ continuation, and body/terrain race rejection are authoritative. Realized horizo
 load-sensitive and settles through the existing slow survival owner. Step-up, partial shapes, surface traction,
 fall injury, and adapter residency/unload remain open; deterministic player-neighborhood terrain demand now exists,
 and the timed one-voxel labor step is rejected once generated-world body
-physics is active. Camera raycasting and the familiar primary/secondary action grammar should next compose block breaking, placement, gathering, equipment use,
-consumption and interaction into the existing owner validators. Generic world drops and hotbar/inventory/container
+physics is active. Deterministic player-eye block targeting now exists; the familiar primary/secondary action
+grammar should next compose block breaking, placement, gathering, equipment use, consumption and interaction into
+the existing owner validators. Generic world drops and hotbar/inventory/container
 projections then complete the direct matter loop without creating a second simplified simulation.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while

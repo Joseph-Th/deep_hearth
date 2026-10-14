@@ -200,9 +200,9 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
                 Some(block) => block,
                 None => panic!("missing authored block appearance {}", block.value()),
             };
-            let top_texture = authored_block.texture(crate::texture::CubeFace::Top);
+            let top_texture = authored_block.texture(crate::spatial::CubeFace::Top);
             assert_eq!(
-                baked_block.texture(crate::texture::CubeFace::Top),
+                baked_block.texture(crate::spatial::CubeFace::Top),
                 match baked.get_descriptor(top_texture) {
                     Some(descriptor) => descriptor,
                     None => panic!("missing baked texture {}", top_texture.value()),

@@ -1,6 +1,7 @@
 //! Contract tests for texture definitions.
 
 use super::*;
+use crate::spatial::CubeFace;
 
 const RAMP: PaletteRampId = PaletteRampId::new(1);
 const TEXTURE: TextureId = TextureId::new(1);

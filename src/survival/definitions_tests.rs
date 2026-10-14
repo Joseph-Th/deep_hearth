@@ -44,6 +44,11 @@ fn physiology_with_carry(
                     crate::core::quantity::Length::from_micrometers(1_800_000),
                     crate::core::quantity::Length::from_micrometers(1_500_000),
                 ),
+                BodyViewDefinition::new(
+                    crate::core::quantity::Length::from_micrometers(1_620_000),
+                    crate::core::quantity::Length::from_micrometers(1_270_000),
+                    crate::core::quantity::Length::from_micrometers(4_500_000),
+                ),
                 LocomotionSpeedDefinition::new(
                     Speed::from_nanometers_per_second(1_300_000_000),
                     Speed::from_nanometers_per_second(4_300_000_000),
@@ -91,6 +96,18 @@ fn physiology_exposes_explicit_body_kinematics() {
     assert_eq!(
         locomotion.crouching_height(),
         crate::core::quantity::Length::from_micrometers(1_500_000)
+    );
+    assert_eq!(
+        locomotion.standing_eye_height(),
+        crate::core::quantity::Length::from_micrometers(1_620_000)
+    );
+    assert_eq!(
+        locomotion.crouching_eye_height(),
+        crate::core::quantity::Length::from_micrometers(1_270_000)
+    );
+    assert_eq!(
+        locomotion.interaction_reach(),
+        crate::core::quantity::Length::from_micrometers(4_500_000)
     );
     assert_eq!(
         locomotion.maximum_fall_speed(),
