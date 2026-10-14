@@ -188,6 +188,11 @@ impl Display for MiningJobValidationError {
                 "mining job {} equipment is also occupied by manual power generation",
                 job.value()
             ),
+            Self::EquipmentAlsoUsedByBlockExcavation { job } => write!(
+                formatter,
+                "mining job {} equipment is also occupied by direct block excavation",
+                job.value()
+            ),
             Self::MissingCapability { job, capability } => write!(
                 formatter,
                 "mining job {} equipment lacks required capability {}",

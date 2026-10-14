@@ -1,5 +1,6 @@
 //! Durable records for work that exclusively occupies the local player's attention.
 
+mod block_excavation;
 mod consumption;
 mod gathering;
 mod maintenance;
@@ -10,6 +11,7 @@ mod prospecting;
 mod storage_dismantling;
 mod structural_construction;
 
+pub use block_excavation::BlockExcavationWork;
 pub use consumption::{DrinkingWork, EatingWork};
 pub use gathering::SurfaceGatheringWork;
 pub use maintenance::EquipmentMaintenanceWork;

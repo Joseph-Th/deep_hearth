@@ -46,6 +46,8 @@ pub enum TickError {
     MiningRevisionExhausted,
     /// Finite loose surface resources cannot advance their persisted depletion revision.
     SurfaceRevisionExhausted,
+    /// Generated block-world state cannot advance its persisted revision for excavation.
+    WorldRevisionExhausted,
     /// Field prospecting cannot allocate another persistent observation identity.
     GeologicalObservationIdExhausted,
     /// Field prospecting cannot advance acquired geological knowledge.
@@ -111,6 +113,9 @@ impl Display for TickError {
             }
             Self::SurfaceRevisionExhausted => {
                 formatter.write_str("surface-resource revision space is exhausted")
+            }
+            Self::WorldRevisionExhausted => {
+                formatter.write_str("world revision space is exhausted")
             }
             Self::GeologicalObservationIdExhausted => {
                 formatter.write_str("geological observation identifier space is exhausted")
@@ -220,6 +225,7 @@ impl Error for TickError {
             | Self::GeologyRevisionExhausted
             | Self::MiningRevisionExhausted
             | Self::SurfaceRevisionExhausted
+            | Self::WorldRevisionExhausted
             | Self::GeologicalObservationIdExhausted
             | Self::GeologicalKnowledgeRevisionExhausted => None,
         }

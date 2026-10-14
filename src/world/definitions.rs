@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::Mass;
-use crate::material::{CommodityKey, MaterialRegistry};
+use crate::core::quantity::{Mass, Pressure, Temperature};
+use crate::material::{CommodityKey, MaterialFormCohesion, MaterialPhase, MaterialRegistry};
 use crate::texture::{BlockAppearanceId, TextureRegistry};
 
 /// Stable authored identifier for one block behavior/material definition.
@@ -54,6 +54,48 @@ pub enum BlockCollisionShape {
     FullCube,
 }
 
+/// Authored material result and physical resistance for excavating one world cell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockExcavationDefinition {
+    hardness: Pressure,
+    fragmented_commodity: CommodityKey,
+    temperature: Temperature,
+}
+
+impl BlockExcavationDefinition {
+    #[must_use]
+    pub fn new(
+        hardness: Pressure,
+        fragmented_commodity: CommodityKey,
+        temperature: Temperature,
+    ) -> Self {
+        assert!(
+            !hardness.is_zero(),
+            "excavatable block hardness must be nonzero"
+        );
+        Self {
+            hardness,
+            fragmented_commodity,
+            temperature,
+        }
+    }
+
+    #[must_use]
+    pub const fn hardness(self) -> Pressure {
+        self.hardness
+    }
+
+    #[must_use]
+    pub const fn fragmented_commodity(self) -> CommodityKey {
+        self.fragmented_commodity
+    }
+
+    #[must_use]
+    pub const fn temperature(self) -> Temperature {
+        self.temperature
+    }
+}
+
 /// Immutable default physical facts shared by every state of one block definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BlockPhysicalDefinition {
@@ -61,6 +103,7 @@ pub struct BlockPhysicalDefinition {
     represented_mass: Mass,
     collision: BlockCollisionShape,
     opaque: bool,
+    excavation: Option<BlockExcavationDefinition>,
 }
 
 impl BlockPhysicalDefinition {
@@ -88,7 +131,18 @@ impl BlockPhysicalDefinition {
             represented_mass,
             collision,
             opaque,
+            excavation: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_excavation(mut self, excavation: BlockExcavationDefinition) -> Self {
+        assert!(
+            self.commodity.is_some(),
+            "massless block cannot author excavation output"
+        );
+        self.excavation = Some(excavation);
+        self
     }
 
     #[must_use]
@@ -109,6 +163,11 @@ impl BlockPhysicalDefinition {
     #[must_use]
     pub const fn is_opaque(self) -> bool {
         self.opaque
+    }
+
+    #[must_use]
+    pub const fn excavation(self) -> Option<BlockExcavationDefinition> {
+        self.excavation
     }
 }
 
@@ -190,6 +249,11 @@ impl BlockDefinition {
     #[must_use]
     pub const fn is_opaque(&self) -> bool {
         self.physical.is_opaque()
+    }
+
+    #[must_use]
+    pub const fn excavation(&self) -> Option<BlockExcavationDefinition> {
+        self.physical.excavation()
     }
 }
 
@@ -321,6 +385,38 @@ impl WorldRegistry {
                     );
                 }
             }
+            if let Some(excavation) = block.excavation() {
+                let block_commodity = block
+                    .commodity()
+                    .unwrap_or_else(|| unreachable!("excavation requires block commodity"));
+                assert_eq!(
+                    excavation.fragmented_commodity().material(),
+                    block_commodity.material(),
+                    "block {} excavation output must conserve its source material identity",
+                    block.id().value()
+                );
+                assert!(
+                    materials.has_commodity(excavation.fragmented_commodity()),
+                    "block {} excavation references missing output commodity {}",
+                    block.id().value(),
+                    excavation.fragmented_commodity().value()
+                );
+                let form = materials
+                    .get_form(excavation.fragmented_commodity().form())
+                    .unwrap_or_else(|| unreachable!("registered commodity has a form definition"));
+                assert_eq!(
+                    form.phase(),
+                    MaterialPhase::Solid,
+                    "block {} excavation output must be solid",
+                    block.id().value()
+                );
+                assert_eq!(
+                    form.cohesion(),
+                    MaterialFormCohesion::Loose,
+                    "block {} excavation output must be loose material",
+                    block.id().value()
+                );
+            }
             if let Some(appearance) = block.appearance() {
                 assert!(
                     textures.get_block(appearance).is_some(),
@@ -356,6 +452,7 @@ impl WorldRegistry {
         assert!(air_block.commodity().is_none());
         assert_eq!(air_block.represented_mass(), Mass::ZERO);
         assert!(air_block.appearance().is_none());
+        assert!(air_block.excavation().is_none());
 
         for block in self.blocks.values() {
             let state = self.states.get(&block.default_state()).unwrap_or_else(|| {

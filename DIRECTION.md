@@ -117,10 +117,11 @@ continuation, and body/terrain race rejection are authoritative. Realized horizo
 load-sensitive and settles through the existing slow survival owner. Step-up, partial shapes, surface traction,
 fall injury, and adapter residency/unload remain open; deterministic player-neighborhood terrain demand now exists,
 and the timed one-voxel labor step is rejected once generated-world body
-physics is active. Deterministic player-eye block targeting now exists; the familiar primary/secondary action
-grammar should next compose block breaking, placement, gathering, equipment use, consumption and interaction into
-the existing owner validators. Generic world drops and hotbar/inventory/container
-projections then complete the direct matter loop without creating a second simplified simulation.
+physics is active. Deterministic player-eye targeting now feeds a conserved timed terrain-excavation owner path:
+authored mining physics binds portable tool throughput/hardness/wear, partial represented mass persists per cell,
+and completed fragments land in reserved carried custody. The next shell work is composing that operation behind
+continuous primary input, adding overflow world-drop custody, placement/use, and hotbar/inventory/container
+projection without creating a second simplified simulation.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

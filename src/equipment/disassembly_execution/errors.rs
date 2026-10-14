@@ -52,6 +52,10 @@ pub enum EquipmentDisassemblyError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
+    EquipmentBusyBlockExcavation {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -151,6 +155,15 @@ impl Display for EquipmentDisassemblyError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by block excavation until tick {} and cannot be disassembled",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::DestinationWouldIncreaseActiveStepLoad { stockpile } => write!(
                 formatter,
                 "equipment disassembly cannot recover matter into carried stockpile {} while a player step is in progress",
@@ -234,6 +247,7 @@ impl Error for EquipmentDisassemblyError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. }
             | Self::DestinationWouldIncreaseActiveStepLoad { .. }
             | Self::UnknownDestination { .. }
@@ -288,6 +302,10 @@ pub enum EquipmentDisassemblyCommitError {
         equipment: EquipmentId,
     },
     EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
+    EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
@@ -362,6 +380,15 @@ impl Display for EquipmentDisassemblyCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} became occupied by block excavation until tick {} before disassembly commit",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::DestinationWouldIncreaseActiveStepLoad { stockpile } => write!(
                 formatter,
                 "equipment disassembly cannot recover matter into carried stockpile {} after a player step has started",
@@ -398,6 +425,7 @@ impl Error for EquipmentDisassemblyCommitError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. }
             | Self::DestinationWouldIncreaseActiveStepLoad { .. } => None,
         }

@@ -88,6 +88,66 @@ impl Display for PlayerWorkValidationError {
             Self::SurfaceGatheringDurationMismatch => formatter.write_str(
                 "surface gathering duration disagrees with its current authored labor method",
             ),
+            Self::BlockExcavationMethodMissing => formatter
+                .write_str("block excavation work references a missing authored mining method"),
+            Self::BlockExcavationTargetMissing => formatter
+                .write_str("block excavation work references unavailable world authority"),
+            Self::BlockExcavationTargetStateMismatch => formatter
+                .write_str("block excavation target state changed from its persisted start trace"),
+            Self::BlockExcavationDefinitionMissing => formatter
+                .write_str("block excavation target no longer has an authored excavation profile"),
+            Self::BlockExcavationSourceMassMismatch => formatter.write_str(
+                "block excavation source mass disagrees with the current represented cell mass",
+            ),
+            Self::BlockExcavationMassInvalid => formatter
+                .write_str("block excavation mass is zero or exceeds the represented cell mass"),
+            Self::BlockExcavationEquipmentMissing => formatter
+                .write_str("block excavation work references missing equipment"),
+            Self::BlockExcavationEquipmentAccess(error) => write!(
+                formatter,
+                "block excavation equipment access is invalid: {error}"
+            ),
+            Self::BlockExcavationEquipmentDefinitionMismatch => formatter.write_str(
+                "block excavation equipment definition disagrees with its persisted trace",
+            ),
+            Self::BlockExcavationEquipmentConditionMismatch => formatter.write_str(
+                "block excavation equipment condition disagrees with its persisted trace",
+            ),
+            Self::BlockExcavationEquipmentMounted => formatter
+                .write_str("block excavation requires portable unmounted equipment"),
+            Self::BlockExcavationEquipmentResourceDoubleBooked => formatter.write_str(
+                "block excavation equipment is simultaneously owned by another operation",
+            ),
+            Self::BlockExcavationDestinationMissing => formatter
+                .write_str("block excavation work references a missing destination stockpile"),
+            Self::BlockExcavationDestinationNotCarried => formatter.write_str(
+                "block excavation output destination is not the player's carried stockpile",
+            ),
+            Self::BlockExcavationDestinationAccess(error) => write!(
+                formatter,
+                "block excavation destination access is invalid: {error}"
+            ),
+            Self::BlockExcavationDestinationMounted => formatter.write_str(
+                "block excavation output destination must remain unmounted carried custody",
+            ),
+            Self::BlockExcavationDestinationStorage(error) => write!(
+                formatter,
+                "block excavation destination cannot accept fragmented output: {error}"
+            ),
+            Self::BlockExcavationReservationMissing => formatter.write_str(
+                "block excavation destination no longer retains its reserved inbound capacity",
+            ),
+            Self::BlockExcavationPhysicsInvalid => formatter.write_str(
+                "block excavation persisted work no longer resolves against authored mining physics",
+            ),
+            Self::BlockExcavationScheduleInvalid => formatter
+                .write_str("block excavation work has an invalid persisted schedule"),
+            Self::BlockExcavationDurationMismatch => formatter.write_str(
+                "block excavation duration disagrees with current authored mining physics",
+            ),
+            Self::BlockExcavationConditionOutcomeMismatch => formatter.write_str(
+                "block excavation tool-condition outcome disagrees with current authored wear",
+            ),
             Self::ManualProductionJobMissing => {
                 formatter.write_str("player work references missing manual production job")
             }

@@ -33,6 +33,9 @@ use crate::survival::{
     SurvivalExertion, Vitality, apply_survival_tick, assess_survival,
     decide_survival_tick_with_local_heat,
 };
+use crate::world::{
+    BlockExcavationTickError, apply_block_excavation_tick, decide_block_excavation_tick,
+};
 
 use planning::{
     decide_automatic_mining_output, decide_storage_dismantling_after_completions,
@@ -176,6 +179,20 @@ fn advance_simulation_tick(
         &completion_plan,
         next_tick,
     )?;
+    let projected_inventory_after_completions =
+        completion_plan.project_inventory_after_deposits(state.inventory());
+    let block_excavation_plan = decide_block_excavation_tick(
+        registries,
+        state,
+        projected_inventory_after_completions.as_ref(),
+        next_tick,
+    )
+    .map_err(|error| match error {
+        BlockExcavationTickError::MaterialLotId => TickError::MaterialLotIdExhausted,
+        BlockExcavationTickError::InventoryRevision => TickError::InventoryRevisionExhausted,
+        BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
+        BlockExcavationTickError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
+    })?;
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);
     let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)?;
     let manual_power_plan = decide_manual_power_tick(state, next_tick);
@@ -257,6 +274,7 @@ fn advance_simulation_tick(
         &mut completion_plan,
     )?;
     let inventory_owner_busy = completion_plan.has_inventory_deposits()
+        || block_excavation_plan.is_some()
         || surface_gathering_plan.is_some()
         || storage_enclosure_dismantling_plan.is_some()
         || player_death_effects
@@ -286,6 +304,7 @@ fn advance_simulation_tick(
             field_prospecting_plan
                 .as_ref()
                 .map_or(0, |plan| plan.equipment_revision_steps()),
+            u64::from(block_excavation_plan.is_some()),
             player_death_effects
                 .as_ref()
                 .map_or(0, |plan| plan.equipment_revision_steps()),
@@ -306,6 +325,7 @@ fn advance_simulation_tick(
     } = apply_completion_plan(state, completion_plan)?;
     let structural_construction =
         apply_structural_construction_tick(state, structural_construction_plan);
+    let block_excavation = apply_block_excavation_tick(registries, state, block_excavation_plan);
     let _completed_mining_job = apply_mining_tick(state, mining_plan);
     let mining_output =
         automatic_mining_output.map(|settlement| settlement.apply_prechecked(state));
@@ -331,6 +351,7 @@ fn advance_simulation_tick(
         mining_output,
         player_step,
         surface_gathering,
+        block_excavation,
         manual_power,
         equipment_maintenance,
         storage_enclosure_dismantling,

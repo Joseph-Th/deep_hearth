@@ -54,6 +54,10 @@ pub enum EquipmentMaintenanceError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
+    EquipmentBusyBlockExcavation {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -151,6 +155,15 @@ impl Display for EquipmentMaintenanceError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by block excavation until tick {} and cannot be serviced",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
@@ -235,6 +248,10 @@ impl Error for EquipmentMaintenanceError {
                 equipment: _equipment,
             } => None,
             Self::EquipmentBusyProspecting {
+                equipment: _equipment,
+                completes_at: _completes_at,
+            } => None,
+            Self::EquipmentBusyBlockExcavation {
                 equipment: _equipment,
                 completes_at: _completes_at,
             } => None,

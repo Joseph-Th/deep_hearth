@@ -1,14 +1,25 @@
 //! Persistent block-world definitions, compact chunk storage, generation, and trusted-load validation.
 
 mod definitions;
+mod excavation;
 mod generation;
 mod state;
 mod targeting;
 mod validation;
 
 pub use definitions::{
-    BlockCollisionShape, BlockDefinition, BlockDefinitionId, BlockPhysicalDefinition,
-    BlockStateDefinition, BlockStateId, WorldRegistry,
+    BlockCollisionShape, BlockDefinition, BlockDefinitionId, BlockExcavationDefinition,
+    BlockPhysicalDefinition, BlockStateDefinition, BlockStateId, WorldRegistry,
+};
+pub(crate) use excavation::{
+    BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
+    apply_block_excavation_tick, decide_block_excavation_cancellation,
+    decide_block_excavation_tick,
+};
+pub use excavation::{
+    BlockExcavationCommitError, BlockExcavationError, BlockExcavationOutcome,
+    BlockExcavationRequest, BlockExcavationStartOutcome, ValidatedPlayerBlockExcavationStart,
+    validate_start_player_block_excavation,
 };
 pub(crate) use generation::WorldGenerationProfile;
 pub use generation::{

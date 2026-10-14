@@ -40,6 +40,10 @@ pub enum EquipmentProviderError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
+    BlockExcavationInProgress {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     ProductionInProgress {
         equipment: EquipmentId,
         job: ProductionJobId,
@@ -96,6 +100,15 @@ impl Display for EquipmentProviderError {
             } => write!(
                 formatter,
                 "equipment {} is occupied by geological sampling until tick {} and cannot authorize a new operation",
+                equipment.value(),
+                completes_at.value()
+            ),
+            Self::BlockExcavationInProgress {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by block excavation until tick {} and cannot authorize a new operation",
                 equipment.value(),
                 completes_at.value()
             ),

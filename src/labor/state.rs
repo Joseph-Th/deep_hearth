@@ -8,7 +8,7 @@ use crate::equipment::EquipmentId;
 use crate::inventory::{InventoryState, StockpileId};
 
 use super::work::{
-    EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
+    BlockExcavationWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
     StorageEnclosureDismantlingWork, StructuralConstructionWork, SurfaceGatheringWork,
 };
 
@@ -33,6 +33,14 @@ impl PlayerWorkState {
     pub(crate) const fn future_surface_revision_demand(&self) -> u64 {
         match self.active {
             Some(work) => work.future_surface_revision_demand(),
+            None => 0,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn future_world_revision_demand(&self) -> u64 {
+        match self.active {
+            Some(work) => work.future_world_revision_demand(),
             None => 0,
         }
     }
@@ -109,11 +117,9 @@ impl PlayerWorkState {
 
     #[must_use]
     pub(crate) fn future_material_lot_id_demand(&self, inventory: &InventoryState) -> u64 {
-        if self
-            .active
-            .and_then(PlayerWork::surface_gathering)
-            .is_some()
-        {
+        if self.active.is_some_and(|work| {
+            work.surface_gathering().is_some() || work.block_excavation().is_some()
+        }) {
             return 1;
         }
         let Some(work) = self.active.and_then(PlayerWork::storage_dismantling) else {
@@ -138,6 +144,27 @@ impl PlayerWorkState {
         self.active
             .and_then(PlayerWork::surface_gathering)
             .filter(|work| work.completes_at() == tick)
+    }
+
+    /// Returns admitted block-excavation work that completes on `tick`, if any.
+    #[must_use]
+    pub(crate) fn block_excavation_due_at(
+        &self,
+        tick: SimulationTick,
+    ) -> Option<BlockExcavationWork> {
+        self.active
+            .and_then(PlayerWork::block_excavation)
+            .filter(|work| work.completes_at() == tick)
+    }
+
+    #[must_use]
+    pub(crate) fn get_block_excavation_equipment_occupant(
+        &self,
+        equipment: EquipmentId,
+    ) -> Option<BlockExcavationWork> {
+        self.active
+            .and_then(PlayerWork::block_excavation)
+            .filter(|work| work.equipment() == equipment)
     }
 
     /// Returns the admitted enclosure-dismantling work that completes on `tick`, if any.

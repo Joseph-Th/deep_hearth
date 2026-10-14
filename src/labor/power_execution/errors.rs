@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Energy, Power};
+use crate::core::time::SimulationTick;
 use crate::energy::{EnergyCarrier, EnergySinkError, EnergyStoreId};
 use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::logistics::{PlayerEnergyStoreAccessError, PlayerEquipmentAccessError};
@@ -253,6 +254,10 @@ pub enum ManualPowerCommitError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
+    EquipmentBusyBlockExcavation {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EnergyBusyProduction {
         store: EnergyStoreId,
         job: ProductionJobId,
@@ -290,6 +295,15 @@ impl Display for ManualPowerCommitError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "manual power equipment {} became occupied by block excavation until tick {} after validation",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EnergyBusyProduction { store, job } => write!(
                 formatter,
                 "manual power destination store {} became occupied by production job {} after validation",
@@ -309,6 +323,7 @@ impl Error for ManualPowerCommitError {
             | Self::StaleEnergyRevision { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
+            | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EnergyBusyProduction { .. } => None,
         }
     }

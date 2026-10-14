@@ -95,6 +95,12 @@ fn validation_occupancy_error(
                 completes_at,
             }
         }
+        EquipmentOccupancy::BlockExcavation { completes_at } => {
+            EquipmentDisassemblyError::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            }
+        }
         EquipmentOccupancy::Maintenance { completes_at } => {
             EquipmentDisassemblyError::EquipmentUnderMaintenance {
                 equipment,

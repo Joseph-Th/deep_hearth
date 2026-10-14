@@ -66,6 +66,10 @@ pub enum StartProcessCommitError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
+    EquipmentBusyBlockExcavation {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -146,6 +150,15 @@ impl Display for StartProcessCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "validated process start equipment {} is occupied by block excavation until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
@@ -181,6 +194,7 @@ impl Error for StartProcessCommitError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. } => None,
         }
     }

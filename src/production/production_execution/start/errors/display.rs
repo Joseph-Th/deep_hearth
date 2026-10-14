@@ -272,6 +272,15 @@ impl Display for StartProcessError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by block excavation until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::StructuralLoad(error) => write!(
                 formatter,
                 "process start cannot update stored-matter load: {error}"

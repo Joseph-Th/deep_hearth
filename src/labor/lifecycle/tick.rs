@@ -161,6 +161,7 @@ fn active_work_releases_now(
     match work {
         PlayerWork::Step { work } => work.completes_at() == next_tick,
         PlayerWork::SurfaceGathering { work } => work.completes_at() == next_tick,
+        PlayerWork::BlockExcavation { work } => work.completes_at() == next_tick,
         PlayerWork::ManualProduction { job } => {
             manual_production_releases_now(state, job, next_tick, production_availability)
         }

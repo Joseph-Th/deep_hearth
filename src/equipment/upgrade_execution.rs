@@ -43,6 +43,12 @@ fn validation_occupancy_error(
                 completes_at,
             }
         }
+        EquipmentOccupancy::BlockExcavation { completes_at } => {
+            EquipmentUpgradeError::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            }
+        }
         EquipmentOccupancy::Maintenance { completes_at } => {
             EquipmentUpgradeError::EquipmentUnderMaintenance {
                 equipment,
@@ -68,6 +74,12 @@ fn commit_occupancy_error(
         }
         EquipmentOccupancy::Prospecting { completes_at } => {
             EquipmentUpgradeCommitError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentOccupancy::BlockExcavation { completes_at } => {
+            EquipmentUpgradeCommitError::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
             }

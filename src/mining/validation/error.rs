@@ -107,6 +107,9 @@ pub enum MiningJobValidationError {
     EquipmentAlsoUsedByManualPower {
         job: MiningJobId,
     },
+    EquipmentAlsoUsedByBlockExcavation {
+        job: MiningJobId,
+    },
     MissingCapability {
         job: MiningJobId,
         capability: CapabilityId,

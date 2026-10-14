@@ -18,6 +18,9 @@ impl Error for PlayerWorkValidationError {
             Self::StorageDismantlingRecoveryStorage(error) => Some(error),
             Self::SurfaceGatheringDestinationAccess(error) => Some(error),
             Self::SurfaceGatheringDestinationStorage(error) => Some(error),
+            Self::BlockExcavationEquipmentAccess(error) => Some(error),
+            Self::BlockExcavationDestinationAccess(error) => Some(error),
+            Self::BlockExcavationDestinationStorage(error) => Some(error),
             Self::WorkWithoutPlayer
             | Self::RevisionExhausted
             | Self::SurvivalRevisionExhausted
@@ -42,6 +45,25 @@ impl Error for PlayerWorkValidationError {
             | Self::SurfaceGatheringReservationMissing
             | Self::SurfaceGatheringScheduleInvalid
             | Self::SurfaceGatheringDurationMismatch
+            | Self::BlockExcavationMethodMissing
+            | Self::BlockExcavationTargetMissing
+            | Self::BlockExcavationTargetStateMismatch
+            | Self::BlockExcavationDefinitionMissing
+            | Self::BlockExcavationSourceMassMismatch
+            | Self::BlockExcavationMassInvalid
+            | Self::BlockExcavationEquipmentMissing
+            | Self::BlockExcavationEquipmentDefinitionMismatch
+            | Self::BlockExcavationEquipmentConditionMismatch
+            | Self::BlockExcavationEquipmentMounted
+            | Self::BlockExcavationEquipmentResourceDoubleBooked
+            | Self::BlockExcavationDestinationMissing
+            | Self::BlockExcavationDestinationNotCarried
+            | Self::BlockExcavationDestinationMounted
+            | Self::BlockExcavationReservationMissing
+            | Self::BlockExcavationPhysicsInvalid
+            | Self::BlockExcavationScheduleInvalid
+            | Self::BlockExcavationDurationMismatch
+            | Self::BlockExcavationConditionOutcomeMismatch
             | Self::ManualProductionJobMissing
             | Self::ManualProductionProcessMismatch
             | Self::ManualProductionScheduleInvalid

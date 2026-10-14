@@ -47,6 +47,10 @@ pub enum EquipmentMaintenanceCommitError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
+    EquipmentBusyBlockExcavation {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     StaleInventoryRevision {
         expected: u64,
         actual: u64,
@@ -112,6 +116,15 @@ impl Display for EquipmentMaintenanceCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} became occupied by block excavation until tick {} before maintenance commit",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment maintenance expected inventory revision {expected} but current revision is {actual}"
@@ -163,6 +176,10 @@ impl Error for EquipmentMaintenanceCommitError {
                 equipment: _equipment,
             } => None,
             Self::EquipmentBusyProspecting {
+                equipment: _equipment,
+                completes_at: _completes_at,
+            } => None,
+            Self::EquipmentBusyBlockExcavation {
                 equipment: _equipment,
                 completes_at: _completes_at,
             } => None,

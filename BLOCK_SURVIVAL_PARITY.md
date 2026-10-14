@@ -57,13 +57,13 @@ Strong current foundations:
 
 Foundational blockers:
 
-- no general block mutation, rich block shapes, block updates, scheduled block behavior, or sparse voxel-to-owner attachments;
+- only bounded mass-removing terrain excavation exists; general placement/state mutation, rich shapes, block updates, scheduled behavior, and sparse voxel-to-owner attachments remain absent;
 - continuous fixed-point body position, persisted velocity/stance, 20 Hz walk/sprint/crouch/jump control,
   gravity, falling, ledge-safe crouching, and swept full-cube collision now exist; swimming and general shape
   collision do not;
 - no camera/input adapter or composed primary/secondary action shell; bounded fixed-point player-eye block
   raycast targeting now exists;
-- no generic hold-to-break or contextual place/use pipeline over world blocks;
+- no generic continuous hold-to-break composition or contextual place/use pipeline; core terrain excavation is timed and tool/hardness bound;
 - no generic dropped-item world entity, hotbar, familiar stack projection, or container UI shell;
 - deterministic terrain generation and admitted-player neighborhood demand exist; residency/unload streaming,
   biome/climate fields, and general world discovery do not;
@@ -174,9 +174,9 @@ but that is presentation metadata, not a runtime block model.
 | Random tick | Selected active blocks update stochastically | No runtime RNG/world blocks | `GAP-P2` | Add only when ecology/growth/fire needs it, with deterministic state-owned or position-derived random streams. |
 | Block event | Short delayed action channel for pistons/notes/etc. | None | `GAP-P2` | Prefer typed owner events or scheduled state transitions. Do not add a generic event bus solely for parity. |
 | Block entity | Sparse state beyond finite block-state palette | Separate domain records | `DIFFERENT+` | Voxel attachment points to canonical domain owner. Generic opaque NBT-like state is not the authority. |
-| Breaking hardness | Block + tool determine break duration | Mining hardness and equipment capability already exist, but not general terrain blocks | `DIFFERENT+` | Use actual material/tool capability to derive break work. Preserve hold-to-break interaction. |
+| Breaking hardness | Block + tool determine break duration | Stone terrain authors excavation hardness and reuses canonical mining throughput/batch/wear physics for timed partial removal | `DIFFERENT+` | Preserve the same physical contract while composing repeated work behind familiar hold-to-break input. |
 | Tool requirement | Tags/tiers determine drops and speed | Capability/hardness contracts | `PARITY+` conceptually | Integrate those contracts into block breaking instead of adding parallel tool-tier tags. |
-| Drops | Block destruction resolves item drops | Mining/gathering produce exact material custody | `DIFFERENT+` | Convert destroyed block matter into conserved world/item material outputs, then auto-pickup when capacity permits. |
+| Drops | Block destruction resolves item drops | Completed terrain excavation transfers exact stone fragments into reserved carried custody; insufficient carried capacity currently rejects admission | `DIFFERENT+` | Add conserved world-drop custody for overflow, then automatic pickup when capacity permits. |
 
 ## 4. Rendering, textures, meshing, and visibility
 

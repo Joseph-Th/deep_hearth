@@ -71,6 +71,26 @@ pub enum WorldValidationError {
         stored: u16,
         actual: u16,
     },
+    SectionMassOverrideIndexOutOfRange {
+        section_y: i64,
+        cell: u16,
+    },
+    ZeroSectionMassOverride {
+        section_y: i64,
+        cell: u16,
+    },
+    SectionMassOverrideOnAir {
+        chunk: ChunkCoord,
+        section_y: i64,
+        cell: u16,
+    },
+    SectionMassOverrideNotBelowDefault {
+        chunk: ChunkCoord,
+        section_y: i64,
+        cell: u16,
+        stored: Mass,
+        default: Mass,
+    },
     SectionMassOverflow {
         chunk: ChunkCoord,
         section_y: i64,
@@ -188,6 +208,38 @@ impl Display for WorldValidationError {
             } => write!(
                 formatter,
                 "world section {section_y} stores non-air count {stored} but contains {actual} non-air cells"
+            ),
+            Self::SectionMassOverrideIndexOutOfRange { section_y, cell } => write!(
+                formatter,
+                "world section {section_y} stores a mass override for out-of-range cell {cell}"
+            ),
+            Self::ZeroSectionMassOverride { section_y, cell } => write!(
+                formatter,
+                "world section {section_y} stores a zero-mass override for cell {cell}"
+            ),
+            Self::SectionMassOverrideOnAir {
+                chunk,
+                section_y,
+                cell,
+            } => write!(
+                formatter,
+                "chunk ({},{}) section {section_y} stores represented mass for air cell {cell}",
+                chunk.x(),
+                chunk.z()
+            ),
+            Self::SectionMassOverrideNotBelowDefault {
+                chunk,
+                section_y,
+                cell,
+                stored,
+                default,
+            } => write!(
+                formatter,
+                "chunk ({},{}) section {section_y} cell {cell} stores exceptional mass {} mg that is not below default {} mg",
+                chunk.x(),
+                chunk.z(),
+                stored.milligrams(),
+                default.milligrams()
             ),
             Self::SectionMassOverflow { chunk, section_y } => write!(
                 formatter,
@@ -347,9 +399,31 @@ fn validate_section_mass(
         let state = section
             .state_at_index(cell)
             .unwrap_or_else(|| unreachable!("validated section resolves every cell"));
-        let mass = registry
+        let default_mass = registry
             .represented_mass_for_state(state)
             .unwrap_or_else(|| unreachable!("validated block state has a block definition"));
+        let mass = match section.mass_override_at_index(cell) {
+            Some(_) if state == BlockStateId::AIR => {
+                return Err(WorldValidationError::SectionMassOverrideOnAir {
+                    chunk,
+                    section_y: section.y(),
+                    cell: u16::try_from(cell)
+                        .unwrap_or_else(|_| unreachable!("section cell index fits u16")),
+                });
+            }
+            Some(stored) if stored >= default_mass => {
+                return Err(WorldValidationError::SectionMassOverrideNotBelowDefault {
+                    chunk,
+                    section_y: section.y(),
+                    cell: u16::try_from(cell)
+                        .unwrap_or_else(|_| unreachable!("section cell index fits u16")),
+                    stored,
+                    default: default_mass,
+                });
+            }
+            Some(stored) => stored,
+            None => default_mass,
+        };
         expected = expected
             .checked_add(mass)
             .ok_or(WorldValidationError::SectionMassOverflow {

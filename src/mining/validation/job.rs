@@ -216,6 +216,11 @@ fn validate_mining_equipment_exclusivity(
         Some(EquipmentOccupancy::ManualPower { .. }) => {
             return Err(MiningJobValidationError::EquipmentAlsoUsedByManualPower { job: job.id() });
         }
+        Some(EquipmentOccupancy::BlockExcavation { .. }) => {
+            return Err(
+                MiningJobValidationError::EquipmentAlsoUsedByBlockExcavation { job: job.id() },
+            );
+        }
         Some(
             EquipmentOccupancy::Mining { .. }
             | EquipmentOccupancy::Prospecting { .. }

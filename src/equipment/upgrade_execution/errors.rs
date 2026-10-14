@@ -56,6 +56,10 @@ pub enum EquipmentUpgradeError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
+    EquipmentBusyBlockExcavation {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -157,6 +161,15 @@ impl Display for EquipmentUpgradeError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by block excavation until tick {} and cannot be upgraded",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
@@ -223,6 +236,7 @@ impl Error for EquipmentUpgradeError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. }
             | Self::UnknownSource { .. }
             | Self::InsufficientMaterial { .. }
@@ -276,6 +290,10 @@ pub enum EquipmentUpgradeCommitError {
         equipment: EquipmentId,
     },
     EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
+    EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
@@ -353,6 +371,15 @@ impl Display for EquipmentUpgradeCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} became occupied by block excavation until tick {} before upgrade commit",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
@@ -384,6 +411,7 @@ impl Error for EquipmentUpgradeCommitError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. } => None,
         }
     }

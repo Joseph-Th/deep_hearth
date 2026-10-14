@@ -48,6 +48,13 @@ pub(crate) fn player_work_exertion(
                 panic!("runtime invariant broken: surface gathering has no authored method")
             })
             .exertion(),
+        PlayerWork::BlockExcavation { work } => registries
+            .mining()
+            .get_method(work.method())
+            .unwrap_or_else(|| {
+                panic!("runtime invariant broken: block excavation has no mining method definition")
+            })
+            .exertion(),
         PlayerWork::ManualProduction { job } => {
             let record = state.production().get_job(job).unwrap_or_else(|| {
                 panic!(

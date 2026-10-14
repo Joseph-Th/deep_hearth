@@ -138,6 +138,12 @@ fn validate_equipment_available(
                 completes_at,
             });
         }
+        Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
+            return Err(StartProcessError::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            });
+        }
         Some(EquipmentOccupancy::Maintenance { .. }) => {
             unreachable!("revision-current resolved equipment cannot already be under maintenance")
         }

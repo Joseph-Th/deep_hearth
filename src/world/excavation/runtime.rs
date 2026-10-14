@@ -1,0 +1,268 @@
+//! Runtime completion and interruption for admitted block excavation.
+
+use crate::core::quantity::Mass;
+use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
+use crate::equipment::EquipmentId;
+use crate::inventory::{
+    InventoryState, MaterialIngressEntry, MaterialIngressError, MaterialLotId,
+    ValidatedInboundReservationRelease, ValidatedMaterialIngress, apply_material_ingress,
+    validate_inbound_reservation_release, validate_reserved_material_ingress,
+};
+use crate::labor::BlockExcavationWork;
+use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
+use crate::material::MaterialLotSpec;
+use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
+
+#[must_use]
+pub(crate) struct BlockExcavationTickPlan {
+    work: BlockExcavationWork,
+    ingress: ValidatedMaterialIngress,
+    next_world_revision: u64,
+    next_equipment_revision: u64,
+}
+
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockExcavationOutcome {
+    target: VoxelCoord,
+    excavated_mass: Mass,
+    remaining_mass: Mass,
+    lot: MaterialLotId,
+}
+
+impl BlockExcavationOutcome {
+    #[must_use]
+    pub const fn target(self) -> VoxelCoord {
+        self.target
+    }
+
+    #[must_use]
+    pub const fn excavated_mass(self) -> Mass {
+        self.excavated_mass
+    }
+
+    #[must_use]
+    pub const fn remaining_mass(self) -> Mass {
+        self.remaining_mass
+    }
+
+    #[must_use]
+    pub const fn lot(self) -> MaterialLotId {
+        self.lot
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BlockExcavationTickError {
+    MaterialLotId,
+    InventoryRevision,
+    WorldRevision,
+    EquipmentRevision,
+}
+
+pub(crate) fn decide_block_excavation_tick(
+    registries: &Registries,
+    state: &AppState,
+    projected_inventory: &InventoryState,
+    next_tick: SimulationTick,
+) -> Result<Option<BlockExcavationTickPlan>, BlockExcavationTickError> {
+    let Some(work) = state.player_work().block_excavation_due_at(next_tick) else {
+        return Ok(None);
+    };
+    assert_eq!(state.world().block_at(work.target()), Some(work.state()));
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), work.target()),
+        Some(work.source_mass_before())
+    );
+    let block = registries
+        .world()
+        .block_for_state(work.state())
+        .unwrap_or_else(|| panic!("runtime invariant broken: excavation block state disappeared"));
+    let excavation = block.excavation().unwrap_or_else(|| {
+        panic!("runtime invariant broken: active excavation block lost definition")
+    });
+    let lot = MaterialLotSpec::new(
+        excavation.fragmented_commodity(),
+        work.excavated_mass(),
+        excavation.temperature(),
+    );
+    let ingress = validate_reserved_material_ingress(
+        registries,
+        projected_inventory,
+        work.destination(),
+        [MaterialIngressEntry::from_lot_spec(lot, next_tick)],
+        next_tick,
+        work.excavated_mass(),
+    )
+    .map_err(|error| match error {
+        MaterialIngressError::LotIdExhausted => BlockExcavationTickError::MaterialLotId,
+        MaterialIngressError::RevisionExhausted => BlockExcavationTickError::InventoryRevision,
+        other @ (MaterialIngressError::Empty
+        | MaterialIngressError::UnknownStockpile { .. }
+        | MaterialIngressError::UnknownMaterial { .. }
+        | MaterialIngressError::UnknownForm { .. }
+        | MaterialIngressError::UnknownCompositionMaterial { .. }
+        | MaterialIngressError::ZeroMass
+        | MaterialIngressError::InvalidComposition { .. }
+        | MaterialIngressError::CompositionMissingHost { .. }
+        | MaterialIngressError::Storage(_)
+        | MaterialIngressError::ProvenanceInFuture { .. }
+        | MaterialIngressError::MassOverflow { .. }
+        | MaterialIngressError::CapacityExceeded { .. }
+        | MaterialIngressError::ReservationMismatch { .. }) => {
+            panic!("runtime invariant broken: admitted block excavation ingress failed: {other:?}")
+        }
+    })?;
+    let equipment = state
+        .equipment()
+        .get_equipment(work.equipment())
+        .unwrap_or_else(|| panic!("runtime invariant broken: excavation equipment disappeared"));
+    assert_eq!(equipment.definition(), work.equipment_trace().definition());
+    assert_eq!(equipment.condition(), work.equipment_trace().condition());
+    let next_world_revision = state
+        .world()
+        .revision()
+        .checked_add(1)
+        .ok_or(BlockExcavationTickError::WorldRevision)?;
+    let next_equipment_revision = state
+        .equipment()
+        .revision()
+        .checked_add(1)
+        .ok_or(BlockExcavationTickError::EquipmentRevision)?;
+    Ok(Some(BlockExcavationTickPlan {
+        work,
+        ingress,
+        next_world_revision,
+        next_equipment_revision,
+    }))
+}
+
+pub(crate) fn apply_block_excavation_tick(
+    registries: &Registries,
+    state: &mut AppState,
+    plan: Option<BlockExcavationTickPlan>,
+) -> Option<BlockExcavationOutcome> {
+    let plan = plan?;
+    let default_mass = registries
+        .world()
+        .represented_mass_for_state(plan.work.state())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: excavation state lost represented mass")
+        });
+    let remaining_mass = plan
+        .work
+        .source_mass_before()
+        .checked_sub(plan.work.excavated_mass())
+        .unwrap_or_else(|| panic!("runtime invariant broken: excavation exceeds source cell mass"));
+    plan.ingress.assert_matches_state(state.inventory());
+    let lots = apply_material_ingress(state.inventory_state_mut(), plan.ingress);
+    let lot = *lots
+        .first()
+        .unwrap_or_else(|| panic!("block excavation ingress created no material lot"));
+    state.equipment_state_mut().apply_condition_change(
+        plan.work.equipment(),
+        plan.work.equipment_trace().condition(),
+        plan.work.condition_after(),
+        plan.next_equipment_revision,
+    );
+    let expected_world_revision = state.world().revision();
+    state.world_state_mut().apply_excavated_cell_mass(
+        expected_world_revision,
+        plan.next_world_revision,
+        plan.work.target(),
+        plan.work.state(),
+        default_mass,
+        remaining_mass,
+    );
+    Some(BlockExcavationOutcome {
+        target: plan.work.target(),
+        excavated_mass: plan.work.excavated_mass(),
+        remaining_mass,
+        lot,
+    })
+}
+
+#[must_use]
+pub(crate) struct BlockExcavationCancellationPlan {
+    reservation_release: ValidatedInboundReservationRelease,
+    equipment: EquipmentId,
+    condition_before: Condition,
+    condition_after: Condition,
+    next_equipment_revision: Option<u64>,
+}
+
+impl BlockExcavationCancellationPlan {
+    #[must_use]
+    pub(crate) const fn equipment_revision_steps(&self) -> u64 {
+        if self.next_equipment_revision.is_some() {
+            1
+        } else {
+            0
+        }
+    }
+}
+
+pub(crate) fn decide_block_excavation_cancellation(
+    registries: &Registries,
+    state: &AppState,
+    projected_inventory: &InventoryState,
+    work: BlockExcavationWork,
+    next_tick: SimulationTick,
+) -> Result<BlockExcavationCancellationPlan, BlockExcavationTickError> {
+    let reservation_release = validate_inbound_reservation_release(
+        projected_inventory,
+        work.destination(),
+        work.excavated_mass(),
+    )
+    .map_err(|_| BlockExcavationTickError::InventoryRevision)?;
+    let elapsed = next_tick
+        .checked_duration_since(work.started_at())
+        .unwrap_or_else(|| panic!("fatal tick cannot precede excavation start"));
+    let method = registries
+        .mining()
+        .get_method(work.method())
+        .unwrap_or_else(|| panic!("runtime invariant broken: excavation method disappeared"));
+    let condition_before = work.equipment_trace().condition();
+    let condition_after = calculate_condition_after_active_ticks(
+        method.condition_wear_ppm_per_active_tick(),
+        condition_before,
+        elapsed,
+    );
+    let next_equipment_revision = if condition_after == condition_before {
+        None
+    } else {
+        Some(
+            state
+                .equipment()
+                .revision()
+                .checked_add(1)
+                .ok_or(BlockExcavationTickError::EquipmentRevision)?,
+        )
+    };
+    Ok(BlockExcavationCancellationPlan {
+        reservation_release,
+        equipment: work.equipment(),
+        condition_before,
+        condition_after,
+        next_equipment_revision,
+    })
+}
+
+pub(crate) fn apply_block_excavation_cancellation(
+    state: &mut AppState,
+    plan: BlockExcavationCancellationPlan,
+) {
+    plan.reservation_release.apply(state.inventory_state_mut());
+    if let Some(next_revision) = plan.next_equipment_revision {
+        state.equipment_state_mut().apply_condition_change(
+            plan.equipment,
+            plan.condition_before,
+            plan.condition_after,
+            next_revision,
+        );
+    }
+}

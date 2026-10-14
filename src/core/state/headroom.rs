@@ -17,6 +17,10 @@ fn checked_demand_after_adjustment(future: u64, additional: u64, released: u64) 
 }
 
 impl AppState {
+    pub(crate) fn checked_future_world_revision_demand(&self) -> Option<u64> {
+        Some(self.systems.player_work.future_world_revision_demand())
+    }
+
     pub(crate) fn checked_future_logistics_revision_demand(&self) -> Option<u64> {
         Some(self.systems.player_work.future_logistics_revision_demand())
     }
@@ -150,6 +154,13 @@ impl AppState {
     pub(crate) fn can_spend_surface_revisions(&self, immediate_steps: u64) -> bool {
         self.checked_future_surface_revision_demand()
             .and_then(|future| self.systems.surface.revision().checked_add(future))
+            .and_then(|revision| revision.checked_add(immediate_steps))
+            .is_some()
+    }
+
+    pub(crate) fn can_spend_world_revisions(&self, immediate_steps: u64) -> bool {
+        self.checked_future_world_revision_demand()
+            .and_then(|future| self.systems.world.revision().checked_add(future))
             .and_then(|revision| revision.checked_add(immediate_steps))
             .is_some()
     }

@@ -172,6 +172,12 @@ fn validate_commit_occupancy(
                 completes_at,
             });
         }
+        Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
+            return Err(StartProcessCommitError::EquipmentBusyBlockExcavation {
+                equipment,
+                completes_at,
+            });
+        }
         Some(EquipmentOccupancy::Maintenance { completes_at }) => {
             return Err(StartProcessCommitError::EquipmentUnderMaintenance {
                 equipment,

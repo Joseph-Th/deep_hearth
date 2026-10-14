@@ -11,6 +11,7 @@ use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
 use crate::structural::StructuralElementId;
 use crate::surface::SurfaceGatheringOutcome;
 use crate::survival::SurvivalAssessment;
+use crate::world::BlockExcavationOutcome;
 
 /// Result of one canonical 20 Hz control/kinematic tick.
 #[must_use]
@@ -62,6 +63,7 @@ pub struct TickOutcome {
     pub(super) mining_output: Option<MiningOutputReceipt>,
     pub(super) player_step: Option<PlayerStepOutcome>,
     pub(super) surface_gathering: Option<SurfaceGatheringOutcome>,
+    pub(super) block_excavation: Option<BlockExcavationOutcome>,
     pub(super) manual_power: Option<ManualPowerOutcome>,
     pub(super) equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
     pub(super) storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
@@ -106,6 +108,12 @@ impl TickOutcome {
     #[must_use]
     pub const fn surface_gathering(&self) -> Option<&SurfaceGatheringOutcome> {
         self.surface_gathering.as_ref()
+    }
+
+    /// Returns block-world matter excavated into carried inventory on this tick, if any.
+    #[must_use]
+    pub const fn block_excavation(&self) -> Option<BlockExcavationOutcome> {
+        self.block_excavation
     }
 
     /// Returns direct player-powered energy generation that completed during this tick.
@@ -158,6 +166,7 @@ impl TickOutcome {
             mining_output,
             player_step,
             surface_gathering,
+            block_excavation,
             manual_power,
             equipment_maintenance,
             storage_enclosure_dismantling,
@@ -171,6 +180,7 @@ impl TickOutcome {
             mining_output.is_some(),
             player_step.is_some(),
             surface_gathering.is_some(),
+            block_excavation.is_some(),
             manual_power.is_some(),
             equipment_maintenance.is_some(),
             storage_enclosure_dismantling.is_some(),

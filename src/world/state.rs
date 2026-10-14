@@ -1,13 +1,12 @@
 //! Compact persistent chunk/section storage for authoritative block states.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
 use crate::spatial::VoxelCoord;
 
-#[cfg(test)]
 use super::WorldRegistry;
 #[cfg(test)]
 use crate::core::state::AppState;
@@ -114,6 +113,8 @@ pub struct WorldSection {
     words: Vec<u64>,
     non_air_count: u16,
     represented_mass: Mass,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
+    mass_overrides: BTreeMap<u16, Mass>,
 }
 
 impl WorldSection {
@@ -138,6 +139,7 @@ impl WorldSection {
                 SECTION_CELL_COUNT as u16
             },
             represented_mass,
+            mass_overrides: BTreeMap::new(),
         }
     }
 
@@ -180,6 +182,55 @@ impl WorldSection {
         self.palette.get(palette_index).copied()
     }
 
+    #[must_use]
+    pub(crate) fn mass_override_at_index(&self, index: usize) -> Option<Mass> {
+        self.mass_overrides
+            .get(&u16::try_from(index).ok()?)
+            .copied()
+    }
+
+    pub(crate) fn set_mass_override_at_index(
+        &mut self,
+        index: usize,
+        default_mass: Mass,
+        remaining_mass: Mass,
+    ) {
+        assert!(
+            index < SECTION_CELL_COUNT,
+            "section cell index out of range"
+        );
+        assert!(
+            !default_mass.is_zero(),
+            "mass override requires material-backed cell"
+        );
+        assert!(
+            !remaining_mass.is_zero() && remaining_mass <= default_mass,
+            "cell remaining mass must stay within its positive default mass"
+        );
+        assert_ne!(
+            self.state_at_index(index),
+            Some(BlockStateId::AIR),
+            "air cell cannot retain represented matter"
+        );
+        let key =
+            u16::try_from(index).unwrap_or_else(|_| unreachable!("section cell index fits u16"));
+        let previous = self
+            .mass_overrides
+            .get(&key)
+            .copied()
+            .unwrap_or(default_mass);
+        if remaining_mass == default_mass {
+            self.mass_overrides.remove(&key);
+        } else {
+            self.mass_overrides.insert(key, remaining_mass);
+        }
+        self.represented_mass = self
+            .represented_mass
+            .checked_sub(previous)
+            .and_then(|mass| mass.checked_add(remaining_mass))
+            .unwrap_or_else(|| panic!("section represented mass override overflowed"));
+    }
+
     pub(crate) fn set_state_at_index(
         &mut self,
         index: usize,
@@ -201,6 +252,9 @@ impl WorldSection {
             );
             return;
         }
+        let key =
+            u16::try_from(index).unwrap_or_else(|_| unreachable!("section cell index fits u16"));
+        let represented_previous_mass = self.mass_overrides.remove(&key).unwrap_or(previous_mass);
         let palette_index = match self
             .palette
             .iter()
@@ -236,7 +290,7 @@ impl WorldSection {
         }
         self.represented_mass = self
             .represented_mass
-            .checked_sub(previous_mass)
+            .checked_sub(represented_previous_mass)
             .and_then(|mass| mass.checked_add(new_mass))
             .unwrap_or_else(|| panic!("section represented mass mutation overflowed"));
     }
@@ -347,6 +401,20 @@ impl WorldSection {
                 section_y: self.y,
                 state: self.palette[unused_index],
             });
+        }
+        for (&cell, &mass) in &self.mass_overrides {
+            if usize::from(cell) >= SECTION_CELL_COUNT {
+                return Err(WorldValidationError::SectionMassOverrideIndexOutOfRange {
+                    section_y: self.y,
+                    cell,
+                });
+            }
+            if mass.is_zero() {
+                return Err(WorldValidationError::ZeroSectionMassOverride {
+                    section_y: self.y,
+                    cell,
+                });
+            }
         }
         Ok(())
     }
@@ -488,6 +556,31 @@ impl WorldState {
             .map(|chunk| chunk.block_at(voxel))
     }
 
+    pub(crate) fn represented_mass_at(
+        &self,
+        registry: &WorldRegistry,
+        voxel: VoxelCoord,
+    ) -> Option<Mass> {
+        let state = self.block_at(voxel)?;
+        let default_mass = registry.represented_mass_for_state(state)?;
+        if state == BlockStateId::AIR {
+            return Some(Mass::ZERO);
+        }
+        let chunk = self.get_chunk(ChunkCoord::containing(voxel))?;
+        let target_section_y = section_y(voxel.y());
+        let Ok(section_index) = chunk
+            .sections
+            .binary_search_by_key(&target_section_y, WorldSection::y)
+        else {
+            return Some(default_mass);
+        };
+        Some(
+            chunk.sections[section_index]
+                .mass_override_at_index(local_index(voxel))
+                .unwrap_or(default_mass),
+        )
+    }
+
     pub(crate) fn insert_generated_chunks(
         &mut self,
         expected_revision: u64,
@@ -516,6 +609,45 @@ impl WorldState {
                 "generated chunk insertion cannot replace existing world truth"
             );
             self.chunks.insert(index, chunk);
+        }
+        self.revision = next_revision;
+    }
+
+    pub(crate) fn apply_excavated_cell_mass(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        voxel: VoxelCoord,
+        expected_state: BlockStateId,
+        default_mass: Mass,
+        remaining_mass: Mass,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let coord = ChunkCoord::containing(voxel);
+        let chunk_index = self
+            .chunks
+            .binary_search_by_key(&coord, WorldChunk::coord)
+            .unwrap_or_else(|_| panic!("mass override requires generated world truth"));
+        let target_section_y = section_y(voxel.y());
+        let section_index = self.chunks[chunk_index]
+            .sections
+            .binary_search_by_key(&target_section_y, WorldSection::y)
+            .unwrap_or_else(|_| panic!("mass override requires occupied section truth"));
+        assert_eq!(
+            self.chunks[chunk_index].sections[section_index].state_at_index(local_index(voxel)),
+            Some(expected_state),
+            "excavation target state changed after validation"
+        );
+        if remaining_mass.is_zero() {
+            self.chunks[chunk_index].set_block(voxel, BlockStateId::AIR, default_mass, Mass::ZERO);
+            self.chunks[chunk_index].canonicalize_sections();
+        } else {
+            self.chunks[chunk_index].sections[section_index].set_mass_override_at_index(
+                local_index(voxel),
+                default_mass,
+                remaining_mass,
+            );
         }
         self.revision = next_revision;
     }

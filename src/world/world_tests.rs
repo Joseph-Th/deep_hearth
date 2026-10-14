@@ -1,15 +1,27 @@
 //! Contract tests for compact block-world storage, generation, persistence, and accounting.
 
-use crate::content::{BLOCK_STATE_STONE, build_registries};
-use crate::core::state::{AppState, StateValidationError};
-use crate::logistics::{
-    PlayerControlInput, add_traversable_edge_for_test, validate_start_player_step,
+use crate::content::{
+    BLOCK_STATE_STONE, EQUIPMENT_STONE_PICK, FORM_CHIP, FORM_HANDLE, FORM_TOOL, MATERIAL_STONE,
+    MATERIAL_WOOD, MINING_METHOD_HAND_PICK, build_registries,
 };
+use crate::core::quantity::{Energy, Mass, Temperature};
+use crate::core::state::{AppState, StateValidationError};
+use crate::core::time::TickSpan;
+use crate::equipment::{EquipmentId, validate_assemble_equipment};
+use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::labor::PlayerWorkValidationError;
+use crate::logistics::{
+    PlayerControlInput, add_traversable_edge_for_test, place_equipment_for_fixture,
+    validate_pickup_equipment, validate_start_player_step,
+};
+use crate::maintenance::calculate_condition_after_active_ticks;
+use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::{PlayerAdmissionCommitError, validate_admit_player};
-use crate::simulation::advance_control_tick_with_input;
+use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
 use crate::spatial::{CubeFace, VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
+use crate::survival::{Vitality, player_record};
 
 use super::*;
 
@@ -21,6 +33,110 @@ fn generate(state: &mut AppState, coord: ChunkCoord) {
         .unwrap_or_else(|error| panic!("terrain generation validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("terrain generation commit failed: {error}"));
+}
+
+fn assemble_stone_pick_at(
+    registries: &crate::registry::Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+) -> EquipmentId {
+    let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("block excavation pick source failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("block excavation pick material failed: {error}"));
+    }
+    let pick = validate_assemble_equipment(registries, state, EQUIPMENT_STONE_PICK, source)
+        .unwrap_or_else(|error| panic!("block excavation pick assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("block excavation pick commit failed: {error}"));
+    place_equipment_for_fixture(state, pick, position);
+    pick
+}
+
+fn generated_excavation_fixture() -> (
+    crate::registry::Registries,
+    AppState,
+    EquipmentId,
+    VoxelCoord,
+) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("block excavation terrain generation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("block excavation terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("block excavation terrain column has no solid surface"));
+    let player_position = VoxelCoord::new(0, surface_y + 1, 0);
+    let eye_y = player_position.y() + 1;
+    for x in 1..=4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, eye_y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let target = VoxelCoord::new(3, eye_y, 0);
+    set_generated_block_for_test(registries.world(), &mut state, target, BLOCK_STATE_STONE);
+    let pick = assemble_stone_pick_at(&registries, &mut state, player_position);
+    validate_admit_player(&registries, &state, player_position)
+        .unwrap_or_else(|error| panic!("block excavation player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("block excavation player commit failed: {error}"));
+    validate_pickup_equipment(&registries, &state, pick)
+        .unwrap_or_else(|error| panic!("block excavation pick pickup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("block excavation pick pickup commit failed: {error}"));
+    (registries, state, pick, target)
+}
+
+fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut AppState) {
+    let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal block excavation fixture player disappeared"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
 }
 
 fn generated_targeting_player_at(x: i64, z: i64) -> (crate::registry::Registries, AppState, i64) {
@@ -41,6 +157,310 @@ fn generated_targeting_player_at(x: i64, z: i64) -> (crate::registry::Registries
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("targeting player commit failed: {error}"));
     (registries, state, floor_y)
+}
+
+#[test]
+fn partial_cell_mass_keeps_collision_until_the_last_milligram_is_removed() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("partial-cell fixture has no stone surface"));
+    let target = VoxelCoord::new(0, surface_y, 0);
+    let default_mass = registries
+        .world()
+        .represented_mass_for_state(BLOCK_STATE_STONE)
+        .unwrap_or_else(|| panic!("stone represented mass disappeared"));
+    let revision = state.world().revision();
+    state.world_state_mut().apply_excavated_cell_mass(
+        revision,
+        revision + 1,
+        target,
+        BLOCK_STATE_STONE,
+        default_mass,
+        Mass::from_milligrams(1),
+    );
+    assert_eq!(state.world().block_at(target), Some(BLOCK_STATE_STONE));
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(Mass::from_milligrams(1))
+    );
+    assert_eq!(
+        validate_loaded_world(registries.world(), state.world()),
+        Ok(())
+    );
+
+    let revision = state.world().revision();
+    state.world_state_mut().apply_excavated_cell_mass(
+        revision,
+        revision + 1,
+        target,
+        BLOCK_STATE_STONE,
+        default_mass,
+        Mass::ZERO,
+    );
+    assert_eq!(state.world().block_at(target), Some(BlockStateId::AIR));
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        validate_loaded_world(registries.world(), state.world()),
+        Ok(())
+    );
+}
+
+#[test]
+fn fatal_tick_cancels_unfinished_block_excavation_without_extracting_matter() {
+    let (registries, mut state, pick, target) = generated_excavation_fixture();
+    let batch = Mass::from_milligrams(200_000);
+    let source_mass = state
+        .world()
+        .represented_mass_at(registries.world(), target)
+        .unwrap_or_else(|| panic!("fatal block excavation target mass disappeared"));
+    let carried = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal block excavation player disappeared"))
+        .carried_stockpile();
+    let condition_before = state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("fatal block excavation pick disappeared"))
+        .condition();
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("fatal block excavation matter baseline failed: {error}"));
+    let start = validate_start_player_block_excavation(
+        &registries,
+        &state,
+        BlockExcavationRequest::new(positive_x_view(), MINING_METHOD_HAND_PICK, pick, batch),
+    )
+    .unwrap_or_else(|error| panic!("fatal block excavation validation failed: {error}"));
+    let start = start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fatal block excavation commit failed: {error}"));
+    assert!(start.completes_at().value() > state.tick().value() + 1);
+    make_next_tick_fatal(&registries, &mut state);
+
+    let mut excavation_outcome = None;
+    while state.tick().value() < 1 {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fatal block excavation control tick failed: {error}"));
+        if let Some(outcome) = control
+            .simulation()
+            .and_then(|simulation| simulation.block_excavation())
+        {
+            excavation_outcome = Some(outcome);
+        }
+    }
+    assert_eq!(excavation_outcome, None);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(state.world().block_at(target), Some(BLOCK_STATE_STONE));
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(source_mass)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| (stockpile.stored_mass(), stockpile.reserved_inbound())),
+        Some((Mass::ZERO, Mass::ZERO))
+    );
+    let expected_condition = calculate_condition_after_active_ticks(
+        registries
+            .mining()
+            .get_method(MINING_METHOD_HAND_PICK)
+            .unwrap_or_else(|| panic!("fatal block excavation mining method disappeared"))
+            .condition_wear_ppm_per_active_tick(),
+        condition_before,
+        TickSpan::new(1),
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(pick)
+            .map(|record| record.condition()),
+        Some(expected_condition)
+    );
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    let matter_after = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("fatal block excavation matter final failed: {error}"));
+    assert_eq!(matter_after.total(), matter_before.total());
+}
+
+#[test]
+fn trusted_load_rejects_block_excavation_source_mass_tamper() {
+    let (registries, mut state, pick, _target) = generated_excavation_fixture();
+    let _start = validate_start_player_block_excavation(
+        &registries,
+        &state,
+        BlockExcavationRequest::new(
+            positive_x_view(),
+            MINING_METHOD_HAND_PICK,
+            pick,
+            Mass::from_milligrams(200_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("block excavation tamper validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("block excavation tamper commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("block excavation tamper serialization failed: {error}"));
+    let source_mass = encoded["state"]["systems"]["player_work"]["active"]
+        ["BlockExcavation"]["work"]["source_mass_before"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("serialized block excavation source mass is not an integer"));
+    encoded["state"]["systems"]["player_work"]["active"]["BlockExcavation"]["work"]["source_mass_before"] =
+        serde_json::json!(source_mass - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("block excavation tamper decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::BlockExcavationSourceMassMismatch
+        )))
+    );
+}
+
+#[test]
+fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_work() {
+    let (registries, mut state, pick, target) = generated_excavation_fixture();
+    let batch = Mass::from_milligrams(200_000);
+    let source_mass = state
+        .world()
+        .represented_mass_at(registries.world(), target)
+        .unwrap_or_else(|| panic!("block excavation target mass disappeared"));
+    let carried = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("block excavation player disappeared"))
+        .carried_stockpile();
+    let condition_before = state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("block excavation pick disappeared"))
+        .condition();
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("block excavation matter baseline failed: {error}"));
+
+    let start = validate_start_player_block_excavation(
+        &registries,
+        &state,
+        BlockExcavationRequest::new(positive_x_view(), MINING_METHOD_HAND_PICK, pick, batch),
+    )
+    .unwrap_or_else(|error| panic!("block excavation validation failed: {error}"));
+    let outcome = start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("block excavation start commit failed: {error}"));
+    assert_eq!(outcome.target(), target);
+    assert_eq!(outcome.excavated_mass(), batch);
+    assert_eq!(state.world().block_at(target), Some(BLOCK_STATE_STONE));
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(source_mass)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(batch)
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("active block excavation serialization failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("active block excavation decode failed: {error}"));
+    assert_eq!(
+        loaded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("active block excavation trusted load failed: {error}")),
+        state
+    );
+
+    let mut completion = None;
+    while state.tick() < outcome.completes_at() {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("block excavation control tick failed: {error}"));
+        if let Some(excavation) = control
+            .simulation()
+            .and_then(|simulation| simulation.block_excavation())
+        {
+            assert!(completion.replace(excavation).is_none());
+        }
+    }
+    let completion = completion.unwrap_or_else(|| panic!("block excavation produced no outcome"));
+    let remaining = source_mass
+        .checked_sub(batch)
+        .unwrap_or_else(|| panic!("block excavation test batch exceeds source mass"));
+    assert_eq!(completion.target(), target);
+    assert_eq!(completion.excavated_mass(), batch);
+    assert_eq!(completion.remaining_mass(), remaining);
+    assert_eq!(state.world().block_at(target), Some(BLOCK_STATE_STONE));
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(remaining)
+    );
+    let output = state
+        .inventory()
+        .get_lot(completion.lot())
+        .unwrap_or_else(|| panic!("block excavation output lot disappeared"));
+    assert_eq!(output.stockpile(), carried);
+    assert_eq!(output.mass(), batch);
+    assert_eq!(
+        output.commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(Mass::ZERO)
+    );
+    assert!(
+        state
+            .equipment()
+            .get_equipment(pick)
+            .is_some_and(|record| record.condition() < condition_before)
+    );
+    assert_eq!(state.player_work().active(), None);
+    let matter_after = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("block excavation final matter accounting failed: {error}"));
+    assert_eq!(matter_after.total(), matter_before.total());
+    assert_eq!(
+        matter_after.world(),
+        matter_before
+            .world()
+            .checked_sub(crate::core::quantity::AggregateMass::from_mass(batch))
+            .unwrap_or_else(|| panic!("block excavation world matter underflow"))
+    );
+    assert_eq!(
+        matter_after.stored(),
+        matter_before
+            .stored()
+            .checked_add(crate::core::quantity::AggregateMass::from_mass(batch))
+            .unwrap_or_else(|| panic!("block excavation stored matter overflow"))
+    );
 }
 
 fn positive_x_view() -> ViewDirection {

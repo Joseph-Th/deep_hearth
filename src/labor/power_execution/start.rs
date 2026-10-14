@@ -73,6 +73,12 @@ impl ValidatedManualPowerStart {
             Some(EquipmentOccupancy::Mining { job }) => {
                 return Err(ManualPowerCommitError::EquipmentBusyMining { equipment, job });
             }
+            Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
+                return Err(ManualPowerCommitError::EquipmentBusyBlockExcavation {
+                    equipment,
+                    completes_at,
+                });
+            }
             Some(
                 EquipmentOccupancy::ManualPower { .. }
                 | EquipmentOccupancy::Prospecting { .. }

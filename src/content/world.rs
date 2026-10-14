@@ -1,13 +1,13 @@
 //! Owns built-in block and block-state content for persistent terrain.
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::material::{CommodityKey, MaterialId, MaterialRegistry};
 use crate::world::{
-    BlockCollisionShape, BlockDefinition, BlockDefinitionId, BlockPhysicalDefinition,
-    BlockStateDefinition, BlockStateId, WorldRegistry,
+    BlockCollisionShape, BlockDefinition, BlockDefinitionId, BlockExcavationDefinition,
+    BlockPhysicalDefinition, BlockStateDefinition, BlockStateId, WorldRegistry,
 };
 
-use super::materials::{FORM_BLOCK, MATERIAL_STONE};
+use super::materials::{FORM_BLOCK, FORM_CHIP, MATERIAL_STONE};
 use super::textures::BLOCK_STONE;
 
 pub const WORLD_BLOCK_STONE: BlockDefinitionId = BlockDefinitionId::new(2);
@@ -33,7 +33,12 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                     full_cube_mass(materials, MATERIAL_STONE),
                     BlockCollisionShape::FullCube,
                     true,
-                ),
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(350_000_000),
+                    CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                    Temperature::from_millikelvin(293_150),
+                )),
                 Some(BLOCK_STONE),
             ),
         ],

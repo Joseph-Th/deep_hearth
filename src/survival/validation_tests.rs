@@ -23,6 +23,7 @@ fn finish_pending_consumption(registries: &Registries, state: &mut AppState) {
         PlayerWork::Drinking { work } => work.completes_at(),
         other @ (PlayerWork::Step { .. }
         | PlayerWork::SurfaceGathering { .. }
+        | PlayerWork::BlockExcavation { .. }
         | PlayerWork::ManualProduction { .. }
         | PlayerWork::Mining { .. }
         | PlayerWork::ManualPower { .. }

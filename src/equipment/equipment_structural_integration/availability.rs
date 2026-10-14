@@ -25,6 +25,9 @@ enum EquipmentSupportBlocker {
     Prospecting {
         completes_at: SimulationTick,
     },
+    BlockExcavation {
+        completes_at: SimulationTick,
+    },
     Maintenance {
         completes_at: SimulationTick,
     },
@@ -44,6 +47,9 @@ fn blocker(state: &AppState, equipment: EquipmentId) -> Option<EquipmentSupportB
         EquipmentOccupancy::ManualPower { .. } => Some(EquipmentSupportBlocker::ManualPower),
         EquipmentOccupancy::Prospecting { completes_at } => {
             Some(EquipmentSupportBlocker::Prospecting { completes_at })
+        }
+        EquipmentOccupancy::BlockExcavation { completes_at } => {
+            Some(EquipmentSupportBlocker::BlockExcavation { completes_at })
         }
         EquipmentOccupancy::Maintenance { completes_at } => {
             Some(EquipmentSupportBlocker::Maintenance { completes_at })
@@ -71,6 +77,12 @@ pub(super) fn support_validation_error(
         }
         EquipmentSupportBlocker::Prospecting { completes_at } => {
             EquipmentSupportError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentSupportBlocker::BlockExcavation { completes_at } => {
+            EquipmentSupportError::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
             }
@@ -104,6 +116,12 @@ pub(super) fn support_commit_error(
         }
         EquipmentSupportBlocker::Prospecting { completes_at } => {
             EquipmentSupportCommitError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentSupportBlocker::BlockExcavation { completes_at } => {
+            EquipmentSupportCommitError::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
             }

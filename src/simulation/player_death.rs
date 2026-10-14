@@ -28,11 +28,16 @@ use crate::surface::{
     SurfaceGatheringCancellationPlan, apply_surface_gathering_cancellation,
     decide_surface_gathering_cancellation,
 };
+use crate::world::{
+    BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
+    decide_block_excavation_cancellation,
+};
 
 use super::TickError;
 
 pub(super) enum PlayerDeathEffectPlan {
     SurfaceGathering(SurfaceGatheringCancellationPlan),
+    BlockExcavation(BlockExcavationCancellationPlan),
     Mining(MiningCancellationPlan),
     StorageDismantling(StorageEnclosureDismantlingCancellationPlan),
     ManualPower(ManualPowerInterruptionPlan),
@@ -44,6 +49,7 @@ impl PlayerDeathEffectPlan {
     pub(super) const fn equipment_revision_steps(&self) -> u64 {
         match self {
             Self::SurfaceGathering(_) => 0,
+            Self::BlockExcavation(plan) => plan.equipment_revision_steps(),
             Self::Mining(plan) => plan.equipment_revision_steps(),
             Self::ManualPower(plan) => plan.equipment_revision_steps(),
             Self::Prospecting(plan) => plan.equipment_revision_steps(),
@@ -59,17 +65,20 @@ impl PlayerDeathEffectPlan {
     pub(super) const fn mutates_inventory(&self) -> bool {
         matches!(
             self,
-            Self::SurfaceGathering(_) | Self::Mining(_) | Self::StorageDismantling(_)
+            Self::SurfaceGathering(_)
+                | Self::BlockExcavation(_)
+                | Self::Mining(_)
+                | Self::StorageDismantling(_)
         )
     }
 }
 
 /// Plans all durable consequences of survival ending unfinished direct player work.
 ///
-/// Completion due on the fatal tick remains authoritative. Otherwise mining and dismantling are
-/// canceled through their owners, instrumented direct work settles wear from elapsed active ticks,
-/// interrupted maintenance retains proportional completed recovery, and manual production preserves
-/// WIP by suspending it.
+/// Completion due on the fatal tick remains authoritative. Otherwise excavation, mining, and
+/// dismantling are canceled through their owners, instrumented direct work settles wear from elapsed
+/// active ticks, interrupted maintenance retains proportional completed recovery, and manual
+/// production preserves WIP by suspending it.
 pub(super) fn decide_player_death_effects(
     registries: &Registries,
     state: &AppState,
@@ -95,6 +104,32 @@ pub(super) fn decide_player_death_effects(
                 .map(PlayerDeathEffectPlan::SurfaceGathering)
                 .map(Some)
                 .map_err(Into::into)
+        }
+        PlayerWork::BlockExcavation { work } => {
+            if work.completes_at() == next_tick {
+                return Ok(None);
+            }
+            let projected_inventory =
+                completion_plan.project_inventory_after_deposits(state.inventory());
+            decide_block_excavation_cancellation(
+                registries,
+                state,
+                projected_inventory.as_ref(),
+                work,
+                next_tick,
+            )
+            .map(PlayerDeathEffectPlan::BlockExcavation)
+            .map(Some)
+            .map_err(|error| match error {
+                BlockExcavationTickError::MaterialLotId => TickError::MaterialLotIdExhausted,
+                BlockExcavationTickError::InventoryRevision => {
+                    TickError::InventoryRevisionExhausted
+                }
+                BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
+                BlockExcavationTickError::EquipmentRevision => {
+                    TickError::EquipmentRevisionExhausted
+                }
+            })
         }
         PlayerWork::Mining { job } => {
             let record = state.mining().get_job(job).unwrap_or_else(|| {
@@ -157,6 +192,9 @@ pub(super) fn apply_player_death_effects(
     match plan {
         Some(PlayerDeathEffectPlan::SurfaceGathering(plan)) => {
             apply_surface_gathering_cancellation(state, plan);
+        }
+        Some(PlayerDeathEffectPlan::BlockExcavation(plan)) => {
+            apply_block_excavation_cancellation(state, plan);
         }
         Some(PlayerDeathEffectPlan::Mining(plan)) => apply_mining_cancellation(state, plan),
         Some(PlayerDeathEffectPlan::StorageDismantling(plan)) => {

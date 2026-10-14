@@ -52,6 +52,14 @@ impl ValidatedEquipmentMaintenance {
                     completes_at,
                 });
             }
+            Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
+                return Err(
+                    EquipmentMaintenanceCommitError::EquipmentBusyBlockExcavation {
+                        equipment: self.equipment,
+                        completes_at,
+                    },
+                );
+            }
             Some(EquipmentOccupancy::Maintenance { .. }) => {
                 unreachable!(
                     "validated maintenance cannot race another service without changing equipment revision"

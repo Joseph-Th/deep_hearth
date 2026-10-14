@@ -16,6 +16,7 @@ use super::{
     calculate_player_work_resource_budget,
 };
 
+mod block_excavation;
 mod direct_consumption;
 mod equipment_maintenance;
 mod error;
@@ -24,6 +25,7 @@ mod prospecting;
 mod storage_enclosure_dismantling;
 mod surface_gathering;
 
+use block_excavation::validate_block_excavation_work;
 use direct_consumption::{
     validate_direct_consumption_binding, validate_drinking_work, validate_eating_work,
 };
@@ -121,6 +123,14 @@ pub(crate) fn validate_loaded_player_work(
             available_hydration,
         ),
         PlayerWork::SurfaceGathering { work } => validate_surface_gathering_work(
+            registries,
+            state,
+            &active_jobs,
+            work,
+            available_energy,
+            available_hydration,
+        ),
+        PlayerWork::BlockExcavation { work } => validate_block_excavation_work(
             registries,
             state,
             &active_jobs,

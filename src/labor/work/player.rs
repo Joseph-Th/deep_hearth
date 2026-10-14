@@ -7,8 +7,8 @@ use crate::mining::MiningJobId;
 use crate::production::ProductionJobId;
 
 use super::{
-    DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerStepWork,
-    ProspectingWork, StorageEnclosureDismantlingWork, StructuralConstructionWork,
+    BlockExcavationWork, DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork,
+    PlayerStepWork, ProspectingWork, StorageEnclosureDismantlingWork, StructuralConstructionWork,
     SurfaceGatheringWork,
 };
 
@@ -21,6 +21,9 @@ pub enum PlayerWork {
     },
     SurfaceGathering {
         work: SurfaceGatheringWork,
+    },
+    BlockExcavation {
+        work: BlockExcavationWork,
     },
     ManualProduction {
         job: ProductionJobId,
@@ -52,12 +55,32 @@ pub enum PlayerWork {
 }
 
 impl PlayerWork {
+    /// Future world-owner revisions still owed directly by this work after admission.
+    #[must_use]
+    pub(in crate::labor) const fn future_world_revision_demand(self) -> u64 {
+        match self {
+            Self::BlockExcavation { .. } => 1,
+            Self::Step { .. }
+            | Self::SurfaceGathering { .. }
+            | Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => 0,
+        }
+    }
+
     /// Future surface-owner revisions still owed directly by this work record after admission.
     #[must_use]
     pub(in crate::labor) const fn future_surface_revision_demand(self) -> u64 {
         match self {
             Self::SurfaceGathering { .. } => 1,
             Self::Step { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -76,6 +99,7 @@ impl PlayerWork {
         match self {
             Self::Step { .. } => 1,
             Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -95,7 +119,7 @@ impl PlayerWork {
     #[must_use]
     pub(in crate::labor) const fn future_inventory_revision_demand(self) -> u64 {
         match self {
-            Self::SurfaceGathering { .. } => 1,
+            Self::SurfaceGathering { .. } | Self::BlockExcavation { .. } => 1,
             Self::StorageEnclosureDismantling { .. } => 2,
             Self::Step { .. }
             | Self::ManualProduction { .. }
@@ -116,6 +140,7 @@ impl PlayerWork {
             Self::ManualPower { .. } => 1,
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }
@@ -134,7 +159,9 @@ impl PlayerWork {
     #[must_use]
     pub(in crate::labor) const fn future_equipment_revision_demand(self) -> u64 {
         match self {
-            Self::ManualPower { .. } | Self::EquipmentMaintenance { .. } => 1,
+            Self::BlockExcavation { .. }
+            | Self::ManualPower { .. }
+            | Self::EquipmentMaintenance { .. } => 1,
             Self::Prospecting { work } if work.equipment().is_some() => 1,
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
@@ -155,6 +182,7 @@ impl PlayerWork {
             Self::StructuralConstruction { .. } => 1,
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -172,6 +200,7 @@ impl PlayerWork {
             Self::Prospecting { work } => Some(work),
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -189,6 +218,7 @@ impl PlayerWork {
             Self::ManualPower { work } => Some(work),
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }
@@ -205,6 +235,7 @@ impl PlayerWork {
         match self {
             Self::Step { work } => Some((work.started_at(), work.completes_at())),
             Self::SurfaceGathering { work } => Some((work.started_at(), work.completes_at())),
+            Self::BlockExcavation { work } => Some((work.started_at(), work.completes_at())),
             Self::ManualPower { work } => Some((work.started_at(), work.completes_at())),
             Self::Prospecting { work } => Some((work.started_at(), work.completes_at())),
             Self::Eating { work } => Some((work.started_at(), work.completes_at())),
@@ -224,6 +255,7 @@ impl PlayerWork {
             Self::EquipmentMaintenance { work } => Some(work),
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -241,6 +273,7 @@ impl PlayerWork {
             Self::StorageEnclosureDismantling { work } => Some(work),
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -257,6 +290,7 @@ impl PlayerWork {
         match self {
             Self::Step { work } => Some(work),
             Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -275,6 +309,7 @@ impl PlayerWork {
             Self::StructuralConstruction { work } => Some(work),
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -291,6 +326,25 @@ impl PlayerWork {
         match self {
             Self::SurfaceGathering { work } => Some(work),
             Self::Step { .. }
+            | Self::BlockExcavation { .. }
+            | Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn block_excavation(self) -> Option<BlockExcavationWork> {
+        match self {
+            Self::BlockExcavation { work } => Some(work),
+            Self::Step { .. }
+            | Self::SurfaceGathering { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }

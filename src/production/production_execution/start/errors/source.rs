@@ -56,7 +56,8 @@ impl Error for StartProcessError {
             | Self::EquipmentBusy { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
-            | Self::EquipmentBusyProspecting { .. } => None,
+            | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyBlockExcavation { .. } => None,
         }
     }
 }

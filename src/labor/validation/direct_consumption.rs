@@ -55,6 +55,7 @@ pub(super) fn validate_direct_consumption_binding(
         Some(
             PlayerWork::Step { .. }
             | PlayerWork::SurfaceGathering { .. }
+            | PlayerWork::BlockExcavation { .. }
             | PlayerWork::ManualProduction { .. }
             | PlayerWork::Mining { .. }
             | PlayerWork::ManualPower { .. }
@@ -71,6 +72,7 @@ pub(super) fn validate_direct_consumption_binding(
         Some(
             PlayerWork::Step { .. }
             | PlayerWork::SurfaceGathering { .. }
+            | PlayerWork::BlockExcavation { .. }
             | PlayerWork::ManualProduction { .. }
             | PlayerWork::Mining { .. }
             | PlayerWork::ManualPower { .. }
