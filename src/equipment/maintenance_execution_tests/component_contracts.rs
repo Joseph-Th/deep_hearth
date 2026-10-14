@@ -154,6 +154,115 @@ fn every_builtin_material_backed_component_service_executes_from_its_real_assemb
 }
 
 #[test]
+fn component_service_can_return_worn_part_to_its_replacement_stockpile() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_service_player(&registries, &mut state);
+    let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("same-stockpile component assembly failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(300_000),
+        )
+        .unwrap_or_else(|error| panic!("same-stockpile component assembly input failed: {error}"));
+    }
+    let pick = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, assembly)
+        .unwrap_or_else(|error| panic!("same-stockpile component pick assembly failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("same-stockpile component pick assembly commit failed: {error}")
+        });
+    degrade_equipment_condition_for_test(&mut state, pick, 100_000);
+
+    let service_stock = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(800_000))
+        .unwrap_or_else(|error| panic!("same-stockpile component service stock failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        service_stock,
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(800_000),
+        Temperature::from_millikelvin(310_000),
+    )
+    .unwrap_or_else(|error| panic!("same-stockpile component replacement failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("same-stockpile component matter-before failed: {error}"))
+        .total();
+    let energy_before = explicit_energy(&registries, &state);
+
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(pick, service_stock, service_stock),
+    )
+    .unwrap_or_else(|error| panic!("same-stockpile component resolution failed: {error}"));
+    assert!(resolution.replaces_embodied_component());
+    let outcome = validate_equipment_maintenance(&registries, &state, resolution)
+        .unwrap_or_else(|error| panic!("same-stockpile component validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("same-stockpile component commit failed: {error}"));
+
+    let service_record = state
+        .inventory()
+        .get_stockpile(service_stock)
+        .unwrap_or_else(|| panic!("same-stockpile component service stock disappeared"));
+    assert_eq!(service_record.stored_mass(), Mass::from_milligrams(800_000));
+    assert_eq!(
+        service_record.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)),
+        Mass::ZERO
+    );
+    assert_eq!(
+        service_record.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)),
+        Mass::from_milligrams(800_000)
+    );
+    let fresh_component = state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("same-stockpile component serviced pick disappeared"))
+        .embodied_material()
+        .iter()
+        .find(|trace| trace.profile().commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+        .unwrap_or_else(|| panic!("same-stockpile component fresh trace disappeared"));
+    assert_eq!(
+        fresh_component.profile().temperature(),
+        Temperature::from_millikelvin(310_000)
+    );
+    let worn_component = state
+        .inventory()
+        .lots()
+        .find(|lot| lot.stockpile() == service_stock)
+        .unwrap_or_else(|| panic!("same-stockpile component worn trace disappeared"));
+    assert_eq!(
+        worn_component.temperature(),
+        Temperature::from_millikelvin(300_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("same-stockpile component matter-after failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(explicit_energy(&registries, &state), energy_before);
+    let completion = finish_service(&registries, &mut state, outcome.completes_at());
+    assert_eq!(completion.condition_after(), Condition::PRISTINE);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
     let registries = build_registries();
     let mut state = AppState::new();
