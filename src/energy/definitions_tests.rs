@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::content::{
-    FORM_FLYWHEEL, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, build_registries,
+    FORM_FLYWHEEL, FORM_MOLTEN, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE,
+    build_registries,
 };
 use crate::core::quantity::Mass;
 use crate::material::{CommodityKey, MaterialInputSpec};
@@ -12,6 +13,31 @@ fn assembly_profile() -> MaterialAssemblyProfile {
         CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
         Mass::from_milligrams(1),
     )])
+}
+
+#[test]
+fn registry_rejects_liquid_combustion_fuel() {
+    let registries = build_registries();
+    let invalid = EnergyRegistry::new([EnergyStoreDefinition::new_combustion_store(
+        EnergyStoreDefinitionId::new(930_020),
+        "liquid-fuel combustion fixture",
+        Energy::from_nanojoules(1_000_000),
+        Power::from_microwatts(1),
+        CombustionProfile::new(
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            Mass::from_milligrams(1),
+            Energy::from_nanojoules(1),
+        ),
+    )]);
+
+    let result = std::panic::catch_unwind(|| {
+        invalid.validate_references(
+            registries.materials(),
+            registries.core().physical_tick_duration(),
+        )
+    });
+
+    assert!(result.is_err());
 }
 
 fn copper_additions() -> MaterialAssemblyProfile {

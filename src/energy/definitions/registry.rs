@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::quantity::Energy;
 use crate::core::time::{PhysicalTickDuration, TickSpan};
-use crate::material::MaterialRegistry;
+use crate::material::{MaterialPhase, MaterialRegistry};
 
 use super::{EnergyStoreDefinition, EnergyStoreDefinitionId};
 use crate::energy::integration::{PowerRemainder, integrate_power};
@@ -152,6 +152,17 @@ impl EnergyRegistry {
                 assert!(
                     materials.has_commodity(combustion.fuel()),
                     "energy store definition {} combustion fuel must reference an authored commodity",
+                    definition.id().value()
+                );
+                let fuel_form = materials
+                    .get_form(combustion.fuel().form())
+                    .unwrap_or_else(|| {
+                        unreachable!("resolved combustion fuel has a form definition")
+                    });
+                assert_eq!(
+                    fuel_form.phase(),
+                    MaterialPhase::Solid,
+                    "energy store definition {} combustion fuel must use a solid material form",
                     definition.id().value()
                 );
             }
