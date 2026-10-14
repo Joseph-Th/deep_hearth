@@ -40,10 +40,11 @@ use player_death::{apply_player_death_effects, decide_player_death_effects};
 
 /// Advances one canonical 20 Hz direct-control tick.
 ///
-/// Most control ticks only advance the high-frequency clock today. Every 72nd control tick runs
-/// one complete slow-simulation quantum before committing the boundary clock. Future movement,
-/// collision, direct block interaction, and combat phases belong on this surface rather than
-/// forcing slow industrial/survival accounting to 20 Hz.
+/// Each control tick advances the high-frequency clock and, when the admitted player's footprint
+/// is backed by generated chunks, integrates authoritative body gravity/collision. Every 72nd
+/// control tick also executes one complete slow-simulation quantum. Future horizontal movement,
+/// direct block interaction, and combat phases belong on this surface rather than forcing slow
+/// industrial/survival accounting to 20 Hz.
 pub fn advance_control_tick(
     registries: &Registries,
     state: &mut AppState,
@@ -72,13 +73,12 @@ pub fn advance_control_tick(
     ))
 }
 
-/// Advances atomically to the next slow-simulation boundary.
+/// Advances atomically to the next slow-simulation boundary when no control-rate body physics
+/// needs intervening steps.
 ///
-/// No control-rate gameplay phase exists yet, so this headless/process helper may jump directly to
-/// the next exact control/simulation boundary and execute the same slow transaction used by
-/// `advance_control_tick`. Direct-control adapters must use `advance_control_tick`. Once control-
-/// rate gameplay mutation exists, this helper must plan or replay those intervening phases rather
-/// than skip them.
+/// This helper remains valid for headless/process-only states and players outside generated body
+/// truth. It returns `TickError::ControlSteppingRequired` when generated-world body physics is
+/// active rather than skipping authoritative 50 ms gravity/collision effects.
 pub fn advance_tick(
     registries: &Registries,
     state: &mut AppState,
