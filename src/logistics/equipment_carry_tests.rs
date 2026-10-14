@@ -234,6 +234,31 @@ fn trusted_load_rejects_carried_tool_capacity_that_no_longer_matches_body_envelo
 }
 
 #[test]
+fn trusted_load_rejects_overflowing_carried_tool_capacity_envelope() {
+    let (registries, mut state, pick) = admitted_pick_fixture();
+    validate_pickup_equipment(&registries, &state, pick)
+        .unwrap_or_else(|error| panic!("capacity-overflow pickup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("capacity-overflow pickup commit failed: {error}"));
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| panic!("capacity-overflow fixture lost player"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("capacity-overflow serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["stockpiles"][carried.value().to_string()]["capacity"] =
+        serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("capacity-overflow decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::PlayerCarriedCapacityOverflow { stockpile: carried })
+    );
+}
+
+#[test]
 fn equipment_pickup_rejects_existing_material_over_body_envelope_without_mutation() {
     let (registries, mut state, pick) = admitted_pick_fixture();
     let carried = state

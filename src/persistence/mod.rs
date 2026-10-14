@@ -105,26 +105,27 @@ fn validate_persisted_player_admission(
                     unreachable!("generic validation proved admitted carried custody exists")
                 });
             let expected_capacity = registries.survival().physiology().carried_mass_capacity();
-            let equipment_mass =
-                state
-                    .logistics()
-                    .carried_equipment()
-                    .fold(Mass::ZERO, |total, equipment| {
-                        let mass = state
-                            .equipment()
-                            .get_equipment(equipment)
-                            .unwrap_or_else(|| {
-                                unreachable!("generic validation proved carried equipment exists")
-                            })
-                            .embodied_mass();
-                        total.checked_add(mass).unwrap_or_else(|| {
-                            panic!("persisted carried equipment mass overflowed")
+            let equipment_mass = state
+                .logistics()
+                .carried_equipment()
+                .try_fold(Mass::ZERO, |total, equipment| {
+                    let mass = state
+                        .equipment()
+                        .get_equipment(equipment)
+                        .unwrap_or_else(|| {
+                            unreachable!("generic validation proved carried equipment exists")
                         })
-                    });
-            let actual_capacity = stockpile
-                .capacity()
-                .checked_add(equipment_mass)
-                .unwrap_or_else(|| panic!("persisted player carrying envelope overflowed"));
+                        .embodied_mass();
+                    total.checked_add(mass)
+                })
+                .ok_or(LoadError::PlayerCarriedCapacityOverflow {
+                    stockpile: stockpile.id(),
+                })?;
+            let actual_capacity = stockpile.capacity().checked_add(equipment_mass).ok_or(
+                LoadError::PlayerCarriedCapacityOverflow {
+                    stockpile: stockpile.id(),
+                },
+            )?;
             if actual_capacity != expected_capacity {
                 return Err(LoadError::PlayerCarriedCapacityMismatch {
                     stockpile: stockpile.id(),
@@ -186,6 +187,8 @@ pub enum LoadError {
         expected: Mass,
         actual: Mass,
     },
+    /// Ordinary player carried custody exceeds the represented mass range.
+    PlayerCarriedCapacityOverflow { stockpile: StockpileId },
     /// Ordinary player carried custody no longer has its canonical ambient solid-only profile.
     PlayerCarriedStorageProfileMismatch {
         stockpile: StockpileId,
@@ -227,6 +230,11 @@ impl Display for LoadError {
                 actual.milligrams(),
                 expected.milligrams()
             ),
+            Self::PlayerCarriedCapacityOverflow { stockpile } => write!(
+                formatter,
+                "persisted player carried custody for stockpile {} exceeds represented mass range",
+                stockpile.value()
+            ),
             Self::PlayerCarriedStorageProfileMismatch {
                 stockpile,
                 expected: _expected,
@@ -251,6 +259,7 @@ impl Error for LoadError {
             Self::RegistrySchemaMismatch { .. }
             | Self::IncompletePlayerAdmission { .. }
             | Self::PlayerCarriedCapacityMismatch { .. }
+            | Self::PlayerCarriedCapacityOverflow { .. }
             | Self::PlayerCarriedStorageProfileMismatch { .. } => None,
             Self::InvalidState(error) => Some(error),
         }
