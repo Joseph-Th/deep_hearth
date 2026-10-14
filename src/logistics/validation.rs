@@ -98,7 +98,7 @@ pub enum LogisticsValidationError {
         voxel: VoxelCoord,
     },
     PlayerBodyOutsideContinuousWorld,
-    PlayerHorizontalVelocityExceedsWalkingSpeed {
+    PlayerHorizontalVelocityExceedsMaximumSpeed {
         x_nanometers_per_second: i64,
         z_nanometers_per_second: i64,
         maximum_nanometers_per_second: u64,
@@ -277,13 +277,13 @@ impl Display for LogisticsValidationError {
             ),
             Self::PlayerBodyOutsideContinuousWorld => formatter
                 .write_str("player body extent exceeds representable continuous world coordinates"),
-            Self::PlayerHorizontalVelocityExceedsWalkingSpeed {
+            Self::PlayerHorizontalVelocityExceedsMaximumSpeed {
                 x_nanometers_per_second,
                 z_nanometers_per_second,
                 maximum_nanometers_per_second,
             } => write!(
                 formatter,
-                "player horizontal velocity ({x_nanometers_per_second},{z_nanometers_per_second}) nm/s exceeds authored walking speed {maximum_nanometers_per_second} nm/s",
+                "player horizontal velocity ({x_nanometers_per_second},{z_nanometers_per_second}) nm/s exceeds authored maximum locomotion speed {maximum_nanometers_per_second} nm/s",
             ),
             Self::PlayerVerticalVelocityExceedsMaximum {
                 nanometers_per_second,
@@ -538,10 +538,10 @@ pub(crate) fn validate_loaded_logistics(
         let x = u128::from(horizontal.x_nanometers_per_second().unsigned_abs());
         let z = u128::from(horizontal.z_nanometers_per_second().unsigned_abs());
         let horizontal_squared = x * x + z * z;
-        let maximum_horizontal = locomotion.walking_speed().nanometers_per_second();
+        let maximum_horizontal = locomotion.sprinting_speed().nanometers_per_second();
         if horizontal_squared > u128::from(maximum_horizontal) * u128::from(maximum_horizontal) {
             return Err(
-                LogisticsValidationError::PlayerHorizontalVelocityExceedsWalkingSpeed {
+                LogisticsValidationError::PlayerHorizontalVelocityExceedsMaximumSpeed {
                     x_nanometers_per_second: horizontal.x_nanometers_per_second(),
                     z_nanometers_per_second: horizontal.z_nanometers_per_second(),
                     maximum_nanometers_per_second: maximum_horizontal,

@@ -4,6 +4,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord, WorldPoint};
 
+/// Persisted collision stance for the continuous player body.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerStance {
+    #[default]
+    Standing,
+    Crouching,
+}
+
 /// Authoritative continuous body transform for the single locally controlled player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -11,6 +20,7 @@ pub struct PlayerBodyState {
     foot_position: WorldPoint,
     horizontal_velocity: HorizontalVelocity,
     vertical_velocity: VerticalVelocity,
+    stance: PlayerStance,
 }
 
 impl PlayerBodyState {
@@ -20,6 +30,7 @@ impl PlayerBodyState {
             foot_position: WorldPoint::centered_on_voxel_floor(position)?,
             horizontal_velocity: HorizontalVelocity::ZERO,
             vertical_velocity: VerticalVelocity::ZERO,
+            stance: PlayerStance::Standing,
         })
     }
 
@@ -38,6 +49,11 @@ impl PlayerBodyState {
         self.vertical_velocity
     }
 
+    #[must_use]
+    pub const fn stance(self) -> PlayerStance {
+        self.stance
+    }
+
     /// Discrete locality used by existing custody/access systems.
     #[must_use]
     pub const fn voxel_position(self) -> VoxelCoord {
@@ -49,12 +65,18 @@ impl PlayerBodyState {
         foot_position: WorldPoint,
         horizontal_velocity: HorizontalVelocity,
         vertical_velocity: VerticalVelocity,
+        stance: PlayerStance,
     ) -> Self {
         Self {
             foot_position,
             horizontal_velocity,
             vertical_velocity,
+            stance,
         }
+    }
+
+    pub(crate) const fn with_stance(self, stance: PlayerStance) -> Self {
+        Self { stance, ..self }
     }
 
     pub(crate) fn snap_to_voxel_floor(self, position: VoxelCoord) -> Self {

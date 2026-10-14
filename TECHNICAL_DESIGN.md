@@ -350,23 +350,25 @@ consequences commit atomically.
 `LogisticsState` owns the player's persisted fixed-point body state, the inventory-owned carried stockpile
 identity, stationary stockpile locations, equipment locations, energy-store locations, fluid-store locations,
 fractional direct-locomotion exertion awaiting slow survival settlement, and a monotonic revision. The body stores
-a bottom-center `WorldPoint` in nanometres plus signed horizontal and vertical velocity; existing voxel-locality
+a bottom-center `WorldPoint` in nanometres plus signed horizontal/vertical velocity and standing/crouching stance; existing voxel-locality
 rules derive `PlayerLogisticsRecord::position()` from that point rather than persisting a second position.
 Logistics does not duplicate lot contents, equipment condition, stored energy/fluid, or capacities.
 
-Built-in physiology currently authors a 0.6 m wide, 1.8 m standing body, 4.3 m/s walking speed, 20 m/s^2 horizontal
-acceleration, and a 55 m/s maximum fall speed. When every horizontal chunk touched by the body is generated, each
-`advance_control_tick_with_input` consumes one normalized fixed-point world-space horizontal input sample, moves
-horizontal velocity toward the authored target, integrates gravity over the exact 50 ms interval, and sweeps the
-standing body X then Z then vertically against `FullCube` block collision. Wall, floor, and ceiling contact resolve
-to exact voxel faces. Missing destination chunk truth is a hard collision boundary rather than implicit air.
+Built-in physiology authors a 0.6 m body width; 1.8 m standing and 1.5 m crouching heights; 1.3/4.3/5.6 m/s
+crouch/walk/unloaded-sprint speeds; 20 m/s^2 horizontal acceleration; 5.0 m/s unloaded and 4.6 m/s fully loaded
+jump launch speeds; and a 55 m/s fall-speed cap. Full carry continuously removes the sprint bonus, reaching the
+4.3 m/s walking ceiling at capacity. `advance_control_tick_with_input` consumes normalized fixed-point world-space
+intent, moves horizontal velocity toward the stance/load target, applies grounded jump impulses and gravity over
+the exact 50 ms interval, and sweeps the active-height body X then Z then vertically against `FullCube` collision.
+Standing up is refused when the taller envelope collides; crouching refuses a horizontal move that would remove
+support under the current foot plane. Missing destination chunk truth is a hard collision boundary rather than air.
 Trusted load bounds persisted velocity and locomotion fractional state, trusted load/chunk generation reject
 body/terrain overlap, and player admission/chunk-generation tokens bind the opposite owner revisions so a
-validate/commit race cannot create an overlap. Jump/crouch/sprint input, fall damage, step-up, partial shapes,
-and demand streaming remain absent.
+validate/commit race cannot create an overlap. Fall damage, step-up, partial shapes, surface traction, and demand
+streaming remain absent.
 
-Direct walking reuses the authored load-sensitive locomotion effort rather than bypassing survival. Each moved
-control step scales that effort by actual horizontal speed, accumulates exact control-rate fractions in logistics,
+Direct horizontal locomotion reuses the authored load-sensitive effort rather than bypassing survival. Each moved
+control step scales that effort by realized speed, so sprinting costs more than walking at the same load, and accumulates exact control-rate fractions in logistics,
 and settles the accumulated energy/hydration cost into the existing slow survival tick every 72nd control step.
 No second metabolism clock exists. If the same boundary kills the player or claims slow work, the current direct
 input is discarded in favor of the neutral body plan so slow-state consequences cannot be followed by a stale

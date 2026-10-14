@@ -5,7 +5,6 @@ mod horizontal;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::CONTROL_TICK_DURATION;
 use crate::registry::Registries;
@@ -18,7 +17,7 @@ use crate::world::{BlockCollisionShape, ChunkCoord, WorldChunk, WorldRegistry, W
 use super::state::LocomotionExertionAccumulator;
 use super::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerBodyState, PlayerControlInput,
-    assess_player_carrying,
+    PlayerLogisticsRecord, PlayerStance, assess_player_carrying,
 };
 use horizontal::{player_voxel_change_allowed, resolve_horizontal_motion};
 
@@ -164,7 +163,7 @@ fn first_player_body_collision_with_lookup(
 ) -> Option<VoxelCoord> {
     let (min_x, max_x, min_z, max_z) = horizontal_voxel_bounds(body, locomotion)?;
     let foot_y = body.foot_position().y_nanometers();
-    let height = length_nanometers(locomotion.standing_height())?;
+    let height = length_nanometers(body_height(locomotion, body.stance()))?;
     let top_exclusive = foot_y.checked_add(height)?;
     let min_y = foot_y.div_euclid(NANOMETERS_PER_VOXEL);
     let max_y = top_exclusive
@@ -181,6 +180,19 @@ fn first_player_body_collision_with_lookup(
         }
     }
     None
+}
+
+#[derive(Clone, Copy)]
+struct PlayerControlAvailability {
+    alive: bool,
+    busy: bool,
+    grounded: bool,
+}
+
+impl PlayerControlAvailability {
+    const fn accepts_ground_control(self) -> bool {
+        self.alive && self.grounded && !self.busy
+    }
 }
 
 pub(crate) fn decide_player_body_motion(
@@ -201,124 +213,35 @@ pub(crate) fn decide_player_body_motion(
     }
 
     let before = player.body();
-    let player_busy = state.player_work().active().is_some();
-    let player_alive = state
-        .survival()
-        .player()
-        .is_some_and(|survival| survival.vitality() != Vitality::ZERO);
-    let grounded_before = supporting_floor_y(registries.world(), state.world(), before, bounds)
-        == Some(before.foot_position().y_nanometers());
-    let desired_horizontal_velocity = if player_alive && grounded_before && !player_busy {
-        desired_horizontal_velocity(locomotion, input.horizontal())?
-    } else if !grounded_before && !player_busy {
-        before.horizontal_velocity()
-    } else {
-        desired_horizontal_velocity(locomotion, HorizontalControlInput::NEUTRAL)?
+    let availability = PlayerControlAvailability {
+        alive: state
+            .survival()
+            .player()
+            .is_some_and(|survival| survival.vitality() != Vitality::ZERO),
+        busy: state.player_work().active().is_some(),
+        grounded: supporting_floor_y(registries.world(), state.world(), before, bounds)
+            == Some(before.foot_position().y_nanometers()),
     };
-    let mut horizontal_velocity = if player_busy {
-        HorizontalVelocity::ZERO
-    } else {
-        accelerate_horizontal_velocity(
-            before.horizontal_velocity(),
-            desired_horizontal_velocity,
-            locomotion,
-        )?
-    };
-    let (mut horizontal_position, collided_x, collided_z) = resolve_horizontal_motion(
-        registries.world(),
-        state.world(),
-        before,
-        locomotion,
-        horizontal_velocity,
-    )?;
-    if collided_x {
-        horizontal_velocity =
-            HorizontalVelocity::new(0, horizontal_velocity.z_nanometers_per_second());
-    }
-    if collided_z {
-        horizontal_velocity =
-            HorizontalVelocity::new(horizontal_velocity.x_nanometers_per_second(), 0);
-    }
-    if horizontal_position.containing_voxel() != before.voxel_position()
-        && !player_voxel_change_allowed(state, player, horizontal_position.containing_voxel())
-    {
-        horizontal_position = WorldPoint::new(
-            before.foot_position().x_nanometers(),
-            before.foot_position().y_nanometers(),
-            before.foot_position().z_nanometers(),
-        );
-        horizontal_velocity = HorizontalVelocity::ZERO;
-    }
-    let horizontal_body = before.with_motion(
-        horizontal_position,
-        horizontal_velocity,
-        before.vertical_velocity(),
-    );
-    let horizontal_bounds = horizontal_voxel_bounds(horizontal_body, locomotion)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let velocity_before = before.vertical_velocity();
-    let gravity_delta = gravity_velocity_delta(registries)?;
-    let maximum_fall_speed = i64::try_from(locomotion.maximum_fall_speed().nanometers_per_second())
-        .map_err(|_| PlayerBodyMotionError::VelocityOverflow)?;
-    let vertical_velocity = velocity_before
-        .nanometers_per_second()
-        .checked_sub(gravity_delta)
-        .ok_or(PlayerBodyMotionError::VelocityOverflow)?
-        .max(-maximum_fall_speed);
-    let vertical_displacement = integrate_velocity(vertical_velocity)?;
-    let proposed_y = before
-        .foot_position()
-        .y_nanometers()
-        .checked_add(vertical_displacement)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let (resolved_y, resolved_vertical_velocity, grounded) = resolve_vertical_collision(
-        registries.world(),
-        state.world(),
+    let horizontal_body =
+        resolve_horizontal_control(registries, state, player, locomotion, availability, input)?;
+    let (after, grounded) = resolve_vertical_control(
+        registries,
+        state,
         horizontal_body,
         locomotion,
-        horizontal_bounds,
-        proposed_y,
-        vertical_velocity,
+        availability,
+        input,
     )?;
-    let position_after = WorldPoint::new(
-        horizontal_position.x_nanometers(),
-        resolved_y,
-        horizontal_position.z_nanometers(),
-    );
-    let velocity_after = VerticalVelocity::new(resolved_vertical_velocity);
-    let after = before.with_motion(position_after, horizontal_velocity, velocity_after);
     let exertion_before = player.locomotion_exertion();
-    let settled_locomotion_exertion = if settle_pending_exertion {
-        exertion_before.pending()
-    } else {
-        SurvivalExertion::REST
-    };
-    let mut locomotion_exertion = if settle_pending_exertion {
-        exertion_before.settled()
-    } else {
-        exertion_before
-    };
-    let horizontal_moved = position_after.x_nanometers() != before.foot_position().x_nanometers()
-        || position_after.z_nanometers() != before.foot_position().z_nanometers();
-    if player_alive
-        && grounded_before
-        && !player_busy
-        && !input.horizontal().is_neutral()
-        && horizontal_moved
-    {
-        let carrying = assess_player_carrying(state)
-            .unwrap_or_else(|| unreachable!("generated body motion requires admitted carrying"));
-        let realized_velocity =
-            realized_horizontal_velocity(before.foot_position(), position_after)?;
-        let exertion = scale_locomotion_exertion_for_speed(
-            locomotion.exertion_for_load(carrying.stored(), carrying.capacity()),
-            realized_velocity,
-            locomotion,
-        )?;
-        locomotion_exertion = locomotion_exertion
-            .checked_accrue(exertion)
-            .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    }
+    let (locomotion_exertion, settled_locomotion_exertion) = resolve_control_exertion(
+        state,
+        before,
+        after,
+        locomotion,
+        availability,
+        input,
+        settle_pending_exertion,
+    )?;
     if after == before && locomotion_exertion == exertion_before {
         return Ok(None);
     }
@@ -342,6 +265,274 @@ pub(crate) fn decide_player_body_motion(
             grounded,
         }),
     }))
+}
+
+fn resolve_horizontal_control(
+    registries: &Registries,
+    state: &AppState,
+    player: PlayerLogisticsRecord,
+    locomotion: LocomotionDefinition,
+    availability: PlayerControlAvailability,
+    input: PlayerControlInput,
+) -> Result<PlayerBodyState, PlayerBodyMotionError> {
+    let before = player.body();
+    let desired_stance = if availability.alive && !availability.busy && input.crouch() {
+        PlayerStance::Crouching
+    } else if availability.alive && !availability.busy {
+        PlayerStance::Standing
+    } else {
+        before.stance()
+    };
+    let stance = resolve_stance(
+        registries.world(),
+        state.world(),
+        before,
+        locomotion,
+        desired_stance,
+    );
+    let stance_body = before.with_stance(stance);
+    let desired_velocity = resolve_desired_horizontal_velocity(
+        state,
+        before,
+        locomotion,
+        stance,
+        availability,
+        input,
+    )?;
+    let mut velocity = if availability.busy {
+        HorizontalVelocity::ZERO
+    } else {
+        accelerate_horizontal_velocity(before.horizontal_velocity(), desired_velocity, locomotion)?
+    };
+    let (mut position, collided_x, collided_z) = resolve_horizontal_motion(
+        registries.world(),
+        state.world(),
+        stance_body,
+        locomotion,
+        velocity,
+    )?;
+    velocity = collision_clipped_horizontal_velocity(velocity, collided_x, collided_z);
+    (position, velocity) = guard_crouched_ledge(
+        registries,
+        state,
+        stance_body,
+        locomotion,
+        availability,
+        position,
+        velocity,
+    )?;
+    if position.containing_voxel() != before.voxel_position()
+        && !player_voxel_change_allowed(state, player, position.containing_voxel())
+    {
+        position = before.foot_position();
+        velocity = HorizontalVelocity::ZERO;
+    }
+    Ok(stance_body.with_motion(position, velocity, before.vertical_velocity(), stance))
+}
+
+fn resolve_desired_horizontal_velocity(
+    state: &AppState,
+    before: PlayerBodyState,
+    locomotion: LocomotionDefinition,
+    stance: PlayerStance,
+    availability: PlayerControlAvailability,
+    input: PlayerControlInput,
+) -> Result<HorizontalVelocity, PlayerBodyMotionError> {
+    if !availability.grounded && !availability.busy {
+        return Ok(before.horizontal_velocity());
+    }
+    if !availability.accepts_ground_control() {
+        return desired_horizontal_velocity(
+            locomotion.walking_speed().nanometers_per_second(),
+            HorizontalControlInput::NEUTRAL,
+        );
+    }
+    let target_speed = match stance {
+        PlayerStance::Crouching => locomotion.crouching_speed(),
+        PlayerStance::Standing if input.sprint() => {
+            let carrying = assess_player_carrying(state).unwrap_or_else(|| {
+                unreachable!("generated body motion requires admitted carrying")
+            });
+            locomotion.sprinting_speed_for_load(carrying.stored(), carrying.capacity())
+        }
+        PlayerStance::Standing => locomotion.walking_speed(),
+    };
+    desired_horizontal_velocity(target_speed.nanometers_per_second(), input.horizontal())
+}
+
+fn collision_clipped_horizontal_velocity(
+    velocity: HorizontalVelocity,
+    collided_x: bool,
+    collided_z: bool,
+) -> HorizontalVelocity {
+    HorizontalVelocity::new(
+        if collided_x {
+            0
+        } else {
+            velocity.x_nanometers_per_second()
+        },
+        if collided_z {
+            0
+        } else {
+            velocity.z_nanometers_per_second()
+        },
+    )
+}
+
+fn guard_crouched_ledge(
+    registries: &Registries,
+    state: &AppState,
+    stance_body: PlayerBodyState,
+    locomotion: LocomotionDefinition,
+    availability: PlayerControlAvailability,
+    position: WorldPoint,
+    velocity: HorizontalVelocity,
+) -> Result<(WorldPoint, HorizontalVelocity), PlayerBodyMotionError> {
+    if stance_body.stance() != PlayerStance::Crouching || !availability.grounded {
+        return Ok((position, velocity));
+    }
+    let candidate = stance_body.with_motion(
+        position,
+        velocity,
+        stance_body.vertical_velocity(),
+        stance_body.stance(),
+    );
+    let candidate_bounds = horizontal_voxel_bounds(candidate, locomotion)
+        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
+    let support = supporting_floor_y(
+        registries.world(),
+        state.world(),
+        candidate,
+        candidate_bounds,
+    );
+    if support == Some(stance_body.foot_position().y_nanometers()) {
+        Ok((position, velocity))
+    } else {
+        Ok((stance_body.foot_position(), HorizontalVelocity::ZERO))
+    }
+}
+
+fn resolve_vertical_control(
+    registries: &Registries,
+    state: &AppState,
+    horizontal_body: PlayerBodyState,
+    locomotion: LocomotionDefinition,
+    availability: PlayerControlAvailability,
+    input: PlayerControlInput,
+) -> Result<(PlayerBodyState, bool), PlayerBodyMotionError> {
+    let horizontal_bounds = horizontal_voxel_bounds(horizontal_body, locomotion)
+        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
+    let velocity_before = jump_or_existing_vertical_velocity(
+        state,
+        horizontal_body,
+        locomotion,
+        availability,
+        input,
+    )?;
+    let gravity_delta = gravity_velocity_delta(registries)?;
+    let maximum_fall_speed = i64::try_from(locomotion.maximum_fall_speed().nanometers_per_second())
+        .map_err(|_| PlayerBodyMotionError::VelocityOverflow)?;
+    let vertical_velocity = velocity_before
+        .nanometers_per_second()
+        .checked_sub(gravity_delta)
+        .ok_or(PlayerBodyMotionError::VelocityOverflow)?
+        .max(-maximum_fall_speed);
+    let proposed_y = horizontal_body
+        .foot_position()
+        .y_nanometers()
+        .checked_add(integrate_velocity(vertical_velocity)?)
+        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
+    let (resolved_y, resolved_velocity, grounded) = resolve_vertical_collision(
+        registries.world(),
+        state.world(),
+        horizontal_body,
+        locomotion,
+        horizontal_bounds,
+        proposed_y,
+        vertical_velocity,
+    )?;
+    let position = WorldPoint::new(
+        horizontal_body.foot_position().x_nanometers(),
+        resolved_y,
+        horizontal_body.foot_position().z_nanometers(),
+    );
+    Ok((
+        horizontal_body.with_motion(
+            position,
+            horizontal_body.horizontal_velocity(),
+            VerticalVelocity::new(resolved_velocity),
+            horizontal_body.stance(),
+        ),
+        grounded,
+    ))
+}
+
+fn jump_or_existing_vertical_velocity(
+    state: &AppState,
+    body: PlayerBodyState,
+    locomotion: LocomotionDefinition,
+    availability: PlayerControlAvailability,
+    input: PlayerControlInput,
+) -> Result<VerticalVelocity, PlayerBodyMotionError> {
+    if !availability.accepts_ground_control() || !input.jump() {
+        return Ok(body.vertical_velocity());
+    }
+    let carrying = assess_player_carrying(state)
+        .unwrap_or_else(|| unreachable!("generated body motion requires admitted carrying"));
+    let jump_speed = locomotion.jump_speed_for_load(carrying.stored(), carrying.capacity());
+    Ok(VerticalVelocity::new(
+        i64::try_from(jump_speed.nanometers_per_second())
+            .map_err(|_| PlayerBodyMotionError::VelocityOverflow)?,
+    ))
+}
+
+fn resolve_control_exertion(
+    state: &AppState,
+    before: PlayerBodyState,
+    after: PlayerBodyState,
+    locomotion: LocomotionDefinition,
+    availability: PlayerControlAvailability,
+    input: PlayerControlInput,
+    settle_pending_exertion: bool,
+) -> Result<(LocomotionExertionAccumulator, SurvivalExertion), PlayerBodyMotionError> {
+    let player = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| unreachable!("generated body motion requires admitted player"));
+    let before_accumulator = player.locomotion_exertion();
+    let settled = if settle_pending_exertion {
+        before_accumulator.pending()
+    } else {
+        SurvivalExertion::REST
+    };
+    let mut accumulator = if settle_pending_exertion {
+        before_accumulator.settled()
+    } else {
+        before_accumulator
+    };
+    if !availability.accepts_ground_control()
+        || input.horizontal().is_neutral()
+        || !horizontal_position_changed(before.foot_position(), after.foot_position())
+    {
+        return Ok((accumulator, settled));
+    }
+    let carrying = assess_player_carrying(state)
+        .unwrap_or_else(|| unreachable!("generated body motion requires admitted carrying"));
+    let realized_velocity =
+        realized_horizontal_velocity(before.foot_position(), after.foot_position())?;
+    let speed = horizontal_speed(realized_velocity)?;
+    let exertion = locomotion
+        .exertion_for_horizontal_speed(carrying.stored(), carrying.capacity(), speed)
+        .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
+    accumulator = accumulator
+        .checked_accrue(exertion)
+        .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
+    Ok((accumulator, settled))
+}
+
+fn horizontal_position_changed(before: WorldPoint, after: WorldPoint) -> bool {
+    before.x_nanometers() != after.x_nanometers() || before.z_nanometers() != after.z_nanometers()
 }
 
 pub(crate) fn apply_player_body_motion(
@@ -398,11 +589,7 @@ fn realized_horizontal_velocity(
     ))
 }
 
-fn scale_locomotion_exertion_for_speed(
-    exertion: SurvivalExertion,
-    velocity: HorizontalVelocity,
-    locomotion: LocomotionDefinition,
-) -> Result<SurvivalExertion, PlayerBodyMotionError> {
+fn horizontal_speed(velocity: HorizontalVelocity) -> Result<u128, PlayerBodyMotionError> {
     let x = u128::from(velocity.x_nanometers_per_second().unsigned_abs());
     let z = u128::from(velocity.z_nanometers_per_second().unsigned_abs());
     let speed_squared = x
@@ -412,42 +599,14 @@ fn scale_locomotion_exertion_for_speed(
                 .and_then(|z_squared| x_squared.checked_add(z_squared))
         })
         .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    let speed = integer_sqrt(speed_squared);
-    let maximum = u128::from(locomotion.walking_speed().nanometers_per_second());
-    if speed > maximum || maximum == 0 {
-        return Err(PlayerBodyMotionError::ExertionOverflow);
-    }
-    let energy = checked_scale_ratio(exertion.energy_cost_per_tick().nanojoules(), speed, maximum)
-        .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    let hydration = checked_scale_ratio(
-        u128::from(exertion.hydration_loss_per_tick().microliters()),
-        speed,
-        maximum,
-    )
-    .and_then(|value| u64::try_from(value).ok())
-    .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    Ok(SurvivalExertion::new(
-        Energy::from_nanojoules(energy),
-        Volume::from_microliters(hydration),
-    ))
-}
-
-fn checked_scale_ratio(value: u128, numerator: u128, denominator: u128) -> Option<u128> {
-    if denominator == 0 || numerator > denominator {
-        return None;
-    }
-    let quotient = value / denominator;
-    let remainder = value % denominator;
-    quotient
-        .checked_mul(numerator)?
-        .checked_add(remainder.checked_mul(numerator)? / denominator)
+    Ok(integer_sqrt(speed_squared))
 }
 
 fn desired_horizontal_velocity(
-    locomotion: LocomotionDefinition,
+    speed_nanometers_per_second: u64,
     input: HorizontalControlInput,
 ) -> Result<HorizontalVelocity, PlayerBodyMotionError> {
-    let speed = i128::from(locomotion.walking_speed().nanometers_per_second());
+    let speed = i128::from(speed_nanometers_per_second);
     let scale = i128::from(CONTROL_INPUT_PARTS_PER_MILLION);
     let component = |ppm: i32| {
         speed
@@ -460,6 +619,24 @@ fn desired_horizontal_velocity(
         component(input.x_ppm())?,
         component(input.z_ppm())?,
     ))
+}
+
+fn resolve_stance(
+    registry: &WorldRegistry,
+    world: &WorldState,
+    body: PlayerBodyState,
+    locomotion: LocomotionDefinition,
+    desired: PlayerStance,
+) -> PlayerStance {
+    if desired == body.stance() || desired == PlayerStance::Crouching {
+        return desired;
+    }
+    let standing = body.with_stance(PlayerStance::Standing);
+    if first_player_body_collision(registry, world, standing, locomotion).is_none() {
+        PlayerStance::Standing
+    } else {
+        PlayerStance::Crouching
+    }
 }
 
 fn horizontal_acceleration_velocity_delta(
@@ -557,7 +734,7 @@ fn resolve_vertical_collision(
         return Ok((proposed_y, proposed_velocity, false));
     }
 
-    let height = length_nanometers(locomotion.standing_height())
+    let height = length_nanometers(body_height(locomotion, body.stance()))
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
     let current_top = current_y
         .checked_add(height)
@@ -572,6 +749,16 @@ fn resolve_vertical_collision(
         return Ok((foot, 0, false));
     }
     Ok((proposed_y, proposed_velocity, false))
+}
+
+pub(super) const fn body_height(
+    locomotion: LocomotionDefinition,
+    stance: PlayerStance,
+) -> crate::core::quantity::Length {
+    match stance {
+        PlayerStance::Standing => locomotion.standing_height(),
+        PlayerStance::Crouching => locomotion.crouching_height(),
+    }
 }
 
 fn crossed_floor_y(

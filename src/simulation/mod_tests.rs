@@ -13,7 +13,7 @@ use crate::energy::{
     add_energy_store_with_initial_for_fixture,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-use crate::logistics::{HorizontalControlInput, PlayerControlInput};
+use crate::logistics::{HorizontalControlInput, PlayerControlInput, PlayerStance};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -21,7 +21,7 @@ use crate::registry::Registries;
 use crate::spatial::{NANOMETERS_PER_VOXEL, VoxelCoord};
 use crate::survival::{SurvivalAssessment, Vitality, initialize_player_survival, player_record};
 use crate::world::{
-    ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+    BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
     set_generated_block_for_test, validate_generate_chunk,
 };
 
@@ -39,6 +39,298 @@ fn passive_dissipation_registries() -> Registries {
         )
         .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
     )
+}
+
+#[test]
+fn sprint_and_crouch_use_distinct_authored_speeds_and_persist_stance() {
+    let (registries, mut sprinting, _) = generated_grounded_player_at(0, 0);
+    let (_, mut crouching, _) = generated_grounded_player_at(0, 0);
+    let (_, mut loaded_sprinting, _) = generated_grounded_player_at(0, 0);
+    let carried = loaded_sprinting
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded sprint player disappeared"))
+        .carried_stockpile();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut loaded_sprinting,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        registries.survival().physiology().carried_mass_capacity(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("loaded sprint carried matter failed: {error}"));
+    let horizontal = HorizontalControlInput::new(1_000_000, 0)
+        .unwrap_or_else(|error| panic!("locomotion mode input failed: {error}"));
+    let sprint = PlayerControlInput::new(horizontal).with_sprint(true);
+    let crouch = PlayerControlInput::new(horizontal)
+        .with_sprint(true)
+        .with_crouch(true);
+
+    for _ in 0..6 {
+        let _ = advance_control_tick_with_input(&registries, &mut sprinting, sprint)
+            .unwrap_or_else(|error| panic!("sprint control tick failed: {error}"));
+        let _ = advance_control_tick_with_input(&registries, &mut loaded_sprinting, sprint)
+            .unwrap_or_else(|error| panic!("loaded sprint control tick failed: {error}"));
+    }
+    for _ in 0..2 {
+        let _ = advance_control_tick_with_input(&registries, &mut crouching, crouch)
+            .unwrap_or_else(|error| panic!("crouch control tick failed: {error}"));
+    }
+
+    let sprinting_body = sprinting
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("sprint player disappeared"))
+        .body();
+    let loaded_body = loaded_sprinting
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded sprint player disappeared after motion"))
+        .body();
+    let crouching_body = crouching
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("crouch player disappeared"))
+        .body();
+    assert_eq!(
+        sprinting_body
+            .horizontal_velocity()
+            .x_nanometers_per_second(),
+        5_600_000_000
+    );
+    assert_eq!(
+        loaded_body.horizontal_velocity().x_nanometers_per_second(),
+        4_300_000_000
+    );
+    assert_eq!(crouching_body.stance(), PlayerStance::Crouching);
+    assert_eq!(
+        crouching_body
+            .horizontal_velocity()
+            .x_nanometers_per_second(),
+        1_300_000_000
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &crouching))
+        .unwrap_or_else(|error| panic!("crouched body serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("crouched body decode failed: {error}"));
+    assert_eq!(
+        decoded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("crouched body load failed: {error}")),
+        crouching
+    );
+}
+
+#[test]
+fn grounded_jump_is_load_sensitive_and_does_not_retrigger_in_air() {
+    let (registries, mut unloaded, floor_y) = generated_grounded_player_at(0, 0);
+    let mut loaded = unloaded.clone();
+    let carried = loaded
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded jump player disappeared"))
+        .carried_stockpile();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut loaded,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        registries.survival().physiology().carried_mass_capacity(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("loaded jump carried matter failed: {error}"));
+    let jump = PlayerControlInput::NEUTRAL.with_jump(true);
+
+    let first_unloaded = advance_control_tick_with_input(&registries, &mut unloaded, jump)
+        .unwrap_or_else(|error| panic!("unloaded jump failed: {error}"))
+        .body_motion()
+        .unwrap_or_else(|| panic!("unloaded jump produced no body motion"));
+    let first_loaded = advance_control_tick_with_input(&registries, &mut loaded, jump)
+        .unwrap_or_else(|error| panic!("loaded jump failed: {error}"))
+        .body_motion()
+        .unwrap_or_else(|| panic!("loaded jump produced no body motion"));
+    assert!(
+        first_unloaded
+            .after()
+            .vertical_velocity()
+            .nanometers_per_second()
+            > first_loaded
+                .after()
+                .vertical_velocity()
+                .nanometers_per_second()
+    );
+    assert!(
+        first_loaded
+            .after()
+            .vertical_velocity()
+            .nanometers_per_second()
+            > 0
+    );
+    assert!(first_unloaded.after().foot_position().y_nanometers() > floor_y * NANOMETERS_PER_VOXEL);
+
+    let second = advance_control_tick_with_input(&registries, &mut unloaded, jump)
+        .unwrap_or_else(|error| panic!("airborne held-jump tick failed: {error}"))
+        .body_motion()
+        .unwrap_or_else(|| panic!("airborne held-jump produced no motion"));
+    assert!(
+        second.after().vertical_velocity().nanometers_per_second()
+            < first_unloaded
+                .after()
+                .vertical_velocity()
+                .nanometers_per_second()
+    );
+
+    for _ in 0..40 {
+        let _ = advance_control_tick(&registries, &mut unloaded)
+            .unwrap_or_else(|error| panic!("jump landing tick failed: {error}"));
+        let body = unloaded
+            .logistics()
+            .player()
+            .copied()
+            .unwrap_or_else(|| panic!("jumping player disappeared before landing"))
+            .body();
+        if body.foot_position().y_nanometers() == floor_y * NANOMETERS_PER_VOXEL
+            && body.vertical_velocity().nanometers_per_second() == 0
+        {
+            return;
+        }
+    }
+    panic!("jump did not return to exact floor contact within bounded control ticks");
+}
+
+#[test]
+fn crouching_guards_ledges_and_standing_motion_falls() {
+    let (registries, mut crouching, floor_y) = generated_grounded_player_at(0, 0);
+    let mut standing = crouching.clone();
+    for x in 1..=6 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut crouching,
+            VoxelCoord::new(x, floor_y - 1, 0),
+            BlockStateId::AIR,
+        );
+        set_generated_block_for_test(
+            registries.world(),
+            &mut standing,
+            VoxelCoord::new(x, floor_y - 1, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let horizontal = HorizontalControlInput::new(1_000_000, 0)
+        .unwrap_or_else(|error| panic!("ledge input fixture failed: {error}"));
+    let crouch = PlayerControlInput::new(horizontal).with_crouch(true);
+    let walk = PlayerControlInput::new(horizontal);
+
+    for _ in 0..20 {
+        let _ = advance_control_tick_with_input(&registries, &mut crouching, crouch)
+            .unwrap_or_else(|error| panic!("crouched ledge tick failed: {error}"));
+        let _ = advance_control_tick_with_input(&registries, &mut standing, walk)
+            .unwrap_or_else(|error| panic!("standing ledge tick failed: {error}"));
+    }
+    let crouched_body = crouching
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("crouched ledge player disappeared"))
+        .body();
+    let standing_body = standing
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("standing ledge player disappeared"))
+        .body();
+    assert_eq!(crouched_body.stance(), PlayerStance::Crouching);
+    assert_eq!(
+        crouched_body.foot_position().y_nanometers(),
+        floor_y * NANOMETERS_PER_VOXEL
+    );
+    assert!(standing_body.foot_position().y_nanometers() < floor_y * NANOMETERS_PER_VOXEL);
+}
+
+#[test]
+fn sprinting_settles_more_locomotion_exertion_than_walking_at_equal_load() {
+    let (registries, mut walking, _) = generated_grounded_player_at(0, 0);
+    let mut sprinting = walking.clone();
+    let horizontal = HorizontalControlInput::new(1_000_000, 0)
+        .unwrap_or_else(|error| panic!("sprint-cost input fixture failed: {error}"));
+    let walk = PlayerControlInput::new(horizontal);
+    let sprint = walk.with_sprint(true);
+
+    for _ in 0..6 {
+        let _ = advance_control_tick_with_input(&registries, &mut walking, walk)
+            .unwrap_or_else(|error| panic!("sprint-cost walking tick failed: {error}"));
+        let _ = advance_control_tick_with_input(&registries, &mut sprinting, sprint)
+            .unwrap_or_else(|error| panic!("sprint-cost sprinting tick failed: {error}"));
+    }
+    let walking_pending = walking
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("sprint-cost walking player disappeared"))
+        .locomotion_exertion()
+        .pending();
+    let sprinting_pending = sprinting
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("sprint-cost sprinting player disappeared"))
+        .locomotion_exertion()
+        .pending();
+    assert!(sprinting_pending.energy_cost_per_tick() > walking_pending.energy_cost_per_tick());
+    assert!(
+        sprinting_pending.hydration_loss_per_tick() > walking_pending.hydration_loss_per_tick()
+    );
+
+    for _ in 6..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut walking)
+            .unwrap_or_else(|error| panic!("sprint-cost walking settle tick failed: {error}"));
+        let _ = advance_control_tick(&registries, &mut sprinting)
+            .unwrap_or_else(|error| panic!("sprint-cost sprinting settle tick failed: {error}"));
+    }
+    let walking_survival = walking
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("sprint-cost walking survival disappeared"));
+    let sprinting_survival = sprinting
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("sprint-cost sprinting survival disappeared"));
+    assert!(sprinting_survival.metabolic_energy() < walking_survival.metabolic_energy());
+    assert!(sprinting_survival.hydration() < walking_survival.hydration());
+}
+
+#[test]
+fn crouched_body_refuses_to_stand_into_a_low_ceiling() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(0, floor_y + 2, 0),
+        BLOCK_STATE_STONE,
+    );
+    let crouch_jump = PlayerControlInput::NEUTRAL
+        .with_crouch(true)
+        .with_jump(true);
+    let first = advance_control_tick_with_input(&registries, &mut state, crouch_jump)
+        .unwrap_or_else(|error| panic!("crouched jump failed: {error}"))
+        .body_motion()
+        .unwrap_or_else(|| panic!("crouched jump produced no motion"));
+    assert_eq!(first.after().stance(), PlayerStance::Crouching);
+
+    let second = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("blocked stand tick failed: {error}"))
+        .body_motion()
+        .unwrap_or_else(|| panic!("blocked stand tick produced no motion"));
+    assert_eq!(second.after().stance(), PlayerStance::Crouching);
 }
 
 fn generated_grounded_player_at(x: i64, z: i64) -> (Registries, AppState, i64) {

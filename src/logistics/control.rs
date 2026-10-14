@@ -77,20 +77,64 @@ impl HorizontalControlInput {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlayerControlInput {
     horizontal: HorizontalControlInput,
+    jump: bool,
+    crouch: bool,
+    sprint: bool,
 }
 
 impl PlayerControlInput {
     pub const NEUTRAL: Self = Self {
         horizontal: HorizontalControlInput::NEUTRAL,
+        jump: false,
+        crouch: false,
+        sprint: false,
     };
 
     #[must_use]
     pub const fn new(horizontal: HorizontalControlInput) -> Self {
-        Self { horizontal }
+        Self {
+            horizontal,
+            jump: false,
+            crouch: false,
+            sprint: false,
+        }
     }
 
     #[must_use]
     pub const fn horizontal(self) -> HorizontalControlInput {
         self.horizontal
+    }
+
+    #[must_use]
+    pub const fn with_jump(mut self, jump: bool) -> Self {
+        self.jump = jump;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_crouch(mut self, crouch: bool) -> Self {
+        self.crouch = crouch;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_sprint(mut self, sprint: bool) -> Self {
+        self.sprint = sprint;
+        self
+    }
+
+    #[must_use]
+    pub const fn jump(self) -> bool {
+        self.jump
+    }
+
+    #[must_use]
+    pub const fn crouch(self) -> bool {
+        self.crouch
+    }
+
+    #[must_use]
+    pub const fn sprint(self) -> bool {
+        self.sprint
     }
 }

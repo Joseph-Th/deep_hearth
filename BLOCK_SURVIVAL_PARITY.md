@@ -58,9 +58,9 @@ Strong current foundations:
 Foundational blockers:
 
 - no general block mutation, rich block shapes, block updates, scheduled block behavior, or sparse voxel-to-owner attachments;
-- continuous fixed-point body position, persisted horizontal/vertical velocity, 20 Hz horizontal walking control,
-  gravity, falling, and swept full-cube collision now exist, but jumping, crouching, sprinting, swimming, and
-  general shape collision do not;
+- continuous fixed-point body position, persisted velocity/stance, 20 Hz walk/sprint/crouch/jump control,
+  gravity, falling, ledge-safe crouching, and swept full-cube collision now exist; swimming and general shape
+  collision do not;
 - no camera/input/raycast action shell;
 - no generic hold-to-break or contextual place/use pipeline over world blocks;
 - no generic dropped-item world entity, hotbar, familiar stack projection, or container UI shell;
@@ -218,23 +218,22 @@ when the actual mesher and GPU adapter are built.
 
 ## 5. Camera, input, targeting, movement, and collision
 
-This remains a major P0 disparity, but ordinary horizontal walking now uses the authoritative body path. Minecraft
-movement is continuous within the block grid. Deep Hearth persists a fixed-point bottom-center body point plus
-horizontal and vertical velocity, samples normalized world-space horizontal control at 20 Hz, accelerates/brakes
-deterministically, integrates gravity, and sweeps the authored standing body against generated full-cube terrain.
-Richer stances, impulses, surface response, and partial collision shapes are still absent.
+This remains a P0 integration disparity because there is no camera/platform input shell or streamed world, but the
+basic terrestrial body verbs now use the authoritative path. Deep Hearth persists fixed-point position, velocity,
+and stance; consumes normalized world-space control at 20 Hz; accelerates/brakes deterministically; integrates
+gravity and grounded jumping; and sweeps standing/crouching bodies against generated full-cube terrain.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
 | Mouse/controller look | Continuous yaw/pitch camera | No input/camera adapter | `GAP-P0` | Add camera orientation and input sampling in adapter/client state. |
 | Player position | Continuous 3D position | Persisted fixed-point `WorldPoint`; voxel locality is derived | `PARITY` foundation | Keep one transform authority. |
 | Velocity | 3D delta/velocity affected by input and environment | Persisted signed horizontal and vertical velocity; horizontal control is normalized fixed-point input | `PARITY` foundation | Extend only with live stance/environmental effects rather than speculative components. |
-| Collision box | Player AABB | Authored 0.6 m wide x 1.8 m standing body envelope | `PARITY` foundation | Add stance-dependent height and richer collision shapes only when required. |
+| Collision box | Player AABB | Authored 0.6 m width with persisted 1.8 m standing / 1.5 m crouching height | `PARITY` foundation | Add richer block/body shapes only when required. |
 | Swept collision | Movement vector clipped against block shapes | Deterministic X-then-Z horizontal sweep plus vertical sweep against `FullCube` terrain; exact wall/floor/ceiling contact; missing chunks fail closed as walls | `PARITY` foundation | Add partial shapes, bounded step-up, and swept contact effects without changing world authority. |
 | Walking | Analog-ish continuous horizontal motion | 20 Hz normalized world-space input drives authored walking speed/acceleration; legacy timed one-voxel step remains only outside generated-world body mode | `PARITY` foundation | Keep direct walking on body control time. Retain discrete route/haul cost only for logistics and AI planning. |
-| Sprinting | Faster movement with resource cost | Direct walking already settles speed- and load-scaled locomotion exertion into survival; no sprint verb | `GAP-P0` | Add sprint input with distinct authored speed/effort and encumbrance limits. |
-| Crouching/sneaking | Slower stance, reduced height, edge behavior, interaction modifier | None | `GAP-P0` | Add stance, collision-height change and contextual input modifier. |
-| Jumping | Vertical impulse | None | `GAP-P0` | Add jump impulse constrained by footing, encumbrance and physiology. |
+| Sprinting | Faster movement with resource cost | Sprint input targets 5.6 m/s unloaded; carried mass continuously removes the sprint bonus until full load is capped at walking speed; realized speed raises settled locomotion exertion | `DIFFERENT+` | Keep physical encumbrance instead of Minecraft's weightless sprint. |
+| Crouching/sneaking | Slower stance, reduced height, edge behavior, interaction modifier | Persisted 1.5 m crouch, 1.3 m/s cap, ledge guard, and collision-checked stand-up under low ceilings | `PARITY` foundation | Add interaction modifier/camera presentation with the direct-action shell. |
+| Jumping | Vertical impulse | Grounded 20 Hz jump impulse; full carried load reduces authored launch speed from 5.0 to 4.6 m/s; held input cannot retrigger airborne | `DIFFERENT+` foundation | Add impact injury and any explicit jump-event physiological cost only through authored survival accounting. |
 | Gravity/falling | Continuous vertical acceleration and collision | 20 Hz authored gravity, capped fall speed, exact full-cube landing, persisted mid-fall continuation | `PARITY` foundation | Add fall injury and environmental modifiers without weakening deterministic integration. |
 | Fall damage | Distance/velocity-derived damage | No general damage system | `GAP-P1` | Derive impact injury from landing speed and protection rather than copying arbitrary block-count thresholds. |
 | Step-up | Small obstacle auto-step | None | `GAP-P1` | Add bounded step height so ordinary terrain traversal feels familiar. |
@@ -242,13 +241,13 @@ Richer stances, impulses, surface response, and partial collision shapes are sti
 | Fluids movement | Swimming, buoyancy/drag, current interaction | No world fluid field | `GAP-P1` | Add after spatial fluids. Use density/drag/current rather than special-case-only movement. |
 | Climbing | Ladders/vines/scaffolding special movement | None | `GAP-P1` | Add climbable support surfaces/components. |
 | Edge/contact effects | Movement path encounters blocks, fire, fluids, etc. | Voxel destination only | `GAP-P1` | Track swept contact so environmental effects cannot be bypassed by fast movement. |
-| Encumbrance | Vanilla inventory has no weight | Exact carried mass plus equipment mass scales direct-walking energy/hydration cost; fractional 20 Hz cost persists and settles through the slow survival owner | `DIFFERENT+` | Keep. Extend it to achievable acceleration/sprint/jump/climb/swim where physically justified. |
+| Encumbrance | Vanilla inventory has no weight | Exact carried/equipment mass scales locomotion energy/hydration, sprint ceiling, and jump impulse; fractional 20 Hz cost settles through the slow survival owner | `DIFFERENT+` | Keep and extend to climb/swim where physically justified. |
 | Multi-step routing | Mob/path systems route through blocks | Explicit traversal edges only | `GAP-P1` | Player needs no click-to-route for WASD, but AI/logistics need pathfinding over world collision/access data. |
 
 `validate_start_player_step` is rejected once the player's footprint is backed by generated chunks. It remains a
 bounded logistics/planning surface for the opening graph and older evidence, not a first-person locomotion
-primitive. Direct horizontal walking already extends the persisted body path; future stance/impulse mechanics
-must stay on that authority rather than reopening timed voxel movement.
+primitive. Walking, sprinting, crouching, jumping, gravity, and falling already share the persisted body path;
+future terrain/contact mechanics must stay on that authority rather than reopening timed voxel movement.
 
 ## 6. Raycasting, breaking, placing, using, and direct manipulation
 

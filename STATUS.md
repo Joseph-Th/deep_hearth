@@ -29,7 +29,7 @@ These are current graph boundaries, not priorities.
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Generated chunks + continuous walking/full-cube body physics | Demand streaming/access, sprint/crouch/jump, richer collision, routed haulage/path cost, and remote discovery. |
+| Generated chunks + terrestrial full-cube body physics | Demand streaming/access, richer collision/contact, routed haulage/path cost, and remote discovery. |
 | Structural physics | Non-grounded construction, joints/panels, deconstruction/salvage, and terrain support. |
 | Equipment maintenance | Maintenance tools and general transport to service sites. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
@@ -48,7 +48,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Core | Deterministic simulation; persisted 20 Hz `ControlTick`; exact 72:1 slow `SimulationTick`; active body physics cannot be skipped by slow stepping. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
-| Logistics | Fixed-point body/carrying, derived voxel locality, 20 Hz walking input and acceleration, full-cube collision, speed/load-scaled walking exertion, legacy off-terrain steps, pickup/drop, and access checks. |
+| Logistics | Fixed-point body/carrying, 20 Hz walk/sprint/crouch/jump, full-cube collision, load/speed-scaled exertion, legacy off-terrain steps, pickup/drop, and access checks. |
 | Loose surface matter | Finite world records with edge-gated orientation, local gathering, reservation, survival cost, depletion, cleanup, and conservation. Fresh worlds distribute forage/stone/timber. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
@@ -72,7 +72,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | --- | --- |
 | Wilderness opening | Travel beyond the bounded graph, shelter/weather, light, and one continuous empty-inventory first-day loop. The graph is not pathfinding, hydrology, climate, or enclosure simulation. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
-| World representation | Demand streaming, indexing, height/light summaries, mutation, partial/rich collision/access, geology/biome/ecology composition, and clue discovery. Compact chunks, seeded terrain, fixed-point walking/falling, full-cube collision, and 20 Hz control time exist. |
+| World representation | Demand streaming, indexing, height/light summaries, mutation, partial/rich collision/access, geology/biome/ecology composition, and clue discovery. Compact chunks, seeded terrain, terrestrial fixed-point locomotion, full-cube collision, and 20 Hz control time exist. |
 | Logistics | General access generation, multi-step routing, haulage, delivery/transport, remote acquisition, container/hotbar presentation, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, general combustion/fuel chemistry/emissions, mixed/alloy phases, reduction/smelting, alloying, forging, machining, and broad recycling. The campfire is not a general combustion or atmospheric model. |

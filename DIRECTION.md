@@ -95,9 +95,10 @@ deterministic stone terrain through a revision-bound transaction. That is infras
 play. The body path now persists a fixed-point bottom-center transform plus horizontal/vertical velocity in
 logistics and runs 20 Hz normalized walking input, authored acceleration/braking, gravity, and swept full-cube
 wall/floor/ceiling collision wherever the current footprint has generated chunk truth. Missing destination chunks
-are hard authority boundaries rather than air. The next world slice is demand streaming/access over those cells,
-followed by direct camera/raycast interaction; block breaking/placement must cross world state and conserved
-material custody in one canonical operation.
+are hard authority boundaries rather than air. The same path now owns persisted standing/crouching stance,
+ledge-safe crouching, load-limited sprinting, and grounded load-sensitive jumping. The next world slice is demand
+streaming/access over those cells, followed by direct camera/raycast interaction; block breaking/placement must
+cross world state and conserved material custody in one canonical operation.
 
 The authoritative-time foundation separates a persisted 20 Hz `ControlTick` from the existing 3.6-second
 physical/accounting `SimulationTick`. `advance_control_tick` now owns both high-frequency progression and active
@@ -105,13 +106,13 @@ generated-world body gravity/collision, running the slow transaction exactly eve
 fails closed when that body physics is active instead of skipping intervening control semantics. Existing
 `TickSpan` work remains boundary-gated and generated-world slow work additionally requires ground contact.
 
-Direct player movement is now on the target authority path for ordinary walking: fixed-point body position,
-horizontal/vertical velocity, normalized horizontal input, authored acceleration/braking, gravity, swept
-full-cube collision, terrain contact, save/load continuation, and body/terrain race rejection are authoritative.
-Walking effort is speed- and load-sensitive and accumulates at control cadence for settlement by the existing
-slow survival owner. Sprint/crouch/jump, step-up, richer collision, and surface traction remain open; the timed
-one-voxel labor step is rejected once generated-world body physics is active. Camera raycasting and the familiar
-primary/secondary action grammar should next compose block breaking, placement, gathering, equipment use,
+Direct player movement is now on the target authority path for basic terrestrial locomotion: fixed-point body
+position, horizontal/vertical velocity, persisted standing/crouching stance, walking, load-limited sprinting,
+grounded load-sensitive jumping, gravity, swept full-cube collision, crouched ledge protection, save/load
+continuation, and body/terrain race rejection are authoritative. Realized horizontal effort is speed- and
+load-sensitive and settles through the existing slow survival owner. Step-up, partial shapes, surface traction,
+fall injury, and streaming remain open; the timed one-voxel labor step is rejected once generated-world body
+physics is active. Camera raycasting and the familiar primary/secondary action grammar should next compose block breaking, placement, gathering, equipment use,
 consumption and interaction into the existing owner validators. Generic world drops and hotbar/inventory/container
 projections then complete the direct matter loop without creating a second simplified simulation.
 

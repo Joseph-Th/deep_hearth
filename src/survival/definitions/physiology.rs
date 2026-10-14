@@ -5,48 +5,162 @@ use crate::core::quantity::{Acceleration, Energy, Length, Mass, Speed, Volume};
 use crate::core::time::TickSpan;
 use crate::survival::resource_cost::SurvivalExertion;
 
-/// Authored continuous-body facts used by direct control.
+/// Authored body heights for direct-control stances.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BodyKinematicsDefinition {
-    body_width: Length,
+pub struct BodyStanceDefinition {
     standing_height: Length,
-    walking_speed: Speed,
-    horizontal_acceleration: Acceleration,
-    maximum_fall_speed: Speed,
+    crouching_height: Length,
 }
 
-impl BodyKinematicsDefinition {
+impl BodyStanceDefinition {
     #[must_use]
-    pub fn new(
-        body_width: Length,
-        standing_height: Length,
-        walking_speed: Speed,
-        horizontal_acceleration: Acceleration,
-        maximum_fall_speed: Speed,
-    ) -> Self {
-        assert!(!body_width.is_zero(), "player body width must be nonzero");
+    pub fn new(standing_height: Length, crouching_height: Length) -> Self {
         assert!(
             !standing_height.is_zero(),
             "player standing height must be nonzero"
         );
         assert!(
-            !walking_speed.is_zero(),
-            "player walking speed must be nonzero"
+            !crouching_height.is_zero(),
+            "player crouching height must be nonzero"
         );
         assert!(
-            !horizontal_acceleration.is_zero(),
-            "player horizontal acceleration must be nonzero"
+            crouching_height < standing_height,
+            "player crouching height must be below standing height"
+        );
+        Self {
+            standing_height,
+            crouching_height,
+        }
+    }
+
+    #[must_use]
+    pub const fn standing_height(self) -> Length {
+        self.standing_height
+    }
+
+    #[must_use]
+    pub const fn crouching_height(self) -> Length {
+        self.crouching_height
+    }
+}
+
+/// Authored speed envelope for direct-control locomotion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocomotionSpeedDefinition {
+    crouching_speed: Speed,
+    walking_speed: Speed,
+    sprinting_speed: Speed,
+    unloaded_jump_speed: Speed,
+    fully_loaded_jump_speed: Speed,
+    maximum_fall_speed: Speed,
+}
+
+impl LocomotionSpeedDefinition {
+    #[must_use]
+    pub fn new(
+        crouching_speed: Speed,
+        walking_speed: Speed,
+        sprinting_speed: Speed,
+        unloaded_jump_speed: Speed,
+        fully_loaded_jump_speed: Speed,
+        maximum_fall_speed: Speed,
+    ) -> Self {
+        assert!(
+            !crouching_speed.is_zero(),
+            "player crouching speed must be nonzero"
+        );
+        assert!(
+            crouching_speed < walking_speed,
+            "player crouching speed must be below walking speed"
+        );
+        assert!(
+            walking_speed < sprinting_speed,
+            "player sprinting speed must exceed walking speed"
+        );
+        assert!(
+            !unloaded_jump_speed.is_zero(),
+            "player jump speed must be nonzero"
+        );
+        assert!(
+            !fully_loaded_jump_speed.is_zero(),
+            "loaded player jump speed must be nonzero"
+        );
+        assert!(
+            fully_loaded_jump_speed <= unloaded_jump_speed,
+            "carried load cannot increase jump speed"
         );
         assert!(
             !maximum_fall_speed.is_zero(),
             "player maximum fall speed must be nonzero"
         );
         Self {
-            body_width,
-            standing_height,
+            crouching_speed,
             walking_speed,
-            horizontal_acceleration,
+            sprinting_speed,
+            unloaded_jump_speed,
+            fully_loaded_jump_speed,
             maximum_fall_speed,
+        }
+    }
+
+    #[must_use]
+    pub const fn crouching_speed(self) -> Speed {
+        self.crouching_speed
+    }
+
+    #[must_use]
+    pub const fn walking_speed(self) -> Speed {
+        self.walking_speed
+    }
+
+    #[must_use]
+    pub const fn sprinting_speed(self) -> Speed {
+        self.sprinting_speed
+    }
+
+    #[must_use]
+    pub const fn unloaded_jump_speed(self) -> Speed {
+        self.unloaded_jump_speed
+    }
+
+    #[must_use]
+    pub const fn fully_loaded_jump_speed(self) -> Speed {
+        self.fully_loaded_jump_speed
+    }
+
+    #[must_use]
+    pub const fn maximum_fall_speed(self) -> Speed {
+        self.maximum_fall_speed
+    }
+}
+
+/// Authored continuous-body facts used by direct control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BodyKinematicsDefinition {
+    body_width: Length,
+    stances: BodyStanceDefinition,
+    speeds: LocomotionSpeedDefinition,
+    horizontal_acceleration: Acceleration,
+}
+
+impl BodyKinematicsDefinition {
+    #[must_use]
+    pub fn new(
+        body_width: Length,
+        stances: BodyStanceDefinition,
+        speeds: LocomotionSpeedDefinition,
+        horizontal_acceleration: Acceleration,
+    ) -> Self {
+        assert!(!body_width.is_zero(), "player body width must be nonzero");
+        assert!(
+            !horizontal_acceleration.is_zero(),
+            "player horizontal acceleration must be nonzero"
+        );
+        Self {
+            body_width,
+            stances,
+            speeds,
+            horizontal_acceleration,
         }
     }
 
@@ -57,12 +171,37 @@ impl BodyKinematicsDefinition {
 
     #[must_use]
     pub const fn standing_height(self) -> Length {
-        self.standing_height
+        self.stances.standing_height()
+    }
+
+    #[must_use]
+    pub const fn crouching_height(self) -> Length {
+        self.stances.crouching_height()
+    }
+
+    #[must_use]
+    pub const fn crouching_speed(self) -> Speed {
+        self.speeds.crouching_speed()
     }
 
     #[must_use]
     pub const fn walking_speed(self) -> Speed {
-        self.walking_speed
+        self.speeds.walking_speed()
+    }
+
+    #[must_use]
+    pub const fn sprinting_speed(self) -> Speed {
+        self.speeds.sprinting_speed()
+    }
+
+    #[must_use]
+    pub const fn unloaded_jump_speed(self) -> Speed {
+        self.speeds.unloaded_jump_speed()
+    }
+
+    #[must_use]
+    pub const fn fully_loaded_jump_speed(self) -> Speed {
+        self.speeds.fully_loaded_jump_speed()
     }
 
     #[must_use]
@@ -72,7 +211,7 @@ impl BodyKinematicsDefinition {
 
     #[must_use]
     pub const fn maximum_fall_speed(self) -> Speed {
-        self.maximum_fall_speed
+        self.speeds.maximum_fall_speed()
     }
 }
 
@@ -133,8 +272,23 @@ impl LocomotionDefinition {
     }
 
     #[must_use]
+    pub const fn crouching_height(self) -> Length {
+        self.body_kinematics.crouching_height()
+    }
+
+    #[must_use]
+    pub const fn crouching_speed(self) -> Speed {
+        self.body_kinematics.crouching_speed()
+    }
+
+    #[must_use]
     pub const fn walking_speed(self) -> Speed {
         self.body_kinematics.walking_speed()
+    }
+
+    #[must_use]
+    pub const fn sprinting_speed(self) -> Speed {
+        self.body_kinematics.sprinting_speed()
     }
 
     #[must_use]
@@ -148,8 +302,67 @@ impl LocomotionDefinition {
     }
 
     #[must_use]
-    pub const fn maximum_exertion(self) -> SurvivalExertion {
-        self.fully_loaded_exertion
+    pub fn sprinting_speed_for_load(self, carried: Mass, capacity: Mass) -> Speed {
+        assert!(
+            !capacity.is_zero(),
+            "locomotion carrying capacity must be nonzero"
+        );
+        assert!(
+            carried <= capacity,
+            "locomotion carried mass cannot exceed body capacity"
+        );
+        let walking = u128::from(self.walking_speed().nanometers_per_second());
+        let sprinting = u128::from(self.sprinting_speed().nanometers_per_second());
+        let bonus = sprinting - walking;
+        let remaining = u128::from(capacity.milligrams() - carried.milligrams());
+        let denominator = u128::from(capacity.milligrams());
+        let scaled_bonus =
+            bonus / denominator * remaining + (bonus % denominator) * remaining / denominator;
+        Speed::from_nanometers_per_second(
+            u64::try_from(walking + scaled_bonus)
+                .unwrap_or_else(|_| unreachable!("authored sprint speed fits u64")),
+        )
+    }
+
+    #[must_use]
+    pub fn jump_speed_for_load(self, carried: Mass, capacity: Mass) -> Speed {
+        assert!(
+            !capacity.is_zero(),
+            "locomotion carrying capacity must be nonzero"
+        );
+        assert!(
+            carried <= capacity,
+            "locomotion carried mass cannot exceed body capacity"
+        );
+        let unloaded = u128::from(
+            self.body_kinematics
+                .unloaded_jump_speed()
+                .nanometers_per_second(),
+        );
+        let loaded = u128::from(
+            self.body_kinematics
+                .fully_loaded_jump_speed()
+                .nanometers_per_second(),
+        );
+        let loss = unloaded - loaded;
+        let numerator = u128::from(carried.milligrams());
+        let denominator = u128::from(capacity.milligrams());
+        let scaled_loss =
+            loss / denominator * numerator + (loss % denominator) * numerator / denominator;
+        Speed::from_nanometers_per_second(
+            u64::try_from(unloaded - scaled_loss)
+                .unwrap_or_else(|_| unreachable!("authored jump speed fits u64")),
+        )
+    }
+
+    #[must_use]
+    pub fn maximum_exertion(self) -> SurvivalExertion {
+        scale_exertion(
+            self.fully_loaded_exertion,
+            u128::from(self.sprinting_speed().nanometers_per_second()),
+            u128::from(self.walking_speed().nanometers_per_second()),
+        )
+        .unwrap_or_else(|| unreachable!("authored maximum locomotion exertion must fit"))
     }
 
     #[must_use]
@@ -196,6 +409,49 @@ impl LocomotionDefinition {
             ),
         )
     }
+
+    pub fn exertion_for_horizontal_speed(
+        self,
+        carried: Mass,
+        capacity: Mass,
+        speed_nanometers_per_second: u128,
+    ) -> Option<SurvivalExertion> {
+        if speed_nanometers_per_second > u128::from(self.sprinting_speed().nanometers_per_second())
+        {
+            return None;
+        }
+        scale_exertion(
+            self.exertion_for_load(carried, capacity),
+            speed_nanometers_per_second,
+            u128::from(self.walking_speed().nanometers_per_second()),
+        )
+    }
+}
+
+fn scale_exertion(
+    exertion: SurvivalExertion,
+    numerator: u128,
+    denominator: u128,
+) -> Option<SurvivalExertion> {
+    if denominator == 0 {
+        return None;
+    }
+    let scale = |value: u128| {
+        let quotient = value / denominator;
+        let remainder = value % denominator;
+        quotient
+            .checked_mul(numerator)?
+            .checked_add(remainder.checked_mul(numerator)? / denominator)
+    };
+    Some(SurvivalExertion::new(
+        Energy::from_nanojoules(scale(exertion.energy_cost_per_tick().nanojoules())?),
+        Volume::from_microliters(
+            u64::try_from(scale(u128::from(
+                exertion.hydration_loss_per_tick().microliters(),
+            ))?)
+            .ok()?,
+        ),
+    ))
 }
 
 /// Authored rate at which recent dietary balance fades and can support vitality recovery.

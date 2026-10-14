@@ -10,8 +10,8 @@ use crate::world::{ChunkCoord, WorldRegistry, WorldState};
 use crate::logistics::{PlayerBodyState, PlayerLogisticsRecord};
 
 use super::{
-    PlayerBodyMotionError, block_is_solid, horizontal_voxel_bounds, integrate_velocity,
-    length_nanometers,
+    PlayerBodyMotionError, block_is_solid, body_height, horizontal_voxel_bounds,
+    integrate_velocity, length_nanometers,
 };
 
 pub(super) fn resolve_horizontal_motion(
@@ -36,6 +36,7 @@ pub(super) fn resolve_horizontal_motion(
         WorldPoint::new(resolved_x, position.y_nanometers(), position.z_nanometers()),
         velocity,
         body.vertical_velocity(),
+        body.stance(),
     );
     let (resolved_z, collided_z) =
         sweep_horizontal_z(registry, world, x_resolved, locomotion, proposed_z)?;
@@ -250,7 +251,7 @@ fn vertical_voxel_bounds(
     locomotion: LocomotionDefinition,
 ) -> Result<(i64, i64), PlayerBodyMotionError> {
     let foot_y = body.foot_position().y_nanometers();
-    let height = length_nanometers(locomotion.standing_height())
+    let height = length_nanometers(body_height(locomotion, body.stance()))
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
     let top_exclusive = foot_y
         .checked_add(height)

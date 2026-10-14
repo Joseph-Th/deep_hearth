@@ -32,7 +32,7 @@ pub use access::{
     validate_player_equipment_access, validate_player_fluid_store_access,
     validate_player_stockpile_access,
 };
-pub use body::PlayerBodyState;
+pub use body::{PlayerBodyState, PlayerStance};
 pub use control::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, HorizontalControlInputError,
     PlayerControlInput,

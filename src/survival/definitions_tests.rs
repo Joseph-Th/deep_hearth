@@ -40,10 +40,19 @@ fn physiology_with_carry(
             SurvivalExertion::new(Energy::from_nanojoules(2), Volume::from_microliters(1)),
             BodyKinematicsDefinition::new(
                 crate::core::quantity::Length::from_micrometers(600_000),
-                crate::core::quantity::Length::from_micrometers(1_800_000),
-                Speed::from_nanometers_per_second(4_300_000_000),
+                BodyStanceDefinition::new(
+                    crate::core::quantity::Length::from_micrometers(1_800_000),
+                    crate::core::quantity::Length::from_micrometers(1_500_000),
+                ),
+                LocomotionSpeedDefinition::new(
+                    Speed::from_nanometers_per_second(1_300_000_000),
+                    Speed::from_nanometers_per_second(4_300_000_000),
+                    Speed::from_nanometers_per_second(5_600_000_000),
+                    Speed::from_nanometers_per_second(5_000_000_000),
+                    Speed::from_nanometers_per_second(4_600_000_000),
+                    Speed::from_nanometers_per_second(55_000_000_000),
+                ),
                 Acceleration::from_micrometers_per_second_squared(20_000_000),
-                Speed::from_nanometers_per_second(55_000_000_000),
             ),
         ),
         carried_mass_capacity,
@@ -80,12 +89,32 @@ fn physiology_exposes_explicit_body_kinematics() {
         crate::core::quantity::Length::from_micrometers(1_800_000)
     );
     assert_eq!(
+        locomotion.crouching_height(),
+        crate::core::quantity::Length::from_micrometers(1_500_000)
+    );
+    assert_eq!(
         locomotion.maximum_fall_speed(),
         Speed::from_nanometers_per_second(55_000_000_000)
     );
     assert_eq!(
         locomotion.walking_speed(),
         Speed::from_nanometers_per_second(4_300_000_000)
+    );
+    assert_eq!(
+        locomotion.crouching_speed(),
+        Speed::from_nanometers_per_second(1_300_000_000)
+    );
+    assert_eq!(
+        locomotion.sprinting_speed(),
+        Speed::from_nanometers_per_second(5_600_000_000)
+    );
+    assert_eq!(
+        locomotion.jump_speed_for_load(Mass::ZERO, Mass::from_milligrams(10)),
+        Speed::from_nanometers_per_second(5_000_000_000)
+    );
+    assert_eq!(
+        locomotion.jump_speed_for_load(Mass::from_milligrams(10), Mass::from_milligrams(10)),
+        Speed::from_nanometers_per_second(4_600_000_000)
     );
     assert_eq!(
         locomotion.horizontal_acceleration(),

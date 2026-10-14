@@ -7,10 +7,11 @@ use crate::core::quantity::{
 use crate::core::time::TickSpan;
 use crate::material::CommodityKey;
 use crate::survival::{
-    BodyKinematicsDefinition, ConsumptionTemperatureRange, DirectConsumptionDefinition,
-    DrinkDefinition, FoodCategory, FoodDefinition, HydrationDefinition, LocomotionDefinition,
-    MetabolismDefinition, NutritionDefinition, PhysiologyDefinition, SurvivalExertion,
-    SurvivalRegistry, SurvivalStressDefinition, ThermalComfortDefinition,
+    BodyKinematicsDefinition, BodyStanceDefinition, ConsumptionTemperatureRange,
+    DirectConsumptionDefinition, DrinkDefinition, FoodCategory, FoodDefinition,
+    HydrationDefinition, LocomotionDefinition, LocomotionSpeedDefinition, MetabolismDefinition,
+    NutritionDefinition, PhysiologyDefinition, SurvivalExertion, SurvivalRegistry,
+    SurvivalStressDefinition, ThermalComfortDefinition,
 };
 
 use super::{
@@ -33,8 +34,13 @@ const MAXIMUM_DRINK_DURATION_TICKS: u64 = 18;
 /// Unaided carried custody. Twenty-five kilograms is deliberately useful for camp-scale material
 /// handling without pretending the player can backpack machine-scale stone and timber assemblies.
 const PLAYER_CARRIED_MASS_CAPACITY_MG: u64 = 25_000_000;
+const PLAYER_CROUCHING_HEIGHT_UM: u64 = 1_500_000;
+const PLAYER_CROUCHING_SPEED_NM_PER_SECOND: u64 = 1_300_000_000;
 const PLAYER_WALKING_SPEED_NM_PER_SECOND: u64 = 4_300_000_000;
+const PLAYER_SPRINTING_SPEED_NM_PER_SECOND: u64 = 5_600_000_000;
 const PLAYER_HORIZONTAL_ACCELERATION_UM_PER_SECOND_SQUARED: u64 = 20_000_000;
+const PLAYER_UNLOADED_JUMP_SPEED_NM_PER_SECOND: u64 = 5_000_000_000;
+const PLAYER_FULLY_LOADED_JUMP_SPEED_NM_PER_SECOND: u64 = 4_600_000_000;
 
 fn direct_consumption_temperature() -> ConsumptionTemperatureRange {
     ConsumptionTemperatureRange::new(
@@ -76,12 +82,21 @@ fn physiology() -> PhysiologyDefinition {
             ),
             BodyKinematicsDefinition::new(
                 Length::from_micrometers(600_000),
-                Length::from_micrometers(1_800_000),
-                Speed::from_nanometers_per_second(PLAYER_WALKING_SPEED_NM_PER_SECOND),
+                BodyStanceDefinition::new(
+                    Length::from_micrometers(1_800_000),
+                    Length::from_micrometers(PLAYER_CROUCHING_HEIGHT_UM),
+                ),
+                LocomotionSpeedDefinition::new(
+                    Speed::from_nanometers_per_second(PLAYER_CROUCHING_SPEED_NM_PER_SECOND),
+                    Speed::from_nanometers_per_second(PLAYER_WALKING_SPEED_NM_PER_SECOND),
+                    Speed::from_nanometers_per_second(PLAYER_SPRINTING_SPEED_NM_PER_SECOND),
+                    Speed::from_nanometers_per_second(PLAYER_UNLOADED_JUMP_SPEED_NM_PER_SECOND),
+                    Speed::from_nanometers_per_second(PLAYER_FULLY_LOADED_JUMP_SPEED_NM_PER_SECOND),
+                    Speed::from_nanometers_per_second(55_000_000_000),
+                ),
                 Acceleration::from_micrometers_per_second_squared(
                     PLAYER_HORIZONTAL_ACCELERATION_UM_PER_SECOND_SQUARED,
                 ),
-                Speed::from_nanometers_per_second(55_000_000_000),
             ),
         ),
         Mass::from_milligrams(PLAYER_CARRIED_MASS_CAPACITY_MG),
