@@ -203,6 +203,37 @@ fn additive_upgrade_cannot_move_preserved_wear_to_a_different_service_component(
 }
 
 #[test]
+fn additive_upgrade_cannot_reclassify_preserved_condition_with_new_maintenance_thresholds() {
+    let (registries, capability) = fixture_capability();
+    let base_id = EquipmentDefinitionId::new(810_031);
+    let target_id = EquipmentDefinitionId::new(810_032);
+    let base = base_definition(base_id, capability);
+    let changed_thresholds = MaintenanceThresholds::new(
+        Condition::new(500_000)
+            .unwrap_or_else(|error| panic!("changed warning threshold fixture failed: {error}")),
+        Condition::new(200_000)
+            .unwrap_or_else(|error| panic!("changed critical threshold fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("changed maintenance thresholds fixture failed: {error}"));
+    let target = target_assembly_upgrade(
+        EquipmentDefinition::new(
+            target_id,
+            "upgrade threshold-changing target fixture",
+            Mass::from_milligrams(2),
+            CapabilityProfile::new([(
+                capability,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(120)),
+            )])
+            .unwrap_or_else(|error| panic!("threshold target capability profile failed: {error}")),
+            changed_thresholds,
+        ),
+        base_id,
+    );
+
+    assert_invalid_upgrade(&registries, base, target);
+}
+
+#[test]
 fn additive_upgrade_respects_lower_is_better_capability_direction() {
     let registries = build_registries();
     let capability = CapabilityId::new(810_023);

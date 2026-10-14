@@ -36,6 +36,13 @@ pub(super) fn validate_equipment_upgrade_references(
         target.id().value(),
         base.id().value()
     );
+    assert_eq!(
+        target.maintenance_thresholds(),
+        base.maintenance_thresholds(),
+        "equipment definition {} additive upgrade from {} preserves condition and must preserve its maintenance thresholds",
+        target.id().value(),
+        base.id().value()
+    );
     assert!(
         upgrade
             .additions()
