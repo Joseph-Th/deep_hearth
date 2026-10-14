@@ -6,7 +6,7 @@ use crate::content::{
     FORM_LOG, MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Area, Length, Mass, Temperature};
+use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::inventory::{MaterialLotSelection, deposit_lot_for_test};
 use crate::logistics::{add_traversable_edge_for_test, validate_start_player_step};
@@ -20,6 +20,7 @@ use crate::structural::{
     GroundedStructuralElementPlan, PlanPlayerStructuralElementError, StructuralElementGeometry,
     validate_plan_player_grounded_structural_element,
 };
+use crate::survival::{Vitality, player_record};
 
 const MEMBER_MASS_MG: u64 = 6_500_000;
 
@@ -105,6 +106,158 @@ fn admitted_player_with_planned_member() -> (
     )
     .unwrap_or_else(|error| panic!("player construction carried timber failed: {error}"));
     (registries, state, element, lot)
+}
+
+fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut AppState) {
+    let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal construction fixture lost survival player"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+}
+
+#[test]
+fn fatal_tick_leaves_unfinished_member_materialized_but_inert() {
+    let (registries, mut state, element, lot) = admitted_player_with_planned_member();
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("fatal construction matter-before failed: {error}"))
+        .total();
+    let work = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        element,
+        &[MaterialLotSelection::new(
+            lot,
+            Mass::from_milligrams(MEMBER_MASS_MG),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("fatal construction start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal construction start commit failed: {error}"));
+    assert!(
+        work.completes_at().value() > state.tick().value() + 1,
+        "fatal construction proof requires unfinished work after the next tick"
+    );
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal construction tick failed: {error}"));
+
+    assert_eq!(outcome.structural_construction(), None);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(element)
+            .map(|record| (record.lifecycle(), record.embodied_mass())),
+        Some((
+            StructuralLifecycle::Planned,
+            Mass::from_milligrams(MEMBER_MASS_MG),
+        )),
+        "fatal interruption must preserve positioned matter without making it load-bearing"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("fatal construction matter-after failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("fatal construction save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("fatal construction decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("fatal construction trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    let post_death = advance_tick(&registries, &mut loaded)
+        .unwrap_or_else(|error| panic!("fatal construction post-death tick failed: {error}"));
+    assert_eq!(post_death.structural_construction(), None);
+    assert_eq!(
+        loaded
+            .structures()
+            .get_element(element)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Planned)
+    );
+}
+
+#[test]
+fn structural_construction_due_on_fatal_tick_becomes_load_bearing() {
+    let (registries, mut state, element, lot) = admitted_player_with_planned_member();
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("fatal due construction matter-before failed: {error}"))
+        .total();
+    let work = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        element,
+        &[MaterialLotSelection::new(
+            lot,
+            Mass::from_milligrams(MEMBER_MASS_MG),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("fatal due construction start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal due construction start commit failed: {error}"));
+    while state.tick().value() + 1 < work.completes_at().value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fatal due construction setup tick failed: {error}"));
+        assert_eq!(outcome.structural_construction(), None);
+    }
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal due construction completion tick failed: {error}"));
+
+    assert_eq!(outcome.structural_construction(), Some(element));
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(element)
+            .map(|record| (record.lifecycle(), record.embodied_mass())),
+        Some((
+            StructuralLifecycle::Active,
+            Mass::from_milligrams(MEMBER_MASS_MG),
+        )),
+        "construction due on the fatal tick must activate its already-positioned member"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("fatal due construction matter-after failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
