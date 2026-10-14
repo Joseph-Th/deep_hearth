@@ -1,7 +1,7 @@
 //! Built-in physiology and primitive edible/drinkable content.
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
-use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volume};
+use crate::core::quantity::{Energy, Length, Mass, MassSpecificEnergy, Speed, Temperature, Volume};
 use crate::core::time::TickSpan;
 use crate::material::CommodityKey;
 use crate::survival::{
@@ -70,6 +70,9 @@ fn physiology() -> PhysiologyDefinition {
                 Energy::from_nanojoules(1_200_000_000_000),
                 Volume::from_microliters(300),
             ),
+            Length::from_micrometers(600_000),
+            Length::from_micrometers(1_800_000),
+            Speed::from_nanometers_per_second(55_000_000_000),
         ),
         Mass::from_milligrams(PLAYER_CARRIED_MASS_CAPACITY_MG),
         SurvivalStressDefinition::new(

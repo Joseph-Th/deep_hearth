@@ -1,7 +1,7 @@
 //! Admission contracts for exclusive player-work revision and survival budgeting.
 
 use super::*;
-use crate::content::build_registries;
+use crate::content::{BLOCK_STATE_STONE, build_registries};
 use crate::core::state::AppState;
 use crate::core::time::ControlTick;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -9,6 +9,46 @@ use crate::player::validate_admit_player;
 use crate::production::ProductionJobId;
 use crate::simulation::advance_control_tick;
 use crate::spatial::VoxelCoord;
+use crate::world::{
+    ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed, validate_generate_chunk,
+};
+
+#[test]
+fn slow_player_work_requires_ground_contact_in_generated_world() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0xA1B0_0001),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("airborne-work terrain generation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("airborne-work terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("airborne-work terrain column has no surface"));
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, surface_y + 10, 0))
+        .unwrap_or_else(|error| panic!("airborne-work player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("airborne-work player commit failed: {error}"));
+
+    assert_eq!(
+        validate_player_work_start(
+            &registries,
+            &state,
+            PlayerWork::ManualProduction {
+                job: ProductionJobId::new(1),
+            },
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+        ),
+        Err(PlayerWorkStartError::PlayerAirborne)
+    );
+}
 
 #[test]
 fn slow_player_work_requires_a_control_boundary_and_commit_cannot_cross_one() {

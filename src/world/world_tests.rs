@@ -2,8 +2,10 @@
 
 use crate::content::{BLOCK_STATE_STONE, build_registries};
 use crate::core::state::{AppState, StateValidationError};
+use crate::logistics::{add_traversable_edge_for_test, validate_start_player_step};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::{PlayerAdmissionCommitError, validate_admit_player};
 use crate::spatial::VoxelCoord;
 
 use super::*;
@@ -12,7 +14,7 @@ const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xD33F_4845_4152_5448
 
 fn generate(state: &mut AppState, coord: ChunkCoord) {
     let registries = build_registries();
-    validate_generate_chunk(registries.world(), state, SEED, coord, BLOCK_STATE_STONE)
+    validate_generate_chunk(&registries, state, SEED, coord, BLOCK_STATE_STONE)
         .unwrap_or_else(|error| panic!("terrain generation validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("terrain generation commit failed: {error}"));
@@ -33,7 +35,7 @@ fn terrain_generation_is_deterministic_compact_and_seed_sensitive() {
     let registries = build_registries();
     let coord = ChunkCoord::new(-2, 3);
     let first = validate_generate_chunk(
-        registries.world(),
+        &registries,
         &AppState::new(),
         SEED,
         coord,
@@ -41,7 +43,7 @@ fn terrain_generation_is_deterministic_compact_and_seed_sensitive() {
     )
     .unwrap_or_else(|error| panic!("first terrain generation failed: {error}"));
     let replay = validate_generate_chunk(
-        registries.world(),
+        &registries,
         &AppState::new(),
         SEED,
         coord,
@@ -51,7 +53,7 @@ fn terrain_generation_is_deterministic_compact_and_seed_sensitive() {
     assert_eq!(first.chunk(), replay.chunk());
 
     let different = validate_generate_chunk(
-        registries.world(),
+        &registries,
         &AppState::new(),
         WorldGenerationSeed::new(SEED.value() + 1),
         coord,
@@ -128,7 +130,7 @@ fn terrain_generation_rejects_unrepresentable_chunk_coordinates() {
     let chunk = ChunkCoord::new(i64::MAX, 0);
 
     assert_eq!(
-        validate_generate_chunk(registries.world(), &state, SEED, chunk, BLOCK_STATE_STONE,).err(),
+        validate_generate_chunk(&registries, &state, SEED, chunk, BLOCK_STATE_STONE,).err(),
         Some(ChunkGenerationError::ChunkCoordinateOverflow { chunk })
     );
 }
@@ -139,22 +141,10 @@ fn chunk_generation_commit_is_revision_bound_and_does_not_overwrite_world_truth(
     let mut state = AppState::new();
     let first_coord = ChunkCoord::new(0, 0);
     let second_coord = ChunkCoord::new(1, 0);
-    let first = validate_generate_chunk(
-        registries.world(),
-        &state,
-        SEED,
-        first_coord,
-        BLOCK_STATE_STONE,
-    )
-    .unwrap_or_else(|error| panic!("first chunk validation failed: {error}"));
-    let stale = validate_generate_chunk(
-        registries.world(),
-        &state,
-        SEED,
-        second_coord,
-        BLOCK_STATE_STONE,
-    )
-    .unwrap_or_else(|error| panic!("stale chunk validation failed: {error}"));
+    let first = validate_generate_chunk(&registries, &state, SEED, first_coord, BLOCK_STATE_STONE)
+        .unwrap_or_else(|error| panic!("first chunk validation failed: {error}"));
+    let stale = validate_generate_chunk(&registries, &state, SEED, second_coord, BLOCK_STATE_STONE)
+        .unwrap_or_else(|error| panic!("stale chunk validation failed: {error}"));
 
     assert_eq!(first.commit(&mut state), Ok(first_coord));
     let before = state.clone();
@@ -167,15 +157,111 @@ fn chunk_generation_commit_is_revision_bound_and_does_not_overwrite_world_truth(
     );
     assert_eq!(state, before);
     assert_eq!(
+        validate_generate_chunk(&registries, &state, SEED, first_coord, BLOCK_STATE_STONE,).err(),
+        Some(ChunkGenerationError::AlreadyGenerated { chunk: first_coord })
+    );
+}
+
+#[test]
+fn terrain_generation_rejects_player_body_overlap_without_world_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player_voxel = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    validate_admit_player(&registries, &state, player_voxel)
+        .unwrap_or_else(|error| panic!("body-collision admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("body-collision admission commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
         validate_generate_chunk(
-            registries.world(),
+            &registries,
             &state,
             SEED,
-            first_coord,
+            ChunkCoord::new(0, 0),
             BLOCK_STATE_STONE,
         )
         .err(),
-        Some(ChunkGenerationError::AlreadyGenerated { chunk: first_coord })
+        Some(ChunkGenerationError::PlayerBodyCollision {
+            voxel: player_voxel,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn validated_player_admission_cannot_cross_world_generation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player_voxel = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    let admission = validate_admit_player(&registries, &state, player_voxel)
+        .unwrap_or_else(|error| panic!("stale-world admission validation failed: {error}"));
+    validate_generate_chunk(
+        &registries,
+        &state,
+        SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("stale-world terrain validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("stale-world terrain commit failed: {error}"));
+
+    assert_eq!(
+        admission.commit(&mut state),
+        Err(PlayerAdmissionCommitError::StaleWorldRevision {
+            expected: 0,
+            actual: 1,
+        })
+    );
+}
+
+#[test]
+fn validated_chunk_cannot_cross_player_or_player_work_changes() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let chunk = ChunkCoord::new(0, 0);
+    let first = validate_generate_chunk(&registries, &state, SEED, chunk, BLOCK_STATE_STONE)
+        .unwrap_or_else(|error| panic!("stale-logistics terrain validation failed: {error}"));
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 100, 0))
+        .unwrap_or_else(|error| panic!("stale-logistics player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale-logistics player commit failed: {error}"));
+    let actual_logistics_revision = state.logistics().revision();
+    let before = state.clone();
+    assert_eq!(
+        first.commit(&mut state),
+        Err(ChunkGenerationCommitError::StaleLogisticsRevision {
+            expected: 0,
+            actual: actual_logistics_revision,
+        })
+    );
+    assert_eq!(state, before);
+
+    let origin = VoxelCoord::new(0, 100, 0);
+    let destination = VoxelCoord::new(1, 100, 0);
+    add_traversable_edge_for_test(&mut state, origin, destination);
+    let validated = validate_generate_chunk(&registries, &state, SEED, chunk, BLOCK_STATE_STONE)
+        .unwrap_or_else(|error| panic!("stale-work terrain validation failed: {error}"));
+    let expected_player_work_revision = state.player_work().revision();
+    validate_start_player_step(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("stale-work legacy step validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale-work legacy step commit failed: {error}"));
+    let actual_player_work_revision = state.player_work().revision();
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(ChunkGenerationCommitError::StalePlayerWorkRevision {
+            expected: expected_player_work_revision,
+            actual: actual_player_work_revision,
+        })
+    );
+    assert_eq!(
+        validate_generate_chunk(&registries, &state, SEED, chunk, BLOCK_STATE_STONE).err(),
+        Some(ChunkGenerationError::PlayerStepInProgress {
+            origin,
+            destination,
+        })
     );
 }
 

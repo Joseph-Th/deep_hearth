@@ -458,8 +458,11 @@ fn trusted_load_rejects_remote_surface_gathering_before_source_state() {
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("remote trusted-load gathering serialization failed: {error}")
         });
-    encoded["state"]["systems"]["logistics"]["player"]["position"] =
-        serde_json::json!({"x": 1, "y": 0, "z": 0});
+    encoded["state"]["systems"]["logistics"]["player"]["body"]["foot_position"] = serde_json::json!({
+        "x_nanometers": 1_500_000_000_i64,
+        "y_nanometers": 0_i64,
+        "z_nanometers": 500_000_000_i64
+    });
     encoded["state"]["systems"]["player_work"]["active"]["SurfaceGathering"]["work"]["source_mass_before"] =
         serde_json::json!(101_u64);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)

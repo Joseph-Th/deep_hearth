@@ -5,7 +5,7 @@ use crate::content::{
     make_test_registries_with_standard_sensible_heating,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
-use crate::core::state::AppState;
+use crate::core::state::{AppState, StateValidationError};
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::add_equipment;
 use crate::inventory::{
@@ -13,12 +13,12 @@ use crate::inventory::{
     deposit_lot_for_test,
 };
 use crate::logistics::{
-    GroundStockpileAllocationError, validate_allocate_ground_stockpile,
+    GroundStockpileAllocationError, LogisticsValidationError, validate_allocate_ground_stockpile,
     validate_player_logistics_initialization,
 };
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessId, validate_start_process};
 use crate::spatial::VoxelCoord;
 use crate::survival::initialize_player_survival;
@@ -49,6 +49,41 @@ fn ordinary_player_admission_commits_all_owner_state_together() {
         registries.survival().physiology().carried_mass_capacity()
     );
     assert_eq!(carried.stored_mass(), Mass::ZERO);
+}
+
+#[test]
+fn ordinary_player_admission_rejects_body_extent_beyond_continuous_world() {
+    let registries = build_registries();
+    let state = AppState::new();
+    let position = VoxelCoord::new(0, 9_223_372_036, 0);
+
+    assert_eq!(
+        validate_admit_player(&registries, &state, position).err(),
+        Some(PlayerAdmissionError::PositionOutsideContinuousWorld { position })
+    );
+}
+
+#[test]
+fn trusted_load_rejects_player_body_extent_beyond_continuous_world() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("body-bound load admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("body-bound load admission commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("body-bound load serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["player"]["body"]["foot_position"]["y_nanometers"] =
+        serde_json::json!(9_223_372_036_000_000_000_i64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("body-bound load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::PlayerBodyOutsideContinuousWorld,
+        )))
+    );
 }
 
 #[test]

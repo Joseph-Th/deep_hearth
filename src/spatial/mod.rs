@@ -5,6 +5,10 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+mod motion;
+
+pub use motion::{NANOMETERS_PER_VOXEL, VerticalVelocity, WorldPoint};
+
 /// Persistent integer coordinate of one voxel in authoritative world space.
 ///
 /// Coordinates deliberately do not encode a chunk size or streaming partition. Those are storage

@@ -92,19 +92,21 @@ matter or machine state can live in sparse owner-controlled state.
 The first storage slice now exists: `WorldState` owns persisted 16x16 chunk columns containing palette-compressed
 16-cubed sections, `WorldRegistry` owns authored block/state identity, and explicit-seed generation can commit
 deterministic stone terrain through a revision-bound transaction. That is infrastructure, not ordinary terrain
-play. The next world slice is demand streaming plus continuous body collision/access over those cells; block
+play. A first body slice now also persists a fixed-point bottom-center transform in logistics and runs 20 Hz
+gravity plus swept vertical full-cube floor/ceiling collision wherever the current footprint has generated chunk
+truth. The next world slice is horizontal input/collision plus demand streaming/access over those cells; block
 breaking/placement must then cross world state and conserved material custody in one canonical operation.
 
-The authoritative-time foundation now separates a persisted 20 Hz `ControlTick` from the existing 3.6-second
-physical/accounting `SimulationTick`. One canonical `advance_control_tick` owns high-frequency progression and
-runs the slow transaction exactly every 72 control steps; headless `advance_tick` atomically advances one slow
-boundary while the intervening control phases are clock-only, preserving the existing no-partial-mutation error contract.
-Existing `TickSpan` work is boundary-gated so subsecond control progress cannot shorten industrial, survival, or
-labor schedules. The next movement slice should put body kinematics directly on `ControlTick`, not migrate slow
-accounting to 20 Hz. Once control-rate body mutation exists, the slow helper must replay/plan those steps or be retired.
+The authoritative-time foundation separates a persisted 20 Hz `ControlTick` from the existing 3.6-second
+physical/accounting `SimulationTick`. `advance_control_tick` now owns both high-frequency progression and active
+generated-world body gravity/collision, running the slow transaction exactly every 72 control steps. `advance_tick`
+fails closed when that body physics is active instead of skipping intervening control semantics. Existing
+`TickSpan` work remains boundary-gated and generated-world slow work additionally requires ground contact.
 
-Direct player movement then becomes continuous fixed-point world motion with gravity, swept collision and
-terrain contact rather than a reserved one-voxel labor step. Camera raycasting and the familiar primary/secondary
+Direct player movement is now partially on that target path: fixed-point body position, vertical velocity,
+gravity, swept vertical collision, terrain contact, save/load continuation, and body/terrain race rejection are
+authoritative. Horizontal walking/sprint/crouch/jump input and swept horizontal collision remain next; the timed
+one-voxel labor step is rejected once generated-world body physics is active. Camera raycasting and the familiar primary/secondary
 action grammar compose block breaking, placement, gathering, equipment use, consumption and interaction into the
 existing owner validators. Generic world drops and hotbar/inventory/container projections complete the direct
 matter loop without creating a second simplified simulation.

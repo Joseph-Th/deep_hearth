@@ -28,6 +28,7 @@ pub enum PlayerWorkStartError {
     SimulationBoundary(SimulationBoundaryError),
     SurvivalNotInitialized,
     PlayerDead,
+    PlayerAirborne,
     Busy { active: Box<PlayerWork> },
     MetabolicCostOverflow { duration: TickSpan },
     InsufficientMetabolicEnergy { available: Energy, required: Energy },
@@ -45,6 +46,9 @@ impl Display for PlayerWorkStartError {
                 formatter.write_str("player work requires initialized survival state")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot begin work"),
+            Self::PlayerAirborne => {
+                formatter.write_str("player must be grounded before beginning slow work")
+            }
             Self::Busy { active } => write!(formatter, "player is already occupied by {active:?}"),
             Self::MetabolicCostOverflow { duration } => write!(
                 formatter,
@@ -92,6 +96,7 @@ impl Error for PlayerWorkStartError {
             Self::SimulationBoundary(error) => Some(error),
             Self::SurvivalNotInitialized
             | Self::PlayerDead
+            | Self::PlayerAirborne
             | Self::Busy { .. }
             | Self::MetabolicCostOverflow { .. }
             | Self::InsufficientMetabolicEnergy { .. }
@@ -196,6 +201,13 @@ pub(crate) fn validate_player_work_start(
 ) -> Result<ValidatedPlayerWorkStart, PlayerWorkStartError> {
     require_simulation_boundary(state.control_tick())
         .map_err(PlayerWorkStartError::SimulationBoundary)?;
+    if crate::logistics::player_body_uses_generated_world(
+        state,
+        registries.survival().physiology().locomotion(),
+    ) && !crate::logistics::player_body_is_grounded(registries, state)
+    {
+        return Err(PlayerWorkStartError::PlayerAirborne);
+    }
     let attention = validate_player_attention(state).map_err(|error| match error {
         PlayerAttentionError::SurvivalNotInitialized => {
             PlayerWorkStartError::SurvivalNotInitialized

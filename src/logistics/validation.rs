@@ -3,14 +3,18 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::core::state::AppState;
 use crate::energy::{EnergyState, EnergyStoreId};
 use crate::equipment::{EquipmentId, EquipmentRegistry, EquipmentState};
 use crate::fluid::{FluidState, FluidStoreId};
 use crate::inventory::{InventoryState, StockpileId, StorageDefinitionId};
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralElementId, StructureState};
 
-use super::{LogisticsState, TraversalEdge};
+use super::{
+    LogisticsState, TraversalEdge, first_player_body_collision, player_body_fits_continuous_world,
+};
 
 /// Persistent-state validation failure for player logistics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,6 +94,10 @@ pub enum LogisticsValidationError {
         current_first: VoxelCoord,
         current_second: VoxelCoord,
     },
+    PlayerBodyIntersectsSolid {
+        voxel: VoxelCoord,
+    },
+    PlayerBodyOutsideContinuousWorld,
 }
 
 impl Display for LogisticsValidationError {
@@ -249,6 +257,15 @@ impl Display for LogisticsValidationError {
                 current_second.y(),
                 current_second.z()
             ),
+            Self::PlayerBodyIntersectsSolid { voxel } => write!(
+                formatter,
+                "player body intersects solid world voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::PlayerBodyOutsideContinuousWorld => formatter
+                .write_str("player body extent exceeds representable continuous world coordinates"),
         }
     }
 }
@@ -468,21 +485,28 @@ fn validate_fluid_store_locations(
 }
 
 pub(crate) fn validate_loaded_logistics(
-    state: &LogisticsState,
-    inventory: &InventoryState,
-    equipment: &EquipmentState,
-    equipment_registry: &EquipmentRegistry,
-    energy: &EnergyState,
-    fluid: &FluidState,
-    structures: &StructureState,
+    registries: &Registries,
+    app: &AppState,
 ) -> Result<(), LogisticsValidationError> {
+    let state = app.logistics();
     validate_revision(state)?;
     validate_traversal_edges(state)?;
-    validate_player_custody(state, inventory)?;
-    validate_carried_equipment(state, equipment, equipment_registry)?;
-    validate_stockpile_locations(state, inventory, structures)?;
-    validate_equipment_locations(state, equipment, structures)?;
-    validate_energy_store_locations(state, energy)?;
-    validate_fluid_store_locations(state, fluid, structures)?;
+    validate_player_custody(state, app.inventory())?;
+    validate_carried_equipment(state, app.equipment(), registries.equipment())?;
+    validate_stockpile_locations(state, app.inventory(), app.structures())?;
+    validate_equipment_locations(state, app.equipment(), app.structures())?;
+    validate_energy_store_locations(state, app.energy())?;
+    validate_fluid_store_locations(state, app.fluid(), app.structures())?;
+    if let Some(player) = state.player() {
+        let locomotion = registries.survival().physiology().locomotion();
+        if !player_body_fits_continuous_world(player.body(), locomotion) {
+            return Err(LogisticsValidationError::PlayerBodyOutsideContinuousWorld);
+        }
+        if let Some(voxel) =
+            first_player_body_collision(registries.world(), app.world(), player.body(), locomotion)
+        {
+            return Err(LogisticsValidationError::PlayerBodyIntersectsSolid { voxel });
+        }
+    }
     Ok(())
 }

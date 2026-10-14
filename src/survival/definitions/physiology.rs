@@ -1,16 +1,19 @@
 //! Immutable player physiology and direct-consumption timing definitions.
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
-use crate::core::quantity::{Energy, Mass, Volume};
+use crate::core::quantity::{Energy, Length, Mass, Speed, Volume};
 use crate::core::time::TickSpan;
 use crate::survival::resource_cost::SurvivalExertion;
 
-/// Authored unaided locomotion cost for one open-space voxel step.
+/// Authored unaided locomotion/body facts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocomotionDefinition {
     step_duration: TickSpan,
     unloaded_exertion: SurvivalExertion,
     fully_loaded_exertion: SurvivalExertion,
+    body_width: Length,
+    standing_height: Length,
+    maximum_fall_speed: Speed,
 }
 
 impl LocomotionDefinition {
@@ -19,6 +22,9 @@ impl LocomotionDefinition {
         step_duration: TickSpan,
         unloaded_exertion: SurvivalExertion,
         fully_loaded_exertion: SurvivalExertion,
+        body_width: Length,
+        standing_height: Length,
+        maximum_fall_speed: Speed,
     ) -> Self {
         assert!(
             !step_duration.is_zero(),
@@ -36,16 +42,43 @@ impl LocomotionDefinition {
                 >= unloaded_exertion.hydration_loss_per_tick(),
             "fully loaded locomotion cannot lose less hydration than unloaded locomotion"
         );
+        assert!(!body_width.is_zero(), "player body width must be nonzero");
+        assert!(
+            !standing_height.is_zero(),
+            "player standing height must be nonzero"
+        );
+        assert!(
+            !maximum_fall_speed.is_zero(),
+            "player maximum fall speed must be nonzero"
+        );
         Self {
             step_duration,
             unloaded_exertion,
             fully_loaded_exertion,
+            body_width,
+            standing_height,
+            maximum_fall_speed,
         }
     }
 
     #[must_use]
     pub const fn step_duration(self) -> TickSpan {
         self.step_duration
+    }
+
+    #[must_use]
+    pub const fn body_width(self) -> Length {
+        self.body_width
+    }
+
+    #[must_use]
+    pub const fn standing_height(self) -> Length {
+        self.standing_height
+    }
+
+    #[must_use]
+    pub const fn maximum_fall_speed(self) -> Speed {
+        self.maximum_fall_speed
     }
 
     #[must_use]

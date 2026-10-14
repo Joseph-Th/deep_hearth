@@ -69,12 +69,13 @@ authorization remain with the canonical resolver/validator path.
 ### Temporal stepping contract
 
 `advance_control_tick(registries, state)` is the canonical 20 Hz direct-control mutation. It advances one
-`ControlTick`; every 72nd call executes the same slow-simulation transaction used by `advance_tick`.
+`ControlTick`, integrates any active generated-world player body, and every 72nd call executes the same
+slow-simulation transaction used by `advance_tick`.
 
-`advance_tick(registries, state)` is the atomic headless/process helper for exactly one next slow boundary. While
-control-rate gameplay phases are clock-only, it may jump directly to that boundary so a failure leaves the whole
-state unchanged. Once control-rate phases gain authoritative effects, this helper must plan or replay those
-intervening effects before it may remain valid.
+`advance_tick(registries, state)` is the atomic headless/process helper for exactly one next slow boundary only
+when no generated-world player body has active control-rate physics. It fails with
+`ControlSteppingRequired` rather than skip gravity/collision. Direct-control adapters and generated-world body
+continuation therefore advance through `advance_control_tick`.
 
 A known due tick is a bound, not permission to skip intervening semantics. Semantic fast-forward requires a
 separate authoritative transition with proved equivalence across every skipped phase.
@@ -107,9 +108,9 @@ then read the owning section/source for exact semantics and errors.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |
-| Root simulation and time | core definitions, typed quantities/time | `AppState::control_tick()`, `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_control_tick` is the canonical 20 Hz step; `advance_tick` atomically advances one slow boundary while control-rate phases are clock-only; direct clock/owner applies stay crate-private |
+| Root simulation and time | core definitions, typed quantities/time | `AppState::control_tick()`, `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_control_tick` is the canonical 20 Hz step and owns active body physics; `advance_tick` atomically advances one slow boundary only when no generated-world body requires those intervening control steps; direct clock/owner applies stay crate-private |
 | Registries and built-in content | `Registries` plus domain registries; `build_registries` validates cross-references | public immutable `Registries::*()` accessors; derived authored topology may provide goal-directed reverse lookup | callers inspect authored possibilities; topology never claims current legality or ordinary reachability | none; registries and derived definition indexes are immutable after construction |
-| Block world | `WorldRegistry` block/state definitions plus explicit `WorldGenerationSeed` input | `AppState::world()`, generated chunk/section records, exact block lookup inside generated chunks | `validate_generate_chunk` derives one deterministic compact terrain chunk; future placement/breaking must coordinate material custody rather than expose generic cell mutation | `ValidatedChunkGeneration::commit`; no public arbitrary block setter, demand streaming, breaking, or placement yet |
+| Block world | `WorldRegistry` block/state definitions plus explicit `WorldGenerationSeed` input | `AppState::world()`, generated chunk/section records, exact block lookup inside generated chunks | `validate_generate_chunk` derives one deterministic compact terrain chunk and rejects candidate terrain that would intersect the admitted player body or activate beneath an in-flight legacy step; future placement/breaking must coordinate material custody | `ValidatedChunkGeneration::commit` binds world/logistics/player-work freshness; no public arbitrary block setter, demand streaming, breaking, or placement yet |
 | Inventory and storage | material/form/storage definitions | `AppState::inventory()`, stockpile/lot records and stable iterators | feature owners construct explicit lot selections; enclosure validators derive storage consequences | no generic public transport command; feature-specific validators own ingress/egress/reform, enclosure, and support transitions |
 | Surface gathering | `LaborRegistry` gathering methods plus finite surface-resource records | `AppState::available_surface_resources()` for exact-local resources and `available_adjacent_surface_resources` for traversal-gated orientation | `validate_start_player_surface_gathering` derives carried custody for ordinary pickup; `validate_start_surface_gathering` retains explicit destination routing for deliberate subsystem use | `advance_tick` atomically depletes the source and lands the admitted parcel in reserved inventory custody |
 | Geological knowledge | prospecting methods plus hidden finite geology | `AppState::geological_knowledge()`, `assess_geological_knowledge`, knowledge map | field prospecting authorization; evidence combination remains actor-safe | `validate_start_field_prospecting` -> tick records observations |
@@ -117,7 +118,7 @@ then read the owning section/source for exact semantics and errors.
 | Production | `ProductionRegistry`, `ProcessDefinition` | `AppState::production()`, job records, reservations/occupancy | operation-specific resolvers produce `ProcessResolution` / `Resolved*` | ordinary player execution uses `validate_start_player_process*` to require complete player admission and prove exact-local endpoint/resource access before capability-level `validate_start_process*`; controlled capability probes may enter `validate_start_process*` directly -> tick completion |
 | Equipment | `EquipmentRegistry`, capability/maintenance/upgrade profiles | `AppState::equipment()`, equipment records; `AppState::available_local_equipment()` resolves stationary or player-carried equipment at the actor voxel | `resolve_equipment_provider`, `resolve_equipment_maintenance` | `validate_pickup_equipment` / `validate_drop_equipment` move portable equipment between stationary logistics custody and the physiology-sized player carrying envelope; assembly, upgrade, disassembly, and mount/unmount/relocate remain owner-level capability boundaries for controlled setup; once ordinary player admission exists they bind the living survival snapshot before mutation; mass-changing upgrade/disassembly and structural mounting require carried equipment to be dropped first; maintenance additionally reserves timed player work |
 | Player labor | `LaborRegistry`, manual-power/prospecting/structural-construction definitions | `AppState::player_work()` | `project_manual_power` projects immutable future provider/store physics; `assess_manual_power_energy_envelope` and `assess_manual_power_destination_target` bind current provider/store state for exact read-only generation and post-work stored-energy planning; structural construction derives duration from exact member mass; runtime owner commands still own authorization, attention, survival budget, and revisions | manual power/prospecting/manual production/grounded structural-construction commands -> tick; attention lifecycle is crate-owned |
-| Player admission | survival physiology plus root survival/logistics/inventory owners | pre-admission owner state only | `validate_admit_player` binds authored full reserves, world position, and physiology-sized carried capacity against one snapshot | `ValidatedPlayerAdmission::commit` prechecks all three owner revisions, then establishes survival, player location, and carried inventory custody atomically; controlled spatial-proxy fixtures may seed survival without claiming locality |
+| Player admission | survival physiology plus root survival/logistics/inventory/world owners | pre-admission owner state only | `validate_admit_player` binds authored full reserves, fixed-point body placement, collision-free current world state, and physiology-sized carried capacity against one snapshot | `ValidatedPlayerAdmission::commit` prechecks survival/logistics/inventory/world freshness, then establishes survival, body state, and carried inventory custody atomically; controlled spatial-proxy fixtures may seed survival without claiming locality |
 | Survival | `SurvivalRegistry`, physiology, food/drink definitions | `AppState::survival()`, `assess_survival`, `assess_food_freshness` | consumption validators derive bounded direct intake and physiological schedule | `validate_eat` / `validate_drink` -> tick; ordinary initialization is owned by `validate_admit_player`, while survival-only initialization is fixture-scoped |
 | Energy | `EnergyRegistry`, store definitions, carrier/power contracts | `AppState::energy()`, store records, explicit energy accounting | process/manual-power resolvers use `validate_energy_supply` / `validate_energy_sink` as part of their plan | assembly/upgrade/disassembly remain owner-level capability boundaries for controlled setup; once ordinary player admission exists they bind the living survival snapshot before mutation; reserved consumption/release and passive loss apply through canonical owners/tick |
 | Fluids | `FluidRegistry`, fluid definitions | `AppState::fluid()`, store records, fluid accounting | consumers validate exact egress internally; no generic routing planner exists | support validators and canonical consumers; generic transfer/pumping/mixing absent |
@@ -147,7 +148,7 @@ or whether the caller is crossing an ownership boundary it does not control.
 - Implemented authoritative physical calculations use checked integer arithmetic, not floating point.
 - Dynamic scheduled work persists as explicit records.
 - Known due simulation ticks may bound batched caller stepping, but do not authorize skipping intervening canonical control-tick semantics.
-- `advance_control_tick` is the high-frequency clock mutation surface. Most calls advance only the control clock; every 72nd call executes one complete slow-simulation transaction. `advance_tick` invokes that same slow transaction atomically at the next exact boundary and may bypass only clock-only intermediate control steps; it must not skip future control-rate gameplay effects.
+- `advance_control_tick` is the high-frequency mutation surface. It advances the control clock and, when the admitted player's current footprint has generated chunk truth, applies the authoritative vertical body step; every 72nd call also executes one complete slow-simulation transaction. `advance_tick` invokes that slow transaction atomically only when no generated-world body requires intervening control steps.
 - The slow transaction decides all fallible phase work against one pre-tick snapshot. Its application stage
   prechecks shared-owner revisions before mutation; after the completion transaction succeeds, remaining
   phase applies are infallible and assertion-backed before the clock advances.
@@ -173,7 +174,7 @@ synchronized indexes.
 | `GeologyState` | `AppState::geology()` | core-only hidden truth | Finite hidden geological deposits and depletion; actor code must not enumerate this owner |
 | `GeologicalKnowledgeState` | `AppState::geological_knowledge()` | public actor-safe evidence | Acquired bounded observations only |
 | `InventoryState` | `AppState::inventory()` plus `AppState::available_local_ground_stockpiles()` | public read plus exact-player-local ground-storage observation | Stockpiles, material lots, reservations, routing, preservation, material-backed storage enclosures, stockpile support |
-| `LogisticsState` | `AppState::logistics()` plus `AppState::available_player_steps()` | public read plus current-player traversal choices | Player voxel, normalized persisted traversable-neighbor edges, finite carried-stockpile identity, sorted player-carried portable-equipment identities, stationary stockpile/equipment/energy/fluid locations, and world-space custody revision |
+| `LogisticsState` | `AppState::logistics()` plus `AppState::available_player_steps()` | public read plus current-player traversal choices | Fixed-point player body with derived voxel locality, normalized persisted traversable-neighbor edges, finite carried-stockpile identity, sorted player-carried portable-equipment identities, stationary stockpile/equipment/energy/fluid locations, and world-space custody revision |
 | `ProductionState` | `AppState::production()` | public read | Active jobs, schedules, routing, exclusive resource occupancy |
 | `MiningState` | `AppState::mining()` | public read without hidden deposit identity | Mining work-in-process, blocked-output recovery custody, and schedules |
 | `PlayerWorkState` | `AppState::player_work()` | public read | At most one active player-attention operation |
@@ -203,7 +204,8 @@ explicit fresh-world seed + spawn voxel -> deterministic opening-graph forage/st
 explicit fresh-world seed + spawn voxel -> finite optional-branch water + five traversal edges -> FluidState + LogisticsState
 explicit fresh-world seed + chunk coordinate + authored solid block state + material density -> deterministic mass-backed terrain chunk -> WorldState
 local ground storage observation -> same-voxel player allocation / pickup / drop <-> player-carried inventory lot
-player voxel + persisted traversal edge + carried mass + physiology -> timed adjacent step -> logistics player voxel
+derived player voxel + persisted traversal edge + carried mass + physiology -> legacy timed adjacent step -> logistics body snapped to destination voxel floor
+generated chunk truth + persisted player body + gravity -> 20 Hz vertical sweep/contact -> logistics body
 inventory traces -> equipment @ player voxel -> optional structural support
 exact-local equipment observation -> player tool/machine selection -> canonical owner action
 inventory traces -> finite energy store @ player voxel
@@ -288,6 +290,7 @@ inventory record that now contains that contribution.
 | `Area` | square millimeter | `u64` |
 | `Length` | micrometer | `u64` |
 | `Acceleration` | micrometer/second² | `u64` |
+| `Speed` | nanometer/second | `u64` |
 | `Force` | millinewton | `u128` |
 | `Power` | picowatt | `u128` |
 | `Volume` / `AggregateVolume` | microliter | `u64` / `u128` |
@@ -344,9 +347,20 @@ consequences commit atomically.
 
 ### Logistics
 
-`LogisticsState` owns the player's voxel, the inventory-owned carried stockpile identity, stationary stockpile
-locations, equipment locations, energy-store locations, fluid-store locations, and a monotonic revision. It does
-not duplicate lot contents, equipment condition, stored energy/fluid, or capacities.
+`LogisticsState` owns the player's persisted fixed-point body state, the inventory-owned carried stockpile
+identity, stationary stockpile locations, equipment locations, energy-store locations, fluid-store locations,
+and a monotonic revision. The body stores a bottom-center `WorldPoint` in nanometres plus signed vertical velocity;
+existing voxel-locality rules derive `PlayerLogisticsRecord::position()` from that point rather than persisting a
+second position. Logistics does not duplicate lot contents, equipment condition, stored energy/fluid, or capacities.
+
+Built-in physiology currently authors a 0.6 m wide, 1.8 m standing body and a 55 m/s maximum fall speed. When
+every horizontal chunk touched by the body is generated, each `advance_control_tick` integrates gravity over the
+exact 50 ms control interval and sweeps the standing body vertically against `FullCube` block collision. Floor
+and ceiling contact resolve to exact voxel faces. Missing horizontal chunk truth does not become implicit air;
+body physics stays inactive until the current footprint is generated. Trusted load and chunk generation reject
+body/terrain overlap, and player admission/chunk-generation tokens bind the opposite owner revisions so a
+validate/commit race cannot create an overlap. Horizontal direct motion, jump/crouch/sprint input, fall damage,
+and demand streaming remain absent.
 
 Player-context operations use shared access checks: carried inventory is implicitly local; other targeted
 stockpiles/equipment/energy/fluid stores require an explicit location at the player's voxel once player logistics
@@ -360,6 +374,11 @@ rechecks the rule at commit. Load-reducing drop remains valid while the player i
 origin. Mount/unmount changes support without teleporting an existing location. Assembly establishes player-local
 world custody for newly created equipment/energy stores; disassembly removes that custody.
 
+Slow `TickSpan` player work may start in generated-world body mode only at an exact control/simulation boundary
+while the body is grounded. The older timed face-adjacent step remains available only where generated-world body
+physics is inactive; it is rejected once the player's footprint is backed by generated chunks, so ordinary terrain
+movement cannot accidentally continue through the legacy traversal-edge path.
+
 Prospecting requires the player inside the survey region and any instrument at the player voxel. Mining requires
 the player inside the acquired resolved target region plus local tool/output access. Manual power requires local provider
 and destination store. Production uses an actor-independent same-site rule: every explicitly located continuing
@@ -370,10 +389,10 @@ reservation to carried custody while that custody is already in transit. Movemen
 with completed mining output still awaiting automatic settlement, preserving both extraction locality and the
 load-sensitive locomotion budget until the reserved parcel has actually landed.
 
-General pathfinding, automatic proximity search, generic stockpile/energy/fluid transport, arbitrary equipment
-teleportation, and mounted-production site/contact geometry are absent. Explicit player carrying provides only
-exact-local pickup/drop of portable equipment plus load-sensitive face-adjacent movement; it does not provide a
-general equipment transport or route-planning system.
+General pathfinding, horizontal direct control, automatic proximity search, generic stockpile/energy/fluid
+transport, arbitrary equipment teleportation, and mounted-production site/contact geometry are absent. Explicit
+player carrying still provides exact-local pickup/drop; the traversal-edge step remains a bounded legacy/planning
+surface outside generated-world body mode rather than the target ordinary terrain locomotion path.
 
 ### Geology and knowledge
 

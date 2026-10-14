@@ -4,9 +4,11 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+use crate::logistics::first_player_body_collision_in_chunk;
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::{BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MIN_Y, WorldChunk, WorldRegistry};
+use super::{BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MIN_Y, WorldChunk};
 
 const TERRAIN_LATTICE_SIDE: i64 = 8;
 const TERRAIN_HALF_RANGE: i64 = 4;
@@ -29,9 +31,22 @@ impl WorldGenerationSeed {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChunkGenerationError {
-    AlreadyGenerated { chunk: ChunkCoord },
-    UnknownSolidState { state: BlockStateId },
-    ChunkCoordinateOverflow { chunk: ChunkCoord },
+    AlreadyGenerated {
+        chunk: ChunkCoord,
+    },
+    UnknownSolidState {
+        state: BlockStateId,
+    },
+    ChunkCoordinateOverflow {
+        chunk: ChunkCoord,
+    },
+    PlayerBodyCollision {
+        voxel: VoxelCoord,
+    },
+    PlayerStepInProgress {
+        origin: VoxelCoord,
+        destination: VoxelCoord,
+    },
     WorldRevisionExhausted,
 }
 
@@ -55,6 +70,26 @@ impl Display for ChunkGenerationError {
                 chunk.x(),
                 chunk.z()
             ),
+            Self::PlayerBodyCollision { voxel } => write!(
+                formatter,
+                "terrain generation would intersect the player body at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::PlayerStepInProgress {
+                origin,
+                destination,
+            } => write!(
+                formatter,
+                "terrain generation cannot activate direct-world motion while legacy player step ({},{},{}) -> ({},{},{}) is in progress",
+                origin.x(),
+                origin.y(),
+                origin.z(),
+                destination.x(),
+                destination.y(),
+                destination.z()
+            ),
             Self::WorldRevisionExhausted => {
                 formatter.write_str("terrain generation exhausted world revision capacity")
             }
@@ -67,6 +102,8 @@ impl Error for ChunkGenerationError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChunkGenerationCommitError {
     StaleWorldRevision { expected: u64, actual: u64 },
+    StaleLogisticsRevision { expected: u64, actual: u64 },
+    StalePlayerWorkRevision { expected: u64, actual: u64 },
     ChunkAppeared { chunk: ChunkCoord },
 }
 
@@ -76,6 +113,14 @@ impl Display for ChunkGenerationCommitError {
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "world revision changed from {expected} to {actual} before terrain generation commit"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "logistics revision changed from {expected} to {actual} before terrain generation commit"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "player-work revision changed from {expected} to {actual} before terrain generation commit"
             ),
             Self::ChunkAppeared { chunk } => write!(
                 formatter,
@@ -93,6 +138,8 @@ impl Error for ChunkGenerationCommitError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedChunkGeneration {
     expected_revision: u64,
+    expected_logistics_revision: u64,
+    expected_player_work_revision: u64,
     next_revision: u64,
     chunk: WorldChunk,
 }
@@ -109,6 +156,20 @@ impl ValidatedChunkGeneration {
             return Err(ChunkGenerationCommitError::StaleWorldRevision {
                 expected: self.expected_revision,
                 actual,
+            });
+        }
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(ChunkGenerationCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
+        let actual_player_work_revision = state.player_work().revision();
+        if actual_player_work_revision != self.expected_player_work_revision {
+            return Err(ChunkGenerationCommitError::StalePlayerWorkRevision {
+                expected: self.expected_player_work_revision,
+                actual: actual_player_work_revision,
             });
         }
         let coord = self.chunk.coord();
@@ -129,14 +190,27 @@ impl ValidatedChunkGeneration {
 /// `solid_state` is deliberately explicit: geology/biome composition can later select physical
 /// strata without hardwiring material policy into compact chunk storage.
 pub fn validate_generate_chunk(
-    registry: &WorldRegistry,
+    registries: &Registries,
     state: &AppState,
     seed: WorldGenerationSeed,
     coord: ChunkCoord,
     solid_state: BlockStateId,
 ) -> Result<ValidatedChunkGeneration, ChunkGenerationError> {
+    let registry = registries.world();
     if state.world().get_chunk(coord).is_some() {
         return Err(ChunkGenerationError::AlreadyGenerated { chunk: coord });
+    }
+    if let Some(step) = state
+        .player_work()
+        .active()
+        .and_then(crate::labor::PlayerWork::step)
+        && (ChunkCoord::containing(step.origin()) == coord
+            || ChunkCoord::containing(step.destination()) == coord)
+    {
+        return Err(ChunkGenerationError::PlayerStepInProgress {
+            origin: step.origin(),
+            destination: step.destination(),
+        });
     }
     if registry.get_state(solid_state).is_none() || solid_state == BlockStateId::AIR {
         return Err(ChunkGenerationError::UnknownSolidState { state: solid_state });
@@ -178,8 +252,20 @@ pub fn validate_generate_chunk(
         }
     }
     chunk.canonicalize_sections();
+    if let Some(player) = state.logistics().player()
+        && let Some(voxel) = first_player_body_collision_in_chunk(
+            registry,
+            &chunk,
+            player.body(),
+            registries.survival().physiology().locomotion(),
+        )
+    {
+        return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
+    }
     Ok(ValidatedChunkGeneration {
         expected_revision,
+        expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
         next_revision,
         chunk,
     })

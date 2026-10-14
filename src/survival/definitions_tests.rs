@@ -36,6 +36,9 @@ fn physiology_with_carry(
             TickSpan::new(1),
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
             SurvivalExertion::new(Energy::from_nanojoules(2), Volume::from_microliters(1)),
+            crate::core::quantity::Length::from_micrometers(600_000),
+            crate::core::quantity::Length::from_micrometers(1_800_000),
+            crate::core::quantity::Speed::from_nanometers_per_second(55_000_000_000),
         ),
         carried_mass_capacity,
         SurvivalStressDefinition::new(
@@ -56,6 +59,23 @@ fn physiology_exposes_explicit_thermal_definition() {
     assert_eq!(
         physiology.thermal_comfort(),
         ThermalComfortDefinition::new(500_000, 1, 2, Energy::from_nanojoules(3), 4)
+    );
+}
+
+#[test]
+fn physiology_exposes_explicit_body_kinematics() {
+    let locomotion = physiology(1, 1).locomotion();
+    assert_eq!(
+        locomotion.body_width(),
+        crate::core::quantity::Length::from_micrometers(600_000)
+    );
+    assert_eq!(
+        locomotion.standing_height(),
+        crate::core::quantity::Length::from_micrometers(1_800_000)
+    );
+    assert_eq!(
+        locomotion.maximum_fall_speed(),
+        crate::core::quantity::Speed::from_nanometers_per_second(55_000_000_000)
     );
 }
 

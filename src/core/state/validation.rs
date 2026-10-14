@@ -87,16 +87,7 @@ pub fn validate_loaded_state(
         state.tick(),
     )
     .map_err(StateValidationError::Inventory)?;
-    validate_loaded_logistics(
-        &state.systems.logistics,
-        &state.systems.inventory,
-        &state.systems.equipment,
-        registries.equipment(),
-        &state.systems.energy,
-        &state.systems.fluid,
-        &state.systems.structures,
-    )
-    .map_err(StateValidationError::Logistics)?;
+    validate_loaded_logistics(registries, state).map_err(StateValidationError::Logistics)?;
 
     // Validate trace-backed enclosure matter before cross-owner structural accounting derives its
     // mass. This keeps malformed decoded trace sums on the validation-error path rather than the
@@ -255,16 +246,7 @@ pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &A
         "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain above every allocated job"
     );
     debug_assert!(
-        validate_loaded_logistics(
-            &state.systems.logistics,
-            &state.systems.inventory,
-            &state.systems.equipment,
-            registries.equipment(),
-            &state.systems.energy,
-            &state.systems.fluid,
-            &state.systems.structures,
-        )
-        .is_ok(),
+        validate_loaded_logistics(registries, state).is_ok(),
         "Runtime Invariants 6/8: logistics locations must reference one valid non-mounted custody state"
     );
     debug_assert!(

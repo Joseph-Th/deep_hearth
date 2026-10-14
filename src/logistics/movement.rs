@@ -21,6 +21,7 @@ use super::assess_player_carrying;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStepError {
     PlayerNotInitialized,
+    ContinuousWorldMotionRequired,
     DestinationNotAdjacent {
         origin: VoxelCoord,
         destination: VoxelCoord,
@@ -51,6 +52,9 @@ impl Display for PlayerStepError {
             Self::PlayerNotInitialized => {
                 formatter.write_str("player movement requires admitted logistics")
             }
+            Self::ContinuousWorldMotionRequired => formatter.write_str(
+                "generated world terrain requires control-rate body movement rather than timed voxel stepping",
+            ),
             Self::DestinationNotAdjacent {
                 origin,
                 destination,
@@ -112,6 +116,7 @@ impl Error for PlayerStepError {
         match self {
             Self::PlayerWork(error) => Some(error),
             Self::PlayerNotInitialized
+            | Self::ContinuousWorldMotionRequired
             | Self::DestinationNotAdjacent { .. }
             | Self::DestinationInaccessible { .. }
             | Self::CompletionTickOverflow
@@ -281,6 +286,12 @@ pub fn validate_start_player_step(
     destination: VoxelCoord,
 ) -> Result<ValidatedPlayerStepStart, PlayerStepError> {
     let carrying = assess_player_carrying(state).ok_or(PlayerStepError::PlayerNotInitialized)?;
+    if crate::logistics::player_body_uses_generated_world(
+        state,
+        registries.survival().physiology().locomotion(),
+    ) {
+        return Err(PlayerStepError::ContinuousWorldMotionRequired);
+    }
     let origin = carrying.position();
     if !origin.is_face_adjacent_to(destination) {
         return Err(PlayerStepError::DestinationNotAdjacent {

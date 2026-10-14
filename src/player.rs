@@ -28,6 +28,12 @@ pub enum PlayerAdmissionError {
         logistics_initialized: bool,
     },
     SurvivalRevisionExhausted,
+    PositionOutsideContinuousWorld {
+        position: VoxelCoord,
+    },
+    BodyIntersectsSolid {
+        voxel: VoxelCoord,
+    },
     ZeroCarriedCapacity,
     StockpileIdExhausted,
     InventoryRevisionExhausted,
@@ -125,6 +131,20 @@ impl Display for PlayerAdmissionError {
             Self::SurvivalRevisionExhausted => {
                 formatter.write_str("survival revision space is exhausted")
             }
+            Self::PositionOutsideContinuousWorld { position } => write!(
+                formatter,
+                "player position ({},{},{}) cannot be represented by continuous body coordinates",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
+            Self::BodyIntersectsSolid { voxel } => write!(
+                formatter,
+                "player body intersects solid world voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::ZeroCarriedCapacity => {
                 formatter.write_str("player carried inventory capacity must be nonzero")
             }
@@ -149,6 +169,7 @@ pub enum PlayerAdmissionCommitError {
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleWorldRevision { expected: u64, actual: u64 },
 }
 
 impl Display for PlayerAdmissionCommitError {
@@ -165,6 +186,10 @@ impl Display for PlayerAdmissionCommitError {
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "validated player admission expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "validated player admission expected world revision {expected} but current revision is {actual}"
             ),
         }
     }
@@ -210,6 +235,12 @@ fn map_logistics_error(error: InitializePlayerLogisticsError) -> PlayerAdmission
         InitializePlayerLogisticsError::ZeroCarriedCapacity => {
             PlayerAdmissionError::ZeroCarriedCapacity
         }
+        InitializePlayerLogisticsError::PositionOutsideContinuousWorld { position } => {
+            PlayerAdmissionError::PositionOutsideContinuousWorld { position }
+        }
+        InitializePlayerLogisticsError::BodyIntersectsSolid { voxel } => {
+            PlayerAdmissionError::BodyIntersectsSolid { voxel }
+        }
         InitializePlayerLogisticsError::StockpileIdExhausted => {
             PlayerAdmissionError::StockpileIdExhausted
         }
@@ -237,11 +268,14 @@ fn map_logistics_commit_error(
     error: InitializePlayerLogisticsCommitError,
 ) -> PlayerAdmissionCommitError {
     match error {
-        InitializePlayerLogisticsCommitError::StaleLogisticsRevision { expected, actual } => {
+        InitializePlayerLogisticsCommitError::Logistics { expected, actual } => {
             PlayerAdmissionCommitError::StaleLogisticsRevision { expected, actual }
         }
-        InitializePlayerLogisticsCommitError::StaleInventoryRevision { expected, actual } => {
+        InitializePlayerLogisticsCommitError::Inventory { expected, actual } => {
             PlayerAdmissionCommitError::StaleInventoryRevision { expected, actual }
+        }
+        InitializePlayerLogisticsCommitError::World { expected, actual } => {
+            PlayerAdmissionCommitError::StaleWorldRevision { expected, actual }
         }
     }
 }

@@ -58,8 +58,8 @@ Strong current foundations:
 Foundational blockers:
 
 - no general block mutation, rich block shapes, block updates, scheduled block behavior, or sparse voxel-to-owner attachments;
-- no continuous first-person position, velocity, gravity, jumping, falling, collision, crouching, sprinting, or
-  swimming;
+- continuous fixed-point body position, vertical velocity, gravity, falling, and vertical full-cube collision now
+  exist, but horizontal direct control, jumping, crouching, sprinting, swimming, and general shape collision do not;
 - no camera/input/raycast action shell;
 - no generic hold-to-break or contextual place/use pipeline over world blocks;
 - no generic dropped-item world entity, hotbar, familiar stack projection, or container UI shell;
@@ -95,17 +95,17 @@ clock while retaining a slower exact accounting clock for its materially richer 
 
 ### Time decision
 
-The timing blocker is now closed at the substrate level. `ControlTick` is authoritative at 20 Hz, persists through
+The timing blocker is closed at the substrate level. `ControlTick` is authoritative at 20 Hz, persists through
 save/load, and is advanced only by `advance_control_tick`. Every 72nd control step executes the existing
-3.6-second `SimulationTick` transaction. The headless `advance_tick` helper atomically advances one slow boundary
-while intermediate control phases are clock-only, so a failed slow transaction cannot partially advance time.
-Trusted load rejects incoherent clock pairs and unrepresentable terminal substeps.
+3.6-second `SimulationTick` transaction. Generated-world body gravity/collision now runs on those control steps;
+the headless `advance_tick` helper fails closed there instead of skipping active control-rate effects. Trusted
+load rejects incoherent clock pairs and unrepresentable terminal substeps.
 
 This deliberate multi-rate design is stronger for Deep Hearth than forcing all industrial and physiological
-accounting to 20 Hz. Existing slow work can start only on an exact 72-step boundary, and validated schedule
-tokens bind the exact control tick so a commit after even one 50 ms step is stale. Continuous player motion,
-collision, targeting, breaking, combat windows, and other responsive mechanics should use control time directly.
-The remaining P0 is therefore kinematics and world interaction, not the clock substrate.
+accounting to 20 Hz. Existing slow work can start only on an exact 72-step boundary, validated schedule tokens
+bind the exact control tick, and generated-world slow work additionally requires body ground contact. Responsive
+movement, targeting, breaking, combat windows, and similar mechanics belong on control time. The remaining P0 is
+horizontal/direct kinematics and world interaction, not the clock substrate.
 
 ## 2. World address space, chunks, sections, and streaming
 
@@ -216,22 +216,23 @@ when the actual mesher and GPU adapter are built.
 
 ## 5. Camera, input, targeting, movement, and collision
 
-This is the largest P0 disparity. Minecraft movement is continuous within the block grid. A player has position,
-velocity and a collision box; each tick resolves a swept movement vector against block shapes. Deep Hearth
-currently stores only the player's voxel and moves one face-adjacent voxel through a timed labor action.
+This remains a major P0 disparity, but the body substrate now exists. Minecraft movement is continuous within the
+block grid. Deep Hearth persists a fixed-point bottom-center body point and vertical velocity, integrates gravity
+at 20 Hz, and sweeps the authored standing body vertically against generated full-cube terrain. Horizontal direct
+control and richer collision are still absent.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
 | Mouse/controller look | Continuous yaw/pitch camera | No input/camera adapter | `GAP-P0` | Add camera orientation and input sampling in adapter/client state. |
-| Player position | Continuous 3D position | One integer `VoxelCoord` | `GAP-P0` | Persist authoritative fixed-point position. Keep voxel coordinate as derived occupancy/locality, not the transform itself. |
-| Velocity | 3D delta/velocity affected by input and environment | None | `GAP-P0` | Persist or deterministically derive fixed-point velocity as future-affecting state. |
-| Collision box | Player AABB | None | `GAP-P0` | Define player body AABB/capsule-like block collision envelope. |
-| Swept collision | Movement vector clipped against block shapes | No geometry collision | `GAP-P0` | Resolve swept fixed-point motion, not destination-only occupancy. |
-| Walking | Analog-ish continuous horizontal motion | Timed one-voxel step | `GAP-P0` | Replace ordinary direct movement with continuous kinematics. Retain route/haul cost for logistics and AI, not WASD locomotion. |
+| Player position | Continuous 3D position | Persisted fixed-point `WorldPoint`; voxel locality is derived | `PARITY` foundation | Keep one transform authority and extend it with horizontal direct motion. |
+| Velocity | 3D delta/velocity affected by input and environment | Persisted signed vertical velocity; no horizontal velocity/input yet | `GAP-P0` | Add horizontal velocity/control when horizontal kinematics exist; do not persist inert speculative components. |
+| Collision box | Player AABB | Authored 0.6 m wide x 1.8 m standing body envelope | `PARITY` foundation | Add stance-dependent height and richer collision shapes only when required. |
+| Swept collision | Movement vector clipped against block shapes | Swept vertical collision against `FullCube` terrain, exact floor/ceiling contact | `GAP-P0` | Extend the same fixed-point sweep to horizontal motion and partial shapes. |
+| Walking | Analog-ish continuous horizontal motion | Timed one-voxel step remains only outside generated-world body mode | `GAP-P0` | Add direct horizontal control; generated terrain already rejects the legacy step path. Retain route/haul cost for logistics and AI. |
 | Sprinting | Faster movement with resource cost | Load-sensitive step exertion only | `DIFFERENT+` | Add sprint input; use physiology/encumbrance for its cost and achievable speed. |
 | Crouching/sneaking | Slower stance, reduced height, edge behavior, interaction modifier | None | `GAP-P0` | Add stance, collision-height change and contextual input modifier. |
 | Jumping | Vertical impulse | None | `GAP-P0` | Add jump impulse constrained by footing, encumbrance and physiology. |
-| Gravity/falling | Continuous vertical acceleration and collision | Structural gravity exists, player gravity absent | `GAP-P0` | Add body gravity and fall landing. |
+| Gravity/falling | Continuous vertical acceleration and collision | 20 Hz authored gravity, capped fall speed, exact full-cube landing, persisted mid-fall continuation | `PARITY` foundation | Add fall injury and environmental modifiers without weakening deterministic integration. |
 | Fall damage | Distance/velocity-derived damage | No general damage system | `GAP-P1` | Derive impact injury from landing speed and protection rather than copying arbitrary block-count thresholds. |
 | Step-up | Small obstacle auto-step | None | `GAP-P1` | Add bounded step height so ordinary terrain traversal feels familiar. |
 | Friction/slipperiness | Surface-dependent movement | None | `GAP-P1` | Material/block state should provide traction; ice/mud equivalents emerge from it. |
@@ -241,9 +242,9 @@ currently stores only the player's voxel and moves one face-adjacent voxel throu
 | Encumbrance | Vanilla inventory has no weight | Exact carried mass plus equipment mass affects exertion | `DIFFERENT+` | Keep. Extend it to acceleration, sprint endurance, jump, climbing and swimming without making ordinary unloaded movement cumbersome. |
 | Multi-step routing | Mob/path systems route through blocks | Explicit traversal edges only | `GAP-P1` | Player needs no click-to-route for WASD, but AI/logistics need pathfinding over world collision/access data. |
 
-The existing `validate_start_player_step` should become a logistics/AI abstraction or be retired from ordinary
-direct control once continuous movement exists. It is useful as proof that movement consumes physiology and
-respects occupancy, but a one-voxel labor reservation is not a first-person locomotion primitive.
+`validate_start_player_step` is now rejected once the player's footprint is backed by generated chunks. It remains
+a bounded logistics/planning surface for the opening graph and older evidence, not a first-person locomotion
+primitive. Horizontal control should extend the persisted body path rather than reopen timed voxel movement.
 
 ## 6. Raycasting, breaking, placing, using, and direct manipulation
 

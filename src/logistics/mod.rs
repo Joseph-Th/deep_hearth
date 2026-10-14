@@ -6,6 +6,7 @@
 //! geometry, pathfinding, route cost, haulage, and arbitrary stockpile transport remain absent.
 
 mod access;
+mod body;
 mod equipment_carry;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
@@ -13,6 +14,7 @@ mod fixture;
 mod fluid;
 mod ground;
 mod initialization;
+mod kinematics;
 mod movement;
 mod state;
 mod traversal;
@@ -25,6 +27,7 @@ pub use access::{
     validate_player_equipment_access, validate_player_fluid_store_access,
     validate_player_stockpile_access,
 };
+pub use body::PlayerBodyState;
 pub use equipment_carry::{
     PlayerEquipmentCarryCommitError, PlayerEquipmentCarryError, ValidatedPlayerEquipmentCarry,
     validate_drop_equipment, validate_pickup_equipment,
@@ -51,6 +54,12 @@ pub(crate) use initialization::validate_initialize_player_logistics;
 pub(crate) use initialization::{
     InitializePlayerLogisticsCommitError, InitializePlayerLogisticsError,
     ValidatedPlayerLogisticsInitialization, validate_player_logistics_initialization,
+};
+pub use kinematics::{PlayerBodyMotionError, PlayerBodyMotionOutcome};
+pub(crate) use kinematics::{
+    apply_player_body_motion, decide_player_body_motion, first_player_body_collision,
+    first_player_body_collision_in_chunk, player_body_fits_continuous_world,
+    player_body_is_grounded, player_body_uses_generated_world,
 };
 pub use movement::{
     PlayerStepCommitError, PlayerStepError, PlayerStepOutcome, ValidatedPlayerStepStart,

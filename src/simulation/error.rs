@@ -7,6 +7,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::time::{ControlTick, SimulationTick, TickSpan};
 use crate::inventory::StockpileStructuralLoadError;
+use crate::logistics::PlayerBodyMotionError;
 use crate::production::ProductionJobId;
 use crate::structural::StructuralCommitError;
 
@@ -15,6 +16,10 @@ use crate::structural::StructuralCommitError;
 pub enum TickError {
     /// The high-frequency control clock has reached its representable maximum.
     ControlClockExhausted { current: ControlTick },
+    /// Slow-boundary stepping cannot skip active control-rate world physics.
+    ControlSteppingRequired { current: ControlTick },
+    /// Continuous player-body integration could not be represented.
+    PlayerBodyMotion(PlayerBodyMotionError),
     /// Due output lots cannot be allocated without exhausting persistent lot identity space.
     MaterialLotIdExhausted,
     /// Inventory cannot advance its persisted revision for this tick's consequences.
@@ -79,6 +84,14 @@ impl Display for TickError {
                 "control clock exhausted at tick {}",
                 current.value()
             ),
+            Self::ControlSteppingRequired { current } => write!(
+                formatter,
+                "simulation tick helper cannot skip active 20 Hz player-body physics at control tick {}; advance through control ticks instead",
+                current.value()
+            ),
+            Self::PlayerBodyMotion(error) => {
+                write!(formatter, "player body motion failed: {error}")
+            }
             Self::SurvivalRevisionExhausted => {
                 formatter.write_str("survival state revision space is exhausted")
             }
@@ -183,7 +196,9 @@ impl Error for TickError {
         match self {
             Self::StructuralLoad(error) => Some(error),
             Self::Structure(error) => Some(error),
+            Self::PlayerBodyMotion(error) => Some(error),
             Self::ControlClockExhausted { .. }
+            | Self::ControlSteppingRequired { .. }
             | Self::ProductionResumeTickOverflow { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleProductionRevision { .. }

@@ -208,6 +208,12 @@ unsigned_quantity!(
     from_micrometers_per_second_squared,
     micrometers_per_second_squared
 );
+unsigned_quantity!(
+    Speed,
+    u64,
+    from_nanometers_per_second,
+    nanometers_per_second
+);
 unsigned_quantity!(Power, u128, from_picowatts, picowatts);
 unsigned_quantity!(Force, u128, from_millinewtons, millinewtons);
 unsigned_quantity!(Volume, u64, from_microliters, microliters);

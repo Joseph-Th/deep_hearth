@@ -5,7 +5,7 @@ use crate::equipment::EquipmentMaintenanceOutcome;
 use crate::geology::FieldProspectingOutcome;
 use crate::inventory::StorageEnclosureDismantlingOutcome;
 use crate::labor::ManualPowerOutcome;
-use crate::logistics::PlayerStepOutcome;
+use crate::logistics::{PlayerBodyMotionOutcome, PlayerStepOutcome};
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
 use crate::structural::StructuralElementId;
@@ -18,13 +18,19 @@ use crate::survival::SurvivalAssessment;
 pub struct ControlTickOutcome {
     control_tick: ControlTick,
     simulation: Option<TickOutcome>,
+    body_motion: Option<PlayerBodyMotionOutcome>,
 }
 
 impl ControlTickOutcome {
-    pub(super) const fn new(control_tick: ControlTick, simulation: Option<TickOutcome>) -> Self {
+    pub(super) const fn new(
+        control_tick: ControlTick,
+        simulation: Option<TickOutcome>,
+        body_motion: Option<PlayerBodyMotionOutcome>,
+    ) -> Self {
         Self {
             control_tick,
             simulation,
+            body_motion,
         }
     }
 
@@ -37,6 +43,12 @@ impl ControlTickOutcome {
     #[must_use]
     pub const fn simulation(&self) -> Option<&TickOutcome> {
         self.simulation.as_ref()
+    }
+
+    /// Continuous player-body motion committed on this 50 ms control step, if any.
+    #[must_use]
+    pub const fn body_motion(&self) -> Option<PlayerBodyMotionOutcome> {
+        self.body_motion
     }
 }
 

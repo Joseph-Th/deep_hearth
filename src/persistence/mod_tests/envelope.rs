@@ -477,3 +477,28 @@ fn unknown_fields_are_rejected_at_envelope_and_nested_state_boundaries() {
         );
     }
 }
+
+#[test]
+fn obsolete_player_voxel_payload_is_rejected_without_body_compatibility_defaults() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(2, 3, 4))
+        .unwrap_or_else(|error| panic!("obsolete-player fixture admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("obsolete-player fixture commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("obsolete-player fixture serialization failed: {error}"));
+    let player = encoded["state"]["systems"]["logistics"]["player"]
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("serialized logistics player is not an object"));
+    assert!(player.remove("body").is_some());
+    player.insert(
+        "position".to_owned(),
+        serde_json::json!({"x": 2, "y": 3, "z": 4}),
+    );
+
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded).is_err(),
+        "current schema must not deserialize the removed voxel-only player representation"
+    );
+}

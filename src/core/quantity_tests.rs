@@ -131,6 +131,10 @@ fn physical_quantities_use_explicit_units() {
             .micrometers_per_second_squared(),
         9_806_650
     );
+    assert_eq!(
+        Speed::from_nanometers_per_second(4_300_000_000).nanometers_per_second(),
+        4_300_000_000
+    );
     assert_eq!(Force::from_millinewtons(4_000).millinewtons(), 4_000);
     assert_eq!(Power::from_microwatts(3).picowatts(), 3_000_000);
     assert_eq!(Power::from_microwatts(3).whole_microwatts(), Some(3));

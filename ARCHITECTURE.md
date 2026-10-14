@@ -118,12 +118,11 @@ Do not use `reachable`, `available`, or `can` as synonyms across these levels.
 
 ### Temporal control
 
-`advance_control_tick` is the authoritative 20 Hz direct-control time mutation. `advance_tick` is the atomic
-slow-boundary helper used by headless/process stepping; while control-rate phases are clock-only it may jump to
-the next exact 72-step boundary and execute the same slow transaction. Once control-rate gameplay mutation
-exists, that helper must plan/replay the intervening control phases or be retired. No batching surface may skip
-authoritative effects. The concrete stepping contract lives in
-[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract).
+`advance_control_tick` is the authoritative 20 Hz direct-control mutation. It now owns persisted player-body
+gravity/collision as well as the control clock. `advance_tick` remains an atomic slow-boundary helper only when
+no generated-world player body has active control-rate physics; otherwise it fails closed and callers must step
+through `advance_control_tick`. No batching surface may skip authoritative effects. The concrete stepping
+contract lives in [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract).
 
 ## Abstraction and dependency direction
 

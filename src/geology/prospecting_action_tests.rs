@@ -228,8 +228,11 @@ fn trusted_load_rejects_active_prospecting_with_player_outside_region() {
     let remote_position = VoxelCoord::new(0, -1, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("remote-load prospecting serialization failed: {error}"));
-    encoded["state"]["systems"]["logistics"]["player"]["position"] =
-        serde_json::json!({"x": 0, "y": -1, "z": 0});
+    encoded["state"]["systems"]["logistics"]["player"]["body"]["foot_position"] = serde_json::json!({
+        "x_nanometers": 500_000_000_i64,
+        "y_nanometers": -1_000_000_000_i64,
+        "z_nanometers": 500_000_000_i64
+    });
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("remote-load prospecting decode failed: {error}"));
 

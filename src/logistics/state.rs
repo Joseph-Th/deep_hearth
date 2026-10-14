@@ -12,27 +12,33 @@ use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::spatial::VoxelCoord;
 
+use super::body::PlayerBodyState;
 use super::traversal::TraversalEdge;
 
 /// Persistent world/custody record for the single locally controlled player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerLogisticsRecord {
-    position: VoxelCoord,
+    body: PlayerBodyState,
     carried_stockpile: StockpileId,
 }
 
 impl PlayerLogisticsRecord {
-    pub(super) const fn new(position: VoxelCoord, carried_stockpile: StockpileId) -> Self {
+    pub(super) const fn new(body: PlayerBodyState, carried_stockpile: StockpileId) -> Self {
         Self {
-            position,
+            body,
             carried_stockpile,
         }
     }
 
     #[must_use]
     pub const fn position(self) -> VoxelCoord {
-        self.position
+        self.body.voxel_position()
+    }
+
+    #[must_use]
+    pub const fn body(self) -> PlayerBodyState {
+        self.body
     }
 
     #[must_use]
@@ -265,10 +271,31 @@ impl LogisticsState {
             unreachable!("validated player step requires initialized logistics")
         });
         assert_eq!(
-            player.position, origin,
+            player.position(),
+            origin,
             "validated player step origin changed before completion"
         );
-        player.position = destination;
+        player.body = player.body.snap_to_voxel_floor(destination);
+        self.revision = next_revision;
+    }
+
+    pub(crate) fn apply_player_body_motion(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        expected_body: PlayerBodyState,
+        body: PlayerBodyState,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let player = self.player.as_mut().unwrap_or_else(|| {
+            unreachable!("validated player body motion requires initialized logistics")
+        });
+        assert_eq!(
+            player.body, expected_body,
+            "player body changed after motion planning"
+        );
+        player.body = body;
         self.revision = next_revision;
     }
 

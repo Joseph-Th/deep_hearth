@@ -20,7 +20,10 @@ use crate::labor::{
     apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
     decide_player_work_tick, player_work_exertion,
 };
-use crate::logistics::{apply_player_step_tick, decide_player_step_tick};
+use crate::logistics::{
+    apply_player_body_motion, apply_player_step_tick, decide_player_body_motion,
+    decide_player_step_tick, player_body_uses_generated_world,
+};
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
 use crate::registry::Registries;
@@ -49,15 +52,24 @@ pub fn advance_control_tick(
     let next_control = current
         .checked_next()
         .ok_or(TickError::ControlClockExhausted { current })?;
+    let body_plan =
+        decide_player_body_motion(registries, state).map_err(TickError::PlayerBodyMotion)?;
     if next_control.simulation_tick() == state.tick() {
+        let body_motion = apply_player_body_motion(state, body_plan);
         apply_control_clock_advance(state, next_control);
-        debug_assert_eq!(state.control_tick().simulation_tick(), state.tick());
-        return Ok(ControlTickOutcome::new(next_control, None));
+        debug_assert_runtime_invariants(registries, state);
+        return Ok(ControlTickOutcome::new(next_control, None, body_motion));
     }
     debug_assert!(next_control.is_simulation_boundary());
     let simulation = advance_simulation_tick(registries, state, next_control.simulation_tick())?;
+    let body_motion = apply_player_body_motion(state, body_plan);
+    debug_assert_runtime_invariants(registries, state);
     debug_assert_eq!(state.control_tick(), next_control);
-    Ok(ControlTickOutcome::new(next_control, Some(simulation)))
+    Ok(ControlTickOutcome::new(
+        next_control,
+        Some(simulation),
+        body_motion,
+    ))
 }
 
 /// Advances atomically to the next slow-simulation boundary.
@@ -71,6 +83,11 @@ pub fn advance_tick(
     registries: &Registries,
     state: &mut AppState,
 ) -> Result<TickOutcome, TickError> {
+    if player_body_uses_generated_world(state, registries.survival().physiology().locomotion()) {
+        return Err(TickError::ControlSteppingRequired {
+            current: state.control_tick(),
+        });
+    }
     let current = state.tick();
     let next_tick = SimulationTick::new(current.value().checked_add(1).ok_or(
         TickError::ControlClockExhausted {

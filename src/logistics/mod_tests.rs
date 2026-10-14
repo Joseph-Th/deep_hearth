@@ -627,12 +627,10 @@ fn initialization_rejects_stale_inventory_before_installing_logistics() {
 
     assert_eq!(
         validated.commit(&mut state),
-        Err(
-            InitializePlayerLogisticsCommitError::StaleInventoryRevision {
-                expected: 0,
-                actual: 1,
-            }
-        )
+        Err(InitializePlayerLogisticsCommitError::Inventory {
+            expected: 0,
+            actual: 1,
+        })
     );
     assert_eq!(state, before);
     assert!(state.logistics().player().is_none());
