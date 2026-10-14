@@ -13,6 +13,8 @@ pub use generation::{
     ChunkGenerationCommitError, ChunkGenerationError, ValidatedChunkGeneration,
     WorldGenerationSeed, validate_generate_chunk,
 };
+#[cfg(test)]
+pub(crate) use state::set_generated_block_for_test;
 pub use state::{
     CHUNK_SIDE, ChunkCoord, SECTION_CELL_COUNT, SECTION_SIDE, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
     WorldChunk, WorldSection, WorldState,

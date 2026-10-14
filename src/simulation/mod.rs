@@ -21,15 +21,18 @@ use crate::labor::{
     decide_player_work_tick, player_work_exertion,
 };
 use crate::logistics::{
-    apply_player_body_motion, apply_player_step_tick, decide_player_body_motion,
-    decide_player_step_tick, player_body_uses_generated_world,
+    PlayerControlInput, apply_player_body_motion, apply_player_step_tick,
+    decide_player_body_motion, decide_player_step_tick, player_body_uses_generated_world,
 };
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
 use crate::registry::Registries;
 use crate::structural::apply_structural_construction_tick;
 use crate::surface::apply_surface_gathering_tick;
-use crate::survival::{apply_survival_tick, assess_survival, decide_survival_tick_with_local_heat};
+use crate::survival::{
+    SurvivalExertion, Vitality, apply_survival_tick, assess_survival,
+    decide_survival_tick_with_local_heat,
+};
 
 use planning::{
     decide_automatic_mining_output, decide_storage_dismantling_after_completions,
@@ -49,12 +52,26 @@ pub fn advance_control_tick(
     registries: &Registries,
     state: &mut AppState,
 ) -> Result<ControlTickOutcome, TickError> {
+    advance_control_tick_with_input(registries, state, PlayerControlInput::NEUTRAL)
+}
+
+/// Advances one canonical 20 Hz direct-control tick with the sampled player input for this step.
+pub fn advance_control_tick_with_input(
+    registries: &Registries,
+    state: &mut AppState,
+    input: PlayerControlInput,
+) -> Result<ControlTickOutcome, TickError> {
     let current = state.control_tick();
     let next_control = current
         .checked_next()
         .ok_or(TickError::ControlClockExhausted { current })?;
-    let body_plan =
-        decide_player_body_motion(registries, state).map_err(TickError::PlayerBodyMotion)?;
+    let body_plan = decide_player_body_motion(
+        registries,
+        state,
+        input,
+        next_control.is_simulation_boundary(),
+    )
+    .map_err(TickError::PlayerBodyMotion)?;
     if next_control.simulation_tick() == state.tick() {
         let body_motion = apply_player_body_motion(state, body_plan);
         apply_control_clock_advance(state, next_control);
@@ -62,8 +79,31 @@ pub fn advance_control_tick(
         return Ok(ControlTickOutcome::new(next_control, None, body_motion));
     }
     debug_assert!(next_control.is_simulation_boundary());
-    let simulation = advance_simulation_tick(registries, state, next_control.simulation_tick())?;
-    let body_motion = apply_player_body_motion(state, body_plan);
+    let neutral_body_plan =
+        decide_player_body_motion(registries, state, PlayerControlInput::NEUTRAL, true)
+            .map_err(TickError::PlayerBodyMotion)?;
+    let locomotion_exertion = body_plan.as_ref().map_or(SurvivalExertion::REST, |plan| {
+        plan.settled_locomotion_exertion()
+    });
+    let simulation = advance_simulation_tick(
+        registries,
+        state,
+        next_control.simulation_tick(),
+        locomotion_exertion,
+    )?;
+    let direct_control_allowed = state
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() != Vitality::ZERO)
+        && state.player_work().active().is_none();
+    let body_motion = apply_player_body_motion(
+        state,
+        if direct_control_allowed {
+            body_plan
+        } else {
+            neutral_body_plan
+        },
+    );
     debug_assert_runtime_invariants(registries, state);
     debug_assert_eq!(state.control_tick(), next_control);
     Ok(ControlTickOutcome::new(
@@ -99,7 +139,7 @@ pub fn advance_tick(
             current: state.control_tick(),
         });
     }
-    advance_simulation_tick(registries, state, next_tick)
+    advance_simulation_tick(registries, state, next_tick, SurvivalExertion::REST)
 }
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
@@ -111,6 +151,7 @@ fn advance_simulation_tick(
     registries: &Registries,
     state: &mut AppState,
     next_tick: SimulationTick,
+    locomotion_exertion: SurvivalExertion,
 ) -> Result<TickOutcome, TickError> {
     debug_assert_eq!(next_tick.value(), state.tick().value() + 1);
 
@@ -188,7 +229,18 @@ fn advance_simulation_tick(
             total.checked_add(passive_energy_plan.dissipated_for_store(store.id()))
         })
         .unwrap_or_else(|| panic!("local passive warmth overflowed energy range"));
-    let exertion = player_work_exertion(registries, state, completion_plan.availability_changes());
+    let work_exertion =
+        player_work_exertion(registries, state, completion_plan.availability_changes());
+    let exertion = SurvivalExertion::new(
+        work_exertion
+            .energy_cost_per_tick()
+            .checked_add(locomotion_exertion.energy_cost_per_tick())
+            .ok_or(TickError::SurvivalEnergyCostOverflow)?,
+        work_exertion
+            .hydration_loss_per_tick()
+            .checked_add(locomotion_exertion.hydration_loss_per_tick())
+            .ok_or(TickError::SurvivalHydrationCostOverflow)?,
+    );
     let survival_plan =
         decide_survival_tick_with_local_heat(registries, state, exertion, next_tick, local_warmth)?;
     // Player attention uses the projected survival result so fatality, work release, and direct-

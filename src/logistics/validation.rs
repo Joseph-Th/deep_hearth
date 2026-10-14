@@ -98,6 +98,17 @@ pub enum LogisticsValidationError {
         voxel: VoxelCoord,
     },
     PlayerBodyOutsideContinuousWorld,
+    PlayerHorizontalVelocityExceedsWalkingSpeed {
+        x_nanometers_per_second: i64,
+        z_nanometers_per_second: i64,
+        maximum_nanometers_per_second: u64,
+    },
+    PlayerVerticalVelocityExceedsMaximum {
+        nanometers_per_second: i64,
+        maximum_nanometers_per_second: u64,
+    },
+    PlayerLocomotionExertionRemainderInvalid,
+    PlayerPendingLocomotionExertionExceedsMaximum,
 }
 
 impl Display for LogisticsValidationError {
@@ -266,6 +277,27 @@ impl Display for LogisticsValidationError {
             ),
             Self::PlayerBodyOutsideContinuousWorld => formatter
                 .write_str("player body extent exceeds representable continuous world coordinates"),
+            Self::PlayerHorizontalVelocityExceedsWalkingSpeed {
+                x_nanometers_per_second,
+                z_nanometers_per_second,
+                maximum_nanometers_per_second,
+            } => write!(
+                formatter,
+                "player horizontal velocity ({x_nanometers_per_second},{z_nanometers_per_second}) nm/s exceeds authored walking speed {maximum_nanometers_per_second} nm/s",
+            ),
+            Self::PlayerVerticalVelocityExceedsMaximum {
+                nanometers_per_second,
+                maximum_nanometers_per_second,
+            } => write!(
+                formatter,
+                "player vertical velocity {nanometers_per_second} nm/s exceeds authored body limit {maximum_nanometers_per_second} nm/s",
+            ),
+            Self::PlayerLocomotionExertionRemainderInvalid => formatter.write_str(
+                "player locomotion exertion fractional carry is outside one control interval",
+            ),
+            Self::PlayerPendingLocomotionExertionExceedsMaximum => formatter.write_str(
+                "player pending locomotion exertion exceeds one fully loaded simulation interval",
+            ),
         }
     }
 }
@@ -501,6 +533,41 @@ pub(crate) fn validate_loaded_logistics(
         let locomotion = registries.survival().physiology().locomotion();
         if !player_body_fits_continuous_world(player.body(), locomotion) {
             return Err(LogisticsValidationError::PlayerBodyOutsideContinuousWorld);
+        }
+        let horizontal = player.body().horizontal_velocity();
+        let x = u128::from(horizontal.x_nanometers_per_second().unsigned_abs());
+        let z = u128::from(horizontal.z_nanometers_per_second().unsigned_abs());
+        let horizontal_squared = x * x + z * z;
+        let maximum_horizontal = locomotion.walking_speed().nanometers_per_second();
+        if horizontal_squared > u128::from(maximum_horizontal) * u128::from(maximum_horizontal) {
+            return Err(
+                LogisticsValidationError::PlayerHorizontalVelocityExceedsWalkingSpeed {
+                    x_nanometers_per_second: horizontal.x_nanometers_per_second(),
+                    z_nanometers_per_second: horizontal.z_nanometers_per_second(),
+                    maximum_nanometers_per_second: maximum_horizontal,
+                },
+            );
+        }
+        let vertical = player.body().vertical_velocity().nanometers_per_second();
+        let maximum_vertical = locomotion.maximum_fall_speed().nanometers_per_second();
+        if vertical.unsigned_abs() > maximum_vertical {
+            return Err(
+                LogisticsValidationError::PlayerVerticalVelocityExceedsMaximum {
+                    nanometers_per_second: vertical,
+                    maximum_nanometers_per_second: maximum_vertical,
+                },
+            );
+        }
+        let locomotion_exertion = player.locomotion_exertion();
+        if !locomotion_exertion.has_valid_remainders() {
+            return Err(LogisticsValidationError::PlayerLocomotionExertionRemainderInvalid);
+        }
+        let pending = locomotion_exertion.pending();
+        let maximum = locomotion.maximum_exertion();
+        if pending.energy_cost_per_tick() > maximum.energy_cost_per_tick()
+            || pending.hydration_loss_per_tick() > maximum.hydration_loss_per_tick()
+        {
+            return Err(LogisticsValidationError::PlayerPendingLocomotionExertionExceedsMaximum);
         }
         if let Some(voxel) =
             first_player_body_collision(registries.world(), app.world(), player.body(), locomotion)

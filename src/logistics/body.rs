@@ -2,13 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::spatial::{VerticalVelocity, VoxelCoord, WorldPoint};
+use crate::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord, WorldPoint};
 
 /// Authoritative continuous body transform for the single locally controlled player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerBodyState {
     foot_position: WorldPoint,
+    horizontal_velocity: HorizontalVelocity,
     vertical_velocity: VerticalVelocity,
 }
 
@@ -17,6 +18,7 @@ impl PlayerBodyState {
     pub fn centered_on_voxel_floor(position: VoxelCoord) -> Option<Self> {
         Some(Self {
             foot_position: WorldPoint::centered_on_voxel_floor(position)?,
+            horizontal_velocity: HorizontalVelocity::ZERO,
             vertical_velocity: VerticalVelocity::ZERO,
         })
     }
@@ -24,6 +26,11 @@ impl PlayerBodyState {
     #[must_use]
     pub const fn foot_position(self) -> WorldPoint {
         self.foot_position
+    }
+
+    #[must_use]
+    pub const fn horizontal_velocity(self) -> HorizontalVelocity {
+        self.horizontal_velocity
     }
 
     #[must_use]
@@ -40,10 +47,12 @@ impl PlayerBodyState {
     pub(crate) const fn with_motion(
         self,
         foot_position: WorldPoint,
+        horizontal_velocity: HorizontalVelocity,
         vertical_velocity: VerticalVelocity,
     ) -> Self {
         Self {
             foot_position,
+            horizontal_velocity,
             vertical_velocity,
         }
     }

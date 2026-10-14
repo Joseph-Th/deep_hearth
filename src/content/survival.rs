@@ -1,14 +1,16 @@
 //! Built-in physiology and primitive edible/drinkable content.
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
-use crate::core::quantity::{Energy, Length, Mass, MassSpecificEnergy, Speed, Temperature, Volume};
+use crate::core::quantity::{
+    Acceleration, Energy, Length, Mass, MassSpecificEnergy, Speed, Temperature, Volume,
+};
 use crate::core::time::TickSpan;
 use crate::material::CommodityKey;
 use crate::survival::{
-    ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
-    FoodDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
-    NutritionDefinition, PhysiologyDefinition, SurvivalExertion, SurvivalRegistry,
-    SurvivalStressDefinition, ThermalComfortDefinition,
+    BodyKinematicsDefinition, ConsumptionTemperatureRange, DirectConsumptionDefinition,
+    DrinkDefinition, FoodCategory, FoodDefinition, HydrationDefinition, LocomotionDefinition,
+    MetabolismDefinition, NutritionDefinition, PhysiologyDefinition, SurvivalExertion,
+    SurvivalRegistry, SurvivalStressDefinition, ThermalComfortDefinition,
 };
 
 use super::{
@@ -31,6 +33,8 @@ const MAXIMUM_DRINK_DURATION_TICKS: u64 = 18;
 /// Unaided carried custody. Twenty-five kilograms is deliberately useful for camp-scale material
 /// handling without pretending the player can backpack machine-scale stone and timber assemblies.
 const PLAYER_CARRIED_MASS_CAPACITY_MG: u64 = 25_000_000;
+const PLAYER_WALKING_SPEED_NM_PER_SECOND: u64 = 4_300_000_000;
+const PLAYER_HORIZONTAL_ACCELERATION_UM_PER_SECOND_SQUARED: u64 = 20_000_000;
 
 fn direct_consumption_temperature() -> ConsumptionTemperatureRange {
     ConsumptionTemperatureRange::new(
@@ -70,9 +74,15 @@ fn physiology() -> PhysiologyDefinition {
                 Energy::from_nanojoules(1_200_000_000_000),
                 Volume::from_microliters(300),
             ),
-            Length::from_micrometers(600_000),
-            Length::from_micrometers(1_800_000),
-            Speed::from_nanometers_per_second(55_000_000_000),
+            BodyKinematicsDefinition::new(
+                Length::from_micrometers(600_000),
+                Length::from_micrometers(1_800_000),
+                Speed::from_nanometers_per_second(PLAYER_WALKING_SPEED_NM_PER_SECOND),
+                Acceleration::from_micrometers_per_second_squared(
+                    PLAYER_HORIZONTAL_ACCELERATION_UM_PER_SECOND_SQUARED,
+                ),
+                Speed::from_nanometers_per_second(55_000_000_000),
+            ),
         ),
         Mass::from_milligrams(PLAYER_CARRIED_MASS_CAPACITY_MG),
         SurvivalStressDefinition::new(

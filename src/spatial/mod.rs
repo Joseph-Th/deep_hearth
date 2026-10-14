@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 mod motion;
 
-pub use motion::{NANOMETERS_PER_VOXEL, VerticalVelocity, WorldPoint};
+pub use motion::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VerticalVelocity, WorldPoint};
 
 /// Persistent integer coordinate of one voxel in authoritative world space.
 ///

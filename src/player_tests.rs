@@ -52,6 +52,33 @@ fn ordinary_player_admission_commits_all_owner_state_together() {
 }
 
 #[test]
+fn trusted_load_rejects_horizontal_body_velocity_above_authored_walk_speed() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("velocity-bound admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("velocity-bound admission commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("velocity-bound serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["player"]["body"]["horizontal_velocity"]["x_nanometers_per_second"] =
+        serde_json::json!(4_300_000_001_i64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("velocity-bound decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::PlayerHorizontalVelocityExceedsWalkingSpeed {
+                x_nanometers_per_second: 4_300_000_001,
+                z_nanometers_per_second: 0,
+                maximum_nanometers_per_second: 4_300_000_000,
+            },
+        )))
+    );
+}
+
+#[test]
 fn ordinary_player_admission_rejects_body_extent_beyond_continuous_world() {
     let registries = build_registries();
     let state = AppState::new();

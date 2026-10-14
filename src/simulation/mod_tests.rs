@@ -13,6 +13,7 @@ use crate::energy::{
     add_energy_store_with_initial_for_fixture,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::logistics::{HorizontalControlInput, PlayerControlInput};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -20,7 +21,8 @@ use crate::registry::Registries;
 use crate::spatial::{NANOMETERS_PER_VOXEL, VoxelCoord};
 use crate::survival::{SurvivalAssessment, Vitality, initialize_player_survival, player_record};
 use crate::world::{
-    ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed, validate_generate_chunk,
+    ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+    set_generated_block_for_test, validate_generate_chunk,
 };
 
 const DISSIPATIVE_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(510_001);
@@ -37,6 +39,32 @@ fn passive_dissipation_registries() -> Registries {
         )
         .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
     )
+}
+
+fn generated_grounded_player_at(x: i64, z: i64) -> (Registries, AppState, i64) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let coord = ChunkCoord::containing(VoxelCoord::new(x, 0, z));
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0xB0D1_0001),
+        coord,
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("horizontal-motion terrain generation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("horizontal-motion terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(x, *y, z)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("horizontal-motion terrain column has no solid surface"));
+    let floor_y = surface_y + 1;
+    validate_admit_player(&registries, &state, VoxelCoord::new(x, floor_y, z))
+        .unwrap_or_else(|error| panic!("horizontal-motion player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("horizontal-motion player commit failed: {error}"));
+    (registries, state, floor_y)
 }
 
 fn generated_airborne_player(clearance_voxels: i64) -> (Registries, AppState, i64) {
@@ -65,6 +93,292 @@ fn generated_airborne_player(clearance_voxels: i64) -> (Registries, AppState, i6
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("body-motion player commit failed: {error}"));
     (registries, state, floor_y)
+}
+
+#[test]
+fn direct_horizontal_control_accelerates_persists_and_brakes_on_ground() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("horizontal input fixture failed: {error}")),
+    );
+    let before = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("horizontal-motion player disappeared"))
+        .body();
+
+    let first = advance_control_tick_with_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("horizontal control tick failed: {error}"));
+    let motion = first
+        .body_motion()
+        .unwrap_or_else(|| panic!("horizontal control produced no body motion"));
+    assert_eq!(
+        motion
+            .after()
+            .horizontal_velocity()
+            .x_nanometers_per_second(),
+        1_000_000_000
+    );
+    assert_eq!(
+        motion.after().foot_position().x_nanometers(),
+        before.foot_position().x_nanometers() + 50_000_000
+    );
+    assert_eq!(
+        motion.after().foot_position().y_nanometers(),
+        floor_y * NANOMETERS_PER_VOXEL
+    );
+    assert!(motion.grounded());
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("horizontal body serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("horizontal body decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("horizontal body trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    let braking = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("horizontal braking tick failed: {error}"));
+    let after = braking
+        .body_motion()
+        .unwrap_or_else(|| panic!("horizontal braking produced no body change"))
+        .after();
+    assert_eq!(after.horizontal_velocity().x_nanometers_per_second(), 0);
+    assert_eq!(
+        after.foot_position().x_nanometers(),
+        motion.after().foot_position().x_nanometers()
+    );
+}
+
+#[test]
+fn horizontal_walking_settles_speed_and_load_scaled_exertion_on_slow_boundary() {
+    let (registries, mut moving, _) = generated_grounded_player_at(0, 0);
+    let mut resting = moving.clone();
+    let mut loaded = moving.clone();
+    let carried = loaded
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded walking-cost player disappeared"))
+        .carried_stockpile();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut loaded,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        registries.survival().physiology().carried_mass_capacity(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("loaded walking-cost carried matter failed: {error}"));
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("walking-cost input fixture failed: {error}")),
+    );
+
+    for _ in 0..2 {
+        let _ = advance_control_tick_with_input(&registries, &mut moving, input)
+            .unwrap_or_else(|error| panic!("walking-cost active control tick failed: {error}"));
+        let _ = advance_control_tick_with_input(&registries, &mut loaded, input)
+            .unwrap_or_else(|error| panic!("loaded walking-cost active tick failed: {error}"));
+    }
+    let pending = moving
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("walking-cost player disappeared"))
+        .locomotion_exertion()
+        .pending();
+    assert!(!pending.energy_cost_per_tick().is_zero());
+    assert!(!pending.hydration_loss_per_tick().is_zero());
+    let loaded_pending = loaded
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded walking-cost player disappeared after motion"))
+        .locomotion_exertion()
+        .pending();
+    assert!(loaded_pending.energy_cost_per_tick() > pending.energy_cost_per_tick());
+    assert!(loaded_pending.hydration_loss_per_tick() > pending.hydration_loss_per_tick());
+
+    for _ in 2..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut moving)
+            .unwrap_or_else(|error| panic!("walking-cost moving control tick failed: {error}"));
+    }
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut resting)
+            .unwrap_or_else(|error| panic!("walking-cost resting control tick failed: {error}"));
+    }
+
+    let moving_survival = moving
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("walking-cost moving survival disappeared"));
+    let resting_survival = resting
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("walking-cost resting survival disappeared"));
+    assert_eq!(
+        resting_survival
+            .metabolic_energy()
+            .checked_sub(moving_survival.metabolic_energy()),
+        Some(pending.energy_cost_per_tick())
+    );
+    assert_eq!(
+        resting_survival
+            .hydration()
+            .checked_sub(moving_survival.hydration()),
+        Some(pending.hydration_loss_per_tick())
+    );
+    assert_eq!(
+        moving
+            .logistics()
+            .player()
+            .copied()
+            .unwrap_or_else(|| panic!("walking-cost settled player disappeared"))
+            .locomotion_exertion()
+            .pending(),
+        SurvivalExertion::REST
+    );
+}
+
+#[test]
+fn fatal_slow_boundary_discards_current_direct_horizontal_input() {
+    let (registries, mut state, _) = generated_grounded_player_at(0, 0);
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fatal-boundary setup control tick failed: {error}"));
+    }
+    let survival = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal-boundary survival player disappeared"));
+    let survival_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        survival_revision,
+        survival_revision + 1,
+        player_record(
+            Energy::ZERO,
+            survival.hydration(),
+            Vitality::from_parts_per_million_unchecked(1),
+            survival.nutrition(),
+            survival.vitality_recovery_remainder(),
+        ),
+    );
+    let before = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal-boundary logistics player disappeared"))
+        .body();
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("fatal-boundary input fixture failed: {error}")),
+    );
+
+    let outcome = advance_control_tick_with_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("fatal-boundary control tick failed: {error}"));
+    assert_eq!(
+        outcome
+            .simulation()
+            .and_then(TickOutcome::survival)
+            .map(SurvivalAssessment::vitality),
+        Some(Vitality::ZERO)
+    );
+    let after = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal-boundary logistics player disappeared after tick"))
+        .body();
+    assert_eq!(after.foot_position(), before.foot_position());
+    assert_eq!(after.horizontal_velocity(), before.horizontal_velocity());
+}
+
+#[test]
+fn horizontal_motion_sweeps_to_exact_full_cube_wall_contact() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(1, floor_y, 0),
+        BLOCK_STATE_STONE,
+    );
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("wall-collision input fixture failed: {error}")),
+    );
+    for _ in 0..2 {
+        let _ = advance_control_tick_with_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("wall-collision control tick failed: {error}"));
+    }
+    let accumulator_before_contact = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("wall-collision player disappeared before contact"))
+        .locomotion_exertion();
+    let exertion_before_contact = accumulator_before_contact.pending();
+    let _ = advance_control_tick_with_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("wall-contact control tick failed: {error}"));
+    let accumulator_after_contact = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("wall-collision player disappeared after contact"))
+        .locomotion_exertion();
+    let exertion_after_contact = accumulator_after_contact.pending();
+    assert_ne!(accumulator_after_contact, accumulator_before_contact);
+    assert!(
+        exertion_after_contact.energy_cost_per_tick()
+            > exertion_before_contact.energy_cost_per_tick()
+    );
+    for _ in 3..8 {
+        let _ = advance_control_tick_with_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("wall-collision control tick failed: {error}"));
+    }
+    let body = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("wall-collision player disappeared"))
+        .body();
+    assert_eq!(body.foot_position().x_nanometers(), 700_000_000);
+    assert_eq!(body.horizontal_velocity().x_nanometers_per_second(), 0);
+    assert_eq!(
+        body.foot_position().y_nanometers(),
+        floor_y * NANOMETERS_PER_VOXEL
+    );
+}
+
+#[test]
+fn horizontal_motion_stops_at_missing_chunk_authority_boundary() {
+    let (registries, mut state, _) = generated_grounded_player_at(15, 0);
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("chunk-boundary input fixture failed: {error}")),
+    );
+    for _ in 0..20 {
+        let _ = advance_control_tick_with_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("chunk-boundary control tick failed: {error}"));
+    }
+    let body = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("chunk-boundary player disappeared"))
+        .body();
+    assert_eq!(body.foot_position().x_nanometers(), 15_700_000_000);
+    assert_eq!(body.horizontal_velocity().x_nanometers_per_second(), 0);
+    assert_eq!(
+        body.voxel_position(),
+        VoxelCoord::new(15, body.voxel_position().y(), 0)
+    );
 }
 
 #[test]

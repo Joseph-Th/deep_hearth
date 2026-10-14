@@ -29,6 +29,7 @@ pub enum PlayerWorkStartError {
     SurvivalNotInitialized,
     PlayerDead,
     PlayerAirborne,
+    PlayerMoving,
     Busy { active: Box<PlayerWork> },
     MetabolicCostOverflow { duration: TickSpan },
     InsufficientMetabolicEnergy { available: Energy, required: Energy },
@@ -48,6 +49,9 @@ impl Display for PlayerWorkStartError {
             Self::PlayerDead => formatter.write_str("dead player cannot begin work"),
             Self::PlayerAirborne => {
                 formatter.write_str("player must be grounded before beginning slow work")
+            }
+            Self::PlayerMoving => {
+                formatter.write_str("player must stop horizontal motion before beginning slow work")
             }
             Self::Busy { active } => write!(formatter, "player is already occupied by {active:?}"),
             Self::MetabolicCostOverflow { duration } => write!(
@@ -97,6 +101,7 @@ impl Error for PlayerWorkStartError {
             Self::SurvivalNotInitialized
             | Self::PlayerDead
             | Self::PlayerAirborne
+            | Self::PlayerMoving
             | Self::Busy { .. }
             | Self::MetabolicCostOverflow { .. }
             | Self::InsufficientMetabolicEnergy { .. }
@@ -204,9 +209,15 @@ pub(crate) fn validate_player_work_start(
     if crate::logistics::player_body_uses_generated_world(
         state,
         registries.survival().physiology().locomotion(),
-    ) && !crate::logistics::player_body_is_grounded(registries, state)
-    {
-        return Err(PlayerWorkStartError::PlayerAirborne);
+    ) {
+        if !crate::logistics::player_body_is_grounded(registries, state) {
+            return Err(PlayerWorkStartError::PlayerAirborne);
+        }
+        if state.logistics().player().is_some_and(|player| {
+            player.body().horizontal_velocity() != crate::spatial::HorizontalVelocity::ZERO
+        }) {
+            return Err(PlayerWorkStartError::PlayerMoving);
+        }
     }
     let attention = validate_player_attention(state).map_err(|error| match error {
         PlayerAttentionError::SurvivalNotInitialized => {

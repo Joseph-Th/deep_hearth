@@ -1,9 +1,80 @@
 //! Immutable player physiology and direct-consumption timing definitions.
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
-use crate::core::quantity::{Energy, Length, Mass, Speed, Volume};
+use crate::core::quantity::{Acceleration, Energy, Length, Mass, Speed, Volume};
 use crate::core::time::TickSpan;
 use crate::survival::resource_cost::SurvivalExertion;
+
+/// Authored continuous-body facts used by direct control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BodyKinematicsDefinition {
+    body_width: Length,
+    standing_height: Length,
+    walking_speed: Speed,
+    horizontal_acceleration: Acceleration,
+    maximum_fall_speed: Speed,
+}
+
+impl BodyKinematicsDefinition {
+    #[must_use]
+    pub fn new(
+        body_width: Length,
+        standing_height: Length,
+        walking_speed: Speed,
+        horizontal_acceleration: Acceleration,
+        maximum_fall_speed: Speed,
+    ) -> Self {
+        assert!(!body_width.is_zero(), "player body width must be nonzero");
+        assert!(
+            !standing_height.is_zero(),
+            "player standing height must be nonzero"
+        );
+        assert!(
+            !walking_speed.is_zero(),
+            "player walking speed must be nonzero"
+        );
+        assert!(
+            !horizontal_acceleration.is_zero(),
+            "player horizontal acceleration must be nonzero"
+        );
+        assert!(
+            !maximum_fall_speed.is_zero(),
+            "player maximum fall speed must be nonzero"
+        );
+        Self {
+            body_width,
+            standing_height,
+            walking_speed,
+            horizontal_acceleration,
+            maximum_fall_speed,
+        }
+    }
+
+    #[must_use]
+    pub const fn body_width(self) -> Length {
+        self.body_width
+    }
+
+    #[must_use]
+    pub const fn standing_height(self) -> Length {
+        self.standing_height
+    }
+
+    #[must_use]
+    pub const fn walking_speed(self) -> Speed {
+        self.walking_speed
+    }
+
+    #[must_use]
+    pub const fn horizontal_acceleration(self) -> Acceleration {
+        self.horizontal_acceleration
+    }
+
+    #[must_use]
+    pub const fn maximum_fall_speed(self) -> Speed {
+        self.maximum_fall_speed
+    }
+}
 
 /// Authored unaided locomotion/body facts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -11,9 +82,7 @@ pub struct LocomotionDefinition {
     step_duration: TickSpan,
     unloaded_exertion: SurvivalExertion,
     fully_loaded_exertion: SurvivalExertion,
-    body_width: Length,
-    standing_height: Length,
-    maximum_fall_speed: Speed,
+    body_kinematics: BodyKinematicsDefinition,
 }
 
 impl LocomotionDefinition {
@@ -22,9 +91,7 @@ impl LocomotionDefinition {
         step_duration: TickSpan,
         unloaded_exertion: SurvivalExertion,
         fully_loaded_exertion: SurvivalExertion,
-        body_width: Length,
-        standing_height: Length,
-        maximum_fall_speed: Speed,
+        body_kinematics: BodyKinematicsDefinition,
     ) -> Self {
         assert!(
             !step_duration.is_zero(),
@@ -42,22 +109,11 @@ impl LocomotionDefinition {
                 >= unloaded_exertion.hydration_loss_per_tick(),
             "fully loaded locomotion cannot lose less hydration than unloaded locomotion"
         );
-        assert!(!body_width.is_zero(), "player body width must be nonzero");
-        assert!(
-            !standing_height.is_zero(),
-            "player standing height must be nonzero"
-        );
-        assert!(
-            !maximum_fall_speed.is_zero(),
-            "player maximum fall speed must be nonzero"
-        );
         Self {
             step_duration,
             unloaded_exertion,
             fully_loaded_exertion,
-            body_width,
-            standing_height,
-            maximum_fall_speed,
+            body_kinematics,
         }
     }
 
@@ -68,17 +124,32 @@ impl LocomotionDefinition {
 
     #[must_use]
     pub const fn body_width(self) -> Length {
-        self.body_width
+        self.body_kinematics.body_width()
     }
 
     #[must_use]
     pub const fn standing_height(self) -> Length {
-        self.standing_height
+        self.body_kinematics.standing_height()
+    }
+
+    #[must_use]
+    pub const fn walking_speed(self) -> Speed {
+        self.body_kinematics.walking_speed()
+    }
+
+    #[must_use]
+    pub const fn horizontal_acceleration(self) -> Acceleration {
+        self.body_kinematics.horizontal_acceleration()
     }
 
     #[must_use]
     pub const fn maximum_fall_speed(self) -> Speed {
-        self.maximum_fall_speed
+        self.body_kinematics.maximum_fall_speed()
+    }
+
+    #[must_use]
+    pub const fn maximum_exertion(self) -> SurvivalExertion {
+        self.fully_loaded_exertion
     }
 
     #[must_use]

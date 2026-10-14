@@ -4,16 +4,80 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::state::AppState;
+use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::spatial::VoxelCoord;
+use crate::survival::SurvivalExertion;
 
 use super::body::PlayerBodyState;
 use super::traversal::TraversalEdge;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LocomotionExertionAccumulator {
+    pending_energy: Energy,
+    pending_hydration: Volume,
+    energy_remainder: u8,
+    hydration_remainder: u8,
+}
+
+impl LocomotionExertionAccumulator {
+    pub(crate) const ZERO: Self = Self {
+        pending_energy: Energy::ZERO,
+        pending_hydration: Volume::ZERO,
+        energy_remainder: 0,
+        hydration_remainder: 0,
+    };
+
+    pub(crate) fn checked_accrue(self, exertion: SurvivalExertion) -> Option<Self> {
+        let denominator = u128::from(CONTROL_TICKS_PER_SIMULATION_TICK);
+        let energy_numerator = exertion
+            .energy_cost_per_tick()
+            .nanojoules()
+            .checked_add(u128::from(self.energy_remainder))?;
+        let hydration_numerator = u128::from(exertion.hydration_loss_per_tick().microliters())
+            .checked_add(u128::from(self.hydration_remainder))?;
+        let energy_whole = energy_numerator / denominator;
+        let hydration_whole = hydration_numerator / denominator;
+        let energy_remainder = u8::try_from(energy_numerator % denominator).ok()?;
+        let hydration_remainder = u8::try_from(hydration_numerator % denominator).ok()?;
+        Some(Self {
+            pending_energy: self
+                .pending_energy
+                .checked_add(Energy::from_nanojoules(energy_whole))?,
+            pending_hydration: self
+                .pending_hydration
+                .checked_add(Volume::from_microliters(
+                    u64::try_from(hydration_whole).ok()?,
+                ))?,
+            energy_remainder,
+            hydration_remainder,
+        })
+    }
+
+    pub(crate) const fn pending(self) -> SurvivalExertion {
+        SurvivalExertion::new(self.pending_energy, self.pending_hydration)
+    }
+
+    pub(crate) const fn settled(self) -> Self {
+        Self {
+            pending_energy: Energy::ZERO,
+            pending_hydration: Volume::ZERO,
+            energy_remainder: self.energy_remainder,
+            hydration_remainder: self.hydration_remainder,
+        }
+    }
+
+    pub(crate) const fn has_valid_remainders(self) -> bool {
+        self.energy_remainder < CONTROL_TICKS_PER_SIMULATION_TICK as u8
+            && self.hydration_remainder < CONTROL_TICKS_PER_SIMULATION_TICK as u8
+    }
+}
 
 /// Persistent world/custody record for the single locally controlled player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +85,7 @@ use super::traversal::TraversalEdge;
 pub struct PlayerLogisticsRecord {
     body: PlayerBodyState,
     carried_stockpile: StockpileId,
+    locomotion_exertion: LocomotionExertionAccumulator,
 }
 
 impl PlayerLogisticsRecord {
@@ -28,6 +93,7 @@ impl PlayerLogisticsRecord {
         Self {
             body,
             carried_stockpile,
+            locomotion_exertion: LocomotionExertionAccumulator::ZERO,
         }
     }
 
@@ -44,6 +110,10 @@ impl PlayerLogisticsRecord {
     #[must_use]
     pub const fn carried_stockpile(self) -> StockpileId {
         self.carried_stockpile
+    }
+
+    pub(crate) const fn locomotion_exertion(self) -> LocomotionExertionAccumulator {
+        self.locomotion_exertion
     }
 }
 
@@ -285,6 +355,7 @@ impl LogisticsState {
         next_revision: u64,
         expected_body: PlayerBodyState,
         body: PlayerBodyState,
+        locomotion_exertion: LocomotionExertionAccumulator,
     ) {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
@@ -296,6 +367,7 @@ impl LogisticsState {
             "player body changed after motion planning"
         );
         player.body = body;
+        player.locomotion_exertion = locomotion_exertion;
         self.revision = next_revision;
     }
 

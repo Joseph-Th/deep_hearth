@@ -7,6 +7,7 @@
 
 mod access;
 mod body;
+mod control;
 mod equipment_carry;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
@@ -20,6 +21,10 @@ mod state;
 mod traversal;
 mod validation;
 
+#[cfg(test)]
+#[path = "control_tests.rs"]
+mod control_tests;
+
 pub(crate) use access::player_step_blocks_carried_load_increase;
 pub use access::{
     PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, PlayerFluidStoreAccessError,
@@ -28,6 +33,10 @@ pub use access::{
     validate_player_stockpile_access,
 };
 pub use body::PlayerBodyState;
+pub use control::{
+    CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, HorizontalControlInputError,
+    PlayerControlInput,
+};
 pub use equipment_carry::{
     PlayerEquipmentCarryCommitError, PlayerEquipmentCarryError, ValidatedPlayerEquipmentCarry,
     validate_drop_equipment, validate_pickup_equipment,

@@ -4,10 +4,11 @@ use super::*;
 use crate::content::{BLOCK_STATE_STONE, build_registries};
 use crate::core::state::AppState;
 use crate::core::time::ControlTick;
+use crate::logistics::{HorizontalControlInput, PlayerControlInput};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::production::ProductionJobId;
-use crate::simulation::advance_control_tick;
+use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
 use crate::spatial::VoxelCoord;
 use crate::world::{
     ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed, validate_generate_chunk,
@@ -47,6 +48,59 @@ fn slow_player_work_requires_ground_contact_in_generated_world() {
             SurvivalExertion::REST,
         ),
         Err(PlayerWorkStartError::PlayerAirborne)
+    );
+}
+
+#[test]
+fn slow_player_work_requires_horizontal_body_to_stop() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0xA1B0_0002),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("moving-work terrain generation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("moving-work terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("moving-work terrain column has no surface"));
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, surface_y + 1, 0))
+        .unwrap_or_else(|error| panic!("moving-work player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("moving-work player commit failed: {error}"));
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(23_255, 0)
+            .unwrap_or_else(|error| panic!("moving-work input fixture failed: {error}")),
+    );
+    while !state.control_tick().is_simulation_boundary()
+        || state.control_tick() == ControlTick::ZERO
+    {
+        let _ = advance_control_tick_with_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("moving-work control tick failed: {error}"));
+    }
+    assert!(state.logistics().player().is_some_and(|player| {
+        player
+            .body()
+            .horizontal_velocity()
+            .x_nanometers_per_second()
+            > 0
+    }));
+    assert_eq!(
+        validate_player_work_start(
+            &registries,
+            &state,
+            PlayerWork::ManualProduction {
+                job: ProductionJobId::new(1),
+            },
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+        ),
+        Err(PlayerWorkStartError::PlayerMoving)
     );
 }
 

@@ -349,18 +349,28 @@ consequences commit atomically.
 
 `LogisticsState` owns the player's persisted fixed-point body state, the inventory-owned carried stockpile
 identity, stationary stockpile locations, equipment locations, energy-store locations, fluid-store locations,
-and a monotonic revision. The body stores a bottom-center `WorldPoint` in nanometres plus signed vertical velocity;
-existing voxel-locality rules derive `PlayerLogisticsRecord::position()` from that point rather than persisting a
-second position. Logistics does not duplicate lot contents, equipment condition, stored energy/fluid, or capacities.
+fractional direct-locomotion exertion awaiting slow survival settlement, and a monotonic revision. The body stores
+a bottom-center `WorldPoint` in nanometres plus signed horizontal and vertical velocity; existing voxel-locality
+rules derive `PlayerLogisticsRecord::position()` from that point rather than persisting a second position.
+Logistics does not duplicate lot contents, equipment condition, stored energy/fluid, or capacities.
 
-Built-in physiology currently authors a 0.6 m wide, 1.8 m standing body and a 55 m/s maximum fall speed. When
-every horizontal chunk touched by the body is generated, each `advance_control_tick` integrates gravity over the
-exact 50 ms control interval and sweeps the standing body vertically against `FullCube` block collision. Floor
-and ceiling contact resolve to exact voxel faces. Missing horizontal chunk truth does not become implicit air;
-body physics stays inactive until the current footprint is generated. Trusted load and chunk generation reject
+Built-in physiology currently authors a 0.6 m wide, 1.8 m standing body, 4.3 m/s walking speed, 20 m/s^2 horizontal
+acceleration, and a 55 m/s maximum fall speed. When every horizontal chunk touched by the body is generated, each
+`advance_control_tick_with_input` consumes one normalized fixed-point world-space horizontal input sample, moves
+horizontal velocity toward the authored target, integrates gravity over the exact 50 ms interval, and sweeps the
+standing body X then Z then vertically against `FullCube` block collision. Wall, floor, and ceiling contact resolve
+to exact voxel faces. Missing destination chunk truth is a hard collision boundary rather than implicit air.
+Trusted load bounds persisted velocity and locomotion fractional state, trusted load/chunk generation reject
 body/terrain overlap, and player admission/chunk-generation tokens bind the opposite owner revisions so a
-validate/commit race cannot create an overlap. Horizontal direct motion, jump/crouch/sprint input, fall damage,
+validate/commit race cannot create an overlap. Jump/crouch/sprint input, fall damage, step-up, partial shapes,
 and demand streaming remain absent.
+
+Direct walking reuses the authored load-sensitive locomotion effort rather than bypassing survival. Each moved
+control step scales that effort by actual horizontal speed, accumulates exact control-rate fractions in logistics,
+and settles the accumulated energy/hydration cost into the existing slow survival tick every 72nd control step.
+No second metabolism clock exists. If the same boundary kills the player or claims slow work, the current direct
+input is discarded in favor of the neutral body plan so slow-state consequences cannot be followed by a stale
+post-transaction movement impulse.
 
 Player-context operations use shared access checks: carried inventory is implicitly local; other targeted
 stockpiles/equipment/energy/fluid stores require an explicit location at the player's voxel once player logistics
@@ -375,9 +385,9 @@ origin. Mount/unmount changes support without teleporting an existing location. 
 world custody for newly created equipment/energy stores; disassembly removes that custody.
 
 Slow `TickSpan` player work may start in generated-world body mode only at an exact control/simulation boundary
-while the body is grounded. The older timed face-adjacent step remains available only where generated-world body
-physics is inactive; it is rejected once the player's footprint is backed by generated chunks, so ordinary terrain
-movement cannot accidentally continue through the legacy traversal-edge path.
+while the body is grounded and horizontally stopped. The older timed face-adjacent step remains available only
+where generated-world body physics is inactive; it is rejected once the player's footprint is backed by generated
+chunks, so ordinary terrain movement cannot accidentally continue through the legacy traversal-edge path.
 
 Prospecting requires the player inside the survey region and any instrument at the player voxel. Mining requires
 the player inside the acquired resolved target region plus local tool/output access. Manual power requires local provider
@@ -389,10 +399,10 @@ reservation to carried custody while that custody is already in transit. Movemen
 with completed mining output still awaiting automatic settlement, preserving both extraction locality and the
 load-sensitive locomotion budget until the reserved parcel has actually landed.
 
-General pathfinding, horizontal direct control, automatic proximity search, generic stockpile/energy/fluid
-transport, arbitrary equipment teleportation, and mounted-production site/contact geometry are absent. Explicit
+General pathfinding, automatic proximity search, generic stockpile/energy/fluid transport, arbitrary equipment
+teleportation, and mounted-production site/contact geometry are absent. Explicit
 player carrying still provides exact-local pickup/drop; the traversal-edge step remains a bounded legacy/planning
-surface outside generated-world body mode rather than the target ordinary terrain locomotion path.
+surface outside generated-world body mode rather than the ordinary terrain locomotion path.
 
 ### Geology and knowledge
 

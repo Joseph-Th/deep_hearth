@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::Mass;
 use crate::spatial::VoxelCoord;
 
+#[cfg(test)]
+use super::WorldRegistry;
+#[cfg(test)]
+use crate::core::state::AppState;
+
 use super::BlockStateId;
 
 pub const CHUNK_SIDE: usize = 16;
@@ -59,6 +64,41 @@ impl ChunkCoord {
     pub fn world_min_z(self) -> Option<i64> {
         self.z.checked_mul(CHUNK_SIDE_I64)
     }
+}
+
+#[cfg(test)]
+pub(crate) fn set_generated_block_for_test(
+    registry: &WorldRegistry,
+    state: &mut AppState,
+    voxel: VoxelCoord,
+    block_state: BlockStateId,
+) {
+    let previous = state
+        .world()
+        .block_at(voxel)
+        .unwrap_or_else(|| panic!("test block mutation requires generated in-range world truth"));
+    let previous_mass = registry
+        .represented_mass_for_state(previous)
+        .unwrap_or_else(|| panic!("test previous block state must be registered"));
+    let new_mass = registry
+        .represented_mass_for_state(block_state)
+        .unwrap_or_else(|| panic!("test target block state must be registered"));
+    if previous == block_state {
+        return;
+    }
+    let revision = state.world().revision();
+    let next_revision = revision
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("test block mutation exhausted world revision"));
+    let coord = ChunkCoord::containing(voxel);
+    let world = state.world_state_mut();
+    let index = world
+        .chunks
+        .binary_search_by_key(&coord, WorldChunk::coord)
+        .unwrap_or_else(|_| panic!("test block mutation lost generated chunk"));
+    world.chunks[index].set_block(voxel, block_state, previous_mass, new_mass);
+    world.chunks[index].canonicalize_sections();
+    world.revision = next_revision;
 }
 
 /// Palette-compressed 16-cubed block-state section.

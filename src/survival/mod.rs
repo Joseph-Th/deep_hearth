@@ -24,10 +24,10 @@ pub use consumption::{
     validate_eat_lot_to_metabolic_target,
 };
 pub use definitions::{
-    ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
-    FoodDefinition, HydrationDefinition, LocomotionDefinition, MetabolismDefinition,
-    NutritionDefinition, PhysiologyDefinition, SurvivalRegistry, SurvivalStressDefinition,
-    ThermalComfortDefinition, calculate_food_hydration_offer,
+    BodyKinematicsDefinition, ConsumptionTemperatureRange, DirectConsumptionDefinition,
+    DrinkDefinition, FoodCategory, FoodDefinition, HydrationDefinition, LocomotionDefinition,
+    MetabolismDefinition, NutritionDefinition, PhysiologyDefinition, SurvivalRegistry,
+    SurvivalStressDefinition, ThermalComfortDefinition, calculate_food_hydration_offer,
 };
 pub use resource_cost::{
     SurvivalExertion, SurvivalResourceBudget, SurvivalResourceProjectionError,

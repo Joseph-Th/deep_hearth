@@ -94,3 +94,33 @@ impl VerticalVelocity {
         self.nanometers_per_second
     }
 }
+
+/// Signed fixed-point horizontal velocity in nanometres per second.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HorizontalVelocity {
+    x_nanometers_per_second: i64,
+    z_nanometers_per_second: i64,
+}
+
+impl HorizontalVelocity {
+    pub const ZERO: Self = Self::new(0, 0);
+
+    #[must_use]
+    pub const fn new(x_nanometers_per_second: i64, z_nanometers_per_second: i64) -> Self {
+        Self {
+            x_nanometers_per_second,
+            z_nanometers_per_second,
+        }
+    }
+
+    #[must_use]
+    pub const fn x_nanometers_per_second(self) -> i64 {
+        self.x_nanometers_per_second
+    }
+
+    #[must_use]
+    pub const fn z_nanometers_per_second(self) -> i64 {
+        self.z_nanometers_per_second
+    }
+}
