@@ -13,9 +13,9 @@ use crate::registry::Registries;
 
 use super::coalescing::LotMergePolicy;
 use super::state::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, ConsumedMaterialTrace, InventoryState, MaterialLotId,
-    MaterialLotProfile, MaterialLotProvenance, MaterialLotRecord, MaterialStorageHistory,
-    StockpileId, apply_insert_or_merge_new_lot, get_stockpile_mut_or_panic,
+    ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
+    MaterialLotProvenance, MaterialLotRecord, MaterialStorageHistory, StockpileId,
+    apply_insert_or_merge_new_lot, get_stockpile_mut_or_panic,
 };
 
 mod errors;
@@ -61,18 +61,21 @@ impl MaterialIngressEntry {
         }
     }
 
-    /// Converts source-owned matter that has remained exposed to ambient conditions into an
-    /// inventory parcel without resetting its accumulated age at the custody boundary.
-    pub(crate) fn from_lot_spec_with_ambient_exposure(
-        specification: MaterialLotSpec,
-        created_at: SimulationTick,
-        exposed_until: SimulationTick,
-    ) -> Option<Self> {
-        let storage_history = MaterialStorageHistory::new(created_at)
-            .rebase(exposed_until, AMBIENT_PRESERVATION_MULTIPLIER_PPM)?;
-        let mut entry = Self::from_lot_spec(specification, created_at);
-        entry.storage_history = Some(storage_history);
-        Some(entry)
+    /// Restores source-owned loose surface matter without resetting its physical profile,
+    /// provenance, or accumulated ambient-equivalent exposure.
+    #[must_use]
+    pub(crate) fn from_surface_parcel(
+        mass: Mass,
+        profile: MaterialLotProfile,
+        provenance: MaterialLotProvenance,
+        storage_history: MaterialStorageHistory,
+    ) -> Self {
+        Self {
+            mass,
+            profile,
+            provenance,
+            storage_history: Some(storage_history),
+        }
     }
 
     /// Preserves the complete material profile and lot provenance of matter transferred from

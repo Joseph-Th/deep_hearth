@@ -24,7 +24,7 @@ use crate::labor::{
     SurfaceGatheringWork, ValidatedPlayerWorkStart, validate_player_work_start,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
-use crate::material::{CommodityKey, MaterialLotSpec};
+use crate::material::CommodityKey;
 use crate::registry::Registries;
 
 use super::{SurfaceResourceId, SurfaceResourceLifecycle};
@@ -458,19 +458,14 @@ pub fn validate_start_surface_gathering(
         .tick()
         .checked_add_span(duration)
         .ok_or(SurfaceGatheringError::CompletionTickOverflow)?;
-    let lot = MaterialLotSpec::with_composition(
-        resource.commodity(),
+    let entry = MaterialIngressEntry::from_surface_parcel(
         request.mass,
-        resource.temperature(),
-        resource.composition().clone(),
-    )
-    .unwrap_or_else(|_| unreachable!("trusted surface material yields a valid inventory parcel"));
-    let entry = MaterialIngressEntry::from_lot_spec_with_ambient_exposure(
-        lot,
-        resource.created_at(),
-        state.tick(),
-    )
-    .unwrap_or_else(|| unreachable!("surface resource exposure cannot precede creation"));
+        resource.material_profile().clone(),
+        resource.material_provenance(),
+        resource
+            .ambient_storage_history_at(state.tick())
+            .unwrap_or_else(|| unreachable!("surface resource exposure cannot precede creation")),
+    );
     let _ = validate_material_ingress(
         registries,
         state.inventory(),

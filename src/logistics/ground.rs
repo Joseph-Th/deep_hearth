@@ -21,6 +21,7 @@ mod transfer;
 
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use allocation::validate_allocate_ground_stockpile;
+pub(crate) use allocation::validate_allocate_player_ground_stockpile_at;
 pub use allocation::{
     GroundStockpileAllocationCommitError, GroundStockpileAllocationError,
     PlayerGroundStockpileAllocationError, ValidatedGroundStockpileAllocation,

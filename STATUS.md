@@ -2,12 +2,11 @@
 
 **Role:** Current runtime scope and reachability authority.
 
-Use [`README.md`](README.md) for routing, [`GAME_DESIGN.md`](GAME_DESIGN.md) for intent, and
-[`DIRECTION.md`](DIRECTION.md) for priority. Fixtures do not establish ordinary reachability.
+Use [`README.md`](README.md) for routing, [`GAME_DESIGN.md`](GAME_DESIGN.md) for intent, and [`DIRECTION.md`](DIRECTION.md) for priority. Fixtures do not prove ordinary reachability.
 
 ## Ordinary play
 
-Current progression:
+Progression:
 
 `local clues -> prospecting -> mining -> native-copper dressing -> primitive mechanization -> copper upgrades -> settlement mechanization -> first foundry -> settlement batch foundry`
 
@@ -15,26 +14,26 @@ Current progression:
 | --- | --- |
 | Survival and labor | Metabolic energy, hydration, vitality, nutrition, perishability, timed consumption, exertion, preservation, and exclusive player work. |
 | Materials and inventory | Typed commodities, exact lots, finite stockpiles/reservations, provenance, temperature, storage effects, and matter accounting. |
-| Prospecting and mining | Reconnaissance, sampling, bounded evidence, localized attempts, tool-dependent extraction, and inventory claim. Hidden deposits/reserves remain non-public. |
+| Prospecting and mining | Reconnaissance, sampling, bounded evidence, tool-dependent extraction, and inventory claim. Hidden reserves remain non-public. |
 | Crafting and equipment | Manual shaping, wear, service, primitive machines, copper upgrades, field instruments, wire drawing, and workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and first/settlement foundry routes. Compound-ore reduction is absent. |
-| Opening wilderness acquisition | Seeded forage/water/stone/timber graph with edge-gated observation, load-sensitive travel, and a finite local-heating campfire. General terrain play, remote discovery, hydrology, shelter, and weather are absent. |
+| Opening wilderness acquisition | Seeded forage/water/stone/timber graph, load-sensitive travel, and finite campfire heat. General terrain play, remote discovery, hydrology, shelter, and weather are absent. |
 | Structures | Grounded adjacent members use carried matter and timed work; load-bearing starts on completion. |
 
 ## Current integration frontier
 
-These are current graph boundaries, not priorities.
+Current graph boundaries, not priorities:
 
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Generated world + body + targeting + excavation | Hotbar context, placement/drops, residency, richer contact, and remote discovery. |
+| Generated world + body + targeting + excavation | Full hotbar/stack/container shell, general placement, residency, richer contact, and remote discovery. |
 | Structural physics | Non-grounded construction, joints/panels, deconstruction/salvage, and terrain support. |
-| Equipment maintenance | Maintenance tools and general transport to service sites. |
+| Equipment maintenance | Maintenance tools and service-site transport. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
 | Finite fluid stores | Routed transport, pumping, mixing, and pressure networks. |
-| Industrial workshop/ore/foundry execution | Ordinary acquisition and construction of industrial infrastructure. |
+| Industrial workshop/ore/foundry execution | Ordinary industrial infrastructure acquisition/construction. |
 | Checked coordinates + compact chunk ownership + geological evidence | Terrain access/collision, regional geology-to-chunk composition, and clue-location discovery. |
 
 [`DIRECTION.md`](DIRECTION.md) owns which boundary should be closed next.
@@ -48,12 +47,12 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Core | Deterministic simulation; persisted 20 Hz `ControlTick`; exact 72:1 slow `SimulationTick`; active body physics cannot be skipped by slow stepping. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
-| Logistics | Fixed-point body/carrying, 20 Hz walk/sprint/crouch/jump, full-cube collision, load-scaled exertion, legacy steps, equipment pickup/drop, tool select/drop, and access checks. |
-| Loose surface matter | Finite world records with edge-gated orientation, local gathering, reservation, survival cost, depletion, cleanup, and conservation. Fresh worlds distribute forage/stone/timber. |
+| Logistics | Fixed-point body/carrying, 20 Hz walk/sprint/crouch/jump, full-cube collision, load-scaled exertion, legacy steps, equipment pickup/drop, semantic equipment/material quick-access selection, and access checks. |
+| Loose surface matter | Finite local gathering/drop records with reservation, survival cost, depletion, cleanup, and conservation. Carried-material drops preserve physical profile, provenance, and storage age with a short self-pickup delay. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure physics plus grounded hand-setting from exact material. |
-| Block world | Mass-backed chunks, neighborhood demand, full-cube collision, 4.5 m targeting, 20 Hz excavation/progress, held chaining, and active carried-tool context. Fragments enter carried custody when they fit; otherwise local drops support pickup or gathering. Placement, full hotbar/stack projection, richer shapes, and residency remain absent. |
+| Block world | Mass-backed chunks, neighborhood demand, full-cube collision, 4.5 m targeting, 20 Hz excavation, semantic equipment/material selection, conserved fragment custody, selected-food use, and pointed-face placement of finished storage into free generated air. Generic terrain placement, hotbar/stack UI, richer shapes, and residency remain absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

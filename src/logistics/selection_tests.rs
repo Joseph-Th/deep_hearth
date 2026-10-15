@@ -1,9 +1,10 @@
-//! Contracts for active carried-equipment selection and persistence.
+//! Contracts for persisted quick-access selection over canonical carried custody.
 
 use super::*;
 
 use crate::content::{
-    EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_LUMP, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD,
+    build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError};
@@ -66,60 +67,106 @@ fn selected_pick_fixture() -> (
 }
 
 #[test]
-fn active_equipment_is_a_persisted_reference_into_carried_custody() {
+fn equipment_selection_persists_and_clears_when_equipment_leaves_custody() {
     let (registries, mut state, pick) = selected_pick_fixture();
-    assert_eq!(state.logistics().active_equipment(), None);
+    let selection = PlayerActiveSelection::equipment(pick);
+    assert_eq!(state.logistics().active_selection(), None);
 
-    validate_set_active_equipment(&state, Some(pick))
-        .unwrap_or_else(|error| panic!("active-equipment validation failed: {error}"))
+    validate_set_active_selection(&registries, &state, Some(selection))
+        .unwrap_or_else(|error| panic!("active selection validation failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("active-equipment commit failed: {error}"));
-    assert_eq!(state.logistics().active_equipment(), Some(pick));
+        .unwrap_or_else(|error| panic!("active selection commit failed: {error}"));
+    assert_eq!(state.logistics().active_selection(), Some(selection));
 
     let revision = state.logistics().revision();
-    validate_set_active_equipment(&state, Some(pick))
-        .unwrap_or_else(|error| panic!("idempotent active-equipment validation failed: {error}"))
+    validate_set_active_selection(&registries, &state, Some(selection))
+        .unwrap_or_else(|error| panic!("idempotent selection validation failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("idempotent active-equipment commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("idempotent selection commit failed: {error}"));
     assert_eq!(state.logistics().revision(), revision);
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("active-equipment serialization failed: {error}"));
+        .unwrap_or_else(|error| panic!("active selection serialization failed: {error}"));
     let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
-        .unwrap_or_else(|error| panic!("active-equipment decode failed: {error}"));
+        .unwrap_or_else(|error| panic!("active selection decode failed: {error}"));
     let loaded = loaded
         .into_state(&registries)
-        .unwrap_or_else(|error| panic!("active-equipment trusted load failed: {error}"));
+        .unwrap_or_else(|error| panic!("active selection trusted load failed: {error}"));
     assert_eq!(loaded, state);
-    assert_eq!(loaded.logistics().active_equipment(), Some(pick));
+    assert_eq!(loaded.logistics().active_selection(), Some(selection));
 
     validate_drop_equipment(&registries, &state, pick)
         .unwrap_or_else(|error| panic!("selected-equipment drop failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("selected-equipment drop commit failed: {error}"));
-    assert_eq!(state.logistics().active_equipment(), None);
+    assert_eq!(state.logistics().active_selection(), None);
 }
 
 #[test]
-fn active_equipment_rejects_noncarried_selection_and_forged_persistence() {
+fn material_selection_is_semantic_and_survives_persistence_without_lot_identity() {
+    let (registries, mut state, _pick) = selected_pick_fixture();
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| panic!("material selection fixture lost player"));
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(300_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("material selection deposit failed: {error}"));
+    let selection = PlayerActiveSelection::material(commodity);
+
+    validate_set_active_selection(&registries, &state, Some(selection))
+        .unwrap_or_else(|error| panic!("material selection validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("material selection commit failed: {error}"));
+    assert_eq!(state.logistics().active_selection(), Some(selection));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("material selection serialization failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("material selection decode failed: {error}"));
+    let loaded = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("material selection trusted load failed: {error}"));
+    assert_eq!(loaded.logistics().active_selection(), Some(selection));
+}
+
+#[test]
+fn selection_rejects_noncarried_equipment_and_forged_equipment_persistence() {
     let (registries, mut state, pick) = selected_pick_fixture();
     validate_drop_equipment(&registries, &state, pick)
         .unwrap_or_else(|error| panic!("noncarried selection drop failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("noncarried selection drop commit failed: {error}"));
     assert_eq!(
-        validate_set_active_equipment(&state, Some(pick)).err(),
-        Some(PlayerEquipmentSelectionError::EquipmentNotCarried { equipment: pick })
+        validate_set_active_selection(
+            &registries,
+            &state,
+            Some(PlayerActiveSelection::equipment(pick)),
+        )
+        .err(),
+        Some(PlayerActiveSelectionError::EquipmentNotCarried { equipment: pick })
     );
 
     validate_pickup_equipment(&registries, &state, pick)
         .unwrap_or_else(|error| panic!("forged-selection pickup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("forged-selection pickup commit failed: {error}"));
-    validate_set_active_equipment(&state, Some(pick))
-        .unwrap_or_else(|error| panic!("forged-selection baseline validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("forged-selection baseline commit failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(pick)),
+    )
+    .unwrap_or_else(|error| panic!("forged-selection baseline validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("forged-selection baseline commit failed: {error}"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("forged-selection serialization failed: {error}"));
     encoded["state"]["systems"]["logistics"]["carried_equipment"] = serde_json::json!([]);

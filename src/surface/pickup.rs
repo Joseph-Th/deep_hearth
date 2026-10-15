@@ -8,10 +8,10 @@ use crate::inventory::{
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
 };
 use crate::labor::PlayerWork;
-use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
+use super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
 use super::{SurfaceResourceId, SurfaceResourceKind};
 
 #[must_use]
@@ -83,20 +83,25 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
         if resource.kind() != SurfaceResourceKind::Drop {
             continue;
         }
+        if let Some(started_at) = resource.automatic_pickup_delay_started_at() {
+            let eligible = started_at
+                .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: surface pickup delay exceeds control clock")
+                });
+            if state.control_tick() < eligible {
+                continue;
+            }
+        }
         let picked_mass = resource.remaining_mass();
-        let lot = MaterialLotSpec::with_composition(
-            resource.commodity(),
+        let entry = MaterialIngressEntry::from_surface_parcel(
             picked_mass,
-            resource.temperature(),
-            resource.composition().clone(),
-        )
-        .unwrap_or_else(|_| unreachable!("trusted surface drop remains a valid material parcel"));
-        let entry = MaterialIngressEntry::from_lot_spec_with_ambient_exposure(
-            lot,
-            resource.created_at(),
-            picked_at,
-        )
-        .unwrap_or_else(|| unreachable!("surface drop exposure cannot precede creation"));
+            resource.material_profile().clone(),
+            resource.material_provenance(),
+            resource
+                .ambient_storage_history_at(picked_at)
+                .unwrap_or_else(|| unreachable!("surface drop exposure cannot precede creation")),
+        );
         let ingress = match validate_material_ingress(
             registries,
             state.inventory(),

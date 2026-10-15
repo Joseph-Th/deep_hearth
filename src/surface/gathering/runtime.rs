@@ -10,7 +10,6 @@ use crate::inventory::{
     validate_reserved_material_ingress,
 };
 use crate::labor::SurfaceGatheringWork;
-use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 
 use super::super::{SurfaceResourceId, SurfaceResourceLifecycle};
@@ -113,23 +112,20 @@ pub(crate) fn decide_surface_gathering_tick(
     assert_eq!(resource.lifecycle(), SurfaceResourceLifecycle::Available);
     assert_eq!(resource.remaining_mass(), work.source_mass_before());
     assert!(resource.remaining_mass() >= work.gathered_mass());
-    let lot = MaterialLotSpec::with_composition(
-        resource.commodity(),
-        work.gathered_mass(),
-        resource.temperature(),
-        resource.composition().clone(),
-    )
-    .unwrap_or_else(|_| unreachable!("trusted surface material remains valid at completion"));
     let ingress = validate_reserved_material_ingress(
         registries,
         projected_inventory,
         work.destination(),
-        [MaterialIngressEntry::from_lot_spec_with_ambient_exposure(
-            lot,
-            resource.created_at(),
-            next_tick,
-        )
-        .unwrap_or_else(|| unreachable!("surface resource exposure cannot precede creation"))],
+        [MaterialIngressEntry::from_surface_parcel(
+            work.gathered_mass(),
+            resource.material_profile().clone(),
+            resource.material_provenance(),
+            resource
+                .ambient_storage_history_at(next_tick)
+                .unwrap_or_else(|| {
+                    unreachable!("surface resource exposure cannot precede creation")
+                }),
+        )],
         next_tick,
         work.gathered_mass(),
     )

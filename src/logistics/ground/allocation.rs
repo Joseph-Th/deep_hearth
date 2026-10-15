@@ -197,6 +197,22 @@ pub(crate) fn validate_allocate_ground_stockpile(
     })
 }
 
+pub(crate) fn validate_allocate_player_ground_stockpile_at(
+    state: &AppState,
+    position: VoxelCoord,
+    capacity: Mass,
+) -> Result<ValidatedGroundStockpileAllocation, PlayerGroundStockpileAllocationError> {
+    let player_action = validate_optional_player_action(state)
+        .map_err(|_| PlayerGroundStockpileAllocationError::PlayerDead)?;
+    if state.logistics().player().is_none() {
+        return Err(PlayerGroundStockpileAllocationError::PlayerNotInitialized);
+    }
+    let mut validated = validate_allocate_ground_stockpile(state, position, capacity)
+        .map_err(PlayerGroundStockpileAllocationError::Allocation)?;
+    validated.player_action = Some(player_action);
+    Ok(validated)
+}
+
 /// Allocates one empty loose stockpile at the admitted player's exact current voxel.
 ///
 /// Ordinary player-facing placement should use this boundary rather than supplying a coordinate.
@@ -206,15 +222,10 @@ pub fn validate_allocate_player_ground_stockpile(
     state: &AppState,
     capacity: Mass,
 ) -> Result<ValidatedGroundStockpileAllocation, PlayerGroundStockpileAllocationError> {
-    let player_action = validate_optional_player_action(state)
-        .map_err(|_| PlayerGroundStockpileAllocationError::PlayerDead)?;
     let position = state
         .logistics()
         .player()
         .map(|player| player.position())
         .ok_or(PlayerGroundStockpileAllocationError::PlayerNotInitialized)?;
-    let mut validated = validate_allocate_ground_stockpile(state, position, capacity)
-        .map_err(PlayerGroundStockpileAllocationError::Allocation)?;
-    validated.player_action = Some(player_action);
-    Ok(validated)
+    validate_allocate_player_ground_stockpile_at(state, position, capacity)
 }

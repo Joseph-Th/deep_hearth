@@ -11,6 +11,7 @@ use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
+use crate::material::CommodityKey;
 use crate::spatial::VoxelCoord;
 use crate::survival::SurvivalExertion;
 
@@ -24,6 +25,29 @@ pub(crate) struct LocomotionExertionAccumulator {
     pending_hydration: Volume,
     energy_remainder: u8,
     hydration_remainder: u8,
+}
+
+/// Persisted quick-access selection for the player's direct-action hand.
+///
+/// Equipment references canonical carried equipment identity. Material references a semantic
+/// commodity in the player's carried stockpile rather than a runtime lot ID, so ordinary lot
+/// coalescing and splitting cannot silently invalidate quick-access intent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlayerActiveSelection {
+    Equipment(EquipmentId),
+    Material(CommodityKey),
+}
+
+impl PlayerActiveSelection {
+    #[must_use]
+    pub const fn equipment(equipment: EquipmentId) -> Self {
+        Self::Equipment(equipment)
+    }
+
+    #[must_use]
+    pub const fn material(commodity: CommodityKey) -> Self {
+        Self::Material(commodity)
+    }
 }
 
 impl LocomotionExertionAccumulator {
@@ -125,7 +149,7 @@ pub struct LogisticsState {
     player: Option<PlayerLogisticsRecord>,
     traversable_edges: Vec<TraversalEdge>,
     carried_equipment: Vec<EquipmentId>,
-    active_equipment: Option<EquipmentId>,
+    active_selection: Option<PlayerActiveSelection>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -144,7 +168,7 @@ impl LogisticsState {
             player: None,
             traversable_edges: Vec::new(),
             carried_equipment: Vec::new(),
-            active_equipment: None,
+            active_selection: None,
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
@@ -205,13 +229,12 @@ impl LogisticsState {
         self.carried_equipment.iter().copied()
     }
 
-    /// Returns the player-selected carried equipment used as the default direct-action tool.
+    /// Returns the persisted player quick-access selection.
     ///
-    /// This is a reference into `carried_equipment`, not another custody container. Trusted-state
-    /// validation guarantees that a selected equipment instance is physically player-carried.
+    /// This is a reference into canonical carried custody, never a second item/matter container.
     #[must_use]
-    pub const fn active_equipment(&self) -> Option<EquipmentId> {
-        self.active_equipment
+    pub const fn active_selection(&self) -> Option<PlayerActiveSelection> {
+        self.active_selection
     }
 
     /// Iterates equipment present at the admitted player's voxel in stable equipment-ID order.
@@ -259,7 +282,7 @@ impl LogisticsState {
             && self.player.is_none()
             && self.traversable_edges.is_empty()
             && self.carried_equipment.is_empty()
-            && self.active_equipment.is_none()
+            && self.active_selection.is_none()
             && self.stockpile_locations.is_empty()
             && self.equipment_locations.is_empty()
             && self.energy_store_locations.is_empty()
@@ -312,6 +335,25 @@ impl LogisticsState {
         self.stockpile_locations
             .iter()
             .map(|(stockpile, position)| (*stockpile, *position))
+    }
+
+    #[must_use]
+    pub(crate) fn has_stationary_occupant_at(&self, position: VoxelCoord) -> bool {
+        self.stockpile_locations
+            .values()
+            .any(|value| *value == position)
+            || self
+                .equipment_locations
+                .values()
+                .any(|value| *value == position)
+            || self
+                .energy_store_locations
+                .values()
+                .any(|value| *value == position)
+            || self
+                .fluid_store_locations
+                .values()
+                .any(|value| *value == position)
     }
 
     pub(super) fn apply_initialization(
@@ -474,23 +516,26 @@ impl LogisticsState {
         self.revision = next_revision;
     }
 
-    pub(super) fn apply_active_equipment_selection(
+    pub(super) fn apply_active_selection(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
-        equipment: Option<EquipmentId>,
+        selection: Option<PlayerActiveSelection>,
     ) {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert!(
             self.player.is_some(),
-            "active equipment requires a logistics player"
+            "active selection requires a logistics player"
         );
         assert!(
-            equipment.is_none_or(|equipment| self.is_equipment_carried(equipment)),
-            "active equipment selection must reference carried custody"
+            selection.is_none_or(|selection| match selection {
+                PlayerActiveSelection::Equipment(equipment) => self.is_equipment_carried(equipment),
+                PlayerActiveSelection::Material(_) => true,
+            }),
+            "active selection must reference canonical carried custody"
         );
-        self.active_equipment = equipment;
+        self.active_selection = selection;
         self.revision = next_revision;
     }
 
@@ -508,8 +553,8 @@ impl LogisticsState {
             Err(_) => panic!("validated equipment drop requires carried custody"),
         };
         self.carried_equipment.remove(index);
-        if self.active_equipment == Some(equipment) {
-            self.active_equipment = None;
+        if self.active_selection == Some(PlayerActiveSelection::Equipment(equipment)) {
+            self.active_selection = None;
         }
         assert!(
             self.equipment_locations

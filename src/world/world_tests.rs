@@ -11,9 +11,9 @@ use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    PlayerControlInput, PlayerEquipmentCarryError, add_traversable_edge_for_test,
-    place_equipment_for_fixture, validate_drop_equipment, validate_pickup_equipment,
-    validate_set_active_equipment, validate_start_player_step,
+    PlayerActiveSelection, PlayerControlInput, PlayerEquipmentCarryError,
+    add_traversable_edge_for_test, place_equipment_for_fixture, validate_drop_equipment,
+    validate_pickup_equipment, validate_set_active_selection, validate_start_player_step,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
@@ -21,7 +21,7 @@ use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::{PlayerAdmissionCommitError, validate_admit_player};
 use crate::simulation::{
-    ActiveEquipmentDropOutcome, PlayerDirectControlInput, PrimaryActionOutcome,
+    ActiveSelectionDropOutcome, PlayerDirectControlInput, PrimaryActionOutcome,
     PrimaryControlIntent, advance_control_tick, advance_control_tick_with_direct_input,
     advance_control_tick_with_input,
 };
@@ -118,10 +118,14 @@ fn generated_excavation_fixture() -> (
         .unwrap_or_else(|error| panic!("block excavation pick pickup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("block excavation pick pickup commit failed: {error}"));
-    validate_set_active_equipment(&state, Some(pick))
-        .unwrap_or_else(|error| panic!("block excavation active-pick validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("block excavation active-pick commit failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(pick)),
+    )
+    .unwrap_or_else(|error| panic!("block excavation active-pick validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("block excavation active-pick commit failed: {error}"));
     (registries, state, pick, target)
 }
 
@@ -594,7 +598,7 @@ fn off_boundary_block_excavation_replays_and_preserves_authored_total_cost() {
 #[test]
 fn primary_excavation_requires_active_equipment_context() {
     let (registries, mut state, _pick, _target) = generated_excavation_fixture();
-    validate_set_active_equipment(&state, None)
+    validate_set_active_selection(&registries, &state, None)
         .unwrap_or_else(|error| panic!("empty-hand validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("empty-hand commit failed: {error}"));
@@ -622,18 +626,18 @@ fn direct_drop_moves_active_equipment_back_to_world_custody() {
         .unwrap_or_else(|| panic!("direct-drop fixture lost player"));
     let before = crate::logistics::assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("direct-drop carrying assessment disappeared"));
-    let input = PlayerDirectControlInput::NEUTRAL.with_drop_active_equipment();
+    let input = PlayerDirectControlInput::NEUTRAL.with_drop_active_selection();
 
     let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
         .unwrap_or_else(|error| panic!("direct active-equipment drop failed: {error}"));
     assert_eq!(
-        control.active_equipment_drop(),
-        Some(ActiveEquipmentDropOutcome::Dropped {
+        control.active_selection_drop(),
+        Some(&ActiveSelectionDropOutcome::EquipmentDropped {
             equipment: pick,
             position,
         })
     );
-    assert_eq!(state.logistics().active_equipment(), None);
+    assert_eq!(state.logistics().active_selection(), None);
     assert!(!state.logistics().is_equipment_carried(pick));
     assert_eq!(
         state.logistics().stationary_equipment_position(pick),
@@ -654,7 +658,7 @@ fn direct_drop_moves_active_equipment_back_to_world_custody() {
 #[test]
 fn direct_drop_reports_empty_active_hand_without_mutating_custody() {
     let (registries, mut state, pick, _target) = generated_excavation_fixture();
-    validate_set_active_equipment(&state, None)
+    validate_set_active_selection(&registries, &state, None)
         .unwrap_or_else(|error| panic!("direct-drop empty-hand validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("direct-drop empty-hand commit failed: {error}"));
@@ -662,12 +666,12 @@ fn direct_drop_reports_empty_active_hand_without_mutating_custody() {
     let control = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
-        PlayerDirectControlInput::NEUTRAL.with_drop_active_equipment(),
+        PlayerDirectControlInput::NEUTRAL.with_drop_active_selection(),
     )
     .unwrap_or_else(|error| panic!("direct-drop empty-hand control failed: {error}"));
     assert_eq!(
-        control.active_equipment_drop(),
-        Some(ActiveEquipmentDropOutcome::NoActiveEquipment)
+        control.active_selection_drop(),
+        Some(&ActiveSelectionDropOutcome::NoActiveSelection)
     );
     assert!(state.logistics().is_equipment_carried(pick));
     assert_eq!(state.logistics().stationary_equipment_position(pick), None);
@@ -678,7 +682,7 @@ fn simultaneous_primary_use_reserves_active_tool_before_direct_drop() {
     let (registries, mut state, pick, _target) = generated_excavation_fixture();
     let input = PlayerDirectControlInput::NEUTRAL
         .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()))
-        .with_drop_active_equipment();
+        .with_drop_active_selection();
 
     let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
         .unwrap_or_else(|error| panic!("simultaneous primary/drop control failed: {error}"));
@@ -687,12 +691,15 @@ fn simultaneous_primary_use_reserves_active_tool_before_direct_drop() {
         Some(PrimaryActionOutcome::BlockExcavationStarted(_))
     ));
     assert_eq!(
-        control.active_equipment_drop(),
-        Some(ActiveEquipmentDropOutcome::Rejected(
+        control.active_selection_drop(),
+        Some(&ActiveSelectionDropOutcome::EquipmentRejected(
             PlayerEquipmentCarryError::PlayerBusy
         ))
     );
-    assert_eq!(state.logistics().active_equipment(), Some(pick));
+    assert_eq!(
+        state.logistics().active_selection(),
+        Some(PlayerActiveSelection::equipment(pick))
+    );
     assert!(state.logistics().is_equipment_carried(pick));
     assert_eq!(state.logistics().stationary_equipment_position(pick), None);
 }

@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::content::{
-    FORM_CHIP, FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE,
+    BLOCK_STATE_STONE, FORM_CHIP, FORM_FOOD, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES,
+    MATERIAL_STONE, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
     SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
@@ -11,17 +12,40 @@ use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::inventory::StockpileStorageError;
+use crate::inventory::{StockpileStorageError, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
-use crate::logistics::{add_traversable_edge_for_test, validate_start_player_step};
+use crate::logistics::{
+    PlayerActiveSelection, add_traversable_edge_for_test, validate_set_active_selection,
+    validate_start_player_step,
+};
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
+use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
-use crate::simulation::{advance_control_tick, advance_tick};
-use crate::spatial::VoxelCoord;
+use crate::simulation::{
+    ActiveSelectionDropOutcome, PlayerDirectControlInput, SecondaryActionOutcome,
+    SecondaryControlIntent, advance_control_tick, advance_control_tick_with_direct_input,
+    advance_tick,
+};
+use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
 use crate::survival::{FoodFreshness, Vitality, assess_food_freshness, player_record};
+use crate::world::{
+    BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+    set_generated_block_for_test, validate_generate_chunk,
+};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
+const WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5355_5246_4143_455F);
+
+fn positive_x_view() -> ViewDirection {
+    ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
+        .unwrap_or_else(|error| panic!("surface positive-X view failed: {error}"))
+}
+
+fn downward_view() -> ViewDirection {
+    ViewDirection::new(0, -VIEW_DIRECTION_PARTS_PER_MILLION, 0)
+        .unwrap_or_else(|error| panic!("surface downward view failed: {error}"))
+}
 
 fn seed_surface(
     registries: &crate::registry::Registries,
@@ -41,6 +65,470 @@ fn seed_surface(
     .unwrap_or_else(|error| panic!("surface test resource specification failed: {error}"));
     insert_surface_resource_for_test(registries, state, spec)
         .unwrap_or_else(|error| panic!("surface test resource creation failed: {error}"))
+}
+
+#[test]
+fn held_secondary_use_composes_selected_food_without_exposing_lot_identity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(500_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("secondary-use food fixture failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("secondary-use selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("secondary-use selection commit failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("secondary-use depletion tick failed: {error}"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+
+    let first = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("secondary-use first control failed: {error}"));
+    assert_eq!(
+        first.secondary_action(),
+        Some(&SecondaryActionOutcome::DeferredUntilSimulationBoundary)
+    );
+
+    let started = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("secondary-use held control failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::EatingStarted(outcome)) => break outcome.clone(),
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            other => panic!("secondary-use returned unexpected outcome: {other:?}"),
+        }
+    };
+    assert!(!started.total_mass().is_zero());
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::Eating { .. })
+    ));
+
+    let busy = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("secondary-use busy control failed: {error}"));
+    assert_eq!(busy.secondary_action(), None);
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::Eating { .. })
+    ));
+}
+
+#[test]
+fn secondary_use_refuses_ambiguous_physical_food_cohorts() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    for temperature in [
+        Temperature::from_millikelvin(290_000),
+        Temperature::from_millikelvin(300_000),
+    ] {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            Mass::from_milligrams(250_000),
+            temperature,
+        )
+        .unwrap_or_else(|error| panic!("ambiguous secondary-use food fixture failed: {error}"));
+    }
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("ambiguous secondary-use selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("ambiguous secondary-use selection commit failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("ambiguous secondary-use depletion tick failed: {error}"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+
+    let outcome = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("ambiguous secondary-use control failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            Some(outcome) => break outcome.clone(),
+        }
+    };
+    assert_eq!(
+        outcome,
+        SecondaryActionOutcome::AmbiguousMaterialLots { count: 2 }
+    );
+    assert_eq!(state.player_work().active(), None);
+}
+
+#[test]
+fn secondary_use_places_selected_storage_body_through_canonical_storage_placement() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("secondary placement terrain failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("secondary placement terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("secondary placement terrain has no solid surface"));
+    let player_position = VoxelCoord::new(0, surface_y + 1, 0);
+    let eye_y = player_position.y() + 1;
+    for x in 1..=4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, eye_y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let target = VoxelCoord::new(3, eye_y, 0);
+    set_generated_block_for_test(registries.world(), &mut state, target, BLOCK_STATE_STONE);
+    let placement = VoxelCoord::new(2, eye_y, 0);
+    let carried = admit_player(&registries, &mut state, player_position);
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("secondary placement storage definition disappeared"));
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY);
+    let body_mass = definition.assembly_profile().input_mass();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        body_mass,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("secondary placement body fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("secondary placement matter baseline failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("secondary placement selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("secondary placement selection commit failed: {error}"));
+
+    let control = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("secondary placement control failed: {error}"));
+    let stockpile = match control.secondary_action() {
+        Some(SecondaryActionOutcome::StoragePlaced {
+            definition,
+            stockpile,
+        }) if *definition == STORAGE_ROUGH_TIMBER_FIELD_BOX => *stockpile,
+        other => panic!("secondary placement returned unexpected outcome: {other:?}"),
+    };
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(placement)
+    );
+    let placed = state
+        .inventory()
+        .get_stockpile(stockpile)
+        .unwrap_or_else(|| panic!("secondary placed storage disappeared"));
+    assert_eq!(
+        placed.enclosure().map(|enclosure| enclosure.definition()),
+        Some(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("secondary placement matter audit failed: {error}"))
+            .total(),
+        matter_before.total()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let occupied = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("occupied secondary placement control failed: {error}"));
+    assert_eq!(
+        occupied.secondary_action(),
+        Some(&SecondaryActionOutcome::StoragePlacementLocationOccupied {
+            position: placement,
+        })
+    );
+}
+
+#[test]
+fn secondary_storage_placement_rejects_the_player_body_voxel() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("body-overlap placement terrain failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("body-overlap placement terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("body-overlap placement terrain has no solid surface"));
+    let player_position = VoxelCoord::new(0, surface_y + 1, 0);
+    let carried = admit_player(&registries, &mut state, player_position);
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("body-overlap storage definition disappeared"));
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY);
+    let body_mass = definition.assembly_profile().input_mass();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        body_mass,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("body-overlap placement material failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("body-overlap placement selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("body-overlap placement selection commit failed: {error}"));
+
+    let control = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(downward_view())),
+    )
+    .unwrap_or_else(|error| panic!("body-overlap placement control failed: {error}"));
+    assert_eq!(
+        control.secondary_action(),
+        Some(&SecondaryActionOutcome::StoragePlacementIntersectsPlayer {
+            position: player_position,
+        })
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(body_mass)
+    );
+    assert_eq!(state.logistics().stockpile_locations().count(), 0);
+}
+
+#[test]
+fn active_material_drop_preserves_exact_lot_profiles_and_delays_self_pickup() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let first_mass = Mass::from_milligrams(120_000);
+    let second_mass = Mass::from_milligrams(80_000);
+    let first_temperature = Temperature::from_millikelvin(290_000);
+    let second_temperature = Temperature::from_millikelvin(310_000);
+    for (mass, temperature) in [
+        (first_mass, first_temperature),
+        (second_mass, second_temperature),
+    ] {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            temperature,
+        )
+        .unwrap_or_else(|error| panic!("active-material drop fixture deposit failed: {error}"));
+    }
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("active-material drop matter baseline failed: {error}"));
+    let selection = PlayerActiveSelection::material(commodity);
+    validate_set_active_selection(&registries, &state, Some(selection))
+        .unwrap_or_else(|error| panic!("active-material selection failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("active-material selection commit failed: {error}"));
+
+    let control = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_drop_active_selection(),
+    )
+    .unwrap_or_else(|error| panic!("active-material direct drop failed: {error}"));
+    let dropped = match control.active_selection_drop() {
+        Some(ActiveSelectionDropOutcome::MaterialDropped(outcome)) => outcome,
+        other => panic!("active-material direct drop returned unexpected outcome: {other:?}"),
+    };
+    assert_eq!(dropped.commodity(), commodity);
+    assert_eq!(
+        dropped.dropped_mass(),
+        first_mass
+            .checked_add(second_mass)
+            .unwrap_or_else(|| panic!("active-material fixture mass overflowed"))
+    );
+    assert_eq!(dropped.position(), position);
+    assert_eq!(dropped.resources().len(), 2);
+    assert_eq!(state.logistics().active_selection(), Some(selection));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(Mass::ZERO)
+    );
+    let selection_revision = state.logistics().revision();
+    validate_set_active_selection(&registries, &state, Some(selection))
+        .unwrap_or_else(|error| panic!("empty selected-material re-selection failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("empty selected-material re-selection commit failed: {error}")
+        });
+    assert_eq!(state.logistics().revision(), selection_revision);
+    let pickup_after = control
+        .control_tick()
+        .checked_add_steps(super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
+        .unwrap_or_else(|| panic!("active-material pickup delay overflowed test clock"));
+    let mut profiles = dropped
+        .resources()
+        .iter()
+        .map(|resource| {
+            let record = state
+                .surface()
+                .get(*resource)
+                .unwrap_or_else(|| panic!("active-material surface parcel disappeared"));
+            assert_eq!(record.kind(), SurfaceResourceKind::Drop);
+            assert_eq!(record.position(), position);
+            assert_eq!(
+                record.automatic_pickup_delay_started_at(),
+                Some(control.control_tick())
+            );
+            assert_eq!(
+                record
+                    .automatic_pickup_delay_started_at()
+                    .and_then(|started| started.checked_add_steps(
+                        super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS,
+                    )),
+                Some(pickup_after)
+            );
+            (record.remaining_mass(), record.temperature())
+        })
+        .collect::<Vec<_>>();
+    profiles.sort_by_key(|(_, temperature)| temperature.millikelvin());
+    assert_eq!(
+        profiles,
+        vec![
+            (first_mass, first_temperature),
+            (second_mass, second_temperature),
+        ]
+    );
+    let matter_dropped = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("active-material dropped matter audit failed: {error}"));
+    assert_eq!(matter_dropped.total(), matter_before.total());
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("active-material drop serialization failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("active-material drop decode failed: {error}"));
+    let loaded = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("active-material drop trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    let first_resource = *dropped
+        .resources()
+        .first()
+        .unwrap_or_else(|| panic!("active-material drop emitted no surface resource"));
+    let mut forged =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("active-material forged-delay serialization failed: {error}")
+        });
+    let resource_key = first_resource.value().to_string();
+    forged["state"]["systems"]["surface"]["resources"][resource_key.as_str()]["automatic_pickup_delay_started_at"] =
+        serde_json::json!(control.control_tick().value() + 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(forged)
+        .unwrap_or_else(|error| panic!("active-material forged-delay decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Surface(
+            SurfaceResourceValidationError::PickupDelayStartedInFuture {
+                resource: first_resource,
+            }
+        )))
+    );
+
+    for _ in 0..40 {
+        let outcome = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("active-material pickup-delay tick failed: {error}"));
+        assert_eq!(outcome.surface_drop_pickup(), None);
+    }
+    let pickup = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("active-material delayed pickup tick failed: {error}"));
+    assert!(pickup.surface_drop_pickup().is_some());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(first_mass)
+    );
+    let second_pickup = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("active-material second pickup tick failed: {error}"));
+    assert!(second_pickup.surface_drop_pickup().is_some());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(
+            first_mass
+                .checked_add(second_mass)
+                .unwrap_or_else(|| panic!("active-material recovered mass overflowed"))
+        )
+    );
+    let matter_after = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("active-material recovered matter audit failed: {error}"));
+    assert_eq!(matter_after.total(), matter_before.total());
 }
 
 #[test]

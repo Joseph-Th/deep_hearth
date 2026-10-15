@@ -6,8 +6,12 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::core::quantity::{Mass, Temperature};
-use crate::core::time::SimulationTick;
-use crate::material::{CommodityKey, MaterialComposition, MaterialLotSpec};
+use crate::core::time::{ControlTick, SimulationTick};
+use crate::inventory::{
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotProfile, MaterialLotProvenance,
+    MaterialStorageHistory,
+};
+use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
 use crate::spatial::VoxelCoord;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -38,19 +42,43 @@ pub enum SurfaceResourceKind {
     Drop,
 }
 
+/// Exact physical/provenance parcel retained while finite loose matter is in surface custody.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SurfaceMaterialParcel {
+    initial_mass: Mass,
+    profile: MaterialLotProfile,
+    provenance: MaterialLotProvenance,
+    ambient_age_parts_at_created_at: u128,
+}
+
+impl SurfaceMaterialParcel {
+    pub(crate) fn existing(
+        mass: Mass,
+        profile: MaterialLotProfile,
+        provenance: MaterialLotProvenance,
+        ambient_age_parts_at_created_at: u128,
+    ) -> Self {
+        Self {
+            initial_mass: mass,
+            profile,
+            provenance,
+            ambient_age_parts_at_created_at,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SurfaceResourceRecord {
     id: SurfaceResourceId,
     kind: SurfaceResourceKind,
     position: VoxelCoord,
-    commodity: CommodityKey,
-    initial_mass: Mass,
+    material: SurfaceMaterialParcel,
     remaining_mass: Mass,
-    temperature: Temperature,
-    composition: MaterialComposition,
     lifecycle: SurfaceResourceLifecycle,
     created_at: SimulationTick,
+    automatic_pickup_delay_started_at: Option<ControlTick>,
     depleted_at: Option<SimulationTick>,
 }
 
@@ -59,21 +87,20 @@ impl SurfaceResourceRecord {
         id: SurfaceResourceId,
         kind: SurfaceResourceKind,
         position: VoxelCoord,
-        material: MaterialLotSpec,
+        material: SurfaceMaterialParcel,
         created_at: SimulationTick,
+        automatic_pickup_delay_started_at: Option<ControlTick>,
     ) -> Self {
-        let mass = material.mass();
+        let mass = material.initial_mass;
         Self {
             id,
             kind,
             position,
-            commodity: material.commodity(),
-            initial_mass: mass,
+            material,
             remaining_mass: mass,
-            temperature: material.temperature(),
-            composition: material.composition().clone(),
             lifecycle: SurfaceResourceLifecycle::Available,
             created_at,
+            automatic_pickup_delay_started_at,
             depleted_at: None,
         }
     }
@@ -92,11 +119,11 @@ impl SurfaceResourceRecord {
     }
     #[must_use]
     pub const fn commodity(&self) -> CommodityKey {
-        self.commodity
+        self.material.profile.commodity()
     }
     #[must_use]
     pub const fn initial_mass(&self) -> Mass {
-        self.initial_mass
+        self.material.initial_mass
     }
     #[must_use]
     pub const fn remaining_mass(&self) -> Mass {
@@ -104,11 +131,15 @@ impl SurfaceResourceRecord {
     }
     #[must_use]
     pub const fn temperature(&self) -> Temperature {
-        self.temperature
+        self.material.profile.temperature()
     }
     #[must_use]
     pub const fn composition(&self) -> &MaterialComposition {
-        &self.composition
+        self.material.profile.composition()
+    }
+    #[must_use]
+    pub fn particle_size(&self) -> Option<ParticleSizeRange> {
+        self.material.profile.particle_size()
     }
     #[must_use]
     pub const fn lifecycle(&self) -> SurfaceResourceLifecycle {
@@ -117,6 +148,34 @@ impl SurfaceResourceRecord {
     #[must_use]
     pub(crate) const fn created_at(&self) -> SimulationTick {
         self.created_at
+    }
+
+    #[must_use]
+    pub(crate) const fn automatic_pickup_delay_started_at(&self) -> Option<ControlTick> {
+        self.automatic_pickup_delay_started_at
+    }
+
+    pub(crate) const fn material_profile(&self) -> &MaterialLotProfile {
+        &self.material.profile
+    }
+
+    pub(crate) const fn material_provenance(&self) -> MaterialLotProvenance {
+        self.material.provenance
+    }
+
+    pub(crate) fn ambient_storage_history_at(
+        &self,
+        at: SimulationTick,
+    ) -> Option<MaterialStorageHistory> {
+        MaterialStorageHistory::with_ambient_age_parts(
+            self.material.ambient_age_parts_at_created_at,
+            self.created_at,
+        )
+        .rebase(at, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
+    }
+
+    pub(crate) const fn ambient_age_parts_at_created_at(&self) -> u128 {
+        self.material.ambient_age_parts_at_created_at
     }
 }
 

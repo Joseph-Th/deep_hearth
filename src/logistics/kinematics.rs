@@ -155,6 +155,39 @@ pub(crate) fn first_player_body_collision_in_chunk(
     })
 }
 
+pub(crate) fn player_body_occupies_voxel(
+    registries: &Registries,
+    state: &AppState,
+    voxel: VoxelCoord,
+) -> bool {
+    let Some(player) = state.logistics().player().copied() else {
+        return false;
+    };
+    let locomotion = registries.survival().physiology().locomotion();
+    let Some((min_x, max_x, min_z, max_z)) = horizontal_voxel_bounds(player.body(), locomotion)
+    else {
+        return true;
+    };
+    let foot_y = player.body().foot_position().y_nanometers();
+    let Some(height) = length_nanometers(body_height(locomotion, player.body().stance())) else {
+        return true;
+    };
+    let Some(top_exclusive) = foot_y.checked_add(height) else {
+        return true;
+    };
+    let Some(top_inclusive) = top_exclusive.checked_sub(1) else {
+        return true;
+    };
+    let min_y = foot_y.div_euclid(NANOMETERS_PER_VOXEL);
+    let max_y = top_inclusive.div_euclid(NANOMETERS_PER_VOXEL);
+    voxel.x() >= min_x
+        && voxel.x() <= max_x
+        && voxel.y() >= min_y
+        && voxel.y() <= max_y
+        && voxel.z() >= min_z
+        && voxel.z() <= max_z
+}
+
 fn first_player_body_collision_with_lookup(
     registry: &WorldRegistry,
     body: PlayerBodyState,

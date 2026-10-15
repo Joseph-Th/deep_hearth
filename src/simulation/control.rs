@@ -9,6 +9,19 @@ pub enum PrimaryControlIntent {
     BlockExcavation { direction: ViewDirection },
 }
 
+/// Held contextual-use intent sampled alongside one 20 Hz locomotion input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SecondaryControlIntent {
+    UseActive { direction: ViewDirection },
+}
+
+impl SecondaryControlIntent {
+    #[must_use]
+    pub const fn use_active(direction: ViewDirection) -> Self {
+        Self::UseActive { direction }
+    }
+}
+
 impl PrimaryControlIntent {
     #[must_use]
     pub const fn block_excavation(direction: ViewDirection) -> Self {
@@ -24,14 +37,16 @@ impl PrimaryControlIntent {
 pub struct PlayerDirectControlInput {
     movement: PlayerControlInput,
     primary: Option<PrimaryControlIntent>,
-    drop_active_equipment: bool,
+    secondary: Option<SecondaryControlIntent>,
+    drop_active_selection: bool,
 }
 
 impl PlayerDirectControlInput {
     pub const NEUTRAL: Self = Self {
         movement: PlayerControlInput::NEUTRAL,
         primary: None,
-        drop_active_equipment: false,
+        secondary: None,
+        drop_active_selection: false,
     };
 
     #[must_use]
@@ -39,7 +54,8 @@ impl PlayerDirectControlInput {
         Self {
             movement,
             primary: None,
-            drop_active_equipment: false,
+            secondary: None,
+            drop_active_selection: false,
         }
     }
 
@@ -49,10 +65,16 @@ impl PlayerDirectControlInput {
         self
     }
 
-    /// Requests dropping the currently active carried equipment on this control step.
     #[must_use]
-    pub const fn with_drop_active_equipment(mut self) -> Self {
-        self.drop_active_equipment = true;
+    pub const fn with_secondary(mut self, secondary: SecondaryControlIntent) -> Self {
+        self.secondary = Some(secondary);
+        self
+    }
+
+    /// Requests dropping the currently active equipment/material selection on this control step.
+    #[must_use]
+    pub const fn with_drop_active_selection(mut self) -> Self {
+        self.drop_active_selection = true;
         self
     }
 
@@ -67,7 +89,12 @@ impl PlayerDirectControlInput {
     }
 
     #[must_use]
-    pub const fn drop_active_equipment(self) -> bool {
-        self.drop_active_equipment
+    pub const fn secondary(self) -> Option<SecondaryControlIntent> {
+        self.secondary
+    }
+
+    #[must_use]
+    pub const fn drop_active_selection(self) -> bool {
+        self.drop_active_selection
     }
 }

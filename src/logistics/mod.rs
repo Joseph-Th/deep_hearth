@@ -9,7 +9,6 @@ mod access;
 mod body;
 mod control;
 mod equipment_carry;
-mod equipment_selection;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
 #[cfg(any(test, feature = "test-gameplay"))]
@@ -18,6 +17,7 @@ mod ground;
 mod initialization;
 mod kinematics;
 mod movement;
+mod selection;
 mod state;
 mod traversal;
 mod validation;
@@ -42,10 +42,6 @@ pub use equipment_carry::{
     PlayerEquipmentCarryCommitError, PlayerEquipmentCarryError, ValidatedPlayerEquipmentCarry,
     validate_drop_equipment, validate_pickup_equipment,
 };
-pub use equipment_selection::{
-    PlayerEquipmentSelectionCommitError, PlayerEquipmentSelectionError,
-    ValidatedPlayerEquipmentSelection, validate_set_active_equipment,
-};
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fixture::place_energy_store_for_fixture;
 #[cfg(any(test, feature = "test-gameplay"))]
@@ -54,6 +50,7 @@ pub(crate) use fixture::place_equipment_for_fixture;
 pub(crate) use fluid::validate_place_fluid_store;
 #[cfg(test)]
 pub(crate) use ground::GroundStockpilePlacementCommitError;
+pub(crate) use ground::validate_allocate_player_ground_stockpile_at;
 pub use ground::{
     GroundMaterialTransferCommitError, GroundMaterialTransferError,
     GroundStockpileAllocationCommitError, GroundStockpileAllocationError,
@@ -73,17 +70,22 @@ pub use kinematics::{PlayerBodyMotionError, PlayerBodyMotionOutcome};
 pub(crate) use kinematics::{
     apply_player_body_motion, decide_player_body_motion, first_player_body_collision,
     first_player_body_collision_in_chunk, player_body_fits_continuous_world,
-    player_body_is_grounded, player_body_uses_generated_world,
+    player_body_is_grounded, player_body_occupies_voxel, player_body_uses_generated_world,
 };
 pub use movement::{
     PlayerStepCommitError, PlayerStepError, PlayerStepOutcome, ValidatedPlayerStepStart,
     validate_start_player_step,
 };
 pub(crate) use movement::{apply_player_step_tick, decide_player_step_tick};
+pub use selection::{
+    PlayerActiveSelectionCommitError, PlayerActiveSelectionError, ValidatedPlayerActiveSelection,
+    validate_set_active_selection,
+};
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use state::add_traversable_edge_for_test;
 pub use state::{
-    LogisticsState, PlayerCarryingAssessment, PlayerLogisticsRecord, assess_player_carrying,
+    LogisticsState, PlayerActiveSelection, PlayerCarryingAssessment, PlayerLogisticsRecord,
+    assess_player_carrying,
 };
 pub(crate) use traversal::TraversalEdge;
 pub use validation::LogisticsValidationError;

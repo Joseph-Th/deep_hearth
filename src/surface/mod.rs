@@ -2,6 +2,7 @@
 
 mod creation;
 mod gathering;
+mod material_drop;
 mod observation;
 mod pickup;
 mod state;
@@ -22,6 +23,10 @@ pub use gathering::{
     SurfaceGatheringCommitError, SurfaceGatheringError, SurfaceGatheringOutcome,
     SurfaceGatheringRequest, ValidatedSurfaceGatheringStart,
     validate_start_player_surface_gathering, validate_start_surface_gathering,
+};
+pub use material_drop::{
+    PlayerMaterialDropCommitError, PlayerMaterialDropError, PlayerMaterialDropOutcome,
+    ValidatedPlayerMaterialDrop, validate_drop_player_material,
 };
 pub use observation::{AdjacentSurfaceResource, available_adjacent_surface_resources};
 pub use pickup::SurfaceDropPickupOutcome;

@@ -61,11 +61,15 @@ Foundational blockers:
 - continuous fixed-point body position, persisted velocity/stance, 20 Hz walk/sprint/crouch/jump control,
   gravity, falling, ledge-safe crouching, and swept full-cube collision now exist; swimming and general shape
   collision do not;
-- no camera/input adapter or secondary action shell; bounded fixed-point player-eye targeting and a typed held
-  primary excavation intent now exist in core;
+- no camera/input adapter; bounded fixed-point player-eye targeting plus typed held primary and secondary
+  interaction intents now exist in core;
 - held excavation now admits, progresses, completes, and chains canonical timed batches on the 20 Hz control
-  clock while preserving authored mining costs; contextual place/use and adapter feedback remain absent;
-- no generic dropped-item world entity, hotbar, familiar stack projection, or container UI shell;
+  clock while preserving authored mining costs; secondary use can consume one unambiguous selected food cohort or
+  place an authored finished storage object into generated air adjacent to the pointed face, with body/object
+  overlap rejection; generic terrain placement, broader interact semantics, and adapter feedback remain absent;
+- no generic dropped-item world entity, full hotbar, familiar stack projection, or container UI shell; selected
+  carried material can now be dropped into exact finite surface custody and later recovered without losing its
+  physical profile, provenance, or storage history;
 - deterministic terrain generation and admitted-player neighborhood demand exist; residency/unload streaming,
   biome/climate fields, and general world discovery do not;
 - no world lighting, sky light, darkness gameplay, weather, or environmental heat transport;

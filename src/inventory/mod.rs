@@ -37,6 +37,7 @@ pub use enclosure_dismantling::{
     StorageEnclosureDismantlingOutcome, StorageEnclosureDismantlingStartOutcome,
     ValidatedStorageEnclosureDismantlingStart, validate_start_storage_enclosure_dismantling,
 };
+pub(crate) use enclosure_execution::validate_place_player_storage_at;
 pub use enclosure_execution::{
     PlayerStoragePlacementCommitError, PlayerStoragePlacementError, StorageEnclosureCommitError,
     StorageEnclosureConstructionError, ValidatedPlayerStoragePlacement,
@@ -70,8 +71,9 @@ pub(crate) use selection::{
 };
 pub use selection::{ExplicitConsumptionSelectionError, MaterialLotSelection};
 pub(crate) use state::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialStorageHistory, PureMaterialTraceValidationError,
-    STORAGE_AGE_PARTS_PER_TICK, checked_consumed_material_mass, validate_loaded_inventory,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotProfile, MaterialLotProvenance,
+    MaterialStorageHistory, PureMaterialTraceValidationError, STORAGE_AGE_PARTS_PER_TICK,
+    checked_consumed_material_mass, validate_loaded_inventory,
 };
 pub use state::{
     ConsumedMaterialTrace, InventoryState, InventoryValidationError, MaterialLotId,

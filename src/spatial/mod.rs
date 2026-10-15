@@ -38,6 +38,39 @@ impl CubeFace {
             Self::West => 5,
         }
     }
+
+    /// Returns the voxel immediately outside this face of `voxel`.
+    ///
+    /// `None` means the adjacent coordinate would exceed representable world coordinates.
+    #[must_use]
+    pub const fn adjacent_voxel(self, voxel: VoxelCoord) -> Option<VoxelCoord> {
+        match self {
+            Self::Top => match voxel.y().checked_add(1) {
+                Some(y) => Some(VoxelCoord::new(voxel.x(), y, voxel.z())),
+                None => None,
+            },
+            Self::Bottom => match voxel.y().checked_sub(1) {
+                Some(y) => Some(VoxelCoord::new(voxel.x(), y, voxel.z())),
+                None => None,
+            },
+            Self::North => match voxel.z().checked_sub(1) {
+                Some(z) => Some(VoxelCoord::new(voxel.x(), voxel.y(), z)),
+                None => None,
+            },
+            Self::South => match voxel.z().checked_add(1) {
+                Some(z) => Some(VoxelCoord::new(voxel.x(), voxel.y(), z)),
+                None => None,
+            },
+            Self::East => match voxel.x().checked_add(1) {
+                Some(x) => Some(VoxelCoord::new(x, voxel.y(), voxel.z())),
+                None => None,
+            },
+            Self::West => match voxel.x().checked_sub(1) {
+                Some(x) => Some(VoxelCoord::new(x, voxel.y(), voxel.z())),
+                None => None,
+            },
+        }
+    }
 }
 
 /// Persistent integer coordinate of one voxel in authoritative world space.

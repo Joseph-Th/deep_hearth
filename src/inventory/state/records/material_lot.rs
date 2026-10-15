@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{
-    CommodityKey, MaterialComposition, MaterialPhaseStateError, MaterialRegistry,
+    CommodityKey, MaterialComposition, MaterialLotSpec, MaterialPhaseStateError, MaterialRegistry,
     ParticleSizeDistribution, ParticleSizeRange, ParticleSizeStateError,
     validate_material_particle_size_state, validate_material_phase_state,
 };
@@ -146,6 +146,16 @@ pub struct MaterialLotProfile {
 
 impl MaterialLotProfile {
     #[must_use]
+    pub(crate) fn from_spec(specification: &MaterialLotSpec) -> Self {
+        Self {
+            commodity: specification.commodity(),
+            temperature: specification.temperature(),
+            composition: specification.composition().clone(),
+            particle_size: specification.particle_size_distribution().cloned(),
+        }
+    }
+
+    #[must_use]
     pub const fn commodity(&self) -> CommodityKey {
         self.commodity
     }
@@ -208,7 +218,7 @@ impl<'de> Deserialize<'de> for MaterialLotProvenance {
 
 impl MaterialLotProvenance {
     #[must_use]
-    pub(in crate::inventory) const fn single(created_at: SimulationTick) -> Self {
+    pub(crate) const fn single(created_at: SimulationTick) -> Self {
         Self {
             earliest_created_at: created_at,
             latest_created_at: created_at,
@@ -283,6 +293,16 @@ impl MaterialLotRecord {
     #[must_use]
     pub const fn composition(&self) -> &MaterialComposition {
         &self.profile.composition
+    }
+
+    #[must_use]
+    pub(crate) const fn profile(&self) -> &MaterialLotProfile {
+        &self.profile
+    }
+
+    #[must_use]
+    pub(crate) const fn provenance(&self) -> MaterialLotProvenance {
+        self.provenance
     }
 
     #[must_use]

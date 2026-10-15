@@ -3,11 +3,13 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialId, MaterialPhase, MaterialPhaseStateError,
-    MaterialRegistry, ParticleSizeStatePolicy, validate_material_phase_state,
+    MaterialRegistry, ParticleSizeStateError, validate_material_particle_size_state,
+    validate_material_phase_state,
 };
+use crate::surface::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
 
 use super::{
     SurfaceResourceId, SurfaceResourceLifecycle, SurfaceResourceRecord, SurfaceResourceState,
@@ -52,6 +54,15 @@ pub enum SurfaceResourceValidationError {
     DepletedInFuture {
         resource: SurfaceResourceId,
     },
+    PickupDelayTickMismatch {
+        resource: SurfaceResourceId,
+    },
+    PickupDelayStartedInFuture {
+        resource: SurfaceResourceId,
+    },
+    PickupDelayScheduleOverflow {
+        resource: SurfaceResourceId,
+    },
     InvalidComposition {
         resource: SurfaceResourceId,
         error: CompositionError,
@@ -77,10 +88,6 @@ pub enum SurfaceResourceValidationError {
         form: FormId,
         phase: MaterialPhase,
     },
-    UnsupportedParticulateForm {
-        resource: SurfaceResourceId,
-        form: FormId,
-    },
     UnknownCompositionMaterial {
         resource: SurfaceResourceId,
         material: MaterialId,
@@ -88,6 +95,18 @@ pub enum SurfaceResourceValidationError {
     InvalidPhaseState {
         resource: SurfaceResourceId,
         error: MaterialPhaseStateError,
+    },
+    InvalidParticleSizeState {
+        resource: SurfaceResourceId,
+        error: ParticleSizeStateError,
+    },
+    ProvenanceAfterSurfaceCreation {
+        resource: SurfaceResourceId,
+        latest_created_at: SimulationTick,
+        surface_created_at: SimulationTick,
+    },
+    UnreachableAmbientAge {
+        resource: SurfaceResourceId,
     },
 }
 
@@ -154,6 +173,21 @@ impl Display for SurfaceResourceValidationError {
                 "surface resource {} depletion tick is in the future",
                 resource.value()
             ),
+            Self::PickupDelayTickMismatch { resource } => write!(
+                formatter,
+                "surface resource {} pickup-delay control tick does not belong to its surface-creation simulation tick",
+                resource.value()
+            ),
+            Self::PickupDelayStartedInFuture { resource } => write!(
+                formatter,
+                "surface resource {} pickup-delay control tick is in the future",
+                resource.value()
+            ),
+            Self::PickupDelayScheduleOverflow { resource } => write!(
+                formatter,
+                "surface resource {} pickup delay exceeds authoritative control time",
+                resource.value()
+            ),
             Self::InvalidComposition { resource, error } => write!(
                 formatter,
                 "surface resource {} has invalid composition: {error}",
@@ -197,12 +231,6 @@ impl Display for SurfaceResourceValidationError {
                 resource.value(),
                 form.value()
             ),
-            Self::UnsupportedParticulateForm { resource, form } => write!(
-                formatter,
-                "surface resource {} form {} requires particulate state that surface custody does not track",
-                resource.value(),
-                form.value()
-            ),
             Self::UnknownCompositionMaterial { resource, material } => write!(
                 formatter,
                 "surface resource {} composition references unknown material {}",
@@ -214,6 +242,27 @@ impl Display for SurfaceResourceValidationError {
                 "surface resource {} has invalid material phase state: {error}",
                 resource.value()
             ),
+            Self::InvalidParticleSizeState { resource, error } => write!(
+                formatter,
+                "surface resource {} has invalid particle-size state: {error}",
+                resource.value()
+            ),
+            Self::ProvenanceAfterSurfaceCreation {
+                resource,
+                latest_created_at,
+                surface_created_at,
+            } => write!(
+                formatter,
+                "surface resource {} contains matter created at tick {} after its surface custody began at tick {}",
+                resource.value(),
+                latest_created_at.value(),
+                surface_created_at.value()
+            ),
+            Self::UnreachableAmbientAge { resource } => write!(
+                formatter,
+                "surface resource {} has physically unreachable accumulated ambient exposure",
+                resource.value()
+            ),
         }
     }
 }
@@ -223,6 +272,7 @@ impl Error for SurfaceResourceValidationError {
         match self {
             Self::InvalidComposition { error, .. } => Some(error),
             Self::InvalidPhaseState { error, .. } => Some(error),
+            Self::InvalidParticleSizeState { error, .. } => Some(error),
             Self::ZeroNextResourceId
             | Self::NextIdNotAfterExisting { .. }
             | Self::ZeroResourceId
@@ -236,13 +286,17 @@ impl Error for SurfaceResourceValidationError {
             | Self::CreatedInFuture { .. }
             | Self::DepletionBeforeCreation { .. }
             | Self::DepletedInFuture { .. }
+            | Self::PickupDelayTickMismatch { .. }
+            | Self::PickupDelayStartedInFuture { .. }
+            | Self::PickupDelayScheduleOverflow { .. }
             | Self::CompositionMissingHost { .. }
             | Self::UnknownMaterial { .. }
             | Self::UnknownForm { .. }
             | Self::UnsupportedCommodity { .. }
             | Self::UnsupportedPhase { .. }
-            | Self::UnsupportedParticulateForm { .. }
-            | Self::UnknownCompositionMaterial { .. } => None,
+            | Self::UnknownCompositionMaterial { .. }
+            | Self::ProvenanceAfterSurfaceCreation { .. }
+            | Self::UnreachableAmbientAge { .. } => None,
         }
     }
 }
@@ -252,7 +306,7 @@ fn validate_material_profile(
     resource: SurfaceResourceId,
     record: &SurfaceResourceRecord,
 ) -> Result<(), SurfaceResourceValidationError> {
-    let commodity = record.commodity;
+    let commodity = record.commodity();
     if materials.get_material(commodity.material()).is_none() {
         return Err(SurfaceResourceValidationError::UnknownMaterial {
             resource,
@@ -278,13 +332,7 @@ fn validate_material_profile(
             phase: form.phase(),
         });
     }
-    if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
-        return Err(SurfaceResourceValidationError::UnsupportedParticulateForm {
-            resource,
-            form: commodity.form(),
-        });
-    }
-    for component in record.composition.components() {
+    for component in record.composition().components() {
         if materials.get_material(component.material()).is_none() {
             return Err(SurfaceResourceValidationError::UnknownCompositionMaterial {
                 resource,
@@ -295,10 +343,16 @@ fn validate_material_profile(
     validate_material_phase_state(
         materials,
         commodity,
-        &record.composition,
-        record.temperature,
+        record.composition(),
+        record.temperature(),
     )
-    .map_err(|error| SurfaceResourceValidationError::InvalidPhaseState { resource, error })
+    .map_err(|error| SurfaceResourceValidationError::InvalidPhaseState { resource, error })?;
+    validate_material_particle_size_state(
+        materials,
+        commodity,
+        record.material_profile().particle_size_distribution(),
+    )
+    .map_err(|error| SurfaceResourceValidationError::InvalidParticleSizeState { resource, error })
 }
 
 pub(in crate::surface) fn validate_surface_resource_record(
@@ -306,6 +360,7 @@ pub(in crate::surface) fn validate_surface_resource_record(
     key: SurfaceResourceId,
     record: &SurfaceResourceRecord,
     current: SimulationTick,
+    current_control: ControlTick,
 ) -> Result<(), SurfaceResourceValidationError> {
     if key.value() == 0 || record.id.value() == 0 {
         return Err(SurfaceResourceValidationError::ZeroResourceId);
@@ -316,10 +371,10 @@ pub(in crate::surface) fn validate_surface_resource_record(
             record: record.id,
         });
     }
-    if record.initial_mass.is_zero() {
+    if record.initial_mass().is_zero() {
         return Err(SurfaceResourceValidationError::ZeroInitialMass { resource: key });
     }
-    if record.remaining_mass > record.initial_mass {
+    if record.remaining_mass() > record.initial_mass() {
         return Err(SurfaceResourceValidationError::RemainingMassExceedsInitial { resource: key });
     }
     match record.lifecycle {
@@ -335,6 +390,24 @@ pub(in crate::surface) fn validate_surface_resource_record(
     }
     if record.created_at > current {
         return Err(SurfaceResourceValidationError::CreatedInFuture { resource: key });
+    }
+    if let Some(started_at) = record.automatic_pickup_delay_started_at() {
+        if started_at.simulation_tick() != record.created_at() {
+            return Err(SurfaceResourceValidationError::PickupDelayTickMismatch { resource: key });
+        }
+        if started_at > current_control {
+            return Err(SurfaceResourceValidationError::PickupDelayStartedInFuture {
+                resource: key,
+            });
+        }
+        if started_at
+            .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
+            .is_none()
+        {
+            return Err(
+                SurfaceResourceValidationError::PickupDelayScheduleOverflow { resource: key },
+            );
+        }
     }
     match (record.lifecycle, record.depleted_at) {
         (SurfaceResourceLifecycle::Available, Some(_)) => {
@@ -355,20 +428,38 @@ pub(in crate::surface) fn validate_surface_resource_record(
         }
         _ => {}
     }
-    record.composition.validate().map_err(|error| {
+    let latest_created_at = record.material_provenance().latest_created_at();
+    if latest_created_at > record.created_at() {
+        return Err(
+            SurfaceResourceValidationError::ProvenanceAfterSurfaceCreation {
+                resource: key,
+                latest_created_at,
+                surface_created_at: record.created_at(),
+            },
+        );
+    }
+    if !crate::inventory::MaterialStorageHistory::with_ambient_age_parts(
+        record.ambient_age_parts_at_created_at(),
+        record.created_at(),
+    )
+    .has_reachable_accumulated_age()
+    {
+        return Err(SurfaceResourceValidationError::UnreachableAmbientAge { resource: key });
+    }
+    record.composition().validate().map_err(|error| {
         SurfaceResourceValidationError::InvalidComposition {
             resource: key,
             error,
         }
     })?;
     if record
-        .composition
-        .parts_per_million(record.commodity.material())
+        .composition()
+        .parts_per_million(record.commodity().material())
         == 0
     {
         return Err(SurfaceResourceValidationError::CompositionMissingHost {
             resource: key,
-            host: record.commodity.material(),
+            host: record.commodity().material(),
         });
     }
     validate_material_profile(materials, key, record)
@@ -378,6 +469,7 @@ pub(crate) fn validate_loaded_surface_resources(
     materials: &MaterialRegistry,
     state: &SurfaceResourceState,
     current: SimulationTick,
+    current_control: ControlTick,
 ) -> Result<(), SurfaceResourceValidationError> {
     if state.next_resource_id == 0 {
         return Err(SurfaceResourceValidationError::ZeroNextResourceId);
@@ -391,7 +483,7 @@ pub(crate) fn validate_loaded_surface_resources(
         });
     }
     for (key, record) in &state.resources {
-        validate_surface_resource_record(materials, *key, record, current)?;
+        validate_surface_resource_record(materials, *key, record, current, current_control)?;
     }
     Ok(())
 }

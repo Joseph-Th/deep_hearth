@@ -79,8 +79,13 @@ pub fn validate_loaded_state(
     .map_err(StateValidationError::Structure)?;
     validate_loaded_world(registries.world(), &state.systems.world)
         .map_err(StateValidationError::World)?;
-    validate_loaded_surface_resources(registries.materials(), &state.systems.surface, state.tick())
-        .map_err(StateValidationError::Surface)?;
+    validate_loaded_surface_resources(
+        registries.materials(),
+        &state.systems.surface,
+        state.tick(),
+        state.control_tick(),
+    )
+    .map_err(StateValidationError::Surface)?;
     validate_loaded_inventory(
         registries.materials(),
         &state.systems.inventory,

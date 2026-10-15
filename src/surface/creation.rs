@@ -5,7 +5,8 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
+use crate::inventory::{MaterialLotProfile, MaterialLotProvenance};
 use crate::material::{
     CommodityKey, CompositionError, MaterialComposition, MaterialId, MaterialLotSpec,
     MaterialLotSpecError,
@@ -14,13 +15,19 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::state::validation::{SurfaceResourceValidationError, validate_surface_resource_record};
-use super::state::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
+use super::state::{
+    SurfaceMaterialParcel, SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SurfaceResourceSpec {
     kind: SurfaceResourceKind,
     position: VoxelCoord,
-    material: MaterialLotSpec,
+    mass: Mass,
+    profile: MaterialLotProfile,
+    provenance: Option<MaterialLotProvenance>,
+    ambient_age_parts_at_created_at: u128,
+    automatic_pickup_delay_started_at: Option<ControlTick>,
 }
 
 impl SurfaceResourceSpec {
@@ -45,8 +52,53 @@ impl SurfaceResourceSpec {
         Ok(Self {
             kind,
             position,
-            material,
+            mass: material.mass(),
+            profile: MaterialLotProfile::from_spec(&material),
+            provenance: None,
+            ambient_age_parts_at_created_at: 0,
+            automatic_pickup_delay_started_at: None,
         })
+    }
+
+    pub(crate) fn from_existing_material(
+        kind: SurfaceResourceKind,
+        position: VoxelCoord,
+        mass: Mass,
+        profile: MaterialLotProfile,
+        provenance: MaterialLotProvenance,
+        ambient_age_parts_at_created_at: u128,
+    ) -> Result<Self, SurfaceResourceSpecError> {
+        if mass.is_zero() {
+            return Err(SurfaceResourceSpecError::ZeroMass);
+        }
+        Ok(Self {
+            kind,
+            position,
+            mass,
+            profile,
+            provenance: Some(provenance),
+            ambient_age_parts_at_created_at,
+            automatic_pickup_delay_started_at: None,
+        })
+    }
+
+    #[must_use]
+    pub(crate) const fn with_automatic_pickup_delay_started_at(
+        mut self,
+        tick: ControlTick,
+    ) -> Self {
+        self.automatic_pickup_delay_started_at = Some(tick);
+        self
+    }
+
+    fn into_parcel(self, created_at: SimulationTick) -> SurfaceMaterialParcel {
+        SurfaceMaterialParcel::existing(
+            self.mass,
+            self.profile,
+            self.provenance
+                .unwrap_or_else(|| MaterialLotProvenance::single(created_at)),
+            self.ambient_age_parts_at_created_at,
+        )
     }
 }
 
@@ -202,6 +254,10 @@ impl ValidatedSurfaceResourceCreation {
             .unwrap_or_else(|| unreachable!("validated surface creation contains a resource"))
     }
 
+    pub(crate) fn resource_ids(&self) -> impl ExactSizeIterator<Item = SurfaceResourceId> + '_ {
+        self.records.iter().map(SurfaceResourceRecord::id)
+    }
+
     pub(crate) fn apply(self, state: &mut AppState) {
         state.surface_state_mut().apply_created_batch(
             self.records,
@@ -251,10 +307,26 @@ pub(crate) fn validate_create_surface_resources_at(
         next_resource_id = next_resource_id
             .checked_add(1)
             .ok_or(SurfaceResourceCreationError::IdExhausted)?;
-        let record =
-            SurfaceResourceRecord::created(id, spec.kind, spec.position, spec.material, created_at);
-        validate_surface_resource_record(registries.materials(), id, &record, created_at)
-            .map_err(SurfaceResourceCreationError::InvalidResource)?;
+        let kind = spec.kind;
+        let position = spec.position;
+        let automatic_pickup_delay_started_at = spec.automatic_pickup_delay_started_at;
+        let parcel = spec.into_parcel(created_at);
+        let record = SurfaceResourceRecord::created(
+            id,
+            kind,
+            position,
+            parcel,
+            created_at,
+            automatic_pickup_delay_started_at,
+        );
+        validate_surface_resource_record(
+            registries.materials(),
+            id,
+            &record,
+            created_at,
+            state.control_tick(),
+        )
+        .map_err(SurfaceResourceCreationError::InvalidResource)?;
         records.push(record);
     }
     Ok(ValidatedSurfaceResourceCreation {

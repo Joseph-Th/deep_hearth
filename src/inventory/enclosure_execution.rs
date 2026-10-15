@@ -2,11 +2,12 @@
 
 use crate::core::state::AppState;
 use crate::logistics::{
-    ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile,
+    ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile_at,
     validate_player_stockpile_access,
 };
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
 
 use super::storage_validation::validate_stockpile_storage_profile;
 use super::{
@@ -92,17 +93,16 @@ impl ValidatedPlayerStoragePlacement {
     }
 }
 
-/// Validates placing one authored storage enclosure from the player's carried inventory at the
-/// player's exact current voxel.
+/// Validates placing one authored storage enclosure from the player's carried inventory at an
+/// already-authorized world voxel.
 ///
-/// This is the ordinary direct-manipulation boundary. Capacity comes from the authored storage
-/// definition, the exact enclosure body comes from carried custody, and the implementation-only
-/// empty stockpile allocation never becomes a separate player decision. Lower-level allocation and
-/// enclosure APIs remain available for world/bootstrap setup and improving existing stockpiles.
-pub fn validate_place_player_storage(
+/// The caller owns spatial authorization for `position`; this owner retains matter/custody,
+/// survival, revision, and enclosure construction authority.
+pub(crate) fn validate_place_player_storage_at(
     registries: &Registries,
     state: &AppState,
     definition: StorageDefinitionId,
+    position: VoxelCoord,
 ) -> Result<ValidatedPlayerStoragePlacement, PlayerStoragePlacementError> {
     let definition_record =
         registries
@@ -121,8 +121,9 @@ pub fn validate_place_player_storage(
     validate_player_stockpile_access(state, source)
         .map_err(StorageEnclosureConstructionError::SourceAccess)
         .map_err(PlayerStoragePlacementError::Construction)?;
-    let allocation = validate_allocate_player_ground_stockpile(
+    let allocation = validate_allocate_player_ground_stockpile_at(
         state,
+        position,
         definition_record.maximum_stockpile_capacity(),
     )
     .map_err(PlayerStoragePlacementError::Allocation)?;
@@ -166,6 +167,27 @@ pub fn validate_place_player_storage(
         ),
         egress,
     })
+}
+
+/// Validates placing one authored storage enclosure from the player's carried inventory at the
+/// player's exact current voxel.
+///
+/// Direct pointed interaction should prefer the crate-owned exact-position boundary after proving
+/// its target. This wrapper remains the owner-level local-placement capability for callers whose
+/// action is explicitly defined as occurring at the player's current voxel.
+pub fn validate_place_player_storage(
+    registries: &Registries,
+    state: &AppState,
+    definition: StorageDefinitionId,
+) -> Result<ValidatedPlayerStoragePlacement, PlayerStoragePlacementError> {
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .ok_or(PlayerStoragePlacementError::Allocation(
+            crate::logistics::PlayerGroundStockpileAllocationError::PlayerNotInitialized,
+        ))?;
+    validate_place_player_storage_at(registries, state, definition, position)
 }
 
 impl ValidatedStorageEnclosureConstruction {

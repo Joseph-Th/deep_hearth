@@ -8,12 +8,14 @@ use crate::energy::{EnergyState, EnergyStoreId};
 use crate::equipment::{EquipmentId, EquipmentRegistry, EquipmentState};
 use crate::fluid::{FluidState, FluidStoreId};
 use crate::inventory::{InventoryState, StockpileId, StorageDefinitionId};
+use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralElementId, StructureState};
 
 use super::{
-    LogisticsState, TraversalEdge, first_player_body_collision, player_body_fits_continuous_world,
+    LogisticsState, PlayerActiveSelection, TraversalEdge, first_player_body_collision,
+    player_body_fits_continuous_world,
 };
 
 /// Persistent-state validation failure for player logistics.
@@ -70,6 +72,10 @@ pub enum LogisticsValidationError {
     },
     ActiveEquipmentNotCarried {
         equipment: EquipmentId,
+    },
+    ActiveSelectionWithoutPlayer,
+    ActiveMaterialUnsupported {
+        commodity: CommodityKey,
     },
     EquipmentOutsideSupport {
         equipment: EquipmentId,
@@ -199,6 +205,15 @@ impl Display for LogisticsValidationError {
                 formatter,
                 "active equipment {} is not in player-carried custody",
                 equipment.value()
+            ),
+            Self::ActiveSelectionWithoutPlayer => {
+                formatter.write_str("active selection exists without an admitted logistics player")
+            }
+            Self::ActiveMaterialUnsupported { commodity } => write!(
+                formatter,
+                "active material {} form {} is not an authored commodity",
+                commodity.material().value(),
+                commodity.form().value()
             ),
             Self::EquipmentOutsideSupport {
                 equipment,
@@ -405,10 +420,30 @@ fn validate_carried_equipment(
             });
         }
     }
-    if let Some(equipment) = state.active_equipment()
-        && !state.is_equipment_carried(equipment)
-    {
-        return Err(LogisticsValidationError::ActiveEquipmentNotCarried { equipment });
+    Ok(())
+}
+
+fn validate_active_selection(
+    registries: &Registries,
+    state: &LogisticsState,
+) -> Result<(), LogisticsValidationError> {
+    let Some(selection) = state.active_selection() else {
+        return Ok(());
+    };
+    if state.player().is_none() {
+        return Err(LogisticsValidationError::ActiveSelectionWithoutPlayer);
+    }
+    match selection {
+        PlayerActiveSelection::Equipment(equipment) => {
+            if !state.is_equipment_carried(equipment) {
+                return Err(LogisticsValidationError::ActiveEquipmentNotCarried { equipment });
+            }
+        }
+        PlayerActiveSelection::Material(commodity) => {
+            if !registries.materials().has_commodity(commodity) {
+                return Err(LogisticsValidationError::ActiveMaterialUnsupported { commodity });
+            }
+        }
     }
     Ok(())
 }
@@ -538,6 +573,7 @@ pub(crate) fn validate_loaded_logistics(
     validate_traversal_edges(state)?;
     validate_player_custody(state, app.inventory())?;
     validate_carried_equipment(state, app.equipment(), registries.equipment())?;
+    validate_active_selection(registries, state)?;
     validate_stockpile_locations(state, app.inventory(), app.structures())?;
     validate_equipment_locations(state, app.equipment(), app.structures())?;
     validate_energy_store_locations(state, app.energy())?;

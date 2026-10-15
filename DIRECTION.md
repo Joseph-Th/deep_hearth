@@ -127,9 +127,16 @@ drop remains in world custody and can still be recovered partially through ordin
 step can choose the largest target/tool batch, typed rejection is observable, and a held action can start the next
 legal batch on the exact control step that completes the previous one. Excavation persists 20 Hz start/completion
 schedule and normalized progress while preserving authored mining duration, exertion, wear, custody, and save/load
-continuation. Logistics persists one active carried-equipment selection: primary excavation derives its mining
-method from that tool, while one-step direct drop returns it through the existing equipment-carry path. Full
-hotbar/material-stack projection, material-stack drop, placement/use, generic item/drop projection, and container projection remain open.
+continuation. Logistics now persists one semantic quick-access selection over canonical carried custody. Equipment
+selection still drives primary excavation and one-step equipment drop through the existing carry owner. Material
+selection names an authored carried commodity rather than a transient lot identity; contextual secondary use
+composes that selection into canonical food consumption when one physical cohort is unambiguous, and can place
+an authored finished storage body into the generated-air voxel adjacent to the pointed block face. Placement
+rejects missing world authority, terrain occupancy, player-body overlap, and existing stationary object custody. Direct drop transfers the selected carried commodity
+into exact finite surface parcels without flattening temperature, composition, particulate state, provenance, or
+storage age, and uses a short control-time self-pickup delay before ordinary automatic recovery. Full multi-slot
+hotbar/stack projection, arbitrary block/object placement, generic item entities, and container presentation or
+transfer remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

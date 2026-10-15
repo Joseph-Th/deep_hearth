@@ -316,7 +316,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                     "player": null,
                     "traversable_edges": [],
                     "carried_equipment": [],
-                    "active_equipment": null,
+                    "active_selection": null,
                     "stockpile_locations": {},
                     "equipment_locations": {},
                     "energy_store_locations": {},

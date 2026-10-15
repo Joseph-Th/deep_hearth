@@ -3,17 +3,25 @@
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::equipment::{EquipmentId, EquipmentMaintenanceOutcome};
 use crate::geology::FieldProspectingOutcome;
-use crate::inventory::StorageEnclosureDismantlingOutcome;
+use crate::inventory::{
+    PlayerStoragePlacementError, StockpileId, StorageDefinitionId,
+    StorageEnclosureDismantlingOutcome,
+};
 use crate::labor::ManualPowerOutcome;
 use crate::logistics::{PlayerBodyMotionOutcome, PlayerEquipmentCarryError, PlayerStepOutcome};
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
 use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
-use crate::surface::{SurfaceDropPickupOutcome, SurfaceGatheringOutcome};
-use crate::survival::SurvivalAssessment;
-use crate::world::BlockExcavationOutcome;
-use crate::world::{BlockExcavationError, BlockExcavationStartOutcome};
+use crate::surface::{
+    PlayerMaterialDropError, PlayerMaterialDropOutcome, SurfaceDropPickupOutcome,
+    SurfaceGatheringOutcome,
+};
+use crate::survival::{EatLotToTargetError, EatOutcome, SurvivalAssessment};
+use crate::world::{
+    BlockExcavationError, BlockExcavationOutcome, BlockExcavationStartOutcome, BlockStateId,
+    PlayerBlockTargetError,
+};
 
 /// Observable result of an attempted primary action on one authoritative control step.
 #[must_use]
@@ -23,16 +31,83 @@ pub enum PrimaryActionOutcome {
     BlockExcavationRejected(BlockExcavationError),
 }
 
-/// Observable result of a one-step request to drop the active carried equipment.
+/// Observable result of one contextual-use request on the active quick-access selection.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ActiveEquipmentDropOutcome {
-    Dropped {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SecondaryActionOutcome {
+    EatingStarted(EatOutcome),
+    StoragePlaced {
+        definition: StorageDefinitionId,
+        stockpile: StockpileId,
+    },
+    StoragePlacementRejected {
+        definition: StorageDefinitionId,
+        error: PlayerStoragePlacementError,
+    },
+    StorageTargetRejected(PlayerBlockTargetError),
+    NoStoragePlacementTarget,
+    StoragePlacementCoordinateOverflow,
+    StoragePlacementWorldUnavailable {
+        position: VoxelCoord,
+    },
+    StoragePlacementOccupied {
+        position: VoxelCoord,
+        state: BlockStateId,
+    },
+    StoragePlacementIntersectsPlayer {
+        position: VoxelCoord,
+    },
+    StoragePlacementLocationOccupied {
+        position: VoxelCoord,
+    },
+    AlreadySatisfied,
+    DeferredUntilSimulationBoundary,
+    NoActiveSelection,
+    ActiveEquipmentNotContextual,
+    MaterialUnavailable,
+    AmbiguousMaterialLots {
+        count: usize,
+    },
+    AmbiguousStorageDefinitions {
+        count: usize,
+    },
+    MaterialNotContextual,
+    EatingRejected(EatLotToTargetError),
+}
+
+/// Observable result of a one-step request to drop the active quick-access selection.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActiveSelectionDropOutcome {
+    EquipmentDropped {
         equipment: EquipmentId,
         position: VoxelCoord,
     },
-    NoActiveEquipment,
-    Rejected(PlayerEquipmentCarryError),
+    MaterialDropped(PlayerMaterialDropOutcome),
+    NoActiveSelection,
+    EquipmentRejected(PlayerEquipmentCarryError),
+    MaterialRejected(PlayerMaterialDropError),
+}
+
+#[must_use]
+pub(super) struct DirectActionOutcomes {
+    primary: Option<PrimaryActionOutcome>,
+    secondary: Option<SecondaryActionOutcome>,
+    drop: Option<ActiveSelectionDropOutcome>,
+}
+
+impl DirectActionOutcomes {
+    pub(super) fn new(
+        primary: Option<PrimaryActionOutcome>,
+        secondary: Option<SecondaryActionOutcome>,
+        drop: Option<ActiveSelectionDropOutcome>,
+    ) -> Self {
+        Self {
+            primary,
+            secondary,
+            drop,
+        }
+    }
 }
 
 /// Result of one canonical 20 Hz control/kinematic tick.
@@ -45,19 +120,24 @@ pub struct ControlTickOutcome {
     surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
     block_excavation: Option<BlockExcavationOutcome>,
     primary_action: Option<PrimaryActionOutcome>,
-    active_equipment_drop: Option<ActiveEquipmentDropOutcome>,
+    secondary_action: Option<SecondaryActionOutcome>,
+    active_selection_drop: Option<ActiveSelectionDropOutcome>,
 }
 
 impl ControlTickOutcome {
-    pub(super) const fn new(
+    pub(super) fn new(
         control_tick: ControlTick,
         simulation: Option<TickOutcome>,
         body_motion: Option<PlayerBodyMotionOutcome>,
         surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
         block_excavation: Option<BlockExcavationOutcome>,
-        primary_action: Option<PrimaryActionOutcome>,
-        active_equipment_drop: Option<ActiveEquipmentDropOutcome>,
+        direct_actions: DirectActionOutcomes,
     ) -> Self {
+        let DirectActionOutcomes {
+            primary: primary_action,
+            secondary: secondary_action,
+            drop: active_selection_drop,
+        } = direct_actions;
         Self {
             control_tick,
             simulation,
@@ -65,7 +145,8 @@ impl ControlTickOutcome {
             surface_drop_pickup,
             block_excavation,
             primary_action,
-            active_equipment_drop,
+            secondary_action,
+            active_selection_drop,
         }
     }
 
@@ -104,10 +185,16 @@ impl ControlTickOutcome {
         self.primary_action.as_ref()
     }
 
-    /// Active carried equipment drop requested on this control step, if any.
+    /// Contextual secondary interaction attempted on this control step, if any.
     #[must_use]
-    pub const fn active_equipment_drop(&self) -> Option<ActiveEquipmentDropOutcome> {
-        self.active_equipment_drop
+    pub const fn secondary_action(&self) -> Option<&SecondaryActionOutcome> {
+        self.secondary_action.as_ref()
+    }
+
+    /// Active quick-access selection drop requested on this control step, if any.
+    #[must_use]
+    pub const fn active_selection_drop(&self) -> Option<&ActiveSelectionDropOutcome> {
+        self.active_selection_drop.as_ref()
     }
 }
 

@@ -24,8 +24,10 @@ use crate::labor::{
     BlockExcavationOutputCustody, BlockExcavationWork, PlayerWork, PlayerWorkCommitError,
     PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start_control_rate,
 };
-use crate::logistics::{PlayerEquipmentAccessError, validate_player_equipment_access};
-use crate::material::MaterialLotSpec;
+use crate::logistics::{
+    PlayerActiveSelection, PlayerEquipmentAccessError, validate_player_equipment_access,
+};
+use crate::material::{CommodityKey, MaterialLotSpec};
 use crate::mining::{MiningMethodId, MiningPhysicsError, resolve_mining_physics};
 use crate::registry::Registries;
 use crate::spatial::{ViewDirection, VoxelCoord};
@@ -63,6 +65,7 @@ pub enum BlockExcavationError {
     NoTarget,
     TargetNotExcavatable { target: VoxelCoord },
     NoActiveEquipment,
+    ActiveSelectionNotEquipment { commodity: CommodityKey },
     NoApplicableMethod { equipment: EquipmentId },
     ZeroMass,
     MassExceedsCell { requested: Mass, available: Mass },
@@ -97,6 +100,12 @@ impl Display for BlockExcavationError {
             Self::NoActiveEquipment => {
                 formatter.write_str("block excavation requires active player-carried equipment")
             }
+            Self::ActiveSelectionNotEquipment { commodity } => write!(
+                formatter,
+                "active material {} form {} cannot excavate blocks without selected equipment",
+                commodity.material().value(),
+                commodity.form().value()
+            ),
             Self::NoApplicableMethod { equipment } => write!(
                 formatter,
                 "active equipment {} provides no applicable block-excavation method",
@@ -157,6 +166,7 @@ impl Error for BlockExcavationError {
             Self::NoTarget
             | Self::TargetNotExcavatable { .. }
             | Self::NoActiveEquipment
+            | Self::ActiveSelectionNotEquipment { .. }
             | Self::NoApplicableMethod { .. }
             | Self::ZeroMass
             | Self::MassExceedsCell { .. }
@@ -614,10 +624,13 @@ pub(crate) fn validate_start_player_block_excavation_active(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<ValidatedPlayerBlockExcavationStart, BlockExcavationError> {
-    let equipment = state
-        .logistics()
-        .active_equipment()
-        .ok_or(BlockExcavationError::NoActiveEquipment)?;
+    let equipment = match state.logistics().active_selection() {
+        Some(PlayerActiveSelection::Equipment(equipment)) => equipment,
+        Some(PlayerActiveSelection::Material(commodity)) => {
+            return Err(BlockExcavationError::ActiveSelectionNotEquipment { commodity });
+        }
+        None => return Err(BlockExcavationError::NoActiveEquipment),
+    };
     let target = raycast_player_block(registries, state, direction)
         .map_err(BlockExcavationError::Target)?
         .ok_or(BlockExcavationError::NoTarget)?;
