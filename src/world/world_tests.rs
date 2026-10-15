@@ -59,7 +59,7 @@ fn simulation_boundary_applies_body_motion_before_primary_action() {
             .unwrap_or_else(|error| panic!("boundary-primary movement input failed: {error}")),
     );
     let input = PlayerDirectControlInput::new(movement)
-        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
+        .with_primary(PrimaryControlIntent::break_target(positive_x_view()));
 
     let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
         .unwrap_or_else(|error| panic!("boundary-primary control failed: {error}"));
@@ -92,7 +92,7 @@ fn simulation_boundary_uses_work_state_after_slow_completion_for_body_motion() {
         &registries,
         &mut state,
         PlayerDirectControlInput::NEUTRAL
-            .with_primary(PrimaryControlIntent::block_excavation(positive_x_view())),
+            .with_primary(PrimaryControlIntent::break_target(positive_x_view())),
     )
     .unwrap_or_else(|error| panic!("completion-boundary excavation start failed: {error}"));
     let completes_at = match start.primary_action() {
@@ -240,7 +240,7 @@ fn quick_access_switch_precedes_primary_action_on_the_same_control_step() {
 
     let input = PlayerDirectControlInput::NEUTRAL
         .with_quick_access_slot(tool_slot)
-        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
+        .with_primary(PrimaryControlIntent::break_target(positive_x_view()));
     let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
         .unwrap_or_else(|error| panic!("same-step quick-access control failed: {error}"));
 
@@ -732,7 +732,7 @@ fn primary_excavation_requires_active_equipment_context() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("empty-hand commit failed: {error}"));
     let input = PlayerDirectControlInput::NEUTRAL
-        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
+        .with_primary(PrimaryControlIntent::break_target(positive_x_view()));
 
     let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
         .unwrap_or_else(|error| panic!("empty-hand primary control failed: {error}"));
@@ -810,7 +810,7 @@ fn direct_drop_reports_empty_active_hand_without_mutating_custody() {
 fn simultaneous_primary_use_reserves_active_tool_before_direct_drop() {
     let (registries, mut state, pick, _target) = generated_excavation_fixture();
     let input = PlayerDirectControlInput::NEUTRAL
-        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()))
+        .with_primary(PrimaryControlIntent::break_target(positive_x_view()))
         .with_drop_active_selection();
 
     let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
@@ -842,7 +842,7 @@ fn held_primary_excavation_chains_the_next_batch_on_the_completion_control_step(
         .represented_mass_at(registries.world(), target)
         .unwrap_or_else(|| panic!("held excavation target mass disappeared"));
     let input = PlayerDirectControlInput::NEUTRAL
-        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
+        .with_primary(PrimaryControlIntent::break_target(positive_x_view()));
 
     let first_start = loop {
         let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
@@ -852,6 +852,7 @@ fn held_primary_excavation_chains_the_next_batch_on_the_completion_control_step(
             Some(PrimaryActionOutcome::BlockExcavationRejected(error)) => {
                 panic!("held excavation initial admission was rejected: {error}")
             }
+            Some(other) => panic!("held excavation initial control returned {other:?}"),
             None => {}
         }
     };
@@ -876,6 +877,7 @@ fn held_primary_excavation_chains_the_next_batch_on_the_completion_control_step(
             Some(PrimaryActionOutcome::BlockExcavationRejected(error)) => {
                 panic!("held excavation continuation was rejected: {error}")
             }
+            Some(other) => panic!("held excavation continuation returned {other:?}"),
             None => {}
         }
     };
@@ -952,7 +954,7 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("capacity-blocked matter baseline failed: {error}"));
     let input = PlayerDirectControlInput::NEUTRAL
-        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
+        .with_primary(PrimaryControlIntent::break_target(positive_x_view()));
 
     let start = loop {
         let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
@@ -964,6 +966,7 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
                     "capacity-blocked held excavation was rejected instead of dropping output: {error}"
                 )
             }
+            Some(other) => panic!("capacity-blocked primary control returned {other:?}"),
             None => {}
         }
     };

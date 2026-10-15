@@ -23,9 +23,9 @@ use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::{
-    ActiveSelectionDropOutcome, PlayerDirectControlInput, SecondaryActionOutcome,
-    SecondaryControlIntent, advance_control_tick, advance_control_tick_with_direct_input,
-    advance_tick,
+    ActiveSelectionDropOutcome, PlayerDirectControlInput, PrimaryActionOutcome,
+    PrimaryControlIntent, SecondaryActionOutcome, SecondaryControlIntent, advance_control_tick,
+    advance_control_tick_with_direct_input, advance_tick,
 };
 use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
 use crate::survival::{FoodFreshness, Vitality, assess_food_freshness, player_record};
@@ -601,16 +601,15 @@ fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
         matter_before.total()
     );
 
-    let dismantle_input = PlayerDirectControlInput::NEUTRAL.with_secondary(
-        SecondaryControlIntent::dismantle_structure(forward_down_view()),
-    );
+    let dismantle_input = PlayerDirectControlInput::NEUTRAL
+        .with_primary(PrimaryControlIntent::break_target(forward_down_view()));
     let dismantling = loop {
         let control =
             advance_control_tick_with_direct_input(&registries, &mut state, dismantle_input)
                 .unwrap_or_else(|error| panic!("timber-post dismantling control failed: {error}"));
-        match control.secondary_action() {
-            Some(SecondaryActionOutcome::StructuralDismantlingStarted(start)) => break *start,
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+        match control.primary_action() {
+            Some(PrimaryActionOutcome::StructuralDismantlingStarted(start)) => break *start,
+            Some(PrimaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
             other => panic!("timber-post dismantling returned unexpected outcome: {other:?}"),
         }
     };

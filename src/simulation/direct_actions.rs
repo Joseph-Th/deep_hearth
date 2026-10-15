@@ -81,19 +81,9 @@ fn attempt_primary_action(
 ) -> Option<PrimaryActionOutcome> {
     let intent = intent?;
     match intent {
-        PrimaryControlIntent::BlockExcavation { direction } => Some(
-            match validate_start_player_block_excavation_active(registries, state, direction) {
-                Ok(validated) => {
-                    let started = validated.commit(state).unwrap_or_else(|error| {
-                        panic!(
-                            "runtime invariant broken: synchronous primary block excavation became stale: {error}"
-                        )
-                    });
-                    PrimaryActionOutcome::BlockExcavationStarted(started)
-                }
-                Err(error) => PrimaryActionOutcome::BlockExcavationRejected(error),
-            },
-        ),
+        PrimaryControlIntent::BreakTarget { direction } => {
+            Some(attempt_primary_break(registries, state, direction))
+        }
     }
 }
 
@@ -166,14 +156,11 @@ fn attempt_secondary_action(
                 Err(error) => SecondaryActionOutcome::EatingRejected(error),
             })
         }
-        SecondaryControlIntent::DismantleStructure { direction } => {
-            Some(attempt_structural_dismantling(registries, state, direction))
-        }
     }
 }
 
 enum DirectStructuralTargetError {
-    Target(PlayerBlockTargetError),
+    TargetUnavailable,
     NoTarget,
     Ambiguous { count: usize },
 }
@@ -193,46 +180,58 @@ fn resolve_direct_structural_target(
         let count = 1 + elements.count();
         Some(if count == 1 { Ok(first) } else { Err(count) })
     })
-    .map_err(DirectStructuralTargetError::Target)?
+    .map_err(|_| DirectStructuralTargetError::TargetUnavailable)?
     .ok_or(DirectStructuralTargetError::NoTarget)?;
     target.map_err(|count| DirectStructuralTargetError::Ambiguous { count })
 }
 
-fn attempt_structural_dismantling(
+fn attempt_primary_break(
     registries: &Registries,
     state: &mut AppState,
     direction: ViewDirection,
-) -> SecondaryActionOutcome {
-    if !state.control_tick().is_simulation_boundary() {
-        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
-    }
+) -> PrimaryActionOutcome {
     let element = match resolve_direct_structural_target(registries, state, direction) {
-        Ok(element) => element,
-        Err(DirectStructuralTargetError::Target(error)) => {
-            return SecondaryActionOutcome::StructuralDismantlingTargetRejected(error);
-        }
-        Err(DirectStructuralTargetError::NoTarget) => {
-            return SecondaryActionOutcome::NoStructuralDismantlingTarget;
-        }
+        Ok(element) => Some(element),
         Err(DirectStructuralTargetError::Ambiguous { count }) => {
-            return SecondaryActionOutcome::AmbiguousStructuralDismantlingTarget { count };
+            return PrimaryActionOutcome::AmbiguousStructuralTarget { count };
         }
+        Err(
+            DirectStructuralTargetError::TargetUnavailable | DirectStructuralTargetError::NoTarget,
+        ) => None,
     };
-    match validate_start_player_structural_dismantling(
-        registries,
-        state,
-        element,
-        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-    ) {
+
+    if let Some(element) = element {
+        if !state.control_tick().is_simulation_boundary() {
+            return PrimaryActionOutcome::DeferredUntilSimulationBoundary;
+        }
+        return match validate_start_player_structural_dismantling(
+            registries,
+            state,
+            element,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        ) {
+            Ok(validated) => {
+                let outcome = validated.commit(state).unwrap_or_else(|error| {
+                    panic!(
+                        "runtime invariant broken: synchronous structural dismantling became stale: {error}"
+                    )
+                });
+                PrimaryActionOutcome::StructuralDismantlingStarted(outcome)
+            }
+            Err(error) => PrimaryActionOutcome::StructuralDismantlingRejected(error),
+        };
+    }
+
+    match validate_start_player_block_excavation_active(registries, state, direction) {
         Ok(validated) => {
-            let outcome = validated.commit(state).unwrap_or_else(|error| {
+            let started = validated.commit(state).unwrap_or_else(|error| {
                 panic!(
-                    "runtime invariant broken: synchronous structural dismantling became stale: {error}"
+                    "runtime invariant broken: synchronous primary block excavation became stale: {error}"
                 )
             });
-            SecondaryActionOutcome::StructuralDismantlingStarted(outcome)
+            PrimaryActionOutcome::BlockExcavationStarted(started)
         }
-        Err(error) => SecondaryActionOutcome::StructuralDismantlingRejected(error),
+        Err(error) => PrimaryActionOutcome::BlockExcavationRejected(error),
     }
 }
 

@@ -122,8 +122,8 @@ inevitable; the two-step owner API remains valid when blueprint planning itself 
 but the familiar build gesture must fail without leaving an orphan planned member. When evaluating the direct
 player shell, exercise the pointed top-face timber-post secondary action rather than bypassing its target/vacancy
 checks with geometry supplied directly to the structural owner. Recovery evidence for that shell must likewise
-exercise pointed timed structural dismantling and exact carried salvage rather than deleting the member through a
-fixture or generic structural mutation.
+exercise primary-break pointed dismantling with timed exact carried salvage rather than deleting the member through
+a fixture or generic structural mutation.
 
 ### Temporal observation horizon
 

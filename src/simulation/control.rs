@@ -6,14 +6,13 @@ use crate::spatial::ViewDirection;
 /// Held primary-control intent sampled alongside one 20 Hz locomotion input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimaryControlIntent {
-    BlockExcavation { direction: ViewDirection },
+    BreakTarget { direction: ViewDirection },
 }
 
 /// Held contextual-use intent sampled alongside one 20 Hz locomotion input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SecondaryControlIntent {
     UseActive { direction: ViewDirection },
-    DismantleStructure { direction: ViewDirection },
 }
 
 impl SecondaryControlIntent {
@@ -21,17 +20,12 @@ impl SecondaryControlIntent {
     pub const fn use_active(direction: ViewDirection) -> Self {
         Self::UseActive { direction }
     }
-
-    #[must_use]
-    pub const fn dismantle_structure(direction: ViewDirection) -> Self {
-        Self::DismantleStructure { direction }
-    }
 }
 
 impl PrimaryControlIntent {
     #[must_use]
-    pub const fn block_excavation(direction: ViewDirection) -> Self {
-        Self::BlockExcavation { direction }
+    pub const fn break_target(direction: ViewDirection) -> Self {
+        Self::BreakTarget { direction }
     }
 }
 

@@ -35,6 +35,10 @@ use crate::world::{
 pub enum PrimaryActionOutcome {
     BlockExcavationStarted(BlockExcavationStartOutcome),
     BlockExcavationRejected(BlockExcavationError),
+    StructuralDismantlingStarted(StructuralDismantlingStartOutcome),
+    StructuralDismantlingRejected(PlayerStructuralDismantlingError),
+    AmbiguousStructuralTarget { count: usize },
+    DeferredUntilSimulationBoundary,
 }
 
 /// Observable result of a direct-control quick-access slot switch.
@@ -54,13 +58,6 @@ pub enum QuickAccessSelectionOutcome {
 pub enum SecondaryActionOutcome {
     EatingStarted(EatOutcome),
     StructuralConstructionStarted(StructuralConstructionWork),
-    StructuralDismantlingStarted(StructuralDismantlingStartOutcome),
-    StructuralDismantlingRejected(PlayerStructuralDismantlingError),
-    StructuralDismantlingTargetRejected(PlayerBlockTargetError),
-    NoStructuralDismantlingTarget,
-    AmbiguousStructuralDismantlingTarget {
-        count: usize,
-    },
     StoragePlaced {
         definition: StorageDefinitionId,
         stockpile: StockpileId,
