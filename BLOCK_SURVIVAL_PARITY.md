@@ -310,7 +310,7 @@ The missing part is not recipe depth. It is the simple shell that lets ordinary 
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
-| Personal crafting | 2x2 recipe grid | Manual craft process definitions, no inventory UI | `GAP-P0` shell | Provide personal crafting from carried inventory through recipe/amount requests. |
+| Personal crafting | 2x2 recipe grid | `player_manual_craft_options` projects carried-inventory recipes and current batch availability; `validate_start_player_manual_craft` accepts recipe + batch count with optional equipment, privately selects exact durable input lots, and returns conserved outputs to carried custody; freshness-sensitive inputs use an explicit revision-bound stack choice | `PARITY` core shell | Adapter renders recipe/amount/tool/stack choices; lot IDs and owner bookkeeping stay private. |
 | Crafting table | 3x3 recipe grid | No generic station UI | `GAP-P1` | A primitive work surface can widen recipes/capabilities without requiring Minecraft's exact 3x3 semantics. |
 | Shaped recipe | Grid positions matter | Process input selection is commodity/mass based | `OUT-OF-SCOPE` as universal rule | Use shaped arrangement only when geometry is meaningful. Do not force physical processes into pattern puzzles. |
 | Shapeless recipe | Ingredient set | Material transforms can already resolve exact inputs | `PARITY+` | Familiar recipe presentation can map to canonical process inputs. |
@@ -548,7 +548,7 @@ This is a dependency order, not a promise that every row becomes a separate subs
 4. Add continuous fixed-point player transform, gravity, swept collision, jump, crouch, sprint, step-up and
    terrain contact.
 5. Add camera raycast, reach, primary break, secondary place/use, and generic world item/drop projection over the existing conserved drop/pickup path.
-6. Add adapter hotbar/inventory/container gestures and personal crafting shell over the implemented projections.
+6. Add adapter hotbar/inventory/container/crafting gestures over the implemented projections and actions.
 7. Add section meshing, camera visibility, block model/shape rendering, indexed texture integration, block/sky light
    and a graphics adapter sufficient to inspect the actual world through a day/night cycle.
 8. Add save-file/chunk storage adapter and reload proof for the generated world/player state.

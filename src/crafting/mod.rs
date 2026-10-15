@@ -16,6 +16,7 @@ mod batch;
 mod definitions;
 mod errors;
 mod input_planning;
+mod personal;
 mod physics;
 mod powered;
 mod projection;
@@ -38,6 +39,10 @@ pub use input_planning::{
     ManualCraftInputAvailability, ManualCraftInputMode, ManualCraftInputPlanError,
     ManualCraftStockpileOption, assess_manual_craft_inputs, manual_craft_options_from_stockpile,
     plan_manual_craft_from_stockpile,
+};
+pub use personal::{
+    PlayerManualCraftError, player_manual_craft_options, validate_start_player_manual_craft,
+    validate_start_player_manual_craft_from_stack,
 };
 pub(crate) use physics::resolve_manual_craft_equipment_physics;
 pub use powered::{

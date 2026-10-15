@@ -28,7 +28,7 @@ Current graph boundaries, not priorities:
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Generated world + body + targeting + excavation | Hotbar/container UI over stack transfer, plus general placement, residency, richer contact, and remote discovery. |
+| Generated world + body + targeting + excavation | Inventory/container/crafting UI gestures, plus general placement, residency, richer contact, and remote discovery. |
 | Structural physics | Non-grounded construction, joints/panels, deconstruction/salvage, and terrain support. |
 | Equipment maintenance | Maintenance tools and service-site transport. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
@@ -47,6 +47,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Core | Deterministic simulation; persisted 20 Hz `ControlTick`; exact 72:1 slow `SimulationTick`; active body physics cannot be skipped by slow stepping. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
+| Crafting | Carried recipe/batch crafting selects exact lots privately; meaningful stack choice stays explicit. |
 | Logistics | Fixed-point body/carrying, 20 Hz locomotion/collision, load-scaled exertion, bounded steps, equipment pickup/drop, nine-slot semantic hotbar, carried/local inventory projection, stack transfer, and access checks. |
 | Loose surface matter | Finite local gathering/drop records with reservation, survival cost, depletion, cleanup, and conservation. Carried-material drops preserve physical profile, provenance, and storage age with a short self-pickup delay. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |

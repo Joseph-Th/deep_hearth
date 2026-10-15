@@ -43,7 +43,7 @@ through these foundations:
 2. compact runtime block states in streamed chunk/section ownership with deterministic seeded terrain;
 3. continuous player transform, gravity, collision, jump/crouch/sprint and terrain contact;
 4. camera targeting plus primary break/attack and secondary place/use interaction composition;
-5. generic world drops, adapter inventory/container interaction and personal crafting;
+5. generic world drops and adapter inventory/container/crafting interaction;
 6. block/sky lighting, section meshing and enough renderer/input/save adapters to experience the real generated
    world rather than a harness-only abstraction.
 
@@ -141,8 +141,11 @@ storage-age exposure for freshness presentation. A projected stack can drive par
 transfer by mass while inventory privately resolves exact lot slices and rejects stale projections. A single
 player-facing inventory projection composes carrying state, all nine hotbar bindings, carried equipment/stacks,
 and only exact-local containers. Direct control can switch slots before primary/use/drop on the same 20 Hz sample.
-Adapter hotbar/container rendering and gesture composition, arbitrary block/object placement, and generic item
-entities remain open.
+Personal manual crafting now composes the same carried custody into a stable recipe catalog plus recipe/batch
+start action. Durable homogeneous inputs resolve to exact lots privately; freshness-sensitive inputs keep one
+explicit revision-bound stack choice, optional equipment remains an exact revalidated provider, and output returns
+to carried custody through ordinary timed production. Adapter inventory/container/crafting rendering and gestures,
+arbitrary block/object placement, and generic item entities remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and
