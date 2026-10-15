@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Force;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::logistics::PlayerEquipmentAccessError;
 use crate::mining::MiningJobId;
 use crate::production::ProductionJobId;
@@ -54,7 +54,7 @@ pub enum EquipmentSupportError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -125,7 +125,7 @@ impl Display for EquipmentSupportError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} is occupied by block excavation until tick {} and cannot be moved",
+                "equipment {} is occupied by block excavation until control tick {} and cannot be moved",
                 equipment.value(),
                 completes_at.value()
             ),
@@ -270,7 +270,7 @@ pub enum EquipmentSupportCommitError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -324,7 +324,7 @@ impl Display for EquipmentSupportCommitError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} became occupied by block excavation until tick {} before support commit",
+                "equipment {} became occupied by block excavation until control tick {} before support commit",
                 equipment.value(),
                 completes_at.value()
             ),

@@ -48,8 +48,9 @@ pub(crate) use attention::{
 pub(crate) use definitions::ProspectingRegionError;
 pub(crate) use lifecycle::{
     PlayerWorkTickError, ValidatedPlayerWorkStart, apply_player_work_tick,
-    decide_manual_production_player_work_start, decide_player_work_tick, player_work_exertion,
-    validate_player_work_start,
+    decide_manual_production_player_work_start, decide_player_work_control_tick,
+    decide_player_work_tick, player_work_exertion, validate_player_work_start,
+    validate_player_work_start_control_rate,
 };
 pub(crate) use power_execution::{
     ManualPowerInterruptionPlan, apply_manual_power_interruption, apply_manual_power_tick,

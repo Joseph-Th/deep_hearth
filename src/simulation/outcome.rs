@@ -14,7 +14,7 @@ use crate::survival::SurvivalAssessment;
 use crate::world::BlockExcavationOutcome;
 use crate::world::{BlockExcavationError, BlockExcavationStartOutcome};
 
-/// Observable result of an attempted primary action on a slow-control boundary.
+/// Observable result of an attempted primary action on one authoritative control step.
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PrimaryActionOutcome {
@@ -30,6 +30,7 @@ pub struct ControlTickOutcome {
     simulation: Option<TickOutcome>,
     body_motion: Option<PlayerBodyMotionOutcome>,
     surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
+    block_excavation: Option<BlockExcavationOutcome>,
     primary_action: Option<PrimaryActionOutcome>,
 }
 
@@ -39,6 +40,7 @@ impl ControlTickOutcome {
         simulation: Option<TickOutcome>,
         body_motion: Option<PlayerBodyMotionOutcome>,
         surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
+        block_excavation: Option<BlockExcavationOutcome>,
         primary_action: Option<PrimaryActionOutcome>,
     ) -> Self {
         Self {
@@ -46,6 +48,7 @@ impl ControlTickOutcome {
             simulation,
             body_motion,
             surface_drop_pickup,
+            block_excavation,
             primary_action,
         }
     }
@@ -73,7 +76,13 @@ impl ControlTickOutcome {
         self.surface_drop_pickup
     }
 
-    /// Primary interaction attempted on this slow boundary, if any.
+    /// Block-world matter completed on this control step, including off-boundary completions.
+    #[must_use]
+    pub const fn block_excavation(&self) -> Option<BlockExcavationOutcome> {
+        self.block_excavation
+    }
+
+    /// Primary interaction attempted on this control step, if any.
     #[must_use]
     pub const fn primary_action(&self) -> Option<&PrimaryActionOutcome> {
         self.primary_action.as_ref()

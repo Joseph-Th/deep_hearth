@@ -15,7 +15,8 @@ mod tick;
 #[cfg(test)]
 pub(crate) use tick::decide_survival_tick;
 pub(crate) use tick::{
-    SurvivalTickError, apply_survival_tick, decide_survival_tick_with_local_heat,
+    SurvivalTickError, apply_survival_tick, decide_control_exertion_settlement,
+    decide_survival_tick_with_local_heat,
 };
 
 /// Failure while admitting the local player into survival simulation.

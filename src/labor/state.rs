@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::{InventoryState, StockpileId};
@@ -164,13 +164,17 @@ impl PlayerWorkState {
 
     /// Returns admitted block-excavation work that completes on `tick`, if any.
     #[must_use]
-    pub(crate) fn block_excavation_due_at(
-        &self,
-        tick: SimulationTick,
-    ) -> Option<BlockExcavationWork> {
+    pub(crate) fn block_excavation_due_at(&self, tick: ControlTick) -> Option<BlockExcavationWork> {
         self.active
             .and_then(PlayerWork::block_excavation)
             .filter(|work| work.completes_at() == tick)
+    }
+
+    #[must_use]
+    pub(crate) fn has_valid_control_schedule(&self, current: ControlTick) -> bool {
+        self.active
+            .and_then(PlayerWork::block_excavation)
+            .is_none_or(|work| work.started_at() <= current && work.completes_at() > current)
     }
 
     #[must_use]

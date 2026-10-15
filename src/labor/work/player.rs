@@ -258,7 +258,6 @@ impl PlayerWork {
         match self {
             Self::Step { work } => Some((work.started_at(), work.completes_at())),
             Self::SurfaceGathering { work } => Some((work.started_at(), work.completes_at())),
-            Self::BlockExcavation { work } => Some((work.started_at(), work.completes_at())),
             Self::ManualPower { work } => Some((work.started_at(), work.completes_at())),
             Self::Prospecting { work } => Some((work.started_at(), work.completes_at())),
             Self::Eating { work } => Some((work.started_at(), work.completes_at())),
@@ -268,7 +267,9 @@ impl PlayerWork {
                 Some((work.started_at(), work.completes_at()))
             }
             Self::StructuralConstruction { work } => Some((work.started_at(), work.completes_at())),
-            Self::ManualProduction { .. } | Self::Mining { .. } => None,
+            Self::BlockExcavation { .. } | Self::ManualProduction { .. } | Self::Mining { .. } => {
+                None
+            }
         }
     }
 

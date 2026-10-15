@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
 use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::Condition;
@@ -54,7 +54,7 @@ pub enum EquipmentDisassemblyError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -160,7 +160,7 @@ impl Display for EquipmentDisassemblyError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} is occupied by block excavation until tick {} and cannot be disassembled",
+                "equipment {} is occupied by block excavation until control tick {} and cannot be disassembled",
                 equipment.value(),
                 completes_at.value()
             ),
@@ -307,7 +307,7 @@ pub enum EquipmentDisassemblyCommitError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -385,7 +385,7 @@ impl Display for EquipmentDisassemblyCommitError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} became occupied by block excavation until tick {} before disassembly commit",
+                "equipment {} became occupied by block excavation until control tick {} before disassembly commit",
                 equipment.value(),
                 completes_at.value()
             ),

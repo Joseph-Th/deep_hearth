@@ -45,7 +45,7 @@ pub(crate) use lifecycle::initialize_player_survival;
 pub(crate) use lifecycle::validate_player_survival_initialization_with_reserves;
 pub(crate) use lifecycle::{
     InitializeSurvivalError, PlayerSurvivalInitializationCommitError, SurvivalTickError,
-    ValidatedPlayerSurvivalInitialization, apply_survival_tick,
+    ValidatedPlayerSurvivalInitialization, apply_survival_tick, decide_control_exertion_settlement,
     decide_survival_tick_with_local_heat, validate_player_survival_initialization,
 };
 #[cfg(feature = "test-gameplay")]
@@ -54,7 +54,7 @@ pub(crate) use lifecycle::{
     initialize_player_survival_at_hydration_warning_boundary_for_fixture,
 };
 pub(crate) use resource_cost::{
-    SurvivalTickResourceCostError, resolve_survival_tick_resource_cost,
+    SurvivalTickResourceCostError, control_exertion_between, resolve_survival_tick_resource_cost,
 };
 pub(crate) use state::PendingDirectConsumption;
 #[cfg(test)]

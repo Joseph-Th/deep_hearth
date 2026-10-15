@@ -1,10 +1,11 @@
 //! Read-only physiological exertion projection for current or same-tick resumed player work.
 
 use crate::core::state::AppState;
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick};
 use crate::labor::PlayerWork;
 use crate::production::{ProductionAvailabilityChange, find_availability_change};
 use crate::registry::Registries;
-use crate::survival::SurvivalExertion;
+use crate::survival::{SurvivalExertion, control_exertion_between};
 
 /// Resolves the incremental physiological cost of the currently active player-owned job.
 #[must_use]
@@ -48,13 +49,40 @@ pub(crate) fn player_work_exertion(
                 panic!("runtime invariant broken: surface gathering has no authored method")
             })
             .exertion(),
-        PlayerWork::BlockExcavation { work } => registries
-            .mining()
-            .get_method(work.method())
-            .unwrap_or_else(|| {
-                panic!("runtime invariant broken: block excavation has no mining method definition")
-            })
-            .exertion(),
+        PlayerWork::BlockExcavation { work } => {
+            let exertion = registries
+                .mining()
+                .get_method(work.method())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: block excavation has no mining method definition"
+                    )
+                })
+                .exertion();
+            let next_boundary = ControlTick::from_simulation_tick(
+                state
+                    .tick()
+                    .checked_add_span(crate::core::time::TickSpan::new(1))
+                    .unwrap_or_else(|| unreachable!("active work cannot outlive simulation time")),
+            )
+            .unwrap_or_else(|| unreachable!("next slow boundary must be representable"));
+            let previous_boundary =
+                ControlTick::new(next_boundary.value() - CONTROL_TICKS_PER_SIMULATION_TICK);
+            let interval_start = std::cmp::max(previous_boundary, work.started_at());
+            let interval_end = std::cmp::min(next_boundary, work.completes_at());
+            if interval_end <= interval_start {
+                SurvivalExertion::REST
+            } else {
+                let elapsed_before = interval_start
+                    .checked_steps_since(work.started_at())
+                    .unwrap_or_else(|| unreachable!("excavation interval cannot precede start"));
+                let elapsed_after = interval_end
+                    .checked_steps_since(work.started_at())
+                    .unwrap_or_else(|| unreachable!("excavation interval cannot precede start"));
+                control_exertion_between(exertion, elapsed_before, elapsed_after)
+                    .unwrap_or_else(|| panic!("excavation control-rate exertion overflowed"))
+            }
+        }
         PlayerWork::ManualProduction { job } => {
             let record = state.production().get_job(job).unwrap_or_else(|| {
                 panic!(

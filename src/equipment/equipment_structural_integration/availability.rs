@@ -1,7 +1,7 @@
 //! Runtime occupancy policy for equipment support relocation.
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::equipment::{EquipmentId, EquipmentOccupancy, equipment_occupancy};
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
@@ -26,7 +26,7 @@ enum EquipmentSupportBlocker {
         completes_at: SimulationTick,
     },
     BlockExcavation {
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     Maintenance {
         completes_at: SimulationTick,

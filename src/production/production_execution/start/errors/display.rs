@@ -277,7 +277,7 @@ impl Display for StartProcessError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} is occupied by block excavation until tick {}",
+                "equipment {} is occupied by block excavation until control tick {}",
                 equipment.value(),
                 completes_at.value()
             ),

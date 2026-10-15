@@ -19,8 +19,8 @@ use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_mainte
 use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
 use crate::inventory::apply_storage_enclosure_dismantling_tick;
 use crate::labor::{
-    apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
-    decide_player_work_tick, player_work_exertion,
+    PlayerWork, apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
+    decide_player_work_control_tick, decide_player_work_tick, player_work_exertion,
 };
 use crate::logistics::{
     PlayerControlInput, apply_player_body_motion, apply_player_step_tick,
@@ -35,12 +35,12 @@ use crate::surface::{
     decide_automatic_surface_drop_pickup,
 };
 use crate::survival::{
-    SurvivalExertion, Vitality, apply_survival_tick, assess_survival,
-    decide_survival_tick_with_local_heat,
+    SurvivalExertion, Vitality, apply_survival_tick, assess_survival, control_exertion_between,
+    decide_control_exertion_settlement, decide_survival_tick_with_local_heat,
 };
 use crate::world::{
-    BlockExcavationTickError, apply_block_excavation_tick, decide_block_excavation_tick,
-    validate_start_player_block_excavation_available,
+    BlockExcavationTickError, apply_block_excavation_tick, decide_block_excavation_completion,
+    decide_block_excavation_tick, validate_start_player_block_excavation_available,
 };
 
 use planning::{
@@ -91,17 +91,82 @@ pub fn advance_control_tick_with_direct_input(
     )
     .map_err(TickError::PlayerBodyMotion)?;
     if next_control.simulation_tick() == state.tick() {
+        let control_excavation = match state.player_work().active() {
+            Some(PlayerWork::BlockExcavation { work }) if work.completes_at() == next_control => {
+                let boundary = crate::core::time::ControlTick::from_simulation_tick(state.tick())
+                    .unwrap_or_else(|| unreachable!("current slow tick must map to control time"));
+                let elapsed_before = boundary
+                    .checked_steps_since(work.started_at())
+                    .unwrap_or_else(|| unreachable!("excavation completion cannot precede start"));
+                let elapsed_after = next_control
+                    .checked_steps_since(work.started_at())
+                    .unwrap_or_else(|| unreachable!("excavation completion cannot precede start"));
+                let method = registries
+                    .mining()
+                    .get_method(work.method())
+                    .unwrap_or_else(|| {
+                        panic!("runtime invariant broken: excavation method disappeared")
+                    });
+                let tail_exertion =
+                    control_exertion_between(method.exertion(), elapsed_before, elapsed_after)
+                        .unwrap_or_else(|| panic!("excavation control-rate exertion overflowed"));
+                let survival_plan =
+                    decide_control_exertion_settlement(registries, state, tail_exertion).map_err(
+                        |error| match error {
+                            crate::survival::SurvivalTickError::RevisionExhausted => {
+                                TickError::SurvivalRevisionExhausted
+                            }
+                            crate::survival::SurvivalTickError::EnergyCostOverflow => {
+                                TickError::SurvivalEnergyCostOverflow
+                            }
+                            crate::survival::SurvivalTickError::HydrationCostOverflow => {
+                                TickError::SurvivalHydrationCostOverflow
+                            }
+                        },
+                    )?;
+                let excavation_plan = decide_block_excavation_completion(
+                    registries,
+                    state,
+                    state.inventory(),
+                    next_control,
+                    state.tick(),
+                )
+                .map_err(map_block_excavation_tick_error)?
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: due control-rate excavation produced no completion plan")
+                });
+                let player_work_plan = decide_player_work_control_tick(state, next_control)
+                    .map_err(|_| TickError::PlayerWorkRevisionExhausted)?;
+                Some((excavation_plan, survival_plan, player_work_plan))
+            }
+            _ => None,
+        };
         let body_motion = apply_player_body_motion(state, body_plan);
+        let block_excavation =
+            if let Some((excavation_plan, survival_plan, player_work_plan)) = control_excavation {
+                let outcome = apply_block_excavation_tick(registries, state, Some(excavation_plan));
+                let _ = apply_survival_tick(state, survival_plan);
+                apply_player_work_tick(state, player_work_plan);
+                outcome
+            } else {
+                None
+            };
         let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
             .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
         apply_control_clock_advance(state, next_control);
+        let primary_action = if state.player_work().active().is_none() {
+            attempt_primary_action(registries, state, input.primary())
+        } else {
+            None
+        };
         debug_assert_runtime_invariants(registries, state);
         return Ok(ControlTickOutcome::new(
             next_control,
             None,
             body_motion,
             surface_drop_pickup,
-            None,
+            block_excavation,
+            primary_action,
         ));
     }
     debug_assert!(next_control.is_simulation_boundary());
@@ -137,6 +202,7 @@ pub fn advance_control_tick_with_direct_input(
     );
     let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
         .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
+    let block_excavation = simulation.block_excavation();
     debug_assert_runtime_invariants(registries, state);
     debug_assert_eq!(state.control_tick(), next_control);
     Ok(ControlTickOutcome::new(
@@ -144,8 +210,20 @@ pub fn advance_control_tick_with_direct_input(
         Some(simulation),
         body_motion,
         surface_drop_pickup,
+        block_excavation,
         primary_action,
     ))
+}
+
+fn map_block_excavation_tick_error(error: BlockExcavationTickError) -> TickError {
+    match error {
+        BlockExcavationTickError::MaterialLotId => TickError::MaterialLotIdExhausted,
+        BlockExcavationTickError::InventoryRevision => TickError::InventoryRevisionExhausted,
+        BlockExcavationTickError::SurfaceResourceId => TickError::SurfaceResourceIdExhausted,
+        BlockExcavationTickError::SurfaceRevision => TickError::SurfaceRevisionExhausted,
+        BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
+        BlockExcavationTickError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
+    }
 }
 
 fn attempt_primary_action(
@@ -248,14 +326,7 @@ fn advance_simulation_tick(
         projected_inventory_after_completions.as_ref(),
         next_tick,
     )
-    .map_err(|error| match error {
-        BlockExcavationTickError::MaterialLotId => TickError::MaterialLotIdExhausted,
-        BlockExcavationTickError::InventoryRevision => TickError::InventoryRevisionExhausted,
-        BlockExcavationTickError::SurfaceResourceId => TickError::SurfaceResourceIdExhausted,
-        BlockExcavationTickError::SurfaceRevision => TickError::SurfaceRevisionExhausted,
-        BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
-        BlockExcavationTickError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
-    })?;
+    .map_err(map_block_excavation_tick_error)?;
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);
     let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)?;
     let manual_power_plan = decide_manual_power_tick(state, next_tick);

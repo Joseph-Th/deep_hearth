@@ -65,6 +65,33 @@ fn physiology(
 }
 
 #[test]
+fn control_exertion_splits_preserve_exact_authored_total() {
+    let exertion =
+        SurvivalExertion::new(Energy::from_nanojoules(101), Volume::from_microliters(73));
+    let first = control_exertion_between(exertion, 0, 37)
+        .unwrap_or_else(|| panic!("first control exertion slice failed"));
+    let middle = control_exertion_between(exertion, 37, 109)
+        .unwrap_or_else(|| panic!("middle control exertion slice failed"));
+    let last = control_exertion_between(exertion, 109, 144)
+        .unwrap_or_else(|| panic!("last control exertion slice failed"));
+
+    let energy = first
+        .energy_cost_per_tick()
+        .checked_add(middle.energy_cost_per_tick())
+        .and_then(|value| value.checked_add(last.energy_cost_per_tick()))
+        .unwrap_or_else(|| panic!("control exertion energy sum overflowed"));
+    let hydration = first
+        .hydration_loss_per_tick()
+        .checked_add(middle.hydration_loss_per_tick())
+        .and_then(|value| value.checked_add(last.hydration_loss_per_tick()))
+        .unwrap_or_else(|| panic!("control exertion hydration sum overflowed"));
+
+    assert_eq!(energy, Energy::from_nanojoules(202));
+    assert_eq!(hydration, Volume::from_microliters(146));
+    assert_eq!(control_exertion_between(exertion, 4, 3), None);
+}
+
+#[test]
 fn duration_projection_matches_exact_tick_cost_multiplication() {
     let definition = physiology(
         Energy::from_nanojoules(10),

@@ -330,6 +330,13 @@ pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &A
     debug_assert!(
         state
             .systems
+            .player_work
+            .has_valid_control_schedule(state.control_tick()),
+        "Runtime Invariant 6 (Lifecycle Validity): active control-rate player work must have a current unfinished schedule"
+    );
+    debug_assert!(
+        state
+            .systems
             .survival
             .has_valid_player_bounds(registries.survival().physiology()),
         "Runtime Invariant 6 (Lifecycle Validity): player survival quantities must remain within authored bounds"

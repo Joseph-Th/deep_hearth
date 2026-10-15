@@ -5,7 +5,7 @@ mod runtime;
 pub(crate) use runtime::{
     BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
     apply_block_excavation_tick, decide_block_excavation_cancellation,
-    decide_block_excavation_tick,
+    decide_block_excavation_completion, decide_block_excavation_tick,
 };
 pub use runtime::{BlockExcavationOutcome, BlockExcavationOutputReceipt};
 
@@ -15,14 +15,14 @@ use std::fmt::{Display, Formatter};
 use crate::capability::{CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::ControlTick;
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::inventory::{
     ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
 };
 use crate::labor::{
     BlockExcavationOutputCustody, BlockExcavationWork, PlayerWork, PlayerWorkCommitError,
-    PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start_control_rate,
 };
 use crate::logistics::{PlayerEquipmentAccessError, validate_player_equipment_access};
 use crate::material::MaterialLotSpec;
@@ -238,7 +238,7 @@ pub struct BlockExcavationStartOutcome {
     target: VoxelCoord,
     excavated_mass: Mass,
     output: BlockExcavationOutputCustody,
-    completes_at: SimulationTick,
+    completes_at: ControlTick,
 }
 
 impl BlockExcavationStartOutcome {
@@ -258,7 +258,7 @@ impl BlockExcavationStartOutcome {
     }
 
     #[must_use]
-    pub const fn completes_at(self) -> SimulationTick {
+    pub const fn completes_at(self) -> ControlTick {
         self.completes_at
     }
 }
@@ -409,8 +409,8 @@ pub fn validate_start_player_block_excavation(
     )
     .map_err(BlockExcavationError::Physics)?;
     let completes_at = state
-        .tick()
-        .checked_add_span(physics.duration())
+        .control_tick()
+        .checked_add_simulation_span(physics.duration())
         .ok_or(BlockExcavationError::ScheduleOverflow)?;
     let player = state
         .logistics()
@@ -483,10 +483,10 @@ pub fn validate_start_player_block_excavation(
         output,
         provider.validated_use().trace(),
         physics.condition_after(),
-        state.tick(),
+        state.control_tick(),
         completes_at,
     );
-    let player_work = validate_player_work_start(
+    let player_work = validate_player_work_start_control_rate(
         registries,
         state,
         PlayerWork::BlockExcavation { work },

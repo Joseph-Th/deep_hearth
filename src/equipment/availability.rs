@@ -1,7 +1,7 @@
 //! Canonical cross-owner runtime occupancy query for equipment instances.
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 
@@ -31,7 +31,7 @@ pub(crate) enum EquipmentOccupancy {
         completes_at: SimulationTick,
     },
     BlockExcavation {
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
 }
 

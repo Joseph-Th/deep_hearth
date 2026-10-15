@@ -123,11 +123,12 @@ and completed fragments land in reserved carried custody when the complete batch
 surface custody at the player's work position. Player-created drops are persisted separately from natural
 opportunities: a whole local drop transfers into carried custody on control time when it fits, while an oversized
 drop remains in world custody and can still be recovered partially through ordinary surface gathering.
-`PlayerDirectControlInput` now composes held primary
-excavation intent over that same owner path: an idle slow boundary chooses the largest target/tool batch, typed
-rejection is observable, and a held action can start the next legal batch on the same boundary that completes the
-previous one. Admission is still slow-boundary gated, so control-rate break progress, hotbar-selected tool context,
-placement/use, generic item/drop projection, and inventory/container projection remain open.
+`PlayerDirectControlInput` now composes held primary excavation intent over that same owner path: any idle control
+step can choose the largest target/tool batch, typed rejection is observable, and a held action can start the next
+legal batch on the exact control step that completes the previous one. Excavation persists 20 Hz start/completion
+schedule and normalized progress while preserving authored mining duration, exertion, wear, custody, and save/load
+continuation. Hotbar-selected tool context, placement/use, generic item/drop projection, and inventory/container
+projection remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

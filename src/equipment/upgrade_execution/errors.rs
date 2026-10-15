@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
 use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::material::CommodityKey;
@@ -58,7 +58,7 @@ pub enum EquipmentUpgradeError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -166,7 +166,7 @@ impl Display for EquipmentUpgradeError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} is occupied by block excavation until tick {} and cannot be upgraded",
+                "equipment {} is occupied by block excavation until control tick {} and cannot be upgraded",
                 equipment.value(),
                 completes_at.value()
             ),
@@ -295,7 +295,7 @@ pub enum EquipmentUpgradeCommitError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -376,7 +376,7 @@ impl Display for EquipmentUpgradeCommitError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} became occupied by block excavation until tick {} before upgrade commit",
+                "equipment {} became occupied by block excavation until control tick {} before upgrade commit",
                 equipment.value(),
                 completes_at.value()
             ),

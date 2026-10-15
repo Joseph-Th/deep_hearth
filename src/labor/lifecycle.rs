@@ -20,7 +20,7 @@ mod tick;
 
 pub(crate) use tick::{
     PlayerWorkTickError, apply_player_work_tick, decide_manual_production_player_work_start,
-    decide_player_work_tick, player_work_exertion,
+    decide_player_work_control_tick, decide_player_work_tick, player_work_exertion,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -206,6 +206,45 @@ pub(crate) fn validate_player_work_start(
 ) -> Result<ValidatedPlayerWorkStart, PlayerWorkStartError> {
     require_simulation_boundary(state.control_tick())
         .map_err(PlayerWorkStartError::SimulationBoundary)?;
+    validate_player_work_start_inner(
+        registries,
+        state,
+        work,
+        duration,
+        exertion,
+        duration.value(),
+    )
+}
+
+pub(crate) fn validate_player_work_start_control_rate(
+    registries: &Registries,
+    state: &AppState,
+    work: PlayerWork,
+    duration: TickSpan,
+    exertion: SurvivalExertion,
+) -> Result<ValidatedPlayerWorkStart, PlayerWorkStartError> {
+    let survival_revision_demand = duration
+        .value()
+        .checked_add(u64::from(!state.control_tick().is_simulation_boundary()))
+        .ok_or(PlayerWorkStartError::SurvivalRevisionExhausted { duration })?;
+    validate_player_work_start_inner(
+        registries,
+        state,
+        work,
+        duration,
+        exertion,
+        survival_revision_demand,
+    )
+}
+
+fn validate_player_work_start_inner(
+    registries: &Registries,
+    state: &AppState,
+    work: PlayerWork,
+    duration: TickSpan,
+    exertion: SurvivalExertion,
+    survival_revision_demand: u64,
+) -> Result<ValidatedPlayerWorkStart, PlayerWorkStartError> {
     if crate::logistics::player_body_uses_generated_world(
         state,
         registries.survival().physiology().locomotion(),
@@ -254,7 +293,10 @@ pub(crate) fn validate_player_work_start(
             required: budget.hydration(),
         });
     }
-    if !state.survival().can_advance_revision_by(duration.value()) {
+    if !state
+        .survival()
+        .can_advance_revision_by(survival_revision_demand)
+    {
         return Err(PlayerWorkStartError::SurvivalRevisionExhausted { duration });
     }
     let attention = attention

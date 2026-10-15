@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
-use crate::core::time::SimulationTick;
+use crate::core::time::ControlTick;
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::inventory::StockpileId;
 use crate::maintenance::Condition;
@@ -49,8 +49,8 @@ pub struct BlockExcavationWork {
     output: BlockExcavationOutputCustody,
     equipment: EquipmentOperationTrace,
     condition_after: Condition,
-    started_at: SimulationTick,
-    completes_at: SimulationTick,
+    started_at: ControlTick,
+    completes_at: ControlTick,
 }
 
 impl BlockExcavationWork {
@@ -64,8 +64,8 @@ impl BlockExcavationWork {
         output: BlockExcavationOutputCustody,
         equipment: EquipmentOperationTrace,
         condition_after: Condition,
-        started_at: SimulationTick,
-        completes_at: SimulationTick,
+        started_at: ControlTick,
+        completes_at: ControlTick,
     ) -> Self {
         Self {
             target,
@@ -127,12 +127,32 @@ impl BlockExcavationWork {
     }
 
     #[must_use]
-    pub const fn started_at(self) -> SimulationTick {
+    pub const fn started_at(self) -> ControlTick {
         self.started_at
     }
 
     #[must_use]
-    pub const fn completes_at(self) -> SimulationTick {
+    pub const fn completes_at(self) -> ControlTick {
         self.completes_at
+    }
+
+    #[must_use]
+    pub const fn duration_control_ticks(self) -> Option<u64> {
+        self.completes_at.checked_steps_since(self.started_at)
+    }
+
+    #[must_use]
+    pub fn progress_ppm(self, current: ControlTick) -> u32 {
+        let duration = self
+            .duration_control_ticks()
+            .unwrap_or_else(|| unreachable!("trusted excavation schedule has positive duration"));
+        let elapsed = current
+            .checked_steps_since(self.started_at)
+            .unwrap_or(0)
+            .min(duration);
+        let progress = u128::from(elapsed).saturating_mul(u128::from(
+            crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION,
+        )) / u128::from(duration);
+        u32::try_from(progress).unwrap_or(crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION)
     }
 }

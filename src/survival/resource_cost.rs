@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Volume};
-use crate::core::time::TickSpan;
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 
 use super::definitions::PhysiologyDefinition;
 
@@ -17,6 +17,63 @@ use super::definitions::PhysiologyDefinition;
 pub struct SurvivalExertion {
     energy_cost_per_tick: Energy,
     hydration_loss_per_tick: Volume,
+}
+
+fn cumulative_control_energy(rate: Energy, elapsed_control_ticks: u64) -> Option<Energy> {
+    let denominator = u128::from(CONTROL_TICKS_PER_SIMULATION_TICK);
+    let whole_ticks = elapsed_control_ticks / CONTROL_TICKS_PER_SIMULATION_TICK;
+    let remainder = elapsed_control_ticks % CONTROL_TICKS_PER_SIMULATION_TICK;
+    let rate_nj = rate.nanojoules();
+    let whole = rate_nj.checked_mul(u128::from(whole_ticks))?;
+    let quotient = rate_nj / denominator;
+    let modulus = rate_nj % denominator;
+    let fractional = quotient.checked_mul(u128::from(remainder))?.checked_add(
+        modulus
+            .checked_mul(u128::from(remainder))?
+            .checked_div(denominator)?,
+    )?;
+    whole.checked_add(fractional).map(Energy::from_nanojoules)
+}
+
+fn cumulative_control_hydration(rate: Volume, elapsed_control_ticks: u64) -> Option<Volume> {
+    let rate_ul = u128::from(rate.microliters());
+    let denominator = u128::from(CONTROL_TICKS_PER_SIMULATION_TICK);
+    let whole_ticks = elapsed_control_ticks / CONTROL_TICKS_PER_SIMULATION_TICK;
+    let remainder = elapsed_control_ticks % CONTROL_TICKS_PER_SIMULATION_TICK;
+    let total = rate_ul.checked_mul(u128::from(whole_ticks))?.checked_add(
+        (rate_ul / denominator)
+            .checked_mul(u128::from(remainder))?
+            .checked_add(
+                (rate_ul % denominator)
+                    .checked_mul(u128::from(remainder))?
+                    .checked_div(denominator)?,
+            )?,
+    )?;
+    u64::try_from(total).ok().map(Volume::from_microliters)
+}
+
+/// Exact incremental exertion accrued between two control-time offsets from the same work start.
+///
+/// Cumulative-difference rounding preserves the authored slow-tick total even when one active
+/// interval is split across a leading partial slow tick and a trailing control-time completion.
+pub(crate) fn control_exertion_between(
+    exertion: SurvivalExertion,
+    elapsed_before: u64,
+    elapsed_after: u64,
+) -> Option<SurvivalExertion> {
+    if elapsed_after < elapsed_before {
+        return None;
+    }
+    let energy_before = cumulative_control_energy(exertion.energy_cost_per_tick(), elapsed_before)?;
+    let energy_after = cumulative_control_energy(exertion.energy_cost_per_tick(), elapsed_after)?;
+    let hydration_before =
+        cumulative_control_hydration(exertion.hydration_loss_per_tick(), elapsed_before)?;
+    let hydration_after =
+        cumulative_control_hydration(exertion.hydration_loss_per_tick(), elapsed_after)?;
+    Some(SurvivalExertion::new(
+        energy_after.checked_sub(energy_before)?,
+        hydration_after.checked_sub(hydration_before)?,
+    ))
 }
 
 /// Failure to project exact survival reserve consumption across a bounded duration.

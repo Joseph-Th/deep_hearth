@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Energy, Power};
-use crate::core::time::SimulationTick;
+use crate::core::time::ControlTick;
 use crate::energy::{EnergyCarrier, EnergySinkError, EnergyStoreId};
 use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::logistics::{PlayerEnergyStoreAccessError, PlayerEquipmentAccessError};
@@ -256,7 +256,7 @@ pub enum ManualPowerCommitError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EnergyBusyProduction {
         store: EnergyStoreId,
@@ -300,7 +300,7 @@ impl Display for ManualPowerCommitError {
                 completes_at,
             } => write!(
                 formatter,
-                "manual power equipment {} became occupied by block excavation until tick {} after validation",
+                "manual power equipment {} became occupied by block excavation until control tick {} after validation",
                 equipment.value(),
                 completes_at.value()
             ),

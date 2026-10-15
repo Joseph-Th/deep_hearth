@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::labor::PlayerWorkCommitError;
 use crate::maintenance::Condition;
 use crate::mining::MiningJobId;
@@ -49,7 +49,7 @@ pub enum EquipmentMaintenanceCommitError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     StaleInventoryRevision {
         expected: u64,
@@ -121,7 +121,7 @@ impl Display for EquipmentMaintenanceCommitError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} became occupied by block excavation until tick {} before maintenance commit",
+                "equipment {} became occupied by block excavation until control tick {} before maintenance commit",
                 equipment.value(),
                 completes_at.value()
             ),

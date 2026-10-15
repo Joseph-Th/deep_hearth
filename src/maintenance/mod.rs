@@ -179,6 +179,28 @@ pub(crate) fn calculate_condition_after_active_ticks(
     Condition(before.0.saturating_sub(bounded_wear))
 }
 
+/// Calculates proportional wear for an exact 20 Hz active-control interval.
+///
+/// The authored wear rate remains per slow simulation tick. Control-rate interruption therefore
+/// accumulates the same linear wear curve over `CONTROL_TICKS_PER_SIMULATION_TICK` substeps and
+/// rounds down once. A whole slow-tick multiple is exactly identical to
+/// [`calculate_condition_after_active_ticks`].
+#[must_use]
+pub(crate) fn calculate_condition_after_active_control_ticks(
+    wear_ppm_per_active_tick: u32,
+    before: Condition,
+    control_ticks: u64,
+) -> Condition {
+    let numerator = u128::from(wear_ppm_per_active_tick) * u128::from(control_ticks);
+    let total_wear = numerator / u128::from(crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK);
+    let bounded_wear = u32::try_from(std::cmp::min(
+        total_wear,
+        u128::from(CONDITION_PARTS_PER_MILLION),
+    ))
+    .unwrap_or_else(|_| unreachable!("normalized control-rate condition wear always fits u32"));
+    Condition(before.0.saturating_sub(bounded_wear))
+}
+
 /// Projects proportional condition recovery after an interrupted maintenance interval.
 ///
 /// Recovery is linear in completed authoritative ticks, rounded down once so interruption never

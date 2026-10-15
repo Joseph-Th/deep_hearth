@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::structural::{StructuralElementId, StructuralLifecycle};
@@ -42,7 +42,7 @@ pub enum EquipmentProviderError {
     },
     BlockExcavationInProgress {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     ProductionInProgress {
         equipment: EquipmentId,
@@ -108,7 +108,7 @@ impl Display for EquipmentProviderError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} is occupied by block excavation until tick {} and cannot authorize a new operation",
+                "equipment {} is occupied by block excavation until control tick {} and cannot authorize a new operation",
                 equipment.value(),
                 completes_at.value()
             ),

@@ -1,7 +1,7 @@
 //! Public validation errors for durable process-start admission.
 
 use crate::core::quantity::Mass;
-use crate::core::time::{SimulationBoundaryError, SimulationTick};
+use crate::core::time::{ControlTick, SimulationBoundaryError, SimulationTick};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
@@ -166,7 +166,7 @@ pub enum StartProcessError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     StructuralLoad(StockpileStructuralLoadError),
 }

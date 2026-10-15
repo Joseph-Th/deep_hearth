@@ -221,7 +221,7 @@ pub enum FieldProspectingCommitError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: crate::core::time::SimulationTick,
+        completes_at: crate::core::time::ControlTick,
     },
 }
 
@@ -259,7 +259,7 @@ impl Display for FieldProspectingCommitError {
                 completes_at,
             } => write!(
                 formatter,
-                "prospecting equipment {} became occupied by block excavation until tick {}",
+                "prospecting equipment {} became occupied by block excavation until control tick {}",
                 equipment.value(),
                 completes_at.value()
             ),

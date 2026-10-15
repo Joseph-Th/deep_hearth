@@ -104,7 +104,9 @@ pub(super) fn decide_player_death_effects(
                 .map_err(Into::into)
         }
         PlayerWork::BlockExcavation { work } => {
-            if work.completes_at() == next_tick {
+            let next_control = crate::core::time::ControlTick::from_simulation_tick(next_tick)
+                .unwrap_or_else(|| unreachable!("slow tick must have a control boundary"));
+            if work.completes_at() == next_control {
                 return Ok(None);
             }
             let projected_inventory =

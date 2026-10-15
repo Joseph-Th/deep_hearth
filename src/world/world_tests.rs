@@ -6,7 +6,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError};
-use crate::core::time::TickSpan;
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
@@ -24,7 +24,7 @@ use crate::simulation::{
     advance_control_tick_with_direct_input, advance_control_tick_with_input,
 };
 use crate::spatial::{CubeFace, VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
-use crate::survival::{Vitality, player_record};
+use crate::survival::{Vitality, player_record, project_survival_resource_budget};
 
 use super::*;
 
@@ -256,10 +256,7 @@ fn fatal_tick_cancels_unfinished_block_excavation_without_extracting_matter() {
     while state.tick().value() < 1 {
         let control = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("fatal block excavation control tick failed: {error}"));
-        if let Some(outcome) = control
-            .simulation()
-            .and_then(|simulation| simulation.block_excavation())
-        {
+        if let Some(outcome) = control.block_excavation() {
             excavation_outcome = Some(outcome);
         }
     }
@@ -399,13 +396,10 @@ fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_
     );
 
     let mut completion = None;
-    while state.tick() < outcome.completes_at() {
+    while state.control_tick() < outcome.completes_at() {
         let control = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("block excavation control tick failed: {error}"));
-        if let Some(excavation) = control
-            .simulation()
-            .and_then(|simulation| simulation.block_excavation())
-        {
+        if let Some(excavation) = control.block_excavation() {
             assert!(completion.replace(excavation).is_none());
         }
     }
@@ -476,7 +470,123 @@ fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_
 }
 
 #[test]
-fn held_primary_excavation_chains_the_next_batch_on_the_completion_boundary() {
+fn off_boundary_block_excavation_replays_and_preserves_authored_total_cost() {
+    let (registries, mut state, pick, _target) = generated_excavation_fixture();
+    for _ in 0..37 {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("off-boundary setup control tick failed: {error}"));
+        assert!(control.simulation().is_none());
+    }
+    let started_at = state.control_tick();
+    assert!(!started_at.is_simulation_boundary());
+    let survival_before = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("off-boundary excavation survival player disappeared"));
+    let condition_before = state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("off-boundary excavation pick disappeared"))
+        .condition();
+    let batch = Mass::from_milligrams(200_000);
+    let start = validate_start_player_block_excavation(
+        &registries,
+        &state,
+        BlockExcavationRequest::new(positive_x_view(), MINING_METHOD_HAND_PICK, pick, batch),
+    )
+    .unwrap_or_else(|error| panic!("off-boundary excavation validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("off-boundary excavation commit failed: {error}"));
+    let duration_control_ticks = start
+        .completes_at()
+        .checked_steps_since(started_at)
+        .unwrap_or_else(|| panic!("off-boundary excavation completion preceded admission"));
+    assert_eq!(
+        duration_control_ticks % CONTROL_TICKS_PER_SIMULATION_TICK,
+        0,
+        "control-rate scheduling must preserve the authored slow-tick duration exactly"
+    );
+    assert_eq!(
+        start.completes_at().value() % CONTROL_TICKS_PER_SIMULATION_TICK,
+        started_at.value() % CONTROL_TICKS_PER_SIMULATION_TICK,
+        "control-rate excavation must complete at the same phase at which it started"
+    );
+    let duration = TickSpan::new(duration_control_ticks / CONTROL_TICKS_PER_SIMULATION_TICK);
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("off-boundary excavation mining method disappeared"));
+    let expected_survival = project_survival_resource_budget(
+        registries.survival().physiology(),
+        method.exertion(),
+        duration,
+    )
+    .unwrap_or_else(|error| {
+        panic!("off-boundary excavation survival projection failed: {error:?}")
+    });
+    let expected_condition = calculate_condition_after_active_ticks(
+        method.condition_wear_ppm_per_active_tick(),
+        condition_before,
+        duration,
+    );
+
+    for _ in 0..20 {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("off-boundary pre-save control tick failed: {error}"));
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("off-boundary excavation serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("off-boundary excavation decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("off-boundary excavation trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    let mut completed_off_boundary = false;
+    while state.control_tick() < start.completes_at() {
+        let expected = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("off-boundary source replay failed: {error}"));
+        let actual = advance_control_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("off-boundary loaded replay failed: {error}"));
+        assert_eq!(actual, expected);
+        if expected.block_excavation().is_some() {
+            completed_off_boundary = expected.simulation().is_none();
+        }
+    }
+    assert!(
+        completed_off_boundary,
+        "non-boundary admission must finish on its exact control tick rather than waiting for slow simulation"
+    );
+    assert_eq!(loaded, state);
+    assert_eq!(state.player_work().active(), None);
+    let survival_after = state.survival().player().copied().unwrap_or_else(|| {
+        panic!("off-boundary excavation survival player disappeared after work")
+    });
+    assert_eq!(
+        survival_before
+            .metabolic_energy()
+            .checked_sub(survival_after.metabolic_energy()),
+        Some(expected_survival.metabolic_energy())
+    );
+    assert_eq!(
+        survival_before
+            .hydration()
+            .checked_sub(survival_after.hydration()),
+        Some(expected_survival.hydration())
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(pick)
+            .map(|record| record.condition()),
+        Some(expected_condition)
+    );
+}
+
+#[test]
+fn held_primary_excavation_chains_the_next_batch_on_the_completion_control_step() {
     let (registries, mut state, pick, target) = generated_excavation_fixture();
     let batch = Mass::from_milligrams(200_000);
     let source_mass = state
@@ -506,12 +616,9 @@ fn held_primary_excavation_chains_the_next_batch_on_the_completion_boundary() {
             .unwrap_or_else(|error| panic!("held excavation continuation failed: {error}"));
         match control.primary_action() {
             Some(PrimaryActionOutcome::BlockExcavationStarted(start)) => {
-                let completion = control
-                    .simulation()
-                    .and_then(|simulation| simulation.block_excavation())
-                    .unwrap_or_else(|| {
-                        panic!("held excavation restarted without completing the prior batch")
-                    });
+                let completion = control.block_excavation().unwrap_or_else(|| {
+                    panic!("held excavation restarted without completing the prior batch")
+                });
                 break (completion, *start);
             }
             Some(PrimaryActionOutcome::BlockExcavationRejected(error)) => {
@@ -690,10 +797,7 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
     let completion = loop {
         let control = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("surface-drop excavation advancement failed: {error}"));
-        if let Some(completion) = control
-            .simulation()
-            .and_then(|simulation| simulation.block_excavation())
-        {
+        if let Some(completion) = control.block_excavation() {
             break completion;
         }
     };

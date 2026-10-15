@@ -68,7 +68,7 @@ pub enum StartProcessCommitError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -155,7 +155,7 @@ impl Display for StartProcessCommitError {
                 completes_at,
             } => write!(
                 formatter,
-                "validated process start equipment {} is occupied by block excavation until tick {}",
+                "validated process start equipment {} is occupied by block excavation until control tick {}",
                 equipment.value(),
                 completes_at.value()
             ),

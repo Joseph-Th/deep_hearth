@@ -2,7 +2,7 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::equipment::EquipmentId;
 use crate::inventory::{
     InventoryState, MaterialIngressEntry, MaterialIngressError, MaterialLotId,
@@ -10,7 +10,7 @@ use crate::inventory::{
     validate_inbound_reservation_release, validate_reserved_material_ingress,
 };
 use crate::labor::{BlockExcavationOutputCustody, BlockExcavationWork};
-use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
+use crate::maintenance::{Condition, calculate_condition_after_active_control_ticks};
 use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -92,7 +92,25 @@ pub(crate) fn decide_block_excavation_tick(
     projected_inventory: &InventoryState,
     next_tick: SimulationTick,
 ) -> Result<Option<BlockExcavationTickPlan>, BlockExcavationTickError> {
-    let Some(work) = state.player_work().block_excavation_due_at(next_tick) else {
+    let next_control = ControlTick::from_simulation_tick(next_tick)
+        .unwrap_or_else(|| unreachable!("slow tick must have a control boundary"));
+    decide_block_excavation_completion(
+        registries,
+        state,
+        projected_inventory,
+        next_control,
+        next_tick,
+    )
+}
+
+pub(crate) fn decide_block_excavation_completion(
+    registries: &Registries,
+    state: &AppState,
+    projected_inventory: &InventoryState,
+    next_control: ControlTick,
+    produced_at: SimulationTick,
+) -> Result<Option<BlockExcavationTickPlan>, BlockExcavationTickError> {
+    let Some(work) = state.player_work().block_excavation_due_at(next_control) else {
         return Ok(None);
     };
     assert_eq!(state.world().block_at(work.target()), Some(work.state()));
@@ -120,8 +138,8 @@ pub(crate) fn decide_block_excavation_tick(
                 registries,
                 projected_inventory,
                 stockpile,
-                [MaterialIngressEntry::from_lot_spec(lot, next_tick)],
-                next_tick,
+                [MaterialIngressEntry::from_lot_spec(lot, produced_at)],
+                produced_at,
                 work.excavated_mass(),
             )
             .map_err(|error| match error {
@@ -163,7 +181,7 @@ pub(crate) fn decide_block_excavation_tick(
                 registries,
                 state,
                 [spec],
-                next_tick,
+                produced_at,
             )
             .map_err(|error| match error {
                 SurfaceResourceCreationError::IdExhausted => {
@@ -307,18 +325,20 @@ pub(crate) fn decide_block_excavation_cancellation(
         ),
         None => None,
     };
-    let elapsed = next_tick
-        .checked_duration_since(work.started_at())
+    let next_control = ControlTick::from_simulation_tick(next_tick)
+        .unwrap_or_else(|| unreachable!("fatal slow tick must have a control boundary"));
+    let elapsed_control_ticks = next_control
+        .checked_steps_since(work.started_at())
         .unwrap_or_else(|| panic!("fatal tick cannot precede excavation start"));
     let method = registries
         .mining()
         .get_method(work.method())
         .unwrap_or_else(|| panic!("runtime invariant broken: excavation method disappeared"));
     let condition_before = work.equipment_trace().condition();
-    let condition_after = calculate_condition_after_active_ticks(
+    let condition_after = calculate_condition_after_active_control_ticks(
         method.condition_wear_ppm_per_active_tick(),
         condition_before,
-        elapsed,
+        elapsed_control_ticks,
     );
     let next_equipment_revision = if condition_after == condition_before {
         None

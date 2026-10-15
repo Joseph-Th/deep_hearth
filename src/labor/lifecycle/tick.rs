@@ -1,7 +1,7 @@
 //! Deterministic player-work release and manual-production resume decisions per tick.
 
 use crate::core::state::AppState;
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::{ControlTick, SimulationTick, TickSpan};
 use crate::logistics::validate_player_stockpile_access;
 use crate::production::{ProductionAvailabilityChange, find_availability_change};
 use crate::registry::Registries;
@@ -16,6 +16,33 @@ pub(crate) use exertion::player_work_exertion;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlayerWorkTickError {
     RevisionExhausted,
+}
+
+/// Releases control-rate player work exactly on its 20 Hz completion timestamp.
+///
+/// Slow-scheduled work remains owned by [`decide_player_work_tick`]. At present block excavation
+/// is the only durable player-work variant with a control-rate schedule.
+pub(crate) fn decide_player_work_control_tick(
+    state: &AppState,
+    next_control: ControlTick,
+) -> Result<Option<PlayerWorkTickPlan>, PlayerWorkTickError> {
+    let Some(work @ PlayerWork::BlockExcavation { work: excavation }) =
+        state.player_work().active()
+    else {
+        return Ok(None);
+    };
+    if excavation.completes_at() != next_control {
+        return Ok(None);
+    }
+    let expected_revision = state.player_work().revision();
+    let next_revision = expected_revision
+        .checked_add(1)
+        .ok_or(PlayerWorkTickError::RevisionExhausted)?;
+    Ok(Some(PlayerWorkTickPlan::Release {
+        expected_revision,
+        next_revision,
+        work,
+    }))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -161,7 +188,10 @@ fn active_work_releases_now(
     match work {
         PlayerWork::Step { work } => work.completes_at() == next_tick,
         PlayerWork::SurfaceGathering { work } => work.completes_at() == next_tick,
-        PlayerWork::BlockExcavation { work } => work.completes_at() == next_tick,
+        PlayerWork::BlockExcavation { work } => {
+            crate::core::time::ControlTick::from_simulation_tick(next_tick)
+                .is_some_and(|control| work.completes_at() == control)
+        }
         PlayerWork::ManualProduction { job } => {
             manual_production_releases_now(state, job, next_tick, production_availability)
         }

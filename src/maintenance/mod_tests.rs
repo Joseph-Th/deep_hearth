@@ -10,6 +10,27 @@ fn condition(value: u32) -> Condition {
 }
 
 #[test]
+fn control_tick_wear_matches_slow_tick_total_and_rounds_fraction_once() {
+    let before = condition(900_000);
+    assert_eq!(
+        calculate_condition_after_active_control_ticks(72, before, 1),
+        condition(899_999)
+    );
+    assert_eq!(
+        calculate_condition_after_active_control_ticks(72, before, 71),
+        condition(899_929)
+    );
+    assert_eq!(
+        calculate_condition_after_active_control_ticks(72, before, 72),
+        calculate_condition_after_active_ticks(72, before, TickSpan::new(1))
+    );
+    assert_eq!(
+        calculate_condition_after_active_control_ticks(13, before, 216),
+        calculate_condition_after_active_ticks(13, before, TickSpan::new(3))
+    );
+}
+
+#[test]
 fn partial_maintenance_recovery_tracks_completed_active_time_without_overgranting() {
     let before = condition(500_000);
     let target = condition(700_000);

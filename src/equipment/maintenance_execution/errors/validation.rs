@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::{ControlTick, SimulationTick, TickSpan};
 use crate::labor::PlayerWorkStartError;
 use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::Condition;
@@ -56,7 +56,7 @@ pub enum EquipmentMaintenanceError {
     },
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
-        completes_at: SimulationTick,
+        completes_at: ControlTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -160,7 +160,7 @@ impl Display for EquipmentMaintenanceError {
                 completes_at,
             } => write!(
                 formatter,
-                "equipment {} is occupied by block excavation until tick {} and cannot be serviced",
+                "equipment {} is occupied by block excavation until control tick {} and cannot be serviced",
                 equipment.value(),
                 completes_at.value()
             ),

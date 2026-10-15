@@ -88,6 +88,27 @@ impl ControlTick {
     }
 
     #[must_use]
+    pub const fn checked_add_steps(self, steps: u64) -> Option<Self> {
+        match self.0.checked_add(steps) {
+            Some(value) if value <= Self::MAX_COMPLETE.0 => Some(Self(value)),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn checked_add_simulation_span(self, span: TickSpan) -> Option<Self> {
+        match span.value().checked_mul(CONTROL_TICKS_PER_SIMULATION_TICK) {
+            Some(steps) => self.checked_add_steps(steps),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn checked_steps_since(self, earlier: Self) -> Option<u64> {
+        self.0.checked_sub(earlier.0)
+    }
+
+    #[must_use]
     pub const fn from_simulation_tick(tick: SimulationTick) -> Option<Self> {
         match tick.0.checked_mul(CONTROL_TICKS_PER_SIMULATION_TICK) {
             Some(value) => Some(Self(value)),
