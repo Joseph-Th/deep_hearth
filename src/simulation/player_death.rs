@@ -24,6 +24,10 @@ use crate::mining::{
 };
 use crate::production::{CompletionPlan, plan_player_death_suspension};
 use crate::registry::Registries;
+use crate::structural::{
+    StructuralDismantlingCancellationPlan, apply_structural_dismantling_cancellation,
+    decide_structural_dismantling_cancellation,
+};
 use crate::surface::{
     SurfaceGatheringCancellationPlan, apply_surface_gathering_cancellation,
     decide_surface_gathering_cancellation,
@@ -40,6 +44,7 @@ pub(super) enum PlayerDeathEffectPlan {
     BlockExcavation(BlockExcavationCancellationPlan),
     Mining(MiningCancellationPlan),
     StorageDismantling(StorageEnclosureDismantlingCancellationPlan),
+    StructuralDismantling(StructuralDismantlingCancellationPlan),
     ManualPower(ManualPowerInterruptionPlan),
     Prospecting(FieldProspectingInterruptionPlan),
     EquipmentMaintenance(EquipmentMaintenanceInterruptionPlan),
@@ -54,7 +59,7 @@ impl PlayerDeathEffectPlan {
             Self::ManualPower(plan) => plan.equipment_revision_steps(),
             Self::Prospecting(plan) => plan.equipment_revision_steps(),
             Self::EquipmentMaintenance(plan) => plan.equipment_revision_steps(),
-            Self::StorageDismantling(_) => 0,
+            Self::StorageDismantling(_) | Self::StructuralDismantling(_) => 0,
         }
     }
 
@@ -65,7 +70,10 @@ impl PlayerDeathEffectPlan {
     pub(super) const fn mutates_inventory(&self) -> bool {
         match self {
             Self::BlockExcavation(plan) => plan.mutates_inventory(),
-            Self::SurfaceGathering(_) | Self::Mining(_) | Self::StorageDismantling(_) => true,
+            Self::SurfaceGathering(_)
+            | Self::Mining(_)
+            | Self::StorageDismantling(_)
+            | Self::StructuralDismantling(_) => true,
             Self::ManualPower(_) | Self::Prospecting(_) | Self::EquipmentMaintenance(_) => false,
         }
     }
@@ -169,6 +177,17 @@ pub(super) fn decide_player_death_effects(
                 .map(Some)
                 .map_err(Into::into)
         }
+        PlayerWork::StructuralDismantling { work } => {
+            if work.completes_at() == next_tick {
+                return Ok(None);
+            }
+            let projected_inventory =
+                completion_plan.project_inventory_after_deposits(state.inventory());
+            decide_structural_dismantling_cancellation(projected_inventory.as_ref(), work)
+                .map(PlayerDeathEffectPlan::StructuralDismantling)
+                .map(Some)
+                .map_err(Into::into)
+        }
         PlayerWork::ManualPower { .. } => Ok(decide_manual_power_interruption(
             registries, state, next_tick,
         )
@@ -203,6 +222,9 @@ pub(super) fn apply_player_death_effects(
         Some(PlayerDeathEffectPlan::Mining(plan)) => apply_mining_cancellation(state, plan),
         Some(PlayerDeathEffectPlan::StorageDismantling(plan)) => {
             apply_storage_enclosure_dismantling_cancellation(state, plan);
+        }
+        Some(PlayerDeathEffectPlan::StructuralDismantling(plan)) => {
+            apply_structural_dismantling_cancellation(state, plan);
         }
         Some(PlayerDeathEffectPlan::ManualPower(plan)) => {
             apply_manual_power_interruption(state, plan);

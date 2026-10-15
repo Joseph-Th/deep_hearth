@@ -9,7 +9,7 @@ use crate::production::ProductionJobId;
 use super::{
     BlockExcavationWork, DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork,
     PlayerStepWork, ProspectingWork, StorageEnclosureDismantlingWork, StructuralConstructionWork,
-    SurfaceGatheringWork,
+    StructuralDismantlingWork, SurfaceGatheringWork,
 };
 
 /// Durable activity currently monopolizing the local player's labor.
@@ -52,6 +52,9 @@ pub enum PlayerWork {
     StructuralConstruction {
         work: StructuralConstructionWork,
     },
+    StructuralDismantling {
+        work: StructuralDismantlingWork,
+    },
 }
 
 impl PlayerWork {
@@ -70,7 +73,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => 0,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => 0,
         }
     }
 
@@ -90,7 +94,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => 0,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => 0,
         }
     }
 
@@ -109,7 +114,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => 0,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => 0,
         }
     }
 
@@ -123,6 +129,7 @@ impl PlayerWork {
             Self::SurfaceGathering { .. } => 1,
             Self::BlockExcavation { work } if work.output().carried_stockpile().is_some() => 1,
             Self::StorageEnclosureDismantling { .. } => 2,
+            Self::StructuralDismantling { .. } => 1,
             Self::Step { .. }
             | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
@@ -152,7 +159,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => 0,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => 0,
         }
     }
 
@@ -171,7 +179,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => 0,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => 0,
         }
     }
 
@@ -194,7 +203,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => 0,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => 0,
         }
     }
 
@@ -202,7 +212,7 @@ impl PlayerWork {
     #[must_use]
     pub(in crate::labor) const fn future_structure_revision_demand(self) -> u64 {
         match self {
-            Self::StructuralConstruction { .. } => 1,
+            Self::StructuralConstruction { .. } | Self::StructuralDismantling { .. } => 1,
             Self::Step { .. }
             | Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
@@ -231,7 +241,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => None,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 
@@ -249,7 +260,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => None,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 
@@ -267,9 +279,18 @@ impl PlayerWork {
                 Some((work.started_at(), work.completes_at()))
             }
             Self::StructuralConstruction { work } => Some((work.started_at(), work.completes_at())),
+            Self::StructuralDismantling { work } => Some((work.started_at(), work.completes_at())),
             Self::BlockExcavation { .. } | Self::ManualProduction { .. } | Self::Mining { .. } => {
                 None
             }
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn structural_dismantling(self) -> Option<StructuralDismantlingWork> {
+        match self {
+            Self::StructuralDismantling { work } => Some(work),
+            _ => None,
         }
     }
 
@@ -287,7 +308,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => None,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 
@@ -305,7 +327,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
-            | Self::StructuralConstruction { .. } => None,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 
@@ -323,7 +346,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => None,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 
@@ -341,7 +365,8 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
-            | Self::StorageEnclosureDismantling { .. } => None,
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 
@@ -359,7 +384,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => None,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 
@@ -377,7 +403,8 @@ impl PlayerWork {
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
             | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. } => None,
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 }

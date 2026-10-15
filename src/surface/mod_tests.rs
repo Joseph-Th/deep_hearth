@@ -600,6 +600,59 @@ fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
             .total(),
         matter_before.total()
     );
+
+    let dismantle_input = PlayerDirectControlInput::NEUTRAL.with_secondary(
+        SecondaryControlIntent::dismantle_structure(forward_down_view()),
+    );
+    let dismantling = loop {
+        let control =
+            advance_control_tick_with_direct_input(&registries, &mut state, dismantle_input)
+                .unwrap_or_else(|error| panic!("timber-post dismantling control failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::StructuralDismantlingStarted(start)) => break *start,
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            other => panic!("timber-post dismantling returned unexpected outcome: {other:?}"),
+        }
+    };
+    assert_eq!(dismantling.element(), element);
+    assert_eq!(dismantling.recovered_mass(), post_mass);
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::StructuralDismantling { work: active })
+            if active.element() == element
+    ));
+    assert!(state.structures().get_element(element).is_some());
+
+    let mut dismantling_completions = 0_u32;
+    while state.tick() < dismantling.completes_at() {
+        let control = advance_control_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("timber-post dismantling completion control failed: {error}")
+        });
+        if control.simulation().is_some_and(|outcome| {
+            outcome
+                .structural_dismantling()
+                .is_some_and(|completed| completed.element() == element)
+        }) {
+            dismantling_completions += 1;
+        }
+    }
+    assert_eq!(dismantling_completions, 1);
+    assert!(state.structures().get_element(element).is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(post_mass)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("timber-post recovery matter audit failed: {error}"))
+            .total(),
+        matter_before.total()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

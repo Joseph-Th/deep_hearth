@@ -17,6 +17,7 @@ use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::structural::{
     GroundedStructuralElementPlan, StructuralElementGeometry, StructuralLifecycle,
     validate_start_player_grounded_structural_construction_from_stack,
+    validate_start_player_structural_dismantling,
 };
 use deep_hearth::surface::validate_start_player_surface_gathering;
 
@@ -171,6 +172,49 @@ fn ordinary_player_gathers_timber_and_starts_grounded_member_from_visible_stack(
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("construction-gesture matter audit failed: {error}"))
+            .total(),
+        matter_before.total()
+    );
+
+    let dismantling = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap_or_else(|error| panic!("construction-gesture dismantling failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("construction-gesture dismantling commit failed: {error}"));
+    assert_eq!(dismantling.element(), element);
+    assert_eq!(dismantling.recovered_mass(), MEMBER_MASS);
+    assert!(state.structures().get_element(element).is_some());
+    while state.tick() < dismantling.completes_at() {
+        let outcome = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("construction-gesture dismantling tick failed: {error}")
+        });
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                structural_dismantling: Some(element),
+                ..TickEventAllowance::default()
+            },
+            "construction gesture dismantling",
+        );
+    }
+    assert!(state.structures().get_element(element).is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.get_mass(timber)),
+        Some(MEMBER_MASS)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!(
+                "construction-gesture recovery matter audit failed: {error}"
+            ))
             .total(),
         matter_before.total()
     );

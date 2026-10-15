@@ -16,13 +16,14 @@ use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{
-    GroundedStructuralElementPlan, StructuralElementGeometry,
+    GroundedStructuralElementPlan, StructuralElementGeometry, StructuralElementId,
     validate_start_player_grounded_structural_construction_from_stack,
+    validate_start_player_structural_dismantling,
 };
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
 use crate::survival::validate_eat_stack_to_full;
 use crate::world::{
-    BlockStateId, PlayerBlockTargetError, raycast_player_block,
+    BlockStateId, PlayerBlockTargetError, raycast_player_air_voxel, raycast_player_block,
     validate_start_player_block_excavation_active,
 };
 
@@ -165,6 +166,73 @@ fn attempt_secondary_action(
                 Err(error) => SecondaryActionOutcome::EatingRejected(error),
             })
         }
+        SecondaryControlIntent::DismantleStructure { direction } => {
+            Some(attempt_structural_dismantling(registries, state, direction))
+        }
+    }
+}
+
+enum DirectStructuralTargetError {
+    Target(PlayerBlockTargetError),
+    NoTarget,
+    Ambiguous { count: usize },
+}
+
+fn resolve_direct_structural_target(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+) -> Result<StructuralElementId, DirectStructuralTargetError> {
+    let target = raycast_player_air_voxel(registries, state, direction, |voxel| {
+        let mut elements = state
+            .structures()
+            .elements()
+            .filter(|record| record.bounds().has_voxel(voxel))
+            .map(|record| record.id());
+        let first = elements.next()?;
+        let count = 1 + elements.count();
+        Some(if count == 1 { Ok(first) } else { Err(count) })
+    })
+    .map_err(DirectStructuralTargetError::Target)?
+    .ok_or(DirectStructuralTargetError::NoTarget)?;
+    target.map_err(|count| DirectStructuralTargetError::Ambiguous { count })
+}
+
+fn attempt_structural_dismantling(
+    registries: &Registries,
+    state: &mut AppState,
+    direction: ViewDirection,
+) -> SecondaryActionOutcome {
+    if !state.control_tick().is_simulation_boundary() {
+        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+    }
+    let element = match resolve_direct_structural_target(registries, state, direction) {
+        Ok(element) => element,
+        Err(DirectStructuralTargetError::Target(error)) => {
+            return SecondaryActionOutcome::StructuralDismantlingTargetRejected(error);
+        }
+        Err(DirectStructuralTargetError::NoTarget) => {
+            return SecondaryActionOutcome::NoStructuralDismantlingTarget;
+        }
+        Err(DirectStructuralTargetError::Ambiguous { count }) => {
+            return SecondaryActionOutcome::AmbiguousStructuralDismantlingTarget { count };
+        }
+    };
+    match validate_start_player_structural_dismantling(
+        registries,
+        state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    ) {
+        Ok(validated) => {
+            let outcome = validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous structural dismantling became stale: {error}"
+                )
+            });
+            SecondaryActionOutcome::StructuralDismantlingStarted(outcome)
+        }
+        Err(error) => SecondaryActionOutcome::StructuralDismantlingRejected(error),
     }
 }
 

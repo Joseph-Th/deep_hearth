@@ -200,8 +200,137 @@ pub(crate) fn validate_loaded_player_work(
             available_energy,
             available_hydration,
         ),
+        PlayerWork::StructuralDismantling { work } => validate_structural_dismantling_work(
+            registries,
+            state,
+            &active_jobs,
+            work,
+            available_energy,
+            available_hydration,
+        ),
     }?;
     validate_direct_consumption_binding(state, Some(work))
+}
+
+fn validate_structural_dismantling_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    work: crate::labor::StructuralDismantlingWork,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    if active_jobs.has_any() {
+        return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+    }
+    let method = registries
+        .labor()
+        .get_structural_construction(work.method())
+        .copied()
+        .ok_or(PlayerWorkValidationError::StructuralDismantlingMethodMissing)?;
+    let player = state
+        .logistics()
+        .player()
+        .copied()
+        .ok_or(PlayerWorkValidationError::StructuralDismantlingElementNotLocal)?;
+    let record = state
+        .structures()
+        .get_element(work.element())
+        .ok_or(PlayerWorkValidationError::StructuralDismantlingElementMissing)?;
+    if !record.is_grounded() {
+        return Err(PlayerWorkValidationError::StructuralDismantlingElementNotGrounded);
+    }
+    if record.embodied_mass().is_zero()
+        || !matches!(
+            record.lifecycle(),
+            StructuralLifecycle::Active | StructuralLifecycle::Failed
+        )
+    {
+        return Err(PlayerWorkValidationError::StructuralDismantlingElementNotRecoverable);
+    }
+    if !bounds_are_local(record.bounds(), player.position()) {
+        return Err(PlayerWorkValidationError::StructuralDismantlingElementNotLocal);
+    }
+    if state
+        .structures()
+        .supports(work.element())
+        .is_some_and(|mut supports| supports.next().is_some())
+    {
+        return Err(PlayerWorkValidationError::StructuralDismantlingElementHasSupports);
+    }
+    if state.structures().elements().any(|candidate| {
+        candidate.id() != work.element()
+            && state
+                .structures()
+                .supports(candidate.id())
+                .is_some_and(|supports| {
+                    supports
+                        .into_iter()
+                        .any(|support| support == work.element())
+                })
+    }) {
+        return Err(PlayerWorkValidationError::StructuralDismantlingElementHasDependents);
+    }
+    if record.loads().any(|(kind, load)| {
+        kind != crate::structural::StructuralLoadKind::SelfWeight && !load.is_zero()
+    }) {
+        return Err(PlayerWorkValidationError::StructuralDismantlingElementHasExternalLoad);
+    }
+    if state
+        .equipment()
+        .supported_equipment(work.element())
+        .next()
+        .is_some()
+        || state
+            .inventory()
+            .supported_stockpiles(work.element())
+            .next()
+            .is_some()
+        || state
+            .fluid()
+            .supported_stores(work.element())
+            .next()
+            .is_some()
+    {
+        return Err(PlayerWorkValidationError::StructuralDismantlingElementSupportsResource);
+    }
+    if work.recovery_destination() != player.carried_stockpile()
+        || work.recovered_mass() != record.embodied_mass()
+    {
+        return Err(PlayerWorkValidationError::StructuralDismantlingRecoveryMismatch);
+    }
+    let recovery = state
+        .inventory()
+        .get_stockpile(work.recovery_destination())
+        .ok_or(PlayerWorkValidationError::StructuralDismantlingRecoveryMismatch)?;
+    if recovery.reserved_inbound() < work.recovered_mass() {
+        return Err(PlayerWorkValidationError::StructuralDismantlingRecoveryReservationMissing);
+    }
+    let trace_count = u64::try_from(record.embodied_material().len())
+        .unwrap_or_else(|_| unreachable!("resident structural trace count fits u64"));
+    if work.recovery_parcels() != trace_count {
+        return Err(PlayerWorkValidationError::StructuralDismantlingLotDemandMismatch);
+    }
+    let schedule =
+        project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
+            .ok_or(PlayerWorkValidationError::StructuralDismantlingScheduleInvalid)?;
+    if method.duration_for_mass(work.recovered_mass()) != Some(schedule.duration) {
+        return Err(PlayerWorkValidationError::StructuralDismantlingDurationMismatch);
+    }
+    if !state.can_spend_inventory_revisions(0) {
+        return Err(PlayerWorkValidationError::StructuralDismantlingInventoryRevisionExhausted);
+    }
+    if !state.can_spend_structure_revisions(0) {
+        return Err(PlayerWorkValidationError::StructuralDismantlingStructureRevisionExhausted);
+    }
+    validate_remaining_resources(
+        registries,
+        state,
+        available_energy,
+        available_hydration,
+        method.exertion(),
+        schedule.remaining,
+    )
 }
 
 fn validate_player_step_work(

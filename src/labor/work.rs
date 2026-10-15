@@ -10,6 +10,7 @@ mod player;
 mod prospecting;
 mod storage_dismantling;
 mod structural_construction;
+mod structural_dismantling;
 
 pub use block_excavation::{BlockExcavationOutputCustody, BlockExcavationWork};
 pub use consumption::{DrinkingWork, EatingWork};
@@ -21,3 +22,4 @@ pub use player::PlayerWork;
 pub use prospecting::ProspectingWork;
 pub use storage_dismantling::StorageEnclosureDismantlingWork;
 pub use structural_construction::StructuralConstructionWork;
+pub use structural_dismantling::StructuralDismantlingWork;

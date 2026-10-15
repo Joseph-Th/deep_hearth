@@ -158,6 +158,13 @@ pub(crate) fn player_work_exertion(
                 panic!("runtime invariant broken: structural construction has no authored method")
             })
             .exertion(),
+        PlayerWork::StructuralDismantling { work } => registries
+            .labor()
+            .get_structural_construction(work.method())
+            .unwrap_or_else(|| {
+                panic!("runtime invariant broken: structural dismantling has no authored method")
+            })
+            .exertion(),
         PlayerWork::Eating { work: _ } | PlayerWork::Drinking { work: _ } => SurvivalExertion::REST,
     }
 }

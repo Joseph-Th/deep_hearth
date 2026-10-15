@@ -33,7 +33,7 @@ use crate::logistics::{
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
 use crate::registry::Registries;
-use crate::structural::apply_structural_construction_tick;
+use crate::structural::{apply_structural_construction_tick, apply_structural_dismantling_tick};
 use crate::surface::{
     apply_automatic_surface_drop_pickup, apply_surface_gathering_tick,
     decide_automatic_surface_drop_pickup,
@@ -50,7 +50,8 @@ use crate::world::{
 use direct_actions::attempt_direct_actions;
 use planning::{
     decide_automatic_mining_output, decide_storage_dismantling_after_completions,
-    decide_structural_construction_after_completions, decide_surface_gathering_after_completions,
+    decide_structural_construction_after_completions,
+    decide_structural_dismantling_after_completions, decide_surface_gathering_after_completions,
     require_revision_capacity,
 };
 use player_death::{apply_player_death_effects, decide_player_death_effects};
@@ -265,6 +266,12 @@ fn advance_simulation_tick(
         &completion_plan,
         next_tick,
     );
+    let structural_dismantling_plan = decide_structural_dismantling_after_completions(
+        registries,
+        state,
+        &completion_plan,
+        next_tick,
+    )?;
     let surface_gathering_plan =
         decide_surface_gathering_after_completions(registries, state, &completion_plan, next_tick)?;
     let storage_enclosure_dismantling_plan = decide_storage_dismantling_after_completions(
@@ -368,6 +375,7 @@ fn advance_simulation_tick(
             .is_some_and(|plan| plan.mutates_inventory())
         || surface_gathering_plan.is_some()
         || storage_enclosure_dismantling_plan.is_some()
+        || structural_dismantling_plan.is_some()
         || player_death_effects
             .as_ref()
             .is_some_and(|plan| plan.mutates_inventory());
@@ -377,7 +385,7 @@ fn advance_simulation_tick(
         next_tick,
         mining_plan,
         inventory_owner_busy,
-        structural_construction_plan.is_some(),
+        structural_construction_plan.is_some() || structural_dismantling_plan.is_some(),
     )?;
     require_revision_capacity(
         state.equipment().revision(),
@@ -416,6 +424,8 @@ fn advance_simulation_tick(
     } = apply_completion_plan(state, completion_plan)?;
     let structural_construction =
         apply_structural_construction_tick(state, structural_construction_plan);
+    let structural_dismantling =
+        apply_structural_dismantling_tick(state, structural_dismantling_plan);
     let block_excavation = apply_block_excavation_tick(registries, state, block_excavation_plan);
     let _completed_mining_job = apply_mining_tick(state, mining_plan);
     let mining_output =
@@ -447,6 +457,7 @@ fn advance_simulation_tick(
         equipment_maintenance,
         storage_enclosure_dismantling,
         structural_construction,
+        structural_dismantling,
         field_prospecting,
         survival,
     })

@@ -194,7 +194,6 @@ impl StructureState {
         );
     }
 
-    #[cfg(test)]
     pub(super) fn remove_element(&mut self, element: StructuralElementId) {
         let supports = self
             .supports_by_element

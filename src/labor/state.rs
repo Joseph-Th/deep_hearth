@@ -9,7 +9,8 @@ use crate::inventory::{InventoryState, StockpileId};
 
 use super::work::{
     BlockExcavationWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
-    StorageEnclosureDismantlingWork, StructuralConstructionWork, SurfaceGatheringWork,
+    StorageEnclosureDismantlingWork, StructuralConstructionWork, StructuralDismantlingWork,
+    SurfaceGatheringWork,
 };
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
@@ -27,6 +28,17 @@ impl PlayerWorkState {
             revision: 0,
             active: None,
         }
+    }
+
+    /// Returns admitted structural-dismantling work that completes on `tick`, if any.
+    #[must_use]
+    pub(crate) fn structural_dismantling_due_at(
+        &self,
+        tick: SimulationTick,
+    ) -> Option<StructuralDismantlingWork> {
+        self.active
+            .and_then(PlayerWork::structural_dismantling)
+            .filter(|work| work.completes_at() == tick)
     }
 
     #[must_use]
@@ -137,6 +149,9 @@ impl PlayerWorkState {
             .is_some_and(|work| work.output().carried_stockpile().is_some())
         {
             return 1;
+        }
+        if let Some(work) = self.active.and_then(PlayerWork::structural_dismantling) {
+            return work.recovery_parcels();
         }
         let Some(work) = self.active.and_then(PlayerWork::storage_dismantling) else {
             return 0;

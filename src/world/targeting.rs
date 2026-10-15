@@ -86,6 +86,58 @@ pub fn raycast_player_block(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<Option<PlayerBlockTarget>, PlayerBlockTargetError> {
+    let (origin, reach_nanometers) = player_view_origin_and_reach(registries, state)?;
+    trace_generated_voxels(
+        registries,
+        state,
+        origin,
+        direction,
+        reach_nanometers,
+        |voxel, block_state, face| {
+            if targetable_full_cube(registries, block_state) {
+                VoxelTraceStep::Hit(PlayerBlockTarget {
+                    voxel,
+                    state: block_state,
+                    face,
+                })
+            } else {
+                VoxelTraceStep::Continue
+            }
+        },
+    )
+}
+
+/// Visits visible non-solid voxels under the same admitted-player eye ray and reach as block
+/// targeting, stopping at the first full-cube terrain blocker.
+///
+/// This is deliberately crate-private. World owns sight-line authority and missing-chunk behavior;
+/// higher-level interaction owners may inspect only the traversed air voxels for their own targets.
+pub(crate) fn raycast_player_air_voxel<T>(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+    mut select: impl FnMut(VoxelCoord) -> Option<T>,
+) -> Result<Option<T>, PlayerBlockTargetError> {
+    let (origin, reach_nanometers) = player_view_origin_and_reach(registries, state)?;
+    trace_generated_voxels(
+        registries,
+        state,
+        origin,
+        direction,
+        reach_nanometers,
+        |voxel, block_state, _face| {
+            if targetable_full_cube(registries, block_state) {
+                return VoxelTraceStep::Blocked;
+            }
+            select(voxel).map_or(VoxelTraceStep::Continue, VoxelTraceStep::Hit)
+        },
+    )
+}
+
+fn player_view_origin_and_reach(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(WorldPoint, i64), PlayerBlockTargetError> {
     if player_admission_state(state) != PlayerAdmissionState::Admitted {
         return Err(PlayerBlockTargetError::PlayerNotAdmitted);
     }
@@ -106,7 +158,7 @@ pub fn raycast_player_block(
             .ok_or(PlayerBlockTargetError::EyeCoordinateOverflow)?,
     )
     .map_err(|_| PlayerBlockTargetError::EyeCoordinateOverflow)?;
-    trace_generated_full_cubes(registries, state, origin, direction, reach_nanometers)
+    Ok((origin, reach_nanometers))
 }
 
 fn player_eye_origin(
@@ -131,13 +183,20 @@ fn player_eye_origin(
     Ok(WorldPoint::new(foot.x_nanometers(), y, foot.z_nanometers()))
 }
 
-fn trace_generated_full_cubes(
+enum VoxelTraceStep<T> {
+    Continue,
+    Hit(T),
+    Blocked,
+}
+
+fn trace_generated_voxels<T>(
     registries: &Registries,
     state: &AppState,
     origin: WorldPoint,
     direction: ViewDirection,
     reach_nanometers: i64,
-) -> Result<Option<PlayerBlockTarget>, PlayerBlockTargetError> {
+    mut inspect: impl FnMut(VoxelCoord, BlockStateId, CubeFace) -> VoxelTraceStep<T>,
+) -> Result<Option<T>, PlayerBlockTargetError> {
     let mut voxel = origin.containing_voxel();
     let start_state = state
         .world()
@@ -204,12 +263,10 @@ fn trace_generated_full_cubes(
             .world()
             .block_at(voxel)
             .ok_or(PlayerBlockTargetError::WorldAuthorityUnavailable { voxel })?;
-        if targetable_full_cube(registries, block_state) {
-            return Ok(Some(PlayerBlockTarget {
-                voxel,
-                state: block_state,
-                face,
-            }));
+        match inspect(voxel, block_state, face) {
+            VoxelTraceStep::Continue => {}
+            VoxelTraceStep::Hit(target) => return Ok(Some(target)),
+            VoxelTraceStep::Blocked => return Ok(None),
         }
     }
 }

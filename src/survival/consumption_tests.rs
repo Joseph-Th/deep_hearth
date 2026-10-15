@@ -466,7 +466,8 @@ fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u
         | PlayerWork::Prospecting { .. }
         | PlayerWork::EquipmentMaintenance { .. }
         | PlayerWork::StorageEnclosureDismantling { .. }
-        | PlayerWork::StructuralConstruction { .. }) => {
+        | PlayerWork::StructuralConstruction { .. }
+        | PlayerWork::StructuralDismantling { .. }) => {
             panic!("direct-consumption test has wrong active work: {other:?}")
         }
     };

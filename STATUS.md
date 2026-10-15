@@ -29,7 +29,7 @@ Current graph boundaries, not priorities:
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
 | Generated world + body + targeting + excavation | Inventory/container/crafting UI gestures, plus general placement, residency, richer contact, and remote discovery. |
-| Structural physics | Non-grounded construction, joints/panels, deconstruction/salvage, and terrain support. |
+| Structural physics | Non-grounded construction, joints/panels, dependent/cascading demolition, and terrain support. |
 | Equipment maintenance | Maintenance tools and service-site transport. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
 | Finite fluid stores | Routed transport, pumping, mixing, and pressure networks. |
@@ -52,7 +52,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Loose surface matter | Finite gathering/drop custody; exact-local drop projection; partial capacity-filling auto-pickup; natural opportunities stay deliberate. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
-| Structures | Support/load/failure plus atomic carried-stack hand-setting and top-face timber-post use. |
+| Structures | Support/load/failure; stack-based hand-setting/posts; timed exact-matter recovery of isolated grounded members. |
 | Block world | Mass-backed chunks, demand, collision, 4.5 m targeting, 20 Hz excavation, conserved fragments, selected use/drop, storage/post placement, and inventory/hotbar shell. Adapter UI, general placement, richer shapes, and residency remain absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
@@ -76,7 +76,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Logistics | General access generation, routing/haulage/transport, remote acquisition, adapter inventory UI, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, general combustion/fuel chemistry/emissions, mixed/alloy phases, reduction/smelting, alloying, forging, machining, and broad recycling. The campfire is not a general combustion or atmospheric model. |
-| Maintenance/structures | Maintenance tools, construction/deconstruction/salvage, bending, shear, torsion, buckling, joints/panels, and terrain support. |
+| Maintenance/structures | Maintenance tools, broader shapes, cascade demolition/salvage loss, bending/shear/torsion/buckling, joints/panels, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, and pressure-dependent behavior. |
 | Ecology and society | Agriculture, soil/ecology/genetics, creatures, hunting/combat, workers, settlements, trade, economy, and migration. |

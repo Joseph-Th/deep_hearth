@@ -17,6 +17,7 @@ pub(super) struct TickEventAllowance<'a> {
     pub(super) equipment_maintenance: bool,
     pub(super) storage_enclosure_dismantling: bool,
     pub(super) structural_construction: Option<StructuralElementId>,
+    pub(super) structural_dismantling: Option<StructuralElementId>,
     pub(super) field_prospecting: bool,
 }
 
@@ -39,6 +40,7 @@ pub(super) fn assert_tick_events_within(
         outcome.equipment_maintenance().is_some(),
         outcome.storage_enclosure_dismantling().is_some(),
         outcome.structural_construction().is_some(),
+        outcome.structural_dismantling().is_some(),
         outcome.field_prospecting().is_some(),
     ]
     .into_iter()
@@ -132,6 +134,12 @@ fn assert_player_work_events_within(
             .structural_construction()
             .is_none_or(|element| allowance.structural_construction == Some(element)),
         "gameplay harness {context} crossed unrelated structural-construction work"
+    );
+    assert!(
+        outcome
+            .structural_dismantling()
+            .is_none_or(|completed| allowance.structural_dismantling == Some(completed.element())),
+        "gameplay harness {context} crossed unrelated structural-dismantling work"
     );
     assert!(
         allowance.field_prospecting || outcome.field_prospecting().is_none(),

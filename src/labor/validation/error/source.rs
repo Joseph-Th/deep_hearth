@@ -160,6 +160,22 @@ impl Error for PlayerWorkValidationError {
             | Self::StructuralConstructionScheduleInvalid
             | Self::StructuralConstructionDurationMismatch
             | Self::StructuralConstructionRevisionExhausted
+            | Self::StructuralDismantlingMethodMissing
+            | Self::StructuralDismantlingElementMissing
+            | Self::StructuralDismantlingElementNotGrounded
+            | Self::StructuralDismantlingElementNotRecoverable
+            | Self::StructuralDismantlingElementNotLocal
+            | Self::StructuralDismantlingElementHasSupports
+            | Self::StructuralDismantlingElementHasDependents
+            | Self::StructuralDismantlingElementHasExternalLoad
+            | Self::StructuralDismantlingElementSupportsResource
+            | Self::StructuralDismantlingRecoveryMismatch
+            | Self::StructuralDismantlingRecoveryReservationMissing
+            | Self::StructuralDismantlingScheduleInvalid
+            | Self::StructuralDismantlingDurationMismatch
+            | Self::StructuralDismantlingLotDemandMismatch
+            | Self::StructuralDismantlingInventoryRevisionExhausted
+            | Self::StructuralDismantlingStructureRevisionExhausted
             | Self::PendingDirectConsumptionWithoutWork
             | Self::EatingConsumptionMissing
             | Self::EatingConsumptionMismatch

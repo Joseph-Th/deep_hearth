@@ -11,7 +11,10 @@ use crate::mining::{
 };
 use crate::production::CompletionPlan;
 use crate::registry::Registries;
-use crate::structural::{StructuralConstructionTickPlan, decide_structural_construction_tick};
+use crate::structural::{
+    StructuralConstructionTickPlan, StructuralDismantlingTickPlan,
+    decide_structural_construction_tick, decide_structural_dismantling_tick,
+};
 use crate::surface::{SurfaceGatheringTickPlan, decide_surface_gathering_tick};
 
 use super::TickError;
@@ -27,6 +30,31 @@ pub(super) fn decide_structural_construction_after_completions(
         .structural_construction_due_at(next_tick)?;
     let projected_structures = completion_plan.project_structures_after_load(state.structures());
     decide_structural_construction_tick(registries, state, projected_structures.as_ref(), next_tick)
+}
+
+pub(super) fn decide_structural_dismantling_after_completions(
+    registries: &Registries,
+    state: &AppState,
+    completion_plan: &CompletionPlan,
+    next_tick: SimulationTick,
+) -> Result<Option<StructuralDismantlingTickPlan>, TickError> {
+    if state
+        .player_work()
+        .structural_dismantling_due_at(next_tick)
+        .is_none()
+    {
+        return Ok(None);
+    }
+    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
+    let projected_structures = completion_plan.project_structures_after_load(state.structures());
+    decide_structural_dismantling_tick(
+        registries,
+        state,
+        projected_inventory.as_ref(),
+        projected_structures.as_ref(),
+        next_tick,
+    )
+    .map_err(Into::into)
 }
 
 pub(super) fn decide_surface_gathering_after_completions(

@@ -3,6 +3,7 @@
 mod analysis;
 mod construction_execution;
 mod definitions;
+mod dismantling;
 mod element_execution;
 mod geometry;
 mod load;
@@ -23,6 +24,17 @@ pub use analysis::{
 pub use definitions::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileDefinition,
     StructuralProfileId, StructuralRegistry,
+};
+pub use dismantling::{
+    PlayerStructuralDismantlingCommitError, PlayerStructuralDismantlingError,
+    StructuralDismantlingOutcome, StructuralDismantlingStartOutcome,
+    ValidatedPlayerStructuralDismantlingStart, validate_start_player_structural_dismantling,
+};
+pub(crate) use dismantling::{
+    StructuralDismantlingCancellationPlan, StructuralDismantlingTickError,
+    StructuralDismantlingTickPlan, apply_structural_dismantling_cancellation,
+    apply_structural_dismantling_tick, decide_structural_dismantling_cancellation,
+    decide_structural_dismantling_tick,
 };
 pub use geometry::{
     StructuralGeometryError, calculate_prismatic_material_mass_ceiling,

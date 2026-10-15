@@ -41,6 +41,9 @@ pub(super) fn validate_reserved_inbound(
     if let Some(PlayerWork::StorageEnclosureDismantling { work }) = state.player_work().active() {
         expected.add(work.recovery_destination(), work.recovered_mass())?;
     }
+    if let Some(PlayerWork::StructuralDismantling { work }) = state.player_work().active() {
+        expected.add(work.recovery_destination(), work.recovered_mass())?;
+    }
     if let Some(PlayerWork::SurfaceGathering { work }) = state.player_work().active() {
         expected.add(work.destination(), work.gathered_mass())?;
     }

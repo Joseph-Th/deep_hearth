@@ -494,6 +494,51 @@ impl Display for PlayerWorkValidationError {
             Self::StructuralConstructionRevisionExhausted => formatter.write_str(
                 "active structural construction cannot reserve its activation revision",
             ),
+            Self::StructuralDismantlingMethodMissing => formatter
+                .write_str("structural dismantling work references a missing authored method"),
+            Self::StructuralDismantlingElementMissing => formatter
+                .write_str("structural dismantling work references a missing member"),
+            Self::StructuralDismantlingElementNotGrounded => formatter.write_str(
+                "ordinary structural dismantling currently requires a grounded member",
+            ),
+            Self::StructuralDismantlingElementNotRecoverable => formatter.write_str(
+                "structural dismantling requires an embodied active or failed member",
+            ),
+            Self::StructuralDismantlingElementNotLocal => formatter.write_str(
+                "structural dismantling member is no longer local to the player",
+            ),
+            Self::StructuralDismantlingElementHasSupports => formatter.write_str(
+                "simple structural dismantling cannot remove a member attached to supports",
+            ),
+            Self::StructuralDismantlingElementHasDependents => formatter.write_str(
+                "simple structural dismantling cannot remove a member supporting other members",
+            ),
+            Self::StructuralDismantlingElementHasExternalLoad => formatter.write_str(
+                "simple structural dismantling cannot remove a member carrying external load",
+            ),
+            Self::StructuralDismantlingElementSupportsResource => formatter.write_str(
+                "simple structural dismantling cannot remove a member supporting mounted resources",
+            ),
+            Self::StructuralDismantlingRecoveryMismatch => formatter.write_str(
+                "structural dismantling recovery custody no longer matches the player or member matter",
+            ),
+            Self::StructuralDismantlingRecoveryReservationMissing => formatter.write_str(
+                "structural dismantling recovery capacity reservation is missing",
+            ),
+            Self::StructuralDismantlingScheduleInvalid => formatter
+                .write_str("structural dismantling work has an invalid persisted schedule"),
+            Self::StructuralDismantlingDurationMismatch => formatter.write_str(
+                "structural dismantling duration disagrees with the authored labor method",
+            ),
+            Self::StructuralDismantlingLotDemandMismatch => formatter.write_str(
+                "structural dismantling recovery parcel count disagrees with embodied material traces",
+            ),
+            Self::StructuralDismantlingInventoryRevisionExhausted => formatter.write_str(
+                "active structural dismantling cannot reserve its recovery inventory revision",
+            ),
+            Self::StructuralDismantlingStructureRevisionExhausted => formatter.write_str(
+                "active structural dismantling cannot reserve its member-removal revision",
+            ),
             Self::PendingDirectConsumptionWithoutWork => formatter.write_str(
                 "pending direct consumption exists without matching eating or drinking work",
             ),

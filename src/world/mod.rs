@@ -34,6 +34,7 @@ pub use state::{
     CHUNK_SIDE, ChunkCoord, SECTION_CELL_COUNT, SECTION_SIDE, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
     WorldChunk, WorldSection, WorldState,
 };
+pub(crate) use targeting::raycast_player_air_voxel;
 pub use targeting::{PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
 pub use validation::{WorldValidationError, validate_loaded_world};
 

@@ -13,12 +13,18 @@ pub enum PrimaryControlIntent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SecondaryControlIntent {
     UseActive { direction: ViewDirection },
+    DismantleStructure { direction: ViewDirection },
 }
 
 impl SecondaryControlIntent {
     #[must_use]
     pub const fn use_active(direction: ViewDirection) -> Self {
         Self::UseActive { direction }
+    }
+
+    #[must_use]
+    pub const fn dismantle_structure(direction: ViewDirection) -> Self {
+        Self::DismantleStructure { direction }
     }
 }
 

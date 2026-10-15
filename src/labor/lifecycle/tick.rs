@@ -208,6 +208,7 @@ fn active_work_releases_now(
         PlayerWork::EquipmentMaintenance { work } => work.completes_at() == next_tick,
         PlayerWork::StorageEnclosureDismantling { work } => work.completes_at() == next_tick,
         PlayerWork::StructuralConstruction { work } => work.completes_at() == next_tick,
+        PlayerWork::StructuralDismantling { work } => work.completes_at() == next_tick,
     }
 }
 

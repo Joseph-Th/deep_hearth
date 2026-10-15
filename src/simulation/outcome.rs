@@ -15,7 +15,10 @@ use crate::logistics::{
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
 use crate::spatial::{CubeFace, VoxelCoord};
-use crate::structural::{PlayerGroundedStructuralConstructionError, StructuralElementId};
+use crate::structural::{
+    PlayerGroundedStructuralConstructionError, PlayerStructuralDismantlingError,
+    StructuralDismantlingOutcome, StructuralDismantlingStartOutcome, StructuralElementId,
+};
 use crate::surface::{
     PlayerMaterialDropError, PlayerMaterialDropOutcome, SurfaceDropPickupOutcome,
     SurfaceGatheringOutcome,
@@ -51,6 +54,13 @@ pub enum QuickAccessSelectionOutcome {
 pub enum SecondaryActionOutcome {
     EatingStarted(EatOutcome),
     StructuralConstructionStarted(StructuralConstructionWork),
+    StructuralDismantlingStarted(StructuralDismantlingStartOutcome),
+    StructuralDismantlingRejected(PlayerStructuralDismantlingError),
+    StructuralDismantlingTargetRejected(PlayerBlockTargetError),
+    NoStructuralDismantlingTarget,
+    AmbiguousStructuralDismantlingTarget {
+        count: usize,
+    },
     StoragePlaced {
         definition: StorageDefinitionId,
         stockpile: StockpileId,
@@ -260,6 +270,7 @@ pub struct TickOutcome {
     pub(super) equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
     pub(super) storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
     pub(super) structural_construction: Option<StructuralElementId>,
+    pub(super) structural_dismantling: Option<StructuralDismantlingOutcome>,
     pub(super) field_prospecting: Option<FieldProspectingOutcome>,
     pub(super) survival: Option<SurvivalAssessment>,
 }
@@ -332,6 +343,12 @@ impl TickOutcome {
         self.structural_construction
     }
 
+    /// Returns the structural member and exact recovered lots dismantled this tick, if any.
+    #[must_use]
+    pub const fn structural_dismantling(&self) -> Option<&StructuralDismantlingOutcome> {
+        self.structural_dismantling.as_ref()
+    }
+
     /// Returns the geological observation acquired by field prospecting on this tick, if any.
     #[must_use]
     pub const fn field_prospecting(&self) -> Option<FieldProspectingOutcome> {
@@ -363,6 +380,7 @@ impl TickOutcome {
             equipment_maintenance,
             storage_enclosure_dismantling,
             structural_construction,
+            structural_dismantling,
             field_prospecting,
             survival: _,
         } = self;
@@ -377,6 +395,7 @@ impl TickOutcome {
             equipment_maintenance.is_some(),
             storage_enclosure_dismantling.is_some(),
             structural_construction.is_some(),
+            structural_dismantling.is_some(),
             field_prospecting.is_some(),
         ]
         .into_iter()

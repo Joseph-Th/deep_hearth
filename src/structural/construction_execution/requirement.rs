@@ -1,25 +1,35 @@
 //! Geometry-derived material requirement for controlled structural materialization.
 
+#[cfg(any(test, feature = "test-gameplay"))]
 use std::error::Error;
+#[cfg(any(test, feature = "test-gameplay"))]
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::core::state::AppState;
-use crate::material::{MaterialId, MaterialRegistry};
+#[cfg(any(test, feature = "test-gameplay"))]
+use crate::material::MaterialId;
+use crate::material::MaterialRegistry;
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::registry::Registries;
 
 use super::super::geometry::{StructuralGeometryError, calculate_prismatic_material_mass_ceiling};
-use super::super::state::{StructuralElementId, StructuralElementRecord};
+#[cfg(any(test, feature = "test-gameplay"))]
+use super::super::state::StructuralElementId;
+use super::super::state::StructuralElementRecord;
 
 /// Read-only physical material requirement for one prismatic structural member.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) struct StructuralMaterialRequirement {
     element: StructuralElementId,
     material: MaterialId,
     required_mass: Mass,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl StructuralMaterialRequirement {
     #[must_use]
     #[cfg(test)]
@@ -41,6 +51,7 @@ impl StructuralMaterialRequirement {
 
 /// Failure while deriving a member's physical solid-material requirement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) enum StructuralMaterialRequirementError {
     UnknownElement {
         element: StructuralElementId,
@@ -51,6 +62,7 @@ pub(crate) enum StructuralMaterialRequirementError {
     },
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for StructuralMaterialRequirementError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -66,6 +78,7 @@ impl Display for StructuralMaterialRequirementError {
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for StructuralMaterialRequirementError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -91,6 +104,7 @@ pub(crate) fn resolve_required_mass(
 }
 
 /// Derives conservative solid volume and exact milligram ownership from member geometry and density.
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn resolve_structural_material_requirement(
     registries: &Registries,
     state: &AppState,

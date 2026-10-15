@@ -68,8 +68,9 @@ Foundational blockers:
   commodity, while an explicit projected stack can select among visible freshness cohorts without exposing lot IDs;
   secondary use can also place an authored finished storage object into generated air adjacent to the pointed face, with body/object
   overlap rejection; an unambiguous carried wood-log stack can likewise set one authored timber post on the top face
-  of adjacent generated terrain through atomic timed hand-setting. Side-supported shapes, general terrain placement,
-  broader interact semantics, and adapter feedback remain absent;
+  of adjacent generated terrain through atomic timed hand-setting. A distinct pointed structural interaction can
+  recover that isolated one-voxel grounded member through timed work and exact embodied-matter salvage. Side-supported
+  shapes, dependent/cascading demolition, general terrain placement, broader interact semantics, and adapter feedback remain absent;
 - no generic dropped-item world entity or rendered container UI shell; logistics now persists a nine-slot semantic
   hotbar and inventory exposes one carried/local-container projection; familiar material stacks preserve meaningful
   physical/freshness boundaries and can drive partial same-voxel storage transfer without exposing lot IDs; selected carried material
@@ -445,7 +446,7 @@ stronger structural owner. The parity challenge is to make that depth compatible
 | Structural failure | Most Minecraft blocks never fail by load | Support/load/failure physics | `PARITY+` | This is a major differentiator. Keep failure readable and recoverable. |
 | Terrain support | Terrain implicitly supports blocks | Terrain support absent | `GAP-P0` | World terrain must contribute structural support before structures can integrate with actual ground. |
 | Joints/panels | Block adjacency usually implies connection | Joints/panels absent | `GAP-P1` | Add explicit connection semantics where material/geometry needs them; ordinary masonry/block contact can use simple defaults. |
-| Deconstruction | Break block and get drops | General structural deconstruction absent | `GAP-P1` | Primary break action must dismantle placed structures with salvage/yield consequences. |
+| Deconstruction | Break block and get drops | A distinct pointed interaction can dismantle one isolated local grounded member through timed work and recover its exact embodied matter; dependents, cascading demolition, salvage loss, and primary-break binding remain absent | `GAP-P1` shell | Extend the familiar break/recovery gesture across supported assemblies with explicit salvage/yield consequences rather than instant deletion. |
 | Redstone signal | 0-15 neighbour-propagated signal network | No generic control network | `OUT-OF-SCOPE` exact mechanic | Physical electrical/mechanical/control networks replace redstone. |
 | Switches/buttons | Immediate local player control | No direct block controls | `GAP-P1` | Basic switches/valves/levers are still familiar world interactions and should exist even though network physics differ. |
 | Pistons | Blocks move block states | No terrain mutation machinery | `GAP-P2` | Later actuators can move supported world blocks/assemblies through canonical world transactions. |
@@ -563,7 +564,7 @@ This is a dependency order, not a promise that every row becomes a separate subs
 3. General damage, fall/fire/suffocation, death/corpse/respawn/recovery.
 4. One coherent wildlife/threat slice with entity transforms, pathfinding, melee and drops.
 5. Fire as world light/heat/ignition plus existing exact fuel accounting.
-6. Terrain support, basic deconstruction/salvage, partial block shapes and common world controls.
+6. Terrain support, dependent/cascading deconstruction with salvage consequences, partial block shapes and common world controls.
 7. Audio, particles, action progress and readable HUD feedback.
 
 ### P2: sandbox breadth after the first-day shell

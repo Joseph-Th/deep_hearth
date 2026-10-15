@@ -27,7 +27,9 @@ pub(crate) use binding::{
     StructuralConstructionResolution, bind_structural_construction_selection,
 };
 pub use errors::{StructuralConstructionCommitError, StructuralConstructionError};
-pub(crate) use requirement::{resolve_required_mass, resolve_structural_material_requirement};
+pub(crate) use requirement::resolve_required_mass;
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use requirement::resolve_structural_material_requirement;
 
 /// Consumed proof that exact inventory matter can become one member's embodied matter atomically.
 #[must_use]

@@ -38,7 +38,8 @@ pub use validation::PlayerWorkValidationError;
 pub use work::{
     BlockExcavationOutputCustody, BlockExcavationWork, DrinkingWork, EatingWork,
     EquipmentMaintenanceWork, ManualPowerWork, PlayerStepWork, PlayerWork, ProspectingWork,
-    StorageEnclosureDismantlingWork, StructuralConstructionWork, SurfaceGatheringWork,
+    StorageEnclosureDismantlingWork, StructuralConstructionWork, StructuralDismantlingWork,
+    SurfaceGatheringWork,
 };
 pub use work_resources::PlayerWorkResourceBudget;
 
