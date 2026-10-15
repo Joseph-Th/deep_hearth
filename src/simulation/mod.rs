@@ -47,7 +47,10 @@ use crate::world::{
     decide_block_excavation_tick,
 };
 
-use direct_actions::attempt_direct_actions;
+use direct_actions::{
+    attempt_direct_actions, attempt_direct_actions_after_quick_access,
+    attempt_pending_secondary_action, attempt_quick_access_selection,
+};
 use planning::{
     decide_automatic_mining_output, decide_storage_dismantling_after_completions,
     decide_structural_construction_after_completions,
@@ -155,7 +158,7 @@ pub fn advance_control_tick_with_direct_input(
         let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
             .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
         apply_control_clock_advance(state, next_control);
-        let direct_actions = attempt_direct_actions(registries, state, input);
+        let direct_actions = attempt_direct_actions(registries, state, input, None);
         debug_assert_runtime_invariants(registries, state);
         return Ok(ControlTickOutcome::new(
             next_control,
@@ -181,12 +184,26 @@ pub fn advance_control_tick_with_direct_input(
         next_control.simulation_tick(),
         locomotion_exertion,
     )?;
-    let body_plan = decide_player_body_motion(registries, state, input.movement(), true)
+    let has_pending_secondary = state.logistics().pending_secondary_use().is_some();
+    let body_input = if has_pending_secondary {
+        PlayerControlInput::NEUTRAL
+    } else {
+        input.movement()
+    };
+    let body_plan = decide_player_body_motion(registries, state, body_input, true)
         .map_err(TickError::PlayerBodyMotion)?;
     let body_motion = apply_player_body_motion(state, body_plan);
     let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
         .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
-    let direct_actions = attempt_direct_actions(registries, state, input);
+    let quick_access = attempt_quick_access_selection(state, input.quick_access_slot());
+    let pending_secondary = attempt_pending_secondary_action(registries, state);
+    let direct_actions = attempt_direct_actions_after_quick_access(
+        registries,
+        state,
+        input,
+        quick_access,
+        pending_secondary,
+    );
     let block_excavation = simulation.block_excavation();
     debug_assert_runtime_invariants(registries, state);
     debug_assert_eq!(state.control_tick(), next_control);

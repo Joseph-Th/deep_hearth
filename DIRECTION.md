@@ -146,6 +146,12 @@ therefore remains visible through the same projection and still uses canonical p
 `validate_quick_move_player_stack` now composes the familiar maximum-fit transfer
 gesture between carried custody and one local container while exact relocation remains authoritative. Direct
 control can switch slots before primary/use/drop on the same 20 Hz sample.
+One-shot contextual secondary use is retained when its canonical owner still requires a slow-simulation
+boundary. Logistics persists the request tick, player voxel, active selection, and view direction, then the
+control path re-resolves the action against current owner state at the next legal boundary. Save/load preserves
+an off-boundary request; changing player locality or hotbar context before admission cancels the buffered use
+instead of authorizing a stale target. This removes held-input dependence without pretending the affected slow
+work is a control-rate schedule; the report keeps the sub-quantum admission wait visible.
 Projected edible stacks can now drive the default timed eating action directly, so two visible freshness cohorts
 remain a player choice while exact lot slices stay private to inventory/survival owners.
 Grounded structural construction now has the same stack-facing atomicity: one revision-bound carried stack plus

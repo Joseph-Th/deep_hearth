@@ -18,6 +18,7 @@ mod initialization;
 mod inventory_view;
 mod kinematics;
 mod movement;
+mod pending_secondary;
 mod quick_move;
 mod selection;
 mod state;
@@ -84,6 +85,10 @@ pub use movement::{
     validate_start_player_step,
 };
 pub(crate) use movement::{apply_player_step_tick, decide_player_step_tick};
+pub use pending_secondary::PlayerPendingSecondaryUseError;
+pub(crate) use pending_secondary::{
+    take_player_pending_secondary_use, validate_buffer_player_secondary_use,
+};
 pub use quick_move::{
     PlayerQuickMoveError, PlayerQuickMoveOutcome, ValidatedPlayerQuickMove,
     validate_quick_move_player_stack,
@@ -95,6 +100,7 @@ pub use selection::{
     validate_select_quick_access_slot, validate_set_active_selection,
     validate_set_quick_access_slot,
 };
+pub(crate) use state::PlayerPendingSecondaryUse;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use state::add_traversable_edge_for_test;
 pub use state::{

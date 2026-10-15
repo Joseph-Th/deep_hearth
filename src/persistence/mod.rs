@@ -12,7 +12,7 @@ use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 94;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 95;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 ///
@@ -84,6 +84,11 @@ fn validate_persisted_player_admission(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), LoadError> {
+    if state.logistics().pending_secondary_use().is_some()
+        && state.control_tick().is_simulation_boundary()
+    {
+        return Err(LoadError::PendingSecondaryUseAtSimulationBoundary);
+    }
     match player_admission_state(state) {
         PlayerAdmissionState::Absent => Ok(()),
         PlayerAdmissionState::Partial {
@@ -195,6 +200,8 @@ pub enum LoadError {
         expected: StockpileStorageProfile,
         actual: StockpileStorageProfile,
     },
+    /// Buffered direct-control input must be consumed by the boundary call before persistence.
+    PendingSecondaryUseAtSimulationBoundary,
     /// The decoded runtime data violates a persistent state invariant.
     InvalidState(StateValidationError),
 }
@@ -244,6 +251,9 @@ impl Display for LoadError {
                 "persisted player carried stockpile {} does not have the canonical ambient solid-only storage profile",
                 stockpile.value()
             ),
+            Self::PendingSecondaryUseAtSimulationBoundary => formatter.write_str(
+                "persisted contextual-use input remained buffered on a simulation boundary",
+            ),
             Self::InvalidState(error) => write!(formatter, "invalid persisted state: {error}"),
         }
     }
@@ -260,7 +270,8 @@ impl Error for LoadError {
             | Self::IncompletePlayerAdmission { .. }
             | Self::PlayerCarriedCapacityMismatch { .. }
             | Self::PlayerCarriedCapacityOverflow { .. }
-            | Self::PlayerCarriedStorageProfileMismatch { .. } => None,
+            | Self::PlayerCarriedStorageProfileMismatch { .. }
+            | Self::PendingSecondaryUseAtSimulationBoundary => None,
             Self::InvalidState(error) => Some(error),
         }
     }

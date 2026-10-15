@@ -22,7 +22,12 @@ impl AppState {
     }
 
     pub(crate) fn checked_future_logistics_revision_demand(&self) -> Option<u64> {
-        Some(self.systems.player_work.future_logistics_revision_demand())
+        self.systems
+            .player_work
+            .future_logistics_revision_demand()
+            .checked_add(u64::from(
+                self.systems.logistics.pending_secondary_use().is_some(),
+            ))
     }
 
     pub(crate) fn checked_future_surface_revision_demand(&self) -> Option<u64> {

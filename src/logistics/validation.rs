@@ -129,6 +129,10 @@ pub enum LogisticsValidationError {
     },
     PlayerLocomotionExertionRemainderInvalid,
     PlayerPendingLocomotionExertionExceedsMaximum,
+    PendingSecondaryUseWithoutPlayer,
+    PendingSecondaryUseRequestedInFuture,
+    PendingSecondaryUseFromPriorSimulationInterval,
+    PendingSecondaryUseDirectionInvalid,
 }
 
 impl Display for LogisticsValidationError {
@@ -346,6 +350,15 @@ impl Display for LogisticsValidationError {
             Self::PlayerPendingLocomotionExertionExceedsMaximum => formatter.write_str(
                 "player pending locomotion exertion exceeds one fully loaded simulation interval",
             ),
+            Self::PendingSecondaryUseWithoutPlayer => formatter
+                .write_str("buffered contextual use exists without an admitted logistics player"),
+            Self::PendingSecondaryUseRequestedInFuture => formatter
+                .write_str("buffered contextual use claims a request control tick in the future"),
+            Self::PendingSecondaryUseFromPriorSimulationInterval => formatter.write_str(
+                "buffered contextual use survived beyond the simulation interval in which it was requested",
+            ),
+            Self::PendingSecondaryUseDirectionInvalid => formatter
+                .write_str("buffered contextual use contains an invalid fixed-point view direction"),
         }
     }
 }
@@ -360,6 +373,7 @@ fn validate_revision(state: &LogisticsState) -> Result<(), LogisticsValidationEr
             .quick_access_slots()
             .any(|(_, selection)| selection.is_some())
         || state.active_quick_access_slot() != PlayerQuickAccessSlot::FIRST
+        || state.pending_secondary_use().is_some()
         || state.stockpile_locations().next().is_some()
         || state.equipment_locations().next().is_some()
         || state.energy_store_locations().next().is_some()
@@ -371,6 +385,35 @@ fn validate_revision(state: &LogisticsState) -> Result<(), LogisticsValidationEr
         (true, 0) => Err(LogisticsValidationError::InitializedRevisionZero),
         _ => Ok(()),
     }
+}
+
+fn validate_pending_secondary_use(
+    app: &AppState,
+    state: &LogisticsState,
+) -> Result<(), LogisticsValidationError> {
+    let Some(pending) = state.pending_secondary_use() else {
+        return Ok(());
+    };
+    if state.player().is_none() {
+        return Err(LogisticsValidationError::PendingSecondaryUseWithoutPlayer);
+    }
+    if pending.requested_at() > app.control_tick() {
+        return Err(LogisticsValidationError::PendingSecondaryUseRequestedInFuture);
+    }
+    let requested_simulation = pending.requested_at().simulation_tick();
+    let interval_is_current = requested_simulation == app.tick();
+    let interval_is_due_boundary = app.control_tick().is_simulation_boundary()
+        && requested_simulation
+            .value()
+            .checked_add(1)
+            .is_some_and(|due| due == app.tick().value());
+    if !interval_is_current && !interval_is_due_boundary {
+        return Err(LogisticsValidationError::PendingSecondaryUseFromPriorSimulationInterval);
+    }
+    if pending.direction().is_none() {
+        return Err(LogisticsValidationError::PendingSecondaryUseDirectionInvalid);
+    }
+    Ok(())
 }
 
 fn validate_traversal_edges(state: &LogisticsState) -> Result<(), LogisticsValidationError> {
@@ -629,6 +672,7 @@ pub(crate) fn validate_loaded_logistics(
     validate_player_custody(state, app.inventory())?;
     validate_carried_equipment(state, app.equipment(), registries.equipment())?;
     validate_quick_access(registries, state)?;
+    validate_pending_secondary_use(app, state)?;
     validate_stockpile_locations(state, app.inventory(), app.structures())?;
     validate_equipment_locations(state, app.equipment(), app.structures())?;
     validate_energy_store_locations(state, app.energy())?;

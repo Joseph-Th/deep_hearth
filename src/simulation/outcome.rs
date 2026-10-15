@@ -10,7 +10,8 @@ use crate::inventory::{
 use crate::labor::{ManualPowerOutcome, StructuralConstructionWork, SurfaceGatheringWork};
 use crate::logistics::{
     PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
-    PlayerQuickAccessSelectionError, PlayerQuickAccessSlot, PlayerStepOutcome,
+    PlayerPendingSecondaryUseError, PlayerQuickAccessSelectionError, PlayerQuickAccessSlot,
+    PlayerStepOutcome,
 };
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
@@ -107,6 +108,9 @@ pub enum SecondaryActionOutcome {
     },
     StructuralPlacementRejected(PlayerGroundedStructuralConstructionError),
     AlreadySatisfied,
+    QueuedUntilSimulationBoundary,
+    BufferedContextChanged,
+    BufferRejected(PlayerPendingSecondaryUseError),
     DeferredUntilSimulationBoundary,
     NoActiveSelection,
     ActiveEquipmentNotContextual,

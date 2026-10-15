@@ -265,9 +265,10 @@ pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &A
         state.systems.mining.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain above every allocated job"
     );
+    let logistics_validation = validate_loaded_logistics(registries, state);
     debug_assert!(
-        validate_loaded_logistics(registries, state).is_ok(),
-        "Runtime Invariants 6/8: logistics locations must reference one valid non-mounted custody state"
+        logistics_validation.is_ok(),
+        "Runtime Invariants 6/8: logistics state must remain valid: {logistics_validation:?}"
     );
     debug_assert!(
         state.systems.energy.has_valid_id_cursor(),

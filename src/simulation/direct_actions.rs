@@ -9,7 +9,8 @@ use crate::inventory::{
     StorageDefinitionId, project_material_stacks, validate_place_player_storage_at,
 };
 use crate::logistics::{
-    PlayerActiveSelection, player_body_occupies_voxel, validate_drop_equipment,
+    PlayerActiveSelection, player_body_occupies_voxel, take_player_pending_secondary_use,
+    validate_buffer_player_secondary_use, validate_drop_equipment,
     validate_select_quick_access_slot,
 };
 use crate::material::CommodityKey;
@@ -40,23 +41,40 @@ pub(super) fn attempt_direct_actions(
     registries: &Registries,
     state: &mut AppState,
     input: PlayerDirectControlInput,
+    pending_secondary: Option<SecondaryActionOutcome>,
 ) -> DirectActionOutcomes {
     let quick_access = attempt_quick_access_selection(state, input.quick_access_slot());
+    attempt_direct_actions_after_quick_access(
+        registries,
+        state,
+        input,
+        quick_access,
+        pending_secondary,
+    )
+}
+
+pub(super) fn attempt_direct_actions_after_quick_access(
+    registries: &Registries,
+    state: &mut AppState,
+    input: PlayerDirectControlInput,
+    quick_access: Option<QuickAccessSelectionOutcome>,
+    pending_secondary: Option<SecondaryActionOutcome>,
+) -> DirectActionOutcomes {
     let primary = if state.player_work().active().is_none() {
         attempt_primary_action(registries, state, input.primary())
     } else {
         None
     };
-    let secondary = if state.player_work().active().is_none() {
-        attempt_secondary_action(registries, state, input.secondary())
+    let secondary = if state.player_work().active().is_some() {
+        pending_secondary
     } else {
-        None
+        attempt_secondary_action(registries, state, input.secondary()).or(pending_secondary)
     };
     let drop = attempt_active_selection_drop(registries, state, input.drop_active_selection());
     DirectActionOutcomes::new(quick_access, primary, secondary, drop)
 }
 
-fn attempt_quick_access_selection(
+pub(super) fn attempt_quick_access_selection(
     state: &mut AppState,
     requested: Option<crate::logistics::PlayerQuickAccessSlot>,
 ) -> Option<QuickAccessSelectionOutcome> {
@@ -96,16 +114,57 @@ fn attempt_secondary_action(
     intent: Option<SecondaryControlIntent>,
 ) -> Option<SecondaryActionOutcome> {
     let intent = intent?;
-    match intent {
-        SecondaryControlIntent::UseActive { direction } => {
-            Some(match state.logistics().active_selection() {
-                None => attempt_empty_hand_secondary_action(registries, state),
-                Some(selection) => {
-                    attempt_selected_secondary_action(registries, state, selection, direction)
-                }
-            })
+    if state.logistics().pending_secondary_use().is_some() {
+        return Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary);
+    }
+    let SecondaryControlIntent::UseActive { direction } = intent;
+    let outcome = attempt_secondary_action_now(registries, state, direction);
+    if outcome != SecondaryActionOutcome::DeferredUntilSimulationBoundary {
+        return Some(outcome);
+    }
+    Some(
+        match validate_buffer_player_secondary_use(state, direction) {
+            Ok(validated) => {
+                validated.commit(state).unwrap_or_else(|error| {
+                    panic!(
+                        "runtime invariant broken: synchronous contextual-use buffering became stale: {error}"
+                    )
+                });
+                SecondaryActionOutcome::QueuedUntilSimulationBoundary
+            }
+            Err(error) => SecondaryActionOutcome::BufferRejected(error),
+        },
+    )
+}
+
+fn attempt_secondary_action_now(
+    registries: &Registries,
+    state: &mut AppState,
+    direction: ViewDirection,
+) -> SecondaryActionOutcome {
+    match state.logistics().active_selection() {
+        None => attempt_empty_hand_secondary_action(registries, state),
+        Some(selection) => {
+            attempt_selected_secondary_action(registries, state, selection, direction)
         }
     }
+}
+
+pub(super) fn attempt_pending_secondary_action(
+    registries: &Registries,
+    state: &mut AppState,
+) -> Option<SecondaryActionOutcome> {
+    let pending = take_player_pending_secondary_use(state)?;
+    let current_position = state.logistics().player().map(|player| player.position());
+    if current_position != Some(pending.position())
+        || state.logistics().active_selection() != pending.selection()
+    {
+        return Some(SecondaryActionOutcome::BufferedContextChanged);
+    }
+    let direction = pending.direction().unwrap_or_else(|| {
+        panic!("runtime invariant broken: trusted buffered contextual use has invalid direction")
+    });
+    Some(attempt_secondary_action_now(registries, state, direction))
 }
 
 #[derive(Clone, Copy)]

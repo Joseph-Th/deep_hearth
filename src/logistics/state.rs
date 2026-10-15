@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::state::AppState;
-use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::material::CommodityKey;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{ViewDirection, VoxelCoord};
 use crate::survival::SurvivalExertion;
 
 use super::body::PlayerBodyState;
@@ -25,6 +25,64 @@ pub(crate) struct LocomotionExertionAccumulator {
     pending_hydration: Volume,
     energy_remainder: u8,
     hydration_remainder: u8,
+}
+
+/// Persisted one-shot contextual-use input waiting for the next slow-simulation boundary.
+///
+/// The record snapshots only familiar control context. The eventual action is resolved again
+/// against current owner state, so this buffer is never authorization for a stale world target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PlayerPendingSecondaryUse {
+    requested_at: ControlTick,
+    position: VoxelCoord,
+    selection: Option<PlayerActiveSelection>,
+    direction_x_ppm: i32,
+    direction_y_ppm: i32,
+    direction_z_ppm: i32,
+}
+
+impl PlayerPendingSecondaryUse {
+    pub(crate) const fn new(
+        requested_at: ControlTick,
+        position: VoxelCoord,
+        selection: Option<PlayerActiveSelection>,
+        direction: ViewDirection,
+    ) -> Self {
+        Self {
+            requested_at,
+            position,
+            selection,
+            direction_x_ppm: direction.x_parts_per_million(),
+            direction_y_ppm: direction.y_parts_per_million(),
+            direction_z_ppm: direction.z_parts_per_million(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn requested_at(self) -> ControlTick {
+        self.requested_at
+    }
+
+    #[must_use]
+    pub(crate) const fn position(self) -> VoxelCoord {
+        self.position
+    }
+
+    #[must_use]
+    pub(crate) const fn selection(self) -> Option<PlayerActiveSelection> {
+        self.selection
+    }
+
+    #[must_use]
+    pub(crate) fn direction(self) -> Option<ViewDirection> {
+        ViewDirection::new(
+            self.direction_x_ppm,
+            self.direction_y_ppm,
+            self.direction_z_ppm,
+        )
+        .ok()
+    }
 }
 
 /// Familiar fixed quick-access bar width.
@@ -188,6 +246,7 @@ pub struct LogisticsState {
     carried_equipment: Vec<EquipmentId>,
     quick_access_slots: [Option<PlayerActiveSelection>; PLAYER_QUICK_ACCESS_SLOT_COUNT],
     active_quick_access_slot: PlayerQuickAccessSlot,
+    pending_secondary_use: Option<PlayerPendingSecondaryUse>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -208,6 +267,7 @@ impl LogisticsState {
             carried_equipment: Vec::new(),
             quick_access_slots: [None; PLAYER_QUICK_ACCESS_SLOT_COUNT],
             active_quick_access_slot: PlayerQuickAccessSlot::FIRST,
+            pending_secondary_use: None,
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
@@ -306,6 +366,11 @@ impl LogisticsState {
         self.quick_access_slot(self.active_quick_access_slot)
     }
 
+    #[must_use]
+    pub(crate) const fn pending_secondary_use(&self) -> Option<PlayerPendingSecondaryUse> {
+        self.pending_secondary_use
+    }
+
     /// Iterates equipment present at the admitted player's voxel in stable equipment-ID order.
     ///
     /// Stationary equipment at the player voxel and player-carried equipment are both local. The
@@ -353,6 +418,7 @@ impl LogisticsState {
             && self.carried_equipment.is_empty()
             && self.quick_access_slots.iter().all(Option::is_none)
             && self.active_quick_access_slot == PlayerQuickAccessSlot::FIRST
+            && self.pending_secondary_use.is_none()
             && self.stockpile_locations.is_empty()
             && self.equipment_locations.is_empty()
             && self.energy_store_locations.is_empty()
@@ -446,6 +512,39 @@ impl LogisticsState {
             "player logistics initialization cannot replace an existing player record"
         );
         self.player = Some(player);
+        self.revision = next_revision;
+    }
+
+    pub(crate) fn apply_pending_secondary_use(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        pending: PlayerPendingSecondaryUse,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            self.player.is_some(),
+            "buffered contextual use requires player logistics"
+        );
+        assert!(
+            self.pending_secondary_use.is_none(),
+            "buffered contextual use cannot replace an existing request"
+        );
+        self.pending_secondary_use = Some(pending);
+        self.revision = next_revision;
+    }
+
+    pub(crate) fn apply_clear_pending_secondary_use(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        expected: PlayerPendingSecondaryUse,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert_eq!(self.pending_secondary_use, Some(expected));
+        self.pending_secondary_use = None;
         self.revision = next_revision;
     }
 

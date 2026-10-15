@@ -44,7 +44,7 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::{
-    PlayerDirectControlInput, SecondaryActionOutcome, SecondaryControlIntent,
+    PlayerDirectControlInput, SecondaryActionOutcome, SecondaryControlIntent, advance_control_tick,
     advance_control_tick_with_direct_input, advance_tick,
 };
 use deep_hearth::spatial::{
@@ -163,15 +163,27 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         .unwrap_or_else(|error| panic!("direct-use view direction failed: {error}"));
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(direction));
-    let gathering = loop {
-        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
-            .unwrap_or_else(|error| panic!("direct-use forage control failed: {error}"));
+    let forage_queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-use forage queue failed: {error}"));
+    assert_eq!(
+        forage_queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary),
+        "one empty-hand forage press should be retained until its legal work boundary"
+    );
+    let (forage_started_at, gathering) = loop {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("direct-use forage continuation failed: {error}"));
         match control.secondary_action() {
-            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => break *work,
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => {
+                break (control.control_tick(), *work);
+            }
+            None => {}
             other => panic!("direct-use forage returned unexpected outcome: {other:?}"),
         }
     };
+    let forage_queue_ticks = forage_started_at
+        .checked_steps_since(forage_queued.control_tick())
+        .unwrap_or_else(|| panic!("direct-use forage start preceded queued input"));
     assert_eq!(gathering.resource(), forage.resource());
     assert!(!gathering.gathered_mass().is_zero());
     advance_to(
@@ -214,15 +226,27 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         .unwrap_or_else(|| panic!("direct-water actor disappeared before use"))
         .hydration();
 
-    let started = loop {
-        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
-            .unwrap_or_else(|error| panic!("direct-water control failed: {error}"));
+    let water_queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-water queue failed: {error}"));
+    assert_eq!(
+        water_queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary),
+        "one empty-hand drink press should be retained until its legal work boundary"
+    );
+    let (water_started_at, started) = loop {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("direct-water continuation failed: {error}"));
         match control.secondary_action() {
-            Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => break *outcome,
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => {
+                break (control.control_tick(), *outcome);
+            }
+            None => {}
             other => panic!("direct-water returned unexpected outcome: {other:?}"),
         }
     };
+    let water_queue_ticks = water_started_at
+        .checked_steps_since(water_queued.control_tick())
+        .unwrap_or_else(|| panic!("direct-water start preceded queued input"));
     assert_eq!(started.store(), water.store());
     assert!(!started.volume().is_zero());
     assert_eq!(
@@ -258,8 +282,10 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
             .map(|store| store.stored_volume())
             .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
         std::println!(
-            "WILDERNESS DIRECT USE seed=0x{:016X} route-steps=2 input=empty-hand-secondary gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            "WILDERNESS DIRECT USE seed=0x{:016X} route-steps=2 input=one-shot-empty-hand-secondary queue=[gather:{}ct drink:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
             WILDERNESS_WORLD_SEED.value(),
+            forage_queue_ticks,
+            water_queue_ticks,
             forage_before.milligrams(),
             gathering.gathered_mass().milligrams(),
             forage_after.milligrams(),

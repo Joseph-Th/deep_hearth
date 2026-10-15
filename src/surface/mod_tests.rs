@@ -11,17 +11,17 @@ use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, SimulationTick, TickSpan};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{StockpileStorageError, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    PlayerActiveSelection, add_traversable_edge_for_test, validate_place_fluid_store,
-    validate_set_active_selection, validate_start_player_step,
+    PlayerActiveSelection, PlayerQuickAccessSlot, add_traversable_edge_for_test,
+    validate_place_fluid_store, validate_set_active_selection, validate_start_player_step,
 };
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::matter::calculate_matter_accounting;
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
 use crate::player::validate_admit_player;
 use crate::simulation::{
     ActiveSelectionDropOutcome, PlayerDirectControlInput, PrimaryActionOutcome,
@@ -197,7 +197,7 @@ fn seed_surface(
 }
 
 #[test]
-fn held_secondary_use_composes_selected_food_without_exposing_lot_identity() {
+fn one_shot_secondary_use_composes_selected_food_without_exposing_lot_identity() {
     let registries = build_registries();
     let mut state = AppState::new();
     let position = VoxelCoord::new(0, 0, 0);
@@ -229,15 +229,15 @@ fn held_secondary_use_composes_selected_food_without_exposing_lot_identity() {
         .unwrap_or_else(|error| panic!("secondary-use first control failed: {error}"));
     assert_eq!(
         first.secondary_action(),
-        Some(&SecondaryActionOutcome::DeferredUntilSimulationBoundary)
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
     );
 
     let started = loop {
-        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
-            .unwrap_or_else(|error| panic!("secondary-use held control failed: {error}"));
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("secondary-use neutral continuation failed: {error}"));
         match control.secondary_action() {
             Some(SecondaryActionOutcome::EatingStarted(outcome)) => break outcome.clone(),
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            None => {}
             other => panic!("secondary-use returned unexpected outcome: {other:?}"),
         }
     };
@@ -254,6 +254,137 @@ fn held_secondary_use_composes_selected_food_without_exposing_lot_identity() {
         state.player_work().active(),
         Some(crate::labor::PlayerWork::Eating { .. })
     ));
+}
+
+#[test]
+fn queued_secondary_use_yields_to_same_boundary_quick_access_and_current_use() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let mass = Mass::from_milligrams(500_000);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("queued-context food fixture failed: {error}"));
+    let source_volume = Volume::from_microliters(1_000_000);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        source_volume,
+        FLUID_WATER,
+        source_volume,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("queued-context water fixture failed: {error}"));
+    validate_place_fluid_store(&state, water, position)
+        .unwrap_or_else(|error| panic!("queued-context water placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("queued-context water placement commit failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("queued-context selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("queued-context selection commit failed: {error}"));
+
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("queued-context use failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    while state.control_tick().value() + 1 < CONTROL_TICKS_PER_SIMULATION_TICK {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("queued-context continuation failed: {error}"));
+        assert_eq!(control.secondary_action(), None);
+    }
+    let empty_slot = PlayerQuickAccessSlot::new(1)
+        .unwrap_or_else(|| panic!("queued-context empty quick-access slot disappeared"));
+    let boundary = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_quick_access_slot(empty_slot)
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("queued-context boundary slot/use failed: {error}"));
+    assert!(boundary.quick_access_selection().is_some());
+    assert_eq!(state.logistics().active_selection(), None);
+    let drinking = match boundary.secondary_action() {
+        Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => *outcome,
+        other => panic!("same-boundary replacement use did not start drinking: {other:?}"),
+    };
+    assert_eq!(drinking.store(), water);
+    assert!(state.logistics().pending_secondary_use().is_none());
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::Drinking { .. })
+    ));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.get_mass(commodity)),
+        Some(mass)
+    );
+}
+
+#[test]
+fn persisted_state_rejects_secondary_use_left_buffered_on_its_due_boundary() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(500_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("boundary-buffer food fixture failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("boundary-buffer selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("boundary-buffer selection commit failed: {error}"));
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("boundary-buffer use failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        validate_persistable_state(&registries, &state),
+        Err(LoadError::PendingSecondaryUseAtSimulationBoundary)
+    );
 }
 
 #[test]
@@ -280,14 +411,32 @@ fn empty_hand_secondary_use_drinks_from_one_finite_local_source() {
 
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-drink queue control failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    assert!(state.logistics().pending_secondary_use().is_some());
+    assert_eq!(
+        crate::logistics::validate_loaded_logistics(&registries, &state),
+        Ok(())
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("queued direct-drink serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("queued direct-drink decode failed: {error}"));
+    state = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("queued direct-drink load failed: {error}"));
+
     let started = loop {
-        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
-            .unwrap_or_else(|error| panic!("direct-drink control failed: {error}"));
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("direct-drink neutral continuation failed: {error}"));
         match control.secondary_action() {
             Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => break *outcome,
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary)
-            | Some(SecondaryActionOutcome::AlreadySatisfied)
-            | None => {}
+            None => {}
             other => panic!("direct-drink returned unexpected outcome: {other:?}"),
         }
     };
@@ -370,12 +519,18 @@ fn empty_hand_secondary_use_gathers_one_local_natural_opportunity() {
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
 
+    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-gather queue control failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
     let work = loop {
-        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
-            .unwrap_or_else(|error| panic!("direct-gather control failed: {error}"));
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("direct-gather neutral continuation failed: {error}"));
         match control.secondary_action() {
             Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => break *work,
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            None => {}
             other => panic!("direct-gather returned unexpected outcome: {other:?}"),
         }
     };
@@ -435,14 +590,19 @@ fn empty_hand_secondary_use_clamps_surface_gathering_to_carried_capacity() {
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
 
+    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("capacity-clamped direct-gather queue failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
     let work = loop {
-        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
-            .unwrap_or_else(|error| {
-                panic!("capacity-clamped direct-gather control failed: {error}")
-            });
+        let control = advance_control_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("capacity-clamped direct-gather neutral continuation failed: {error}")
+        });
         match control.secondary_action() {
             Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => break *work,
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            None => {}
             other => {
                 panic!("capacity-clamped direct-gather returned unexpected outcome: {other:?}")
             }
@@ -553,11 +713,17 @@ fn secondary_use_refuses_ambiguous_physical_food_cohorts() {
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
 
+    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("ambiguous secondary-use queue failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
     let outcome = loop {
-        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
-            .unwrap_or_else(|error| panic!("ambiguous secondary-use control failed: {error}"));
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("ambiguous secondary-use continuation failed: {error}"));
         match control.secondary_action() {
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            None => {}
             Some(outcome) => break outcome.clone(),
         }
     };
@@ -805,12 +971,18 @@ fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(forward_down_view()));
 
+    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("timber-post direct queue failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
     let work = loop {
-        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
-            .unwrap_or_else(|error| panic!("timber-post direct control failed: {error}"));
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("timber-post neutral continuation failed: {error}"));
         match control.secondary_action() {
             Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) => break *work,
-            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            None => {}
             other => panic!("timber-post returned unexpected secondary outcome: {other:?}"),
         }
     };

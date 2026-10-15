@@ -34,7 +34,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             "direct-use=["
             + compact_fields(
                 direct_use_lines[0],
-                ("route-steps", "input", "gather", "water", "hydration", "timed"),
+                ("route-steps", "input", "queue", "gather", "water", "hydration", "timed"),
             )
             + "]"
         )
