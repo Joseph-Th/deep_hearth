@@ -141,11 +141,13 @@ projection derived from the same physical compatibility rules as lot coalescing,
 storage-age exposure for freshness presentation. A projected stack can drive partial same-voxel carried↔ground/storage
 transfer by mass while inventory privately resolves exact lot slices and rejects stale projections. A single
 player-facing inventory projection composes carrying state, all nine hotbar bindings, carried equipment/stacks,
-and only exact-local containers. Direct control can switch slots before primary/use/drop on the same 20 Hz sample.
+and only exact-local containers. `validate_quick_move_player_stack` now composes the familiar maximum-fit transfer
+gesture between carried custody and one local container while exact relocation remains authoritative. Direct
+control can switch slots before primary/use/drop on the same 20 Hz sample.
 Personal manual crafting now composes the same carried custody into a stable recipe catalog plus recipe/batch
 start action. Durable homogeneous inputs resolve to exact lots privately; freshness-sensitive inputs keep one
 explicit revision-bound stack choice, optional equipment remains an exact revalidated provider, and output returns
-to carried custody through ordinary timed production. Adapter inventory/container/crafting rendering and gestures,
+to carried custody through ordinary timed production. Adapter inventory/container/crafting rendering and input bindings,
 rendered/spatial drop presentation, arbitrary block/object placement, and generic moving item entities remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while

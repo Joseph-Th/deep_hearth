@@ -31,6 +31,8 @@ mod capital_investment_policy_tests;
 mod configuration_tests;
 #[path = "gameplay_harness/fixture_boundary_tests.rs"]
 mod fixture_boundary_tests;
+#[path = "gameplay_harness/inventory_gesture_contract_tests.rs"]
+mod inventory_gesture_contract_tests;
 #[path = "gameplay_harness/manual_craft_selection_tests.rs"]
 mod manual_craft_selection_tests;
 #[path = "gameplay_harness/primitive_liberation_contract_tests.rs"]

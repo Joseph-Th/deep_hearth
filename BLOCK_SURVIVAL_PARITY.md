@@ -298,7 +298,7 @@ stockpiles. The underlying Deep Hearth model is stronger, but the familiar manip
 | Merge nearby drops | Compatible item entities can merge | Lot coalescing exists in inventory | `GAP-P1` | World item custody may coalesce compatible material to reduce entity count while preserving physical distinctions. |
 | Despawn drops | Item entities eventually despawn | Matter conservation rejects silent deletion | `DIFFERENT+` | Do not copy magical matter deletion. If cleanup is needed, use explicit decay, scattering, garbage collection into an environmental sink, or no despawn for conserved matter. |
 | Container slots | Chests/furnaces expose slot policies | Exact-local stockpiles and their familiar stacks/capacity are included in the player inventory projection; partial mass moves through canonical relocation while preserving physical cohorts | `GAP-P0` adapter UI | Render local containers and add typed machine-slot policy where processes require it; do not duplicate storage state. |
-| Shift-click/quick move | Familiar transfer gesture | Core now accepts projected-stack pickup/drop requests by mass for co-located storage; no UI gesture layer exists | `GAP-P0` UI | Compose the gesture over the existing stack-transfer request, with destination choice remaining adapter policy. |
+| Shift-click/quick move | Familiar transfer gesture | `validate_quick_move_player_stack` moves the maximum fitting mass of one projected stack between carried custody and one exact-local container while canonical relocation keeps storage/locality/structure rules authoritative | `PARITY` core gesture | Adapter maps shift-click/open-container context to the existing action; destination choice remains presentation policy. |
 | Drag/split stack | Familiar manipulation | Projected stacks resolve partial mass back into revision-bound exact lot slices inside inventory | `GAP-P1` UI | UI should express count/mass intent against the projection; inventory keeps exact partitioning and stale-state rejection private. |
 | Capacity rejection | Full slots block transfer | Mass, phase, temperature, enclosure and reservation constraints | `PARITY+` | Surface the physical blocker clearly while preserving expected transfer gestures. |
 | Equipment durability | Stack component durability | Separate equipment condition/maintenance | `PARITY+` | Better owner model. Hotbar/item projection should show condition without flattening it to generic stack damage. |
@@ -548,7 +548,7 @@ This is a dependency order, not a promise that every row becomes a separate subs
 4. Add continuous fixed-point player transform, gravity, swept collision, jump, crouch, sprint, step-up and
    terrain contact.
 5. Add camera raycast, reach, primary break, secondary place/use, and rendered/spatial world-drop presentation over the existing conserved projection and pickup path.
-6. Add adapter hotbar/inventory/container/crafting gestures over the implemented projections and actions.
+6. Add adapter hotbar/inventory/container/crafting rendering and input bindings over the implemented projections and actions.
 7. Add section meshing, camera visibility, block model/shape rendering, indexed texture integration, block/sky light
    and a graphics adapter sufficient to inspect the actual world through a day/night cycle.
 8. Add save-file/chunk storage adapter and reload proof for the generated world/player state.

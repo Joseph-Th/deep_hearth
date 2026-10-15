@@ -141,6 +141,7 @@ GAMEPLAY_TEST_PREFIX_TARGETS = {
     "capital_investment_policy_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "configuration_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "fixture_boundary_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "inventory_gesture_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "manual_craft_selection_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "primitive_liberation_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "process_catalog_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,

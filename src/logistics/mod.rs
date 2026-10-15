@@ -18,6 +18,7 @@ mod initialization;
 mod inventory_view;
 mod kinematics;
 mod movement;
+mod quick_move;
 mod selection;
 mod state;
 mod traversal;
@@ -83,6 +84,10 @@ pub use movement::{
     validate_start_player_step,
 };
 pub(crate) use movement::{apply_player_step_tick, decide_player_step_tick};
+pub use quick_move::{
+    PlayerQuickMoveError, PlayerQuickMoveOutcome, ValidatedPlayerQuickMove,
+    validate_quick_move_player_stack,
+};
 pub use selection::{
     PlayerActiveSelectionCommitError, PlayerActiveSelectionError,
     PlayerQuickAccessSelectionCommitError, PlayerQuickAccessSelectionError,
