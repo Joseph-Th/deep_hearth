@@ -8,6 +8,8 @@ mod capital_investment_policy;
 mod catalog;
 #[path = "gameplay_harness/configuration.rs"]
 mod configuration;
+#[path = "gameplay_harness/direct_consumption_timing.rs"]
+mod direct_consumption_timing;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
 mod exact_local_runtime;
 #[path = "gameplay_harness/focused_case.rs"]

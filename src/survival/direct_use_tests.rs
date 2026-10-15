@@ -5,7 +5,9 @@ use crate::content::{FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, build_registries}
 use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
-use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::inventory::{
+    add_solid_stockpile_for_test, deposit_lot_for_test, project_material_stacks,
+};
 use crate::logistics::{
     PlayerFluidStoreAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
     validate_place_fluid_store, validate_place_ground_stockpile,
@@ -28,6 +30,115 @@ fn set_player_reserves(state: &mut AppState, metabolic_energy: Energy, hydration
             0,
         ),
     );
+}
+
+#[test]
+fn projected_food_stack_use_consumes_only_the_selected_physical_cohort() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("projected-stack survival setup failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("projected-stack depletion tick failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+        .unwrap_or_else(|error| panic!("projected-stack stockpile failed: {error}"));
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("projected-stack first cohort failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("projected-stack age separation tick failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("projected-stack second cohort failed: {error}"));
+    let stacks = project_material_stacks(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("projected-stack projection failed: {error}"));
+    assert_eq!(stacks.len(), 2);
+    let fresh = stacks
+        .iter()
+        .min_by_key(|stack| stack.ambient_storage_age_parts())
+        .unwrap_or_else(|| panic!("projected-stack fresh cohort disappeared"));
+    let old = stacks
+        .iter()
+        .max_by_key(|stack| stack.ambient_storage_age_parts())
+        .unwrap_or_else(|| panic!("projected-stack old cohort disappeared"));
+    let old_mass = old.mass();
+    let fresh_before = fresh.mass();
+
+    let validated = validate_eat_stack_to_full(&registries, &state, fresh)
+        .unwrap_or_else(|error| panic!("projected-stack eating failed: {error}"))
+        .unwrap_or_else(|| panic!("projected-stack depleted player unexpectedly needs no meal"));
+    let eaten = validated
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("projected-stack eating commit failed: {error}"))
+        .total_mass();
+    let remaining = project_material_stacks(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("projected-stack remaining projection failed: {error}"));
+    let remaining_old = remaining
+        .iter()
+        .max_by_key(|stack| stack.ambient_storage_age_parts())
+        .unwrap_or_else(|| panic!("projected-stack old cohort vanished"));
+    let remaining_fresh = remaining
+        .iter()
+        .min_by_key(|stack| stack.ambient_storage_age_parts())
+        .unwrap_or_else(|| panic!("projected-stack fresh cohort vanished"));
+    assert_eq!(remaining_old.mass(), old_mass);
+    assert_eq!(
+        remaining_fresh.mass(),
+        fresh_before
+            .checked_sub(eaten)
+            .unwrap_or_else(|| panic!("projected-stack meal exceeded fresh cohort"))
+    );
+}
+
+#[test]
+fn projected_food_stack_use_rejects_stale_inventory_revision_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stale projected-stack survival setup failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stale projected-stack depletion tick failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("stale projected-stack stockpile failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("stale projected-stack food failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("stale projected-stack projection failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("stale projected-stack projection was empty"));
+
+    let _unrelated = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale projected-stack revision mutation failed: {error}"));
+    let before = state.clone();
+
+    assert!(matches!(
+        validate_eat_stack_to_full(&registries, &state, &stack),
+        Err(EatStackToTargetError::Stack(
+            crate::inventory::MaterialStackProjectionError::StaleInventoryRevision { .. }
+        ))
+    ));
+    assert_eq!(state, before);
 }
 
 #[test]

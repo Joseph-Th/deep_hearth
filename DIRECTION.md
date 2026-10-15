@@ -146,6 +146,8 @@ therefore remains visible through the same projection and still uses canonical p
 `validate_quick_move_player_stack` now composes the familiar maximum-fit transfer
 gesture between carried custody and one local container while exact relocation remains authoritative. Direct
 control can switch slots before primary/use/drop on the same 20 Hz sample.
+Projected edible stacks can now drive the default timed eating action directly, so two visible freshness cohorts
+remain a player choice while exact lot slices stay private to inventory/survival owners.
 Personal manual crafting now composes the same carried custody into a stable recipe catalog plus recipe/batch
 start action. Durable homogeneous inputs resolve to exact lots privately; freshness-sensitive inputs keep one
 explicit revision-bound stack choice, optional equipment remains an exact revalidated provider, and output returns

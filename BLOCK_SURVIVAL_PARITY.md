@@ -64,8 +64,9 @@ Foundational blockers:
 - no camera/input adapter; bounded fixed-point player-eye targeting plus typed held primary and secondary
   interaction intents now exist in core;
 - held excavation now admits, progresses, completes, and chains canonical timed batches on the 20 Hz control
-  clock while preserving authored mining costs; secondary use can consume one unambiguous selected food cohort or
-  place an authored finished storage object into generated air adjacent to the pointed face, with body/object
+  clock while preserving authored mining costs; secondary hotbar use can consume one unambiguous selected food
+  commodity, while an explicit projected stack can select among visible freshness cohorts without exposing lot IDs;
+  secondary use can also place an authored finished storage object into generated air adjacent to the pointed face, with body/object
   overlap rejection; generic terrain placement, broader interact semantics, and adapter feedback remain absent;
 - no generic dropped-item world entity or rendered container UI shell; logistics now persists a nine-slot semantic
   hotbar and inventory exposes one carried/local-container projection; familiar material stacks preserve meaningful

@@ -112,6 +112,10 @@ Candidate frames and projections are disposable. Reuse them only while all autho
 on remain unchanged; otherwise reacquire the narrow production assessment/resolution. A cloned future branch or
 remembered validation success never authorizes current state.
 
+When inventory exposes multiple physical/freshness stacks for one food commodity, automated actors choose from
+those projected stacks. They must not recover or rank private lot IDs; the production action resolves exact lot
+slices only after the visible stack choice is made.
+
 ### Temporal observation horizon
 
 An actor may choose a bounded horizon from legitimate information such as a current schedule, policy deadline, or

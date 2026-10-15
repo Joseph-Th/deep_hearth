@@ -6,7 +6,9 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::state::AppState;
 use crate::fluid::FluidStoreId;
-use crate::inventory::{MaterialLotId, MaterialLotSelection};
+use crate::inventory::{
+    MaterialLotId, MaterialLotSelection, MaterialStackProjection, MaterialStackProjectionError,
+};
 use crate::logistics::{validate_player_fluid_store_access, validate_player_stockpile_access};
 use crate::material::CommodityKey;
 use crate::registry::Registries;
@@ -34,6 +36,62 @@ pub enum EatLotToTargetError {
         required: Mass,
     },
     Eat(EatError),
+}
+
+/// Failure while composing one familiar projected food stack into exact eating.
+///
+/// Unlike the lot-oriented adapter, this surface does not expose inventory lot identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EatStackToTargetError {
+    SurvivalNotInitialized,
+    NotEdible { commodity: CommodityKey },
+    Projection(MealMetabolicProjectionError),
+    InsufficientStackMass { available: Mass, required: Mass },
+    Stack(MaterialStackProjectionError),
+    Eat(EatError),
+}
+
+impl Display for EatStackToTargetError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SurvivalNotInitialized => {
+                formatter.write_str("selected-stack eating requires initialized player survival")
+            }
+            Self::NotEdible { commodity } => write!(
+                formatter,
+                "selected material {} form {} is not edible",
+                commodity.material().value(),
+                commodity.form().value()
+            ),
+            Self::Projection(error) => {
+                write!(formatter, "selected-stack meal projection failed: {error}")
+            }
+            Self::InsufficientStackMass {
+                available,
+                required,
+            } => write!(
+                formatter,
+                "selected food stack contains {} mg but {} mg is needed for the requested reserve target",
+                available.milligrams(),
+                required.milligrams()
+            ),
+            Self::Stack(error) => write!(formatter, "selected food stack became stale: {error}"),
+            Self::Eat(error) => write!(formatter, "selected-stack eating failed: {error}"),
+        }
+    }
+}
+
+impl Error for EatStackToTargetError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Projection(error) => Some(error),
+            Self::Stack(error) => Some(error),
+            Self::Eat(error) => Some(error),
+            Self::SurvivalNotInitialized
+            | Self::NotEdible { .. }
+            | Self::InsufficientStackMass { .. } => None,
+        }
+    }
 }
 
 impl Display for EatLotToTargetError {
@@ -70,6 +128,35 @@ impl Display for EatLotToTargetError {
     }
 }
 
+/// Familiar stack-level food action: eat a legal portion from exactly the selected physical cohort.
+///
+/// The stack projection privately resolves current lot slices. This lets a UI distinguish two
+/// freshness/temperature cohorts without inventing a freshness policy or exposing lot IDs.
+pub fn validate_eat_stack_to_full(
+    registries: &Registries,
+    state: &AppState,
+    stack: &MaterialStackProjection,
+) -> Result<Option<ValidatedEat>, EatStackToTargetError> {
+    let result = validate_eat_stack_to_metabolic_target(
+        registries,
+        state,
+        stack,
+        registries
+            .survival()
+            .physiology()
+            .maximum_metabolic_energy(),
+    );
+    match result {
+        Err(EatStackToTargetError::Projection(
+            MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
+        )) => validate_eat_stack_up_to(registries, state, stack, maximum_meal_mass),
+        Err(EatStackToTargetError::InsufficientStackMass { available, .. }) => {
+            validate_eat_stack_up_to(registries, state, stack, available)
+        }
+        result => result,
+    }
+}
+
 impl Error for EatLotToTargetError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -81,6 +168,32 @@ impl Error for EatLotToTargetError {
             | Self::InsufficientLotMass { .. } => None,
         }
     }
+}
+
+fn validate_eat_stack_up_to(
+    registries: &Registries,
+    state: &AppState,
+    stack: &MaterialStackProjection,
+    desired: Mass,
+) -> Result<Option<ValidatedEat>, EatStackToTargetError> {
+    let source = stack.stockpile();
+    validate_player_stockpile_access(state, source)
+        .map_err(|error| EatStackToTargetError::Eat(EatError::Access(error)))?;
+    let direct = registries.survival().physiology().direct_consumption();
+    let available = stack.mass();
+    let portion = desired.min(available).min(direct.maximum_meal_mass());
+    if portion < direct.minimum_meal_mass() {
+        return Err(EatStackToTargetError::InsufficientStackMass {
+            available,
+            required: direct.minimum_meal_mass(),
+        });
+    }
+    let selections = stack
+        .selections_for_mass(state, source, portion)
+        .map_err(EatStackToTargetError::Stack)?;
+    validate_eat(registries, state, source, &selections)
+        .map(Some)
+        .map_err(EatStackToTargetError::Eat)
 }
 
 /// Failure while composing one selected fluid vessel/store into exact drinking.
@@ -103,6 +216,53 @@ pub enum DrinkStoreToTargetError {
         required: Volume,
     },
     Drink(DrinkError),
+}
+
+/// Validates the minimum meal from one projected stack needed to reach `target`.
+pub fn validate_eat_stack_to_metabolic_target(
+    registries: &Registries,
+    state: &AppState,
+    stack: &MaterialStackProjection,
+    target: Energy,
+) -> Result<Option<ValidatedEat>, EatStackToTargetError> {
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .ok_or(EatStackToTargetError::SurvivalNotInitialized)?;
+    let source = stack.stockpile();
+    validate_player_stockpile_access(state, source)
+        .map_err(|error| EatStackToTargetError::Eat(EatError::Access(error)))?;
+    let food = registries
+        .survival()
+        .get_food(stack.commodity())
+        .copied()
+        .ok_or(EatStackToTargetError::NotEdible {
+            commodity: stack.commodity(),
+        })?;
+    let projected = project_minimum_meal_to_metabolic_target(
+        registries.survival().physiology(),
+        food,
+        player.metabolic_energy(),
+        target,
+    )
+    .map_err(EatStackToTargetError::Projection)?;
+    let Some(projected) = projected else {
+        return Ok(None);
+    };
+    let required = projected.mass();
+    if required > stack.mass() {
+        return Err(EatStackToTargetError::InsufficientStackMass {
+            available: stack.mass(),
+            required,
+        });
+    }
+    let selections = stack
+        .selections_for_mass(state, source, required)
+        .map_err(EatStackToTargetError::Stack)?;
+    validate_eat(registries, state, source, &selections)
+        .map(Some)
+        .map_err(EatStackToTargetError::Eat)
 }
 
 impl Display for DrinkStoreToTargetError {
