@@ -8,7 +8,9 @@ mod player_death;
 
 pub use control::{PlayerDirectControlInput, PrimaryControlIntent};
 pub use error::TickError;
-pub use outcome::{ControlTickOutcome, PrimaryActionOutcome, TickOutcome};
+pub use outcome::{
+    ActiveEquipmentDropOutcome, ControlTickOutcome, PrimaryActionOutcome, TickOutcome,
+};
 
 use crate::core::state::{
     AppState, apply_clock_advance, apply_control_clock_advance, debug_assert_runtime_invariants,
@@ -25,6 +27,7 @@ use crate::labor::{
 use crate::logistics::{
     PlayerControlInput, apply_player_body_motion, apply_player_step_tick,
     decide_player_body_motion, decide_player_step_tick, player_body_uses_generated_world,
+    validate_drop_equipment,
 };
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
@@ -159,6 +162,8 @@ pub fn advance_control_tick_with_direct_input(
         } else {
             None
         };
+        let active_equipment_drop =
+            attempt_active_equipment_drop(registries, state, input.drop_active_equipment());
         debug_assert_runtime_invariants(registries, state);
         return Ok(ControlTickOutcome::new(
             next_control,
@@ -167,6 +172,7 @@ pub fn advance_control_tick_with_direct_input(
             surface_drop_pickup,
             block_excavation,
             primary_action,
+            active_equipment_drop,
         ));
     }
     debug_assert!(next_control.is_simulation_boundary());
@@ -202,6 +208,8 @@ pub fn advance_control_tick_with_direct_input(
     );
     let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
         .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
+    let active_equipment_drop =
+        attempt_active_equipment_drop(registries, state, input.drop_active_equipment());
     let block_excavation = simulation.block_excavation();
     debug_assert_runtime_invariants(registries, state);
     debug_assert_eq!(state.control_tick(), next_control);
@@ -212,6 +220,7 @@ pub fn advance_control_tick_with_direct_input(
         surface_drop_pickup,
         block_excavation,
         primary_action,
+        active_equipment_drop,
     ))
 }
 
@@ -224,6 +233,42 @@ fn map_block_excavation_tick_error(error: BlockExcavationTickError) -> TickError
         BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
         BlockExcavationTickError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
     }
+}
+
+fn attempt_active_equipment_drop(
+    registries: &Registries,
+    state: &mut AppState,
+    requested: bool,
+) -> Option<ActiveEquipmentDropOutcome> {
+    if !requested {
+        return None;
+    }
+    let Some(equipment) = state.logistics().active_equipment() else {
+        return Some(ActiveEquipmentDropOutcome::NoActiveEquipment);
+    };
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: active carried equipment requires an admitted player")
+        });
+    Some(
+        match validate_drop_equipment(registries, state, equipment) {
+            Ok(validated) => {
+                validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous active-equipment drop became stale: {error}"
+                )
+            });
+                ActiveEquipmentDropOutcome::Dropped {
+                    equipment,
+                    position,
+                }
+            }
+            Err(error) => ActiveEquipmentDropOutcome::Rejected(error),
+        },
+    )
 }
 
 fn attempt_primary_action(

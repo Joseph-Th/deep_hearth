@@ -1,13 +1,14 @@
 //! Public observable result of one canonical simulation tick.
 
 use crate::core::time::{ControlTick, SimulationTick};
-use crate::equipment::EquipmentMaintenanceOutcome;
+use crate::equipment::{EquipmentId, EquipmentMaintenanceOutcome};
 use crate::geology::FieldProspectingOutcome;
 use crate::inventory::StorageEnclosureDismantlingOutcome;
 use crate::labor::ManualPowerOutcome;
-use crate::logistics::{PlayerBodyMotionOutcome, PlayerStepOutcome};
+use crate::logistics::{PlayerBodyMotionOutcome, PlayerEquipmentCarryError, PlayerStepOutcome};
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
+use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
 use crate::surface::{SurfaceDropPickupOutcome, SurfaceGatheringOutcome};
 use crate::survival::SurvivalAssessment;
@@ -22,6 +23,18 @@ pub enum PrimaryActionOutcome {
     BlockExcavationRejected(BlockExcavationError),
 }
 
+/// Observable result of a one-step request to drop the active carried equipment.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActiveEquipmentDropOutcome {
+    Dropped {
+        equipment: EquipmentId,
+        position: VoxelCoord,
+    },
+    NoActiveEquipment,
+    Rejected(PlayerEquipmentCarryError),
+}
+
 /// Result of one canonical 20 Hz control/kinematic tick.
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,6 +45,7 @@ pub struct ControlTickOutcome {
     surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
     block_excavation: Option<BlockExcavationOutcome>,
     primary_action: Option<PrimaryActionOutcome>,
+    active_equipment_drop: Option<ActiveEquipmentDropOutcome>,
 }
 
 impl ControlTickOutcome {
@@ -42,6 +56,7 @@ impl ControlTickOutcome {
         surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
         block_excavation: Option<BlockExcavationOutcome>,
         primary_action: Option<PrimaryActionOutcome>,
+        active_equipment_drop: Option<ActiveEquipmentDropOutcome>,
     ) -> Self {
         Self {
             control_tick,
@@ -50,6 +65,7 @@ impl ControlTickOutcome {
             surface_drop_pickup,
             block_excavation,
             primary_action,
+            active_equipment_drop,
         }
     }
 
@@ -86,6 +102,12 @@ impl ControlTickOutcome {
     #[must_use]
     pub const fn primary_action(&self) -> Option<&PrimaryActionOutcome> {
         self.primary_action.as_ref()
+    }
+
+    /// Active carried equipment drop requested on this control step, if any.
+    #[must_use]
+    pub const fn active_equipment_drop(&self) -> Option<ActiveEquipmentDropOutcome> {
+        self.active_equipment_drop
     }
 }
 

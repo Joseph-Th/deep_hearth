@@ -24,12 +24,14 @@ impl PrimaryControlIntent {
 pub struct PlayerDirectControlInput {
     movement: PlayerControlInput,
     primary: Option<PrimaryControlIntent>,
+    drop_active_equipment: bool,
 }
 
 impl PlayerDirectControlInput {
     pub const NEUTRAL: Self = Self {
         movement: PlayerControlInput::NEUTRAL,
         primary: None,
+        drop_active_equipment: false,
     };
 
     #[must_use]
@@ -37,12 +39,20 @@ impl PlayerDirectControlInput {
         Self {
             movement,
             primary: None,
+            drop_active_equipment: false,
         }
     }
 
     #[must_use]
     pub const fn with_primary(mut self, primary: PrimaryControlIntent) -> Self {
         self.primary = Some(primary);
+        self
+    }
+
+    /// Requests dropping the currently active carried equipment on this control step.
+    #[must_use]
+    pub const fn with_drop_active_equipment(mut self) -> Self {
+        self.drop_active_equipment = true;
         self
     }
 
@@ -54,5 +64,10 @@ impl PlayerDirectControlInput {
     #[must_use]
     pub const fn primary(self) -> Option<PrimaryControlIntent> {
         self.primary
+    }
+
+    #[must_use]
+    pub const fn drop_active_equipment(self) -> bool {
+        self.drop_active_equipment
     }
 }

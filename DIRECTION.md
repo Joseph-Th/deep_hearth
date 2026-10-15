@@ -127,9 +127,9 @@ drop remains in world custody and can still be recovered partially through ordin
 step can choose the largest target/tool batch, typed rejection is observable, and a held action can start the next
 legal batch on the exact control step that completes the previous one. Excavation persists 20 Hz start/completion
 schedule and normalized progress while preserving authored mining duration, exertion, wear, custody, and save/load
-continuation. Logistics now persists one active carried-equipment selection, and familiar primary excavation
-derives its canonical mining method from that selected tool rather than accepting method/equipment IDs from input.
-Full hotbar/item-stack projection, placement/use, generic item/drop projection, and inventory/container projection remain open.
+continuation. Logistics persists one active carried-equipment selection: primary excavation derives its mining
+method from that tool, while one-step direct drop returns it through the existing equipment-carry path. Full
+hotbar/material-stack projection, material-stack drop, placement/use, generic item/drop projection, and container projection remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and
