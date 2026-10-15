@@ -150,14 +150,16 @@ Projected edible stacks can now drive the default timed eating action directly, 
 remain a player choice while exact lot slices stay private to inventory/survival owners.
 Grounded structural construction now has the same stack-facing atomicity: one revision-bound carried stack plus
 authored local member geometry validates planning, exact materialization, and timed hand-setting as one player
-action, so stale matter cannot leave an orphan planned member. This is not yet a pointed-face placement verb;
-targeting-to-geometry, generated-world vacancy/support integration, and general block placement remain open.
+action, so stale matter cannot leave an orphan planned member. Direct secondary use now maps one unambiguous
+carried wood-log stack plus the top face of adjacent generated terrain to an authored 1 m timber post, after
+generated-air, body, object, and existing-structure vacancy checks. Side-supported geometry, terrain-owned
+structural support, panels/walls, general block placement, and deconstruction remain open.
 Personal manual crafting now composes the same carried custody into a stable recipe catalog plus recipe/batch
 start action. Durable homogeneous inputs resolve to exact lots privately; freshness-sensitive inputs keep one
 explicit revision-bound stack choice, optional equipment remains an exact revalidated provider, and output returns
 to carried custody through ordinary timed production. Adapter inventory/container/crafting rendering and input bindings,
-rendered/spatial drop presentation, pointed-face structural placement mapping, general block placement, and generic
-moving item entities remain open.
+rendered/spatial drop presentation, broader structural placement, general block placement, and generic moving item
+entities remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

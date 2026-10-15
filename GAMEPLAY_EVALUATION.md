@@ -119,7 +119,9 @@ slices only after the visible stack choice is made.
 Ordinary grounded-construction evidence should likewise begin from an actor-visible carried stack and use the
 atomic grounded-member action. Do not commit an inert plan first and then treat later material/work admission as
 inevitable; the two-step owner API remains valid when blueprint planning itself is the behavior under evaluation,
-but the familiar build gesture must fail without leaving an orphan planned member.
+but the familiar build gesture must fail without leaving an orphan planned member. When evaluating the direct
+player shell, exercise the pointed top-face timber-post secondary action rather than bypassing its target/vacancy
+checks with geometry supplied directly to the structural owner.
 
 ### Temporal observation horizon
 

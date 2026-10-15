@@ -1,16 +1,29 @@
 //! Ordered direct player interactions evaluated after authoritative body motion.
 
+use crate::content::{
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, FORM_LOG, MATERIAL_WOOD,
+    STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+};
 use crate::core::state::AppState;
-use crate::inventory::{StorageDefinitionId, validate_place_player_storage_at};
+use crate::inventory::{
+    StorageDefinitionId, project_material_stacks, validate_place_player_storage_at,
+};
 use crate::logistics::{
     PlayerActiveSelection, player_body_occupies_voxel, validate_drop_equipment,
     validate_select_quick_access_slot,
 };
+use crate::material::CommodityKey;
 use crate::registry::Registries;
+use crate::spatial::{CubeFace, ViewDirection, VoxelBounds, VoxelCoord};
+use crate::structural::{
+    GroundedStructuralElementPlan, StructuralElementGeometry,
+    validate_start_player_grounded_structural_construction_from_stack,
+};
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
-use crate::survival::validate_eat_lot_to_full;
+use crate::survival::validate_eat_stack_to_full;
 use crate::world::{
-    BlockStateId, raycast_player_block, validate_start_player_block_excavation_active,
+    BlockStateId, PlayerBlockTargetError, raycast_player_block,
+    validate_start_player_block_excavation_active,
 };
 
 use super::control::{PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent};
@@ -105,6 +118,11 @@ fn attempt_secondary_action(
             {
                 return Some(outcome);
             }
+            if let Some(outcome) =
+                attempt_selected_timber_placement(registries, state, commodity, direction)
+            {
+                return Some(outcome);
+            }
             if registries.survival().get_food(commodity).is_none() {
                 return Some(SecondaryActionOutcome::MaterialNotContextual);
             }
@@ -118,26 +136,23 @@ fn attempt_secondary_action(
                 .unwrap_or_else(|| {
                     panic!("runtime invariant broken: active material selection requires player")
                 });
-            let lots = state
-                .inventory()
-                .lot_ids(carried)
-                .filter(|lot| {
-                    state
-                        .inventory()
-                        .get_lot(*lot)
-                        .is_some_and(|record| record.commodity() == commodity)
+            let stacks = project_material_stacks(registries, state, carried)
+                .unwrap_or_else(|error| {
+                    panic!("runtime invariant broken: carried stack projection failed: {error}")
                 })
+                .into_iter()
+                .filter(|stack| stack.commodity() == commodity)
                 .collect::<Vec<_>>();
-            let lot = match lots.as_slice() {
+            let stack = match stacks.as_slice() {
                 [] => return Some(SecondaryActionOutcome::MaterialUnavailable),
-                [lot] => *lot,
-                lots => {
-                    return Some(SecondaryActionOutcome::AmbiguousMaterialLots {
-                        count: lots.len(),
+                [stack] => stack,
+                stacks => {
+                    return Some(SecondaryActionOutcome::AmbiguousMaterialStacks {
+                        count: stacks.len(),
                     });
                 }
             };
-            Some(match validate_eat_lot_to_full(registries, state, lot) {
+            Some(match validate_eat_stack_to_full(registries, state, stack) {
                 Ok(Some(validated)) => {
                     let outcome = validated.commit(state).unwrap_or_else(|error| {
                         panic!(
@@ -151,6 +166,172 @@ fn attempt_secondary_action(
             })
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum DirectPlacementTargetError {
+    Target(PlayerBlockTargetError),
+    NoTarget,
+    CoordinateOverflow,
+    WorldUnavailable {
+        position: VoxelCoord,
+    },
+    Occupied {
+        position: VoxelCoord,
+        state: BlockStateId,
+    },
+    IntersectsPlayer {
+        position: VoxelCoord,
+    },
+    LocationOccupied {
+        position: VoxelCoord,
+    },
+}
+
+fn resolve_direct_placement_target(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+) -> Result<(CubeFace, VoxelCoord), DirectPlacementTargetError> {
+    let target = match raycast_player_block(registries, state, direction) {
+        Ok(Some(target)) => target,
+        Ok(None) => return Err(DirectPlacementTargetError::NoTarget),
+        Err(error) => return Err(DirectPlacementTargetError::Target(error)),
+    };
+    let position = target
+        .face()
+        .adjacent_voxel(target.voxel())
+        .ok_or(DirectPlacementTargetError::CoordinateOverflow)?;
+    match state.world().block_at(position) {
+        None => return Err(DirectPlacementTargetError::WorldUnavailable { position }),
+        Some(BlockStateId::AIR) => {}
+        Some(block) => {
+            return Err(DirectPlacementTargetError::Occupied {
+                position,
+                state: block,
+            });
+        }
+    }
+    if player_body_occupies_voxel(registries, state, position) {
+        return Err(DirectPlacementTargetError::IntersectsPlayer { position });
+    }
+    if state.logistics().has_stationary_occupant_at(position) {
+        return Err(DirectPlacementTargetError::LocationOccupied { position });
+    }
+    Ok((target.face(), position))
+}
+
+fn single_voxel_bounds(position: VoxelCoord) -> Option<VoxelBounds> {
+    let max = VoxelCoord::new(
+        position.x().checked_add(1)?,
+        position.y().checked_add(1)?,
+        position.z().checked_add(1)?,
+    );
+    VoxelBounds::new(position, max).ok()
+}
+
+fn attempt_selected_timber_placement(
+    registries: &Registries,
+    state: &mut AppState,
+    commodity: CommodityKey,
+    direction: ViewDirection,
+) -> Option<SecondaryActionOutcome> {
+    if commodity != CommodityKey::new(MATERIAL_WOOD, FORM_LOG) {
+        return None;
+    }
+    if !state.control_tick().is_simulation_boundary() {
+        return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
+    }
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: active timber selection requires player")
+        });
+    let stacks = project_material_stacks(registries, state, carried)
+        .unwrap_or_else(|error| {
+            panic!("runtime invariant broken: carried timber projection failed: {error}")
+        })
+        .into_iter()
+        .filter(|stack| stack.commodity() == commodity)
+        .collect::<Vec<_>>();
+    let stack = match stacks.as_slice() {
+        [] => return Some(SecondaryActionOutcome::MaterialUnavailable),
+        [stack] => stack,
+        stacks => {
+            return Some(SecondaryActionOutcome::AmbiguousMaterialStacks {
+                count: stacks.len(),
+            });
+        }
+    };
+    let (face, position) = match resolve_direct_placement_target(registries, state, direction) {
+        Ok(target) => target,
+        Err(DirectPlacementTargetError::Target(error)) => {
+            return Some(SecondaryActionOutcome::StructuralTargetRejected(error));
+        }
+        Err(DirectPlacementTargetError::NoTarget) => {
+            return Some(SecondaryActionOutcome::NoStructuralPlacementTarget);
+        }
+        Err(DirectPlacementTargetError::CoordinateOverflow) => {
+            return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
+        }
+        Err(DirectPlacementTargetError::WorldUnavailable { position }) => {
+            return Some(SecondaryActionOutcome::StructuralPlacementWorldUnavailable { position });
+        }
+        Err(DirectPlacementTargetError::Occupied { position, state }) => {
+            return Some(SecondaryActionOutcome::StructuralPlacementOccupied { position, state });
+        }
+        Err(DirectPlacementTargetError::IntersectsPlayer { position }) => {
+            return Some(SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position });
+        }
+        Err(DirectPlacementTargetError::LocationOccupied { position }) => {
+            return Some(SecondaryActionOutcome::StructuralPlacementLocationOccupied { position });
+        }
+    };
+    if face != CubeFace::Top {
+        return Some(SecondaryActionOutcome::StructuralPlacementRequiresTopFace { face });
+    }
+    if state
+        .structures()
+        .elements()
+        .any(|record| record.bounds().has_voxel(position))
+    {
+        return Some(SecondaryActionOutcome::StructuralPlacementLocationOccupied { position });
+    }
+    let Some(bounds) = single_voxel_bounds(position) else {
+        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
+    };
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap_or_else(|error| panic!("built-in timber-post geometry is invalid: {error}"));
+    let plan = GroundedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+    );
+    Some(
+        match validate_start_player_grounded_structural_construction_from_stack(
+            registries,
+            state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            plan,
+            stack,
+        ) {
+            Ok(validated) => {
+                let work = validated.commit(state).unwrap_or_else(|error| {
+                    panic!(
+                        "runtime invariant broken: synchronous timber placement became stale: {error}"
+                    )
+                });
+                SecondaryActionOutcome::StructuralConstructionStarted(work)
+            }
+            Err(error) => SecondaryActionOutcome::StructuralPlacementRejected(error),
+        },
+    )
 }
 
 fn attempt_selected_storage_placement(
@@ -177,32 +358,30 @@ fn attempt_selected_storage_placement(
             });
         }
     };
-    let target = match raycast_player_block(registries, state, direction) {
-        Ok(Some(target)) => target,
-        Ok(None) => return Some(SecondaryActionOutcome::NoStoragePlacementTarget),
-        Err(error) => return Some(SecondaryActionOutcome::StorageTargetRejected(error)),
-    };
-    let Some(position) = target.face().adjacent_voxel(target.voxel()) else {
-        return Some(SecondaryActionOutcome::StoragePlacementCoordinateOverflow);
-    };
-    match state.world().block_at(position) {
-        None => {
+    let (_, position) = match resolve_direct_placement_target(registries, state, direction) {
+        Ok(target) => target,
+        Err(DirectPlacementTargetError::Target(error)) => {
+            return Some(SecondaryActionOutcome::StorageTargetRejected(error));
+        }
+        Err(DirectPlacementTargetError::NoTarget) => {
+            return Some(SecondaryActionOutcome::NoStoragePlacementTarget);
+        }
+        Err(DirectPlacementTargetError::CoordinateOverflow) => {
+            return Some(SecondaryActionOutcome::StoragePlacementCoordinateOverflow);
+        }
+        Err(DirectPlacementTargetError::WorldUnavailable { position }) => {
             return Some(SecondaryActionOutcome::StoragePlacementWorldUnavailable { position });
         }
-        Some(BlockStateId::AIR) => {}
-        Some(block) => {
-            return Some(SecondaryActionOutcome::StoragePlacementOccupied {
-                position,
-                state: block,
-            });
+        Err(DirectPlacementTargetError::Occupied { position, state }) => {
+            return Some(SecondaryActionOutcome::StoragePlacementOccupied { position, state });
         }
-    }
-    if player_body_occupies_voxel(registries, state, position) {
-        return Some(SecondaryActionOutcome::StoragePlacementIntersectsPlayer { position });
-    }
-    if state.logistics().has_stationary_occupant_at(position) {
-        return Some(SecondaryActionOutcome::StoragePlacementLocationOccupied { position });
-    }
+        Err(DirectPlacementTargetError::IntersectsPlayer { position }) => {
+            return Some(SecondaryActionOutcome::StoragePlacementIntersectsPlayer { position });
+        }
+        Err(DirectPlacementTargetError::LocationOccupied { position }) => {
+            return Some(SecondaryActionOutcome::StoragePlacementLocationOccupied { position });
+        }
+    };
     Some(
         match validate_place_player_storage_at(registries, state, definition, position) {
             Ok(validated) => {

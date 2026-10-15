@@ -67,9 +67,9 @@ Foundational blockers:
   clock while preserving authored mining costs; secondary hotbar use can consume one unambiguous selected food
   commodity, while an explicit projected stack can select among visible freshness cohorts without exposing lot IDs;
   secondary use can also place an authored finished storage object into generated air adjacent to the pointed face, with body/object
-  overlap rejection; visible carried material can atomically start one adjacent grounded structural member and its
-  timed hand-setting without an orphan blueprint, but pointed-face structural geometry/vacancy mapping, generic terrain
-  placement, broader interact semantics, and adapter feedback remain absent;
+  overlap rejection; an unambiguous carried wood-log stack can likewise set one authored timber post on the top face
+  of adjacent generated terrain through atomic timed hand-setting. Side-supported shapes, general terrain placement,
+  broader interact semantics, and adapter feedback remain absent;
 - no generic dropped-item world entity or rendered container UI shell; logistics now persists a nine-slot semantic
   hotbar and inventory exposes one carried/local-container projection; familiar material stacks preserve meaningful
   physical/freshness boundaries and can drive partial same-voxel storage transfer without exposing lot IDs; selected carried material
@@ -440,7 +440,7 @@ stronger structural owner. The parity challenge is to make that depth compatible
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
-| Stack blocks freely | Most solid blocks can be placed without support analysis | One visible carried stack can atomically become an adjacent grounded member plus timed hand-setting; no pointed-face generated-world placement mapping yet | `GAP-P0` shell | Basic block placement must be straightforward. Structural simulation should reject/settle physically impossible builds, not turn every placement into engineering UI. |
+| Stack blocks freely | Most solid blocks can be placed without support analysis | Secondary use maps carried logs onto an adjacent terrain top face as one 3.25 kg timber post with timed hand-setting; other shapes/materials remain unplaced | `GAP-P0` shell | Extend this familiar gesture across simple authored shapes while structural simulation rejects/settles impossible builds instead of turning placement into engineering UI. |
 | Gravity blocks | Sand/gravel-like blocks fall | Structural owner models load but no terrain blocks | `DIFFERENT+` | Loose/unsupported materials should fall or fail based on material/cohesion/support, not a hardcoded tiny list. |
 | Structural failure | Most Minecraft blocks never fail by load | Support/load/failure physics | `PARITY+` | This is a major differentiator. Keep failure readable and recoverable. |
 | Terrain support | Terrain implicitly supports blocks | Terrain support absent | `GAP-P0` | World terrain must contribute structural support before structures can integrate with actual ground. |

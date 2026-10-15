@@ -52,8 +52,8 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Loose surface matter | Finite gathering/drop custody; exact-local drop projection; partial capacity-filling auto-pickup; natural opportunities stay deliberate. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
-| Structures | Support/load/failure physics plus atomic grounded hand-setting from carried stacks. |
-| Block world | Mass-backed chunks, neighborhood demand, collision, 4.5 m targeting, 20 Hz excavation, conserved fragments, selected use/drop, storage placement, and inventory/hotbar core shell. Adapter UI, general placement, richer shapes, and residency remain absent. |
+| Structures | Support/load/failure plus atomic carried-stack hand-setting and top-face timber-post use. |
+| Block world | Mass-backed chunks, demand, collision, 4.5 m targeting, 20 Hz excavation, conserved fragments, selected use/drop, storage/post placement, and inventory/hotbar shell. Adapter UI, general placement, richer shapes, and residency remain absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

@@ -7,20 +7,20 @@ use crate::inventory::{
     PlayerStoragePlacementError, StockpileId, StorageDefinitionId,
     StorageEnclosureDismantlingOutcome,
 };
-use crate::labor::ManualPowerOutcome;
+use crate::labor::{ManualPowerOutcome, StructuralConstructionWork};
 use crate::logistics::{
     PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
     PlayerQuickAccessSelectionError, PlayerQuickAccessSlot, PlayerStepOutcome,
 };
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
-use crate::spatial::VoxelCoord;
-use crate::structural::StructuralElementId;
+use crate::spatial::{CubeFace, VoxelCoord};
+use crate::structural::{PlayerGroundedStructuralConstructionError, StructuralElementId};
 use crate::surface::{
     PlayerMaterialDropError, PlayerMaterialDropOutcome, SurfaceDropPickupOutcome,
     SurfaceGatheringOutcome,
 };
-use crate::survival::{EatLotToTargetError, EatOutcome, SurvivalAssessment};
+use crate::survival::{EatOutcome, EatStackToTargetError, SurvivalAssessment};
 use crate::world::{
     BlockExcavationError, BlockExcavationOutcome, BlockExcavationStartOutcome, BlockStateId,
     PlayerBlockTargetError,
@@ -50,6 +50,7 @@ pub enum QuickAccessSelectionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SecondaryActionOutcome {
     EatingStarted(EatOutcome),
+    StructuralConstructionStarted(StructuralConstructionWork),
     StoragePlaced {
         definition: StorageDefinitionId,
         stockpile: StockpileId,
@@ -74,19 +75,39 @@ pub enum SecondaryActionOutcome {
     StoragePlacementLocationOccupied {
         position: VoxelCoord,
     },
+    StructuralTargetRejected(PlayerBlockTargetError),
+    NoStructuralPlacementTarget,
+    StructuralPlacementCoordinateOverflow,
+    StructuralPlacementRequiresTopFace {
+        face: CubeFace,
+    },
+    StructuralPlacementWorldUnavailable {
+        position: VoxelCoord,
+    },
+    StructuralPlacementOccupied {
+        position: VoxelCoord,
+        state: BlockStateId,
+    },
+    StructuralPlacementIntersectsPlayer {
+        position: VoxelCoord,
+    },
+    StructuralPlacementLocationOccupied {
+        position: VoxelCoord,
+    },
+    StructuralPlacementRejected(PlayerGroundedStructuralConstructionError),
     AlreadySatisfied,
     DeferredUntilSimulationBoundary,
     NoActiveSelection,
     ActiveEquipmentNotContextual,
     MaterialUnavailable,
-    AmbiguousMaterialLots {
+    AmbiguousMaterialStacks {
         count: usize,
     },
     AmbiguousStorageDefinitions {
         count: usize,
     },
     MaterialNotContextual,
-    EatingRejected(EatLotToTargetError),
+    EatingRejected(EatStackToTargetError),
 }
 
 /// Observable result of a one-step request to drop the active quick-access selection.

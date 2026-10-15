@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::content::{
-    BLOCK_STATE_STONE, FORM_CHIP, FORM_FOOD, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES,
-    MATERIAL_STONE, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    BLOCK_STATE_STONE, FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY,
+    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
     SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
@@ -170,6 +170,11 @@ fn downward_view() -> ViewDirection {
         .unwrap_or_else(|error| panic!("surface downward view failed: {error}"))
 }
 
+fn forward_down_view() -> ViewDirection {
+    ViewDirection::new(500_000, -866_025, 0)
+        .unwrap_or_else(|error| panic!("surface forward-down view failed: {error}"))
+}
+
 fn seed_surface(
     registries: &crate::registry::Registries,
     state: &mut AppState,
@@ -294,7 +299,7 @@ fn secondary_use_refuses_ambiguous_physical_food_cohorts() {
     };
     assert_eq!(
         outcome,
-        SecondaryActionOutcome::AmbiguousMaterialLots { count: 2 }
+        SecondaryActionOutcome::AmbiguousMaterialStacks { count: 2 }
     );
     assert_eq!(state.player_work().active(), None);
 }
@@ -478,6 +483,123 @@ fn secondary_storage_placement_rejects_the_player_body_voxel() {
         Some(body_mass)
     );
     assert_eq!(state.logistics().stockpile_locations().count(), 0);
+}
+
+#[test]
+fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("timber-post terrain failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("timber-post terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("timber-post terrain has no solid surface"));
+    let player_position = VoxelCoord::new(0, surface_y + 1, 0);
+    let target = VoxelCoord::new(1, surface_y, 0);
+    let placement = VoxelCoord::new(1, surface_y + 1, 0);
+    set_generated_block_for_test(registries.world(), &mut state, target, BLOCK_STATE_STONE);
+    set_generated_block_for_test(registries.world(), &mut state, placement, BlockStateId::AIR);
+    let carried = admit_player(&registries, &mut state, player_position);
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let post_mass = Mass::from_milligrams(3_250_000);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        post_mass,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("timber-post carried material failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("timber-post matter baseline failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("timber-post selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("timber-post selection commit failed: {error}"));
+    let pointed = crate::world::raycast_player_block(&registries, &state, forward_down_view())
+        .unwrap_or_else(|error| panic!("timber-post target raycast failed: {error}"))
+        .unwrap_or_else(|| panic!("timber-post target raycast missed adjacent terrain"));
+    assert_eq!(pointed.face(), crate::spatial::CubeFace::Top);
+    assert_eq!(
+        pointed.face().adjacent_voxel(pointed.voxel()),
+        Some(placement)
+    );
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(forward_down_view()));
+
+    let work = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("timber-post direct control failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) => break *work,
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            other => panic!("timber-post returned unexpected secondary outcome: {other:?}"),
+        }
+    };
+    let element = work.element();
+    let record = state
+        .structures()
+        .get_element(element)
+        .unwrap_or_else(|| panic!("timber-post structural member disappeared"));
+    assert!(record.bounds().has_voxel(placement));
+    assert_eq!(record.embodied_mass(), post_mass);
+    assert_eq!(
+        record.lifecycle(),
+        crate::structural::StructuralLifecycle::Planned
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(Mass::ZERO)
+    );
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::StructuralConstruction { work: active })
+            if active.element() == element
+    ));
+
+    let mut completions = 0_u32;
+    while state.tick() < work.completes_at() {
+        let control = advance_control_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("timber-post hand-setting control tick failed: {error}")
+        });
+        if control
+            .simulation()
+            .is_some_and(|outcome| outcome.structural_construction() == Some(element))
+        {
+            completions += 1;
+        }
+    }
+    assert_eq!(completions, 1);
+    assert_eq!(
+        state
+            .structures()
+            .get_element(element)
+            .map(|record| record.lifecycle()),
+        Some(crate::structural::StructuralLifecycle::Active)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("timber-post matter audit failed: {error}"))
+            .total(),
+        matter_before.total()
+    );
 }
 
 #[test]
