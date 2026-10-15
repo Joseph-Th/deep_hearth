@@ -93,7 +93,7 @@ pub(crate) fn validate_buffer_player_secondary_use(
         .player()
         .copied()
         .ok_or(PlayerPendingSecondaryUseError::PlayerNotAdmitted)?;
-    if state.logistics().pending_secondary_use().is_some() {
+    if state.logistics().has_pending_direct_action() {
         return Err(PlayerPendingSecondaryUseError::AlreadyPending);
     }
     if state.control_tick().is_simulation_boundary() {

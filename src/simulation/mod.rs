@@ -49,7 +49,8 @@ use crate::world::{
 
 use direct_actions::{
     attempt_direct_actions, attempt_direct_actions_after_quick_access,
-    attempt_pending_secondary_action, attempt_quick_access_selection,
+    attempt_pending_primary_break, attempt_pending_secondary_action,
+    attempt_quick_access_selection,
 };
 use planning::{
     decide_automatic_mining_output, decide_storage_dismantling_after_completions,
@@ -158,7 +159,7 @@ pub fn advance_control_tick_with_direct_input(
         let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
             .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
         apply_control_clock_advance(state, next_control);
-        let direct_actions = attempt_direct_actions(registries, state, input, None);
+        let direct_actions = attempt_direct_actions(registries, state, input, None, None);
         debug_assert_runtime_invariants(registries, state);
         return Ok(ControlTickOutcome::new(
             next_control,
@@ -184,8 +185,11 @@ pub fn advance_control_tick_with_direct_input(
         next_control.simulation_tick(),
         locomotion_exertion,
     )?;
+    let has_pending_primary = state.logistics().pending_primary_break().is_some();
     let has_pending_secondary = state.logistics().pending_secondary_use().is_some();
-    let body_input = if has_pending_secondary {
+    let preserve_pending_context = (has_pending_primary && input.primary().is_none())
+        || (has_pending_secondary && input.secondary().is_none());
+    let body_input = if preserve_pending_context {
         PlayerControlInput::NEUTRAL
     } else {
         input.movement()
@@ -196,12 +200,24 @@ pub fn advance_control_tick_with_direct_input(
     let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
         .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
     let quick_access = attempt_quick_access_selection(state, input.quick_access_slot());
-    let pending_secondary = attempt_pending_secondary_action(registries, state);
+    let pending_primary = if has_pending_primary && input.primary().is_some() {
+        let _ = crate::logistics::take_player_pending_primary_break(state);
+        None
+    } else {
+        attempt_pending_primary_break(registries, state)
+    };
+    let pending_secondary = if has_pending_secondary && input.secondary().is_some() {
+        let _ = crate::logistics::take_player_pending_secondary_use(state);
+        None
+    } else {
+        attempt_pending_secondary_action(registries, state)
+    };
     let direct_actions = attempt_direct_actions_after_quick_access(
         registries,
         state,
         input,
         quick_access,
+        pending_primary,
         pending_secondary,
     );
     let block_excavation = simulation.block_excavation();

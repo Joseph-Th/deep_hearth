@@ -10,8 +10,8 @@ use crate::inventory::{
 use crate::labor::{ManualPowerOutcome, StructuralConstructionWork, SurfaceGatheringWork};
 use crate::logistics::{
     PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
-    PlayerPendingSecondaryUseError, PlayerQuickAccessSelectionError, PlayerQuickAccessSlot,
-    PlayerStepOutcome,
+    PlayerPendingPrimaryBreakError, PlayerPendingSecondaryUseError,
+    PlayerQuickAccessSelectionError, PlayerQuickAccessSlot, PlayerStepOutcome,
 };
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
@@ -41,7 +41,9 @@ pub enum PrimaryActionOutcome {
     StructuralDismantlingStarted(StructuralDismantlingStartOutcome),
     StructuralDismantlingRejected(PlayerStructuralDismantlingError),
     AmbiguousStructuralTarget { count: usize },
-    DeferredUntilSimulationBoundary,
+    QueuedUntilSimulationBoundary,
+    BufferedContextChanged,
+    BufferRejected(PlayerPendingPrimaryBreakError),
 }
 
 /// Observable result of a direct-control quick-access slot switch.

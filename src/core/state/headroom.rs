@@ -26,7 +26,7 @@ impl AppState {
             .player_work
             .future_logistics_revision_demand()
             .checked_add(u64::from(
-                self.systems.logistics.pending_secondary_use().is_some(),
+                self.systems.logistics.has_pending_direct_action(),
             ))
     }
 

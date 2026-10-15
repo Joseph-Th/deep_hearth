@@ -13,6 +13,7 @@ use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::material::CommodityKey;
 use crate::spatial::{ViewDirection, VoxelCoord};
+use crate::structural::StructuralElementId;
 use crate::survival::SurvivalExertion;
 
 use super::body::PlayerBodyState;
@@ -25,6 +26,64 @@ pub(crate) struct LocomotionExertionAccumulator {
     pending_hydration: Volume,
     energy_remainder: u8,
     hydration_remainder: u8,
+}
+
+/// Persisted one-shot structural-break input waiting for the next slow-simulation boundary.
+///
+/// The exact structural identity is retained so delayed admission cannot fall through to terrain
+/// excavation or a replacement member if the originally pointed structure changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PlayerPendingPrimaryBreak {
+    requested_at: ControlTick,
+    position: VoxelCoord,
+    element: StructuralElementId,
+    direction_x_ppm: i32,
+    direction_y_ppm: i32,
+    direction_z_ppm: i32,
+}
+
+impl PlayerPendingPrimaryBreak {
+    pub(crate) const fn new(
+        requested_at: ControlTick,
+        position: VoxelCoord,
+        element: StructuralElementId,
+        direction: ViewDirection,
+    ) -> Self {
+        Self {
+            requested_at,
+            position,
+            element,
+            direction_x_ppm: direction.x_parts_per_million(),
+            direction_y_ppm: direction.y_parts_per_million(),
+            direction_z_ppm: direction.z_parts_per_million(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn requested_at(self) -> ControlTick {
+        self.requested_at
+    }
+
+    #[must_use]
+    pub(crate) const fn position(self) -> VoxelCoord {
+        self.position
+    }
+
+    #[must_use]
+    pub(crate) const fn element(self) -> StructuralElementId {
+        self.element
+    }
+
+    #[must_use]
+    pub(crate) fn direction(self) -> Option<ViewDirection> {
+        ViewDirection::new(
+            self.direction_x_ppm,
+            self.direction_y_ppm,
+            self.direction_z_ppm,
+        )
+        .ok()
+    }
 }
 
 /// Persisted one-shot contextual-use input waiting for the next slow-simulation boundary.
@@ -247,6 +306,7 @@ pub struct LogisticsState {
     quick_access_slots: [Option<PlayerActiveSelection>; PLAYER_QUICK_ACCESS_SLOT_COUNT],
     active_quick_access_slot: PlayerQuickAccessSlot,
     pending_secondary_use: Option<PlayerPendingSecondaryUse>,
+    pending_primary_break: Option<PlayerPendingPrimaryBreak>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -268,6 +328,7 @@ impl LogisticsState {
             quick_access_slots: [None; PLAYER_QUICK_ACCESS_SLOT_COUNT],
             active_quick_access_slot: PlayerQuickAccessSlot::FIRST,
             pending_secondary_use: None,
+            pending_primary_break: None,
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
@@ -371,6 +432,16 @@ impl LogisticsState {
         self.pending_secondary_use
     }
 
+    #[must_use]
+    pub(crate) const fn pending_primary_break(&self) -> Option<PlayerPendingPrimaryBreak> {
+        self.pending_primary_break
+    }
+
+    #[must_use]
+    pub(crate) const fn has_pending_direct_action(&self) -> bool {
+        self.pending_secondary_use.is_some() || self.pending_primary_break.is_some()
+    }
+
     /// Iterates equipment present at the admitted player's voxel in stable equipment-ID order.
     ///
     /// Stationary equipment at the player voxel and player-carried equipment are both local. The
@@ -419,6 +490,7 @@ impl LogisticsState {
             && self.quick_access_slots.iter().all(Option::is_none)
             && self.active_quick_access_slot == PlayerQuickAccessSlot::FIRST
             && self.pending_secondary_use.is_none()
+            && self.pending_primary_break.is_none()
             && self.stockpile_locations.is_empty()
             && self.equipment_locations.is_empty()
             && self.energy_store_locations.is_empty()
@@ -528,8 +600,8 @@ impl LogisticsState {
             "buffered contextual use requires player logistics"
         );
         assert!(
-            self.pending_secondary_use.is_none(),
-            "buffered contextual use cannot replace an existing request"
+            !self.has_pending_direct_action(),
+            "buffered contextual use cannot replace an existing direct-action request"
         );
         self.pending_secondary_use = Some(pending);
         self.revision = next_revision;
@@ -545,6 +617,39 @@ impl LogisticsState {
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert_eq!(self.pending_secondary_use, Some(expected));
         self.pending_secondary_use = None;
+        self.revision = next_revision;
+    }
+
+    pub(crate) fn apply_pending_primary_break(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        pending: PlayerPendingPrimaryBreak,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            self.player.is_some(),
+            "buffered structural break requires player logistics"
+        );
+        assert!(
+            !self.has_pending_direct_action(),
+            "buffered structural break cannot replace an existing direct-action request"
+        );
+        self.pending_primary_break = Some(pending);
+        self.revision = next_revision;
+    }
+
+    pub(crate) fn apply_clear_pending_primary_break(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        expected: PlayerPendingPrimaryBreak,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert_eq!(self.pending_primary_break, Some(expected));
+        self.pending_primary_break = None;
         self.revision = next_revision;
     }
 

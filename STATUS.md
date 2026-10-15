@@ -48,7 +48,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
 | Crafting | Carried recipe/batch crafting selects exact lots privately; meaningful stack choice stays explicit. |
-| Logistics | Fixed-point body/carrying, 20 Hz locomotion/collision, load-scaled exertion, bounded steps, equipment pickup/drop, nine-slot hotbar, one-shot slow-boundary use buffering, carried/local inventory+equipment projection, max-fit quick-move, and access checks. |
+| Logistics | Fixed-point body/carrying, 20 Hz locomotion/collision, load-scaled exertion, bounded steps, equipment pickup/drop, nine-slot hotbar, one-shot slow-boundary direct-action buffering, carried/local inventory+equipment projection, max-fit quick-move, and access checks. |
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local heat affects warmth. Fluids support local exact withdrawal, finite opening water, and empty-hand drinking. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |

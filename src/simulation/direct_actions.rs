@@ -9,7 +9,8 @@ use crate::inventory::{
     StorageDefinitionId, project_material_stacks, validate_place_player_storage_at,
 };
 use crate::logistics::{
-    PlayerActiveSelection, player_body_occupies_voxel, take_player_pending_secondary_use,
+    PlayerActiveSelection, player_body_occupies_voxel, take_player_pending_primary_break,
+    take_player_pending_secondary_use, validate_buffer_player_primary_break,
     validate_buffer_player_secondary_use, validate_drop_equipment,
     validate_select_quick_access_slot,
 };
@@ -41,6 +42,7 @@ pub(super) fn attempt_direct_actions(
     registries: &Registries,
     state: &mut AppState,
     input: PlayerDirectControlInput,
+    pending_primary: Option<PrimaryActionOutcome>,
     pending_secondary: Option<SecondaryActionOutcome>,
 ) -> DirectActionOutcomes {
     let quick_access = attempt_quick_access_selection(state, input.quick_access_slot());
@@ -49,6 +51,7 @@ pub(super) fn attempt_direct_actions(
         state,
         input,
         quick_access,
+        pending_primary,
         pending_secondary,
     )
 }
@@ -58,9 +61,12 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     state: &mut AppState,
     input: PlayerDirectControlInput,
     quick_access: Option<QuickAccessSelectionOutcome>,
+    pending_primary: Option<PrimaryActionOutcome>,
     pending_secondary: Option<SecondaryActionOutcome>,
 ) -> DirectActionOutcomes {
-    let primary = if state.player_work().active().is_none() {
+    let primary = if pending_primary.is_some() {
+        pending_primary
+    } else if state.player_work().active().is_none() {
         attempt_primary_action(registries, state, input.primary())
     } else {
         None
@@ -165,6 +171,31 @@ pub(super) fn attempt_pending_secondary_action(
         panic!("runtime invariant broken: trusted buffered contextual use has invalid direction")
     });
     Some(attempt_secondary_action_now(registries, state, direction))
+}
+
+pub(super) fn attempt_pending_primary_break(
+    registries: &Registries,
+    state: &mut AppState,
+) -> Option<PrimaryActionOutcome> {
+    let pending = take_player_pending_primary_break(state)?;
+    let current_position = state.logistics().player().map(|player| player.position());
+    if current_position != Some(pending.position()) {
+        return Some(PrimaryActionOutcome::BufferedContextChanged);
+    }
+    let direction = pending.direction().unwrap_or_else(|| {
+        panic!("runtime invariant broken: trusted buffered structural break has invalid direction")
+    });
+    match resolve_direct_structural_target(registries, state, direction) {
+        Ok(element) if element == pending.element() => Some(attempt_structural_dismantling_now(
+            registries, state, element,
+        )),
+        Ok(_)
+        | Err(DirectStructuralTargetError::TargetUnavailable)
+        | Err(DirectStructuralTargetError::NoTarget)
+        | Err(DirectStructuralTargetError::Ambiguous { .. }) => {
+            Some(PrimaryActionOutcome::BufferedContextChanged)
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -437,24 +468,19 @@ fn attempt_primary_break(
 
     if let Some(element) = element {
         if !state.control_tick().is_simulation_boundary() {
-            return PrimaryActionOutcome::DeferredUntilSimulationBoundary;
+            return match validate_buffer_player_primary_break(state, element, direction) {
+                Ok(validated) => {
+                    validated.commit(state).unwrap_or_else(|error| {
+                        panic!(
+                            "runtime invariant broken: synchronous structural-break buffering became stale: {error}"
+                        )
+                    });
+                    PrimaryActionOutcome::QueuedUntilSimulationBoundary
+                }
+                Err(error) => PrimaryActionOutcome::BufferRejected(error),
+            };
         }
-        return match validate_start_player_structural_dismantling(
-            registries,
-            state,
-            element,
-            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-        ) {
-            Ok(validated) => {
-                let outcome = validated.commit(state).unwrap_or_else(|error| {
-                    panic!(
-                        "runtime invariant broken: synchronous structural dismantling became stale: {error}"
-                    )
-                });
-                PrimaryActionOutcome::StructuralDismantlingStarted(outcome)
-            }
-            Err(error) => PrimaryActionOutcome::StructuralDismantlingRejected(error),
-        };
+        return attempt_structural_dismantling_now(registries, state, element);
     }
 
     match validate_start_player_block_excavation_active(registries, state, direction) {
@@ -467,6 +493,29 @@ fn attempt_primary_break(
             PrimaryActionOutcome::BlockExcavationStarted(started)
         }
         Err(error) => PrimaryActionOutcome::BlockExcavationRejected(error),
+    }
+}
+
+fn attempt_structural_dismantling_now(
+    registries: &Registries,
+    state: &mut AppState,
+    element: StructuralElementId,
+) -> PrimaryActionOutcome {
+    match validate_start_player_structural_dismantling(
+        registries,
+        state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    ) {
+        Ok(validated) => {
+            let outcome = validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous structural dismantling became stale: {error}"
+                )
+            });
+            PrimaryActionOutcome::StructuralDismantlingStarted(outcome)
+        }
+        Err(error) => PrimaryActionOutcome::StructuralDismantlingRejected(error),
     }
 }
 

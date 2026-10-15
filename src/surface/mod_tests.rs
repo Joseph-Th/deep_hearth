@@ -383,7 +383,7 @@ fn persisted_state_rejects_secondary_use_left_buffered_on_its_due_boundary() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert_eq!(
         validate_persistable_state(&registries, &state),
-        Err(LoadError::PendingSecondaryUseAtSimulationBoundary)
+        Err(LoadError::PendingDirectActionAtSimulationBoundary)
     );
 }
 
@@ -1039,13 +1039,57 @@ fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
 
     let dismantle_input = PlayerDirectControlInput::NEUTRAL
         .with_primary(PrimaryControlIntent::break_target(forward_down_view()));
-    let dismantling = loop {
+    let queued = advance_control_tick_with_direct_input(&registries, &mut state, dismantle_input)
+        .unwrap_or_else(|error| panic!("timber-post dismantling queue failed: {error}"));
+    assert_eq!(
+        queued.primary_action(),
+        Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    assert!(state.logistics().pending_primary_break().is_some());
+
+    let mut changed_target = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| {
+            panic!("queued timber-post changed-target serialization failed: {error}")
+        });
+    changed_target["state"]["systems"]["logistics"]["pending_primary_break"]["element"] =
+        serde_json::json!(element.value() + 1);
+    let changed_target: LoadedSaveEnvelope = serde_json::from_value(changed_target)
+        .unwrap_or_else(|error| panic!("queued timber-post changed-target decode failed: {error}"));
+    let mut changed_target = changed_target
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("queued timber-post changed-target load failed: {error}"));
+    let changed_outcome = loop {
         let control =
-            advance_control_tick_with_direct_input(&registries, &mut state, dismantle_input)
-                .unwrap_or_else(|error| panic!("timber-post dismantling control failed: {error}"));
+            advance_control_tick(&registries, &mut changed_target).unwrap_or_else(|error| {
+                panic!("queued timber-post changed-target continuation failed: {error}")
+            });
+        if let Some(outcome) = control.primary_action() {
+            break outcome.clone();
+        }
+    };
+    assert_eq!(
+        changed_outcome,
+        PrimaryActionOutcome::BufferedContextChanged
+    );
+    assert_eq!(changed_target.player_work().active(), None);
+    assert!(changed_target.structures().get_element(element).is_some());
+
+    let encoded =
+        serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("queued timber-post dismantling serialization failed: {error}")
+        });
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("queued timber-post dismantling decode failed: {error}"));
+    state = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("queued timber-post dismantling load failed: {error}"));
+
+    let dismantling = loop {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("timber-post dismantling continuation failed: {error}"));
         match control.primary_action() {
             Some(PrimaryActionOutcome::StructuralDismantlingStarted(start)) => break *start,
-            Some(PrimaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            None => {}
             other => panic!("timber-post dismantling returned unexpected outcome: {other:?}"),
         }
     };

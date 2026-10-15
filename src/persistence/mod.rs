@@ -12,7 +12,7 @@ use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 95;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 96;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 ///
@@ -84,10 +84,10 @@ fn validate_persisted_player_admission(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), LoadError> {
-    if state.logistics().pending_secondary_use().is_some()
+    if state.logistics().has_pending_direct_action()
         && state.control_tick().is_simulation_boundary()
     {
-        return Err(LoadError::PendingSecondaryUseAtSimulationBoundary);
+        return Err(LoadError::PendingDirectActionAtSimulationBoundary);
     }
     match player_admission_state(state) {
         PlayerAdmissionState::Absent => Ok(()),
@@ -201,7 +201,7 @@ pub enum LoadError {
         actual: StockpileStorageProfile,
     },
     /// Buffered direct-control input must be consumed by the boundary call before persistence.
-    PendingSecondaryUseAtSimulationBoundary,
+    PendingDirectActionAtSimulationBoundary,
     /// The decoded runtime data violates a persistent state invariant.
     InvalidState(StateValidationError),
 }
@@ -251,8 +251,8 @@ impl Display for LoadError {
                 "persisted player carried stockpile {} does not have the canonical ambient solid-only storage profile",
                 stockpile.value()
             ),
-            Self::PendingSecondaryUseAtSimulationBoundary => formatter.write_str(
-                "persisted contextual-use input remained buffered on a simulation boundary",
+            Self::PendingDirectActionAtSimulationBoundary => formatter.write_str(
+                "persisted direct-control input remained buffered on a simulation boundary",
             ),
             Self::InvalidState(error) => write!(formatter, "invalid persisted state: {error}"),
         }
@@ -271,7 +271,7 @@ impl Error for LoadError {
             | Self::PlayerCarriedCapacityMismatch { .. }
             | Self::PlayerCarriedCapacityOverflow { .. }
             | Self::PlayerCarriedStorageProfileMismatch { .. }
-            | Self::PendingSecondaryUseAtSimulationBoundary => None,
+            | Self::PendingDirectActionAtSimulationBoundary => None,
             Self::InvalidState(error) => Some(error),
         }
     }
