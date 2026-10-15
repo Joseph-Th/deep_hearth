@@ -407,6 +407,25 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             if evidence_mode == gameplay_targets.EVIDENCE_ORDINARY_SPATIAL_PROXY
             else ""
         )
+        if probe == "wilderness" and not scoped:
+            fields = _evidence_fields(
+                summary,
+                probe,
+                (
+                    "sample-shape",
+                    *(
+                        name
+                        for name in _ORDINARY_DIGEST_FIELDS["wilderness"]
+                        if name != "direct-use"
+                    ),
+                ),
+            )
+            overview = compact_fields(summary, fields)
+            sections = [f"GAMEPLAY wilderness {overview}".rstrip()]
+            direct_use = field(summary, "direct-use")
+            if direct_use is not None:
+                sections.append(f"GAMEPLAY wilderness-direct-use {direct_use}")
+            return "\n".join(sections)
         if probe == "fieldwork":
             experience_fields = _evidence_fields(summary, probe, (
                 "sample-shape",

@@ -128,7 +128,7 @@ impl WildernessStartProfile {
     }
 }
 
-fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands() {
+fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(emit_report: bool) {
     let registries = build_registries();
     let mut state = AppState::new();
     validate_generate_initial_wilderness(
@@ -251,7 +251,7 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands() 
         hydration_after > hydration_before,
         "timed direct drinking should improve the actor's hydration"
     );
-    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
+    if emit_report {
         let water_after = state
             .fluid()
             .get_store(water.store())
@@ -2405,6 +2405,7 @@ fn organic_camp_goal(behavior_root: u64, index: usize) -> WildernessCampGoal {
 }
 
 pub(super) fn run_wilderness_report() {
+    assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
     const ORGANIC_SAMPLES: usize = 4;
     let world_root = configured_root(
         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
@@ -2486,10 +2487,10 @@ pub(super) fn run_wilderness_report() {
 
 #[test]
 fn generated_wilderness_opening_stabilizes_without_premature_investment() {
-    assert_generated_wilderness_resources_are_directly_usable_with_empty_hands();
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         run_wilderness_report();
     } else {
+        assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);
         let _ = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,

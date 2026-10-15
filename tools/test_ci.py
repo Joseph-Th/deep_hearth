@@ -3199,6 +3199,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
             "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior",
             "PROBE INPUT name=wilderness mode=explore samples=2 maintained=1 coverage=1 organic=0 world_root=0x57494C4445524E53 behavior_root=physiology-state replay=generated-opening-graph",
+            "WILDERNESS DIRECT USE seed=0x57494C4445524E53 route-steps=2 input=empty-hand-secondary gather=[before:4210752mg batch:500000mg remaining:3710752mg] water=[before:5078082uL serving:750000uL remaining:4328082uL] hydration=[before:978622uL after:1726247uL] timed=true",
             "WILDERNESS EXPERIENCE sample=maintained seed=0x57494C4445524E53 start=rested goal=stay-mobile evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:2 choices:1-3 blocked:1/1 water-branch:skipped material-junction:reached material-choices:2] timing=[food-secured:61t/3.7m stable:62t/3.7m] forage=[opportunity:4210752mg secured:500000mg left:3710752mg rest-runway:31.6h] provisioning=[carried:500000mg cached:0mg meal:defer-fed consumed:0mg warning-safe:true] carrying=[peak:500000mg capacity:25000000mg utilization:20000ppm] water=[observed:adjacent visited:false source:unvisited remaining:unvisited rest-runway:unvisited consumed:0uL decision:defer-hydrated] camp-project=[goal:stay-mobile storage:none material:none work:0t logistics-steps:0 source:0mg->0mg project-budget:0nJ/0uL project-meal:0mg cached-total:0mg staged-timber:0mg retained-residue:0mg grounded-support:false:0mg/0t] storage-choice=[selected:defer candidates=[field-box:build:161t/capacity:10000000mg/shelf:7d stone-crock:build:216t/capacity:6000000mg/shelf:10d] ambient-shelf:4d carried-food:500000mg local-surplus-left:3710752mg reason:no-current-capacity-or-preservation-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:2 setup:110t bare:100t adze:56t crossover:5batches] reason:no-current-woodworking-workload] material-choice=[stone+timber:simultaneous selected:defer reason:no-current-workload]",
             "WILDERNESS EXPERIENCE sample=coverage seed=0x57494C4445524E53 start=hydration-pressure goal=stay-mobile evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges steps:4 choices:1-3 blocked:1/1 water-branch:visited material-junction:reached material-choices:2] timing=[food-secured:61t/3.7m stable:71t/4.3m] forage=[opportunity:4210752mg secured:500000mg left:3710752mg rest-runway:31.6h] provisioning=[carried:500000mg cached:0mg meal:defer-fed consumed:0mg warning-safe:true] carrying=[peak:500000mg capacity:25000000mg utilization:20000ppm] water=[observed:adjacent visited:true source:5078082uL remaining:4805954uL rest-runway:40.6h consumed:272128uL decision:drink-needed] camp-project=[goal:stay-mobile storage:none material:none work:0t logistics-steps:0 source:0mg->0mg project-budget:0nJ/0uL project-meal:0mg cached-total:0mg staged-timber:0mg retained-residue:0mg grounded-support:false:0mg/0t] storage-choice=[selected:defer candidates=[field-box:build:161t/capacity:10000000mg/shelf:7d stone-crock:build:216t/capacity:6000000mg/shelf:10d] ambient-shelf:4d carried-food:500000mg local-surplus-left:3710752mg reason:no-current-capacity-or-preservation-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:2 setup:110t bare:100t adze:56t crossover:5batches] reason:no-current-woodworking-workload] material-choice=[stone+timber:simultaneous selected:defer reason:no-current-workload]",
             "PROBE INPUT name=survival-provisioning mode=explore samples=1 organic=0",
@@ -3247,11 +3248,11 @@ class GameplayReportContractTests(unittest.TestCase):
         concise_lines = concise.splitlines()
         self.assertLessEqual(
             len(concise_lines),
-            19,
-            "default gameplay digest must stay reviewable while preserving wilderness, fantasy, and world-interaction evidence",
+            20,
+            "default gameplay digest must stay reviewable while preserving direct-use, wilderness, fantasy, and world-interaction evidence",
         )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
-        self.assertLess(len(concise.encode()), 6_600)
+        self.assertLess(len(concise.encode()), 6_900)
         for prefix in (
             "SIMULATION TIME ",
             "GAMEPLAY primitive-progression scope=spatial-proxy ",
@@ -3263,6 +3264,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "GAMEPLAY foundry-bootstrap ",
             "GAMEPLAY survival ",
             "GAMEPLAY wilderness ",
+            "GAMEPLAY wilderness-direct-use ",
             "GAMEPLAY fantasy ",
             "GAMEPLAY world-interaction ",
             "GAMEPLAY loop ",
@@ -3288,6 +3290,10 @@ class GameplayReportContractTests(unittest.TestCase):
             self.assertNotIn(redundant, concise)
         self.assertIn(
             "processing-market=[short-manual:1/1 attention-crossover:3..3cycles capital:5.4..5.4kg/prepared-owned long-mechanized:1/1]",
+            concise,
+        )
+        self.assertIn(
+            "GAMEPLAY wilderness-direct-use [route-steps=2 input=empty-hand-secondary gather=[before:4210752mg batch:500000mg remaining:3710752mg] water=[before:5078082uL serving:750000uL remaining:4328082uL] hydration=[before:978622uL after:1726247uL] timed=true]",
             concise,
         )
         self.assertIn(
