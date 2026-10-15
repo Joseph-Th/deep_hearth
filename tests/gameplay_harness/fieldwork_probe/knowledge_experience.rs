@@ -13,6 +13,7 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::equipment::validate_assemble_equipment;
+use deep_hearth::geology::GeologicalEvidenceKind;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{MiningTargetRequest, resolve_mining_target};
@@ -284,7 +285,7 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
     let first_coarse_outcome = run_survey(
         registries,
         &mut state,
-        PROSPECTING_REGIONAL_RECONNAISSANCE,
+        GeologicalEvidenceKind::LooseIndicator,
         first_region,
         None,
         "knowledge first reconnaissance",
@@ -293,7 +294,7 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
     let second_coarse_outcome = run_survey(
         registries,
         &mut state,
-        PROSPECTING_REGIONAL_RECONNAISSANCE,
+        GeologicalEvidenceKind::LooseIndicator,
         second_region,
         None,
         "knowledge second reconnaissance",
@@ -324,7 +325,7 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
     let first_refined_outcome = run_survey(
         registries,
         &mut state,
-        PROSPECTING_CHANNEL_COMPOSITE_SURVEY,
+        GeologicalEvidenceKind::ChannelComposite,
         first_region,
         Some(frame),
         "knowledge first channel composite",
@@ -333,7 +334,7 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
     let second_refined_outcome = run_survey(
         registries,
         &mut state,
-        PROSPECTING_CHANNEL_COMPOSITE_SURVEY,
+        GeologicalEvidenceKind::ChannelComposite,
         second_region,
         Some(frame),
         "knowledge second channel composite",
@@ -421,7 +422,7 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
     let core_outcome = run_survey(
         registries,
         &mut state,
-        PROSPECTING_SHALLOW_CORE_SURVEY,
+        GeologicalEvidenceKind::CoreSample,
         localization.target.region(),
         Some(core_drill),
         "knowledge selected-prospect core sample",

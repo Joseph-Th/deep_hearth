@@ -1,6 +1,7 @@
 //! Timed player field prospecting that converts bounded regional observation into geological knowledge.
 
 mod abundance;
+mod catalog;
 mod errors;
 mod hardness;
 mod interruption;
@@ -9,6 +10,9 @@ mod start;
 mod tick;
 
 pub(in crate::geology) use abundance::resolve_historical_region_abundance_bounds;
+pub use catalog::{
+    PlayerProspectingInstrumentOption, PlayerProspectingOption, player_prospecting_options,
+};
 pub use errors::{FieldProspectingCommitError, FieldProspectingStartError};
 pub(in crate::geology) use hardness::resolve_historical_region_excavation_hardness;
 pub(crate) use interruption::{

@@ -1,15 +1,14 @@
 //! Coarse-to-fine geological localization using canonical prospecting work.
 
-use deep_hearth::content::{
-    MATERIAL_COPPER, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
-    PROSPECTING_INDEXED_CHANNEL_SURVEY, PROSPECTING_LOCAL_TRANSECT,
-};
+use deep_hearth::content::MATERIAL_COPPER;
 use deep_hearth::core::state::AppState;
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::geology::{
     ExcavationHardnessEstimate, FieldProspectingOutcome, FieldProspectingRequest,
-    GeologicalEvidenceKind, ResourceMassEstimate, validate_start_field_prospecting,
+    GeologicalEvidenceKind, ResourceMassEstimate, player_prospecting_options,
+    validate_start_field_prospecting,
 };
+use deep_hearth::labor::ProspectingMethodId;
 use deep_hearth::mining::{
     MiningTargetRequest, MiningTargetResolution, MiningTargetResolutionError, resolve_mining_target,
 };
@@ -68,14 +67,76 @@ pub(super) fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
     .unwrap_or_else(|error| panic!("fieldwork region failed: {error}"))
 }
 
+fn select_visible_survey_method(
+    registries: &Registries,
+    state: &AppState,
+    region: VoxelBounds,
+    evidence: GeologicalEvidenceKind,
+    equipment: Option<EquipmentId>,
+    context: &'static str,
+) -> ProspectingMethodId {
+    let options = player_prospecting_options(registries, state, region)
+        .unwrap_or_else(|error| panic!("fieldwork {context} prospecting catalog failed: {error}"));
+    let candidates = options
+        .iter()
+        .filter(|option| option.evidence() == evidence)
+        .filter(|option| match equipment {
+            None => !option.requires_equipment(),
+            Some(equipment) => {
+                if state.logistics().player().is_some() {
+                    option
+                        .instruments()
+                        .iter()
+                        .any(|instrument| instrument.equipment() == equipment)
+                } else {
+                    state
+                        .equipment()
+                        .get_equipment(equipment)
+                        .is_some_and(|record| {
+                            option
+                                .accepted_instrument_definitions()
+                                .contains(&record.definition())
+                        })
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    let best_key = candidates
+        .iter()
+        .map(|option| (option.duration().value(), option.abundance_uncertainty_ppm()))
+        .min()
+        .unwrap_or_else(|| {
+            panic!(
+                "fieldwork {context} found no actor-visible {:?} survey for the chosen region/instrument",
+                evidence
+            )
+        });
+    let mut best = candidates.into_iter().filter(|option| {
+        (
+            option.duration().value(),
+            option.abundance_uncertainty_ppm(),
+        ) == best_key
+    });
+    let selected = best
+        .next()
+        .unwrap_or_else(|| unreachable!("best prospecting key came from a candidate"));
+    assert!(
+        best.next().is_none(),
+        "fieldwork {context} has multiple prospecting techniques tied on actor-visible attention and abundance quality; add a real player preference instead of using method identity"
+    );
+    selected.method()
+}
+
 pub(super) fn run_survey(
     registries: &Registries,
     state: &mut AppState,
-    method: deep_hearth::labor::ProspectingMethodId,
+    evidence: GeologicalEvidenceKind,
     region: VoxelBounds,
     equipment: Option<EquipmentId>,
     context: &'static str,
 ) -> FieldProspectingOutcome {
+    let method =
+        select_visible_survey_method(registries, state, region, evidence, equipment, context);
     let request = match equipment {
         Some(equipment) => {
             FieldProspectingRequest::new_with_equipment(method, region, MATERIAL_COPPER, equipment)
@@ -121,7 +182,7 @@ pub(super) fn search_target(
         let outcome = run_survey(
             registries,
             state,
-            PROSPECTING_LOCAL_TRANSECT,
+            GeologicalEvidenceKind::SurfaceExposure,
             channel,
             None,
             "candidate local transect",
@@ -159,7 +220,7 @@ pub(super) fn search_target(
         let indexed = run_survey(
             registries,
             state,
-            PROSPECTING_INDEXED_CHANNEL_SURVEY,
+            GeologicalEvidenceKind::ExcavationSample,
             channel,
             Some(hammer),
             "indexed channel survey",
@@ -207,7 +268,7 @@ pub(super) fn search_target(
         let inspection = run_survey(
             registries,
             state,
-            PROSPECTING_FIELD_INSPECTION,
+            GeologicalEvidenceKind::SurfaceExposure,
             point,
             None,
             "fixed-order field inspection",
@@ -223,7 +284,7 @@ pub(super) fn search_target(
         let detailed = run_survey(
             registries,
             state,
-            PROSPECTING_DETAILED_FIELD_SURVEY,
+            GeologicalEvidenceKind::ExcavationSample,
             point,
             Some(hammer),
             "targeted detailed survey",

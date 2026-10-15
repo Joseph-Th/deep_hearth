@@ -38,6 +38,69 @@ fn one_voxel(x: i64) -> VoxelBounds {
 }
 
 #[test]
+fn player_prospecting_catalog_exposes_real_region_tradeoffs_and_only_local_usable_instruments() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let local_hammer = assemble_sampling_hammer(&registries, &mut state);
+    let remote_hammer = assemble_sampling_hammer(&registries, &mut state);
+    let region = one_voxel(42);
+    place_equipment_for_fixture(&mut state, local_hammer, region.min());
+    place_equipment_for_fixture(&mut state, remote_hammer, VoxelCoord::new(43, -1, 0));
+    validate_admit_player(&registries, &state, region.min())
+        .unwrap_or_else(|error| panic!("prospecting catalog player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("prospecting catalog player commit failed: {error}"));
+
+    let options = player_prospecting_options(&registries, &state, region)
+        .unwrap_or_else(|error| panic!("player prospecting catalog failed: {error}"));
+    assert!(
+        options
+            .windows(2)
+            .all(|pair| pair[0].method() < pair[1].method()),
+        "prospecting catalog must retain stable authored method order"
+    );
+    let inspection = options
+        .iter()
+        .find(|option| option.method() == PROSPECTING_FIELD_INSPECTION)
+        .unwrap_or_else(|| panic!("one-voxel field inspection disappeared from player catalog"));
+    let transect = options
+        .iter()
+        .find(|option| option.method() == PROSPECTING_LOCAL_TRANSECT)
+        .unwrap_or_else(|| panic!("one-voxel local transect disappeared from player catalog"));
+    assert!(inspection.duration() < transect.duration());
+    assert!(inspection.abundance_uncertainty_ppm() > transect.abundance_uncertainty_ppm());
+    assert!(!inspection.requires_equipment());
+
+    let detailed = options
+        .iter()
+        .find(|option| option.method() == PROSPECTING_DETAILED_FIELD_SURVEY)
+        .unwrap_or_else(|| panic!("detailed field survey disappeared from player catalog"));
+    assert!(detailed.requires_equipment());
+    assert_eq!(detailed.instruments().len(), 1);
+    let instrument = detailed.instruments()[0];
+    assert_eq!(instrument.equipment(), local_hammer);
+    assert_ne!(instrument.condition_after(), instrument.condition());
+    assert_ne!(instrument.equipment(), remote_hammer);
+
+    let four_voxels = VoxelBounds::new(VoxelCoord::new(42, -1, 0), VoxelCoord::new(46, 0, 1))
+        .unwrap_or_else(|error| panic!("four-voxel prospecting catalog bounds failed: {error}"));
+    let broad = player_prospecting_options(&registries, &state, four_voxels)
+        .unwrap_or_else(|error| panic!("broad prospecting catalog failed: {error}"));
+    assert!(
+        broad
+            .iter()
+            .all(|option| option.method() != PROSPECTING_FIELD_INSPECTION),
+        "one-voxel inspection must not be offered for a four-voxel region"
+    );
+    assert!(
+        broad
+            .iter()
+            .any(|option| option.method() == PROSPECTING_LOCAL_TRANSECT),
+        "four-voxel local transect must remain available"
+    );
+}
+
+#[test]
 fn prospecting_rejects_player_outside_requested_region() {
     let registries = build_registries();
     let mut state = AppState::new();
@@ -1275,7 +1338,7 @@ fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation(
         .value()
         .checked_sub(work.started_at().value())
         .unwrap_or_else(|| panic!("round-trip prospecting completion precedes admission"));
-    let pre_save_ticks = 7;
+    let pre_save_ticks = (field_duration / 2).max(1);
     assert!(pre_save_ticks < field_duration);
     for _ in 0..pre_save_ticks {
         let _ = advance_tick(&registries, &mut state)

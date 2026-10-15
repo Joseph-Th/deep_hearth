@@ -7,8 +7,7 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_QUARRY_PICK, FORM_ORE, MATERIAL_COPPER,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROSPECTING_DETAILED_FIELD_SURVEY,
-    PROSPECTING_FIELD_INSPECTION, PROSPECTING_LOCAL_TRANSECT,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROSPECTING_LOCAL_TRANSECT,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -264,7 +263,7 @@ fn survey_site(
     let inspection = run_survey(
         registries,
         state,
-        PROSPECTING_FIELD_INSPECTION,
+        GeologicalEvidenceKind::SurfaceExposure,
         region,
         None,
         "exact-local field inspection",
@@ -280,7 +279,7 @@ fn survey_site(
     let detailed = run_survey(
         registries,
         state,
-        PROSPECTING_DETAILED_FIELD_SURVEY,
+        GeologicalEvidenceKind::ExcavationSample,
         region,
         Some(hammer),
         "exact-local detailed survey",
@@ -331,7 +330,7 @@ fn run_exact_local_point_search(
         let outcome = run_survey(
             registries,
             state,
-            PROSPECTING_LOCAL_TRANSECT,
+            GeologicalEvidenceKind::SurfaceExposure,
             horizontal_region(channel_start, channel_voxels),
             None,
             "exact-local candidate transect",
@@ -378,7 +377,7 @@ fn run_exact_local_point_search(
         let inspection = run_survey(
             registries,
             state,
-            PROSPECTING_FIELD_INSPECTION,
+            GeologicalEvidenceKind::SurfaceExposure,
             point,
             None,
             "exact-local follow-up inspection",
@@ -398,7 +397,7 @@ fn run_exact_local_point_search(
         let detailed = run_survey(
             registries,
             state,
-            PROSPECTING_DETAILED_FIELD_SURVEY,
+            GeologicalEvidenceKind::ExcavationSample,
             point,
             Some(hammer),
             "exact-local follow-up detailed survey",

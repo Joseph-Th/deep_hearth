@@ -179,7 +179,10 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             ProspectingDefinition::new(
                 PROSPECTING_FIELD_INSPECTION,
                 GeologicalEvidenceKind::SurfaceExposure,
-                TickSpan::new(12),
+                // One-point visual inspection is the quick local check. A four-voxel transect
+                // takes longer in exchange for broader coverage and tighter abundance evidence,
+                // while repeated point work can still justify an indexed-channel investment.
+                TickSpan::new(10),
                 1,
                 150_000,
                 SurvivalExertion::new(

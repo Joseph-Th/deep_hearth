@@ -186,7 +186,7 @@ fn behavior_seed_varies_survey_investment_tolerance_without_changing_physics() {
 }
 
 #[test]
-fn three_site_survey_decision_respects_both_expected_return_and_upgrade_supply() {
+fn survey_decision_respects_campaign_horizon_expected_return_and_upgrade_supply() {
     let registries = build_registries();
     let requested = Mass::from_milligrams(24_000_000);
 
@@ -197,18 +197,33 @@ fn three_site_survey_decision_respects_both_expected_return_and_upgrade_supply()
         "maintained funded witness lost copper supply"
     );
     let _ = assemble_sampling_hammer(&registries, &mut funded.state, funded.raw, funded.parts);
+    let short_funded_decision = decide_fieldwork_survey_strategy(
+        &registries,
+        &funded.state,
+        funded.raw,
+        funded.parts,
+        funded.channel_voxels,
+        1,
+        FieldworkSurveyPolicy::baseline(),
+    );
+    assert_eq!(
+        short_funded_decision.selected_strategy,
+        FieldworkSurveyStrategy::PointSearch,
+        "one future site must not repay scarce indexed-survey reinforcement"
+    );
     let funded_decision = decide_fieldwork_survey_strategy(
         &registries,
         &funded.state,
         funded.raw,
         funded.parts,
         funded.channel_voxels,
-        3,
+        5,
         FieldworkSurveyPolicy::baseline(),
     );
     assert_eq!(
         funded_decision.selected_strategy,
-        FieldworkSurveyStrategy::IndexedChannel
+        FieldworkSurveyStrategy::IndexedChannel,
+        "five future sites must cross the maintained indexed-survey payback horizon"
     );
     assert!(funded_decision.projected_upgrade_ticks.is_some());
 
@@ -230,7 +245,7 @@ fn three_site_survey_decision_respects_both_expected_return_and_upgrade_supply()
         unfunded.raw,
         unfunded.parts,
         unfunded.channel_voxels,
-        3,
+        5,
         FieldworkSurveyPolicy::baseline(),
     );
     assert_eq!(

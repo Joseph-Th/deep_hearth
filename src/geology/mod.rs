@@ -25,7 +25,8 @@ pub use knowledge::{
 };
 pub use prospecting_action::{
     FieldProspectingCommitError, FieldProspectingOutcome, FieldProspectingRequest,
-    FieldProspectingStartError, ValidatedFieldProspectingStart, validate_start_field_prospecting,
+    FieldProspectingStartError, PlayerProspectingInstrumentOption, PlayerProspectingOption,
+    ValidatedFieldProspectingStart, player_prospecting_options, validate_start_field_prospecting,
 };
 #[cfg(test)]
 pub(crate) use prospecting_execution::record_prospecting_for_test;
