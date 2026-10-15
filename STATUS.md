@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure physics plus grounded hand-setting from exact material. |
-| Block world | Mass-backed chunks, neighborhood demand, full-cube collision, 4.5 m targeting, timed partial excavation, and held primary input that chains legal tool batches. Cell mass persists and lands in reserved carried inventory. Placement, overflow drops, hotbar context, control-rate progress, richer shapes, and residency remain absent. |
+| Block world | Mass-backed chunks, neighborhood demand, full-cube collision, 4.5 m targeting, timed partial excavation, and held chained tool batches. Fragments use carried custody when a batch fits, otherwise conserved local surface matter recoverable by gathering. Placement, pickup, hotbar context, control-rate progress, shapes, and residency remain absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

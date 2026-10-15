@@ -63,13 +63,11 @@ impl PlayerDeathEffectPlan {
     /// Deferred mining-output settlement yields to these already-scheduled owner transitions so
     /// their revision-bound plans cannot be invalidated by an unrelated recovery retry.
     pub(super) const fn mutates_inventory(&self) -> bool {
-        matches!(
-            self,
-            Self::SurfaceGathering(_)
-                | Self::BlockExcavation(_)
-                | Self::Mining(_)
-                | Self::StorageDismantling(_)
-        )
+        match self {
+            Self::BlockExcavation(plan) => plan.mutates_inventory(),
+            Self::SurfaceGathering(_) | Self::Mining(_) | Self::StorageDismantling(_) => true,
+            Self::ManualPower(_) | Self::Prospecting(_) | Self::EquipmentMaintenance(_) => false,
+        }
     }
 }
 
@@ -125,6 +123,10 @@ pub(super) fn decide_player_death_effects(
                 BlockExcavationTickError::InventoryRevision => {
                     TickError::InventoryRevisionExhausted
                 }
+                BlockExcavationTickError::SurfaceResourceId => {
+                    TickError::SurfaceResourceIdExhausted
+                }
+                BlockExcavationTickError::SurfaceRevision => TickError::SurfaceRevisionExhausted,
                 BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
                 BlockExcavationTickError::EquipmentRevision => {
                     TickError::EquipmentRevisionExhausted

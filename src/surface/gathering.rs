@@ -467,10 +467,10 @@ pub fn validate_start_surface_gathering(
     .unwrap_or_else(|_| unreachable!("trusted surface material yields a valid inventory parcel"));
     let entry = MaterialIngressEntry::from_lot_spec_with_ambient_exposure(
         lot,
-        resource.generated_at(),
+        resource.created_at(),
         state.tick(),
     )
-    .unwrap_or_else(|| unreachable!("surface resource exposure cannot precede generation"));
+    .unwrap_or_else(|| unreachable!("surface resource exposure cannot precede creation"));
     let _ = validate_material_ingress(
         registries,
         state.inventory(),

@@ -309,6 +309,11 @@ pub enum StateValidationError {
         required: u64,
     },
     FutureSurfaceRevisionDemandOverflow,
+    FutureSurfaceResourceIdCapacityExhausted {
+        next_resource_id: u32,
+        required: u32,
+    },
+    FutureSurfaceResourceIdDemandOverflow,
     FutureMiningRevisionCapacityExhausted {
         revision: u64,
         required: u64,

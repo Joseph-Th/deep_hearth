@@ -146,6 +146,21 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
             },
         );
     }
+    let surface_resource_ids_required = state
+        .checked_future_surface_resource_id_demand()
+        .ok_or(StateValidationError::FutureSurfaceResourceIdDemandOverflow)?;
+    let next_surface_resource_id = state.surface().next_resource_id();
+    if next_surface_resource_id
+        .checked_add(surface_resource_ids_required)
+        .is_none()
+    {
+        return Err(
+            StateValidationError::FutureSurfaceResourceIdCapacityExhausted {
+                next_resource_id: next_surface_resource_id,
+                required: surface_resource_ids_required,
+            },
+        );
+    }
     let material_lot_ids_required = state
         .checked_future_material_lot_id_demand()
         .ok_or(StateValidationError::FutureMaterialLotIdDemandOverflow)?;

@@ -62,8 +62,7 @@ use crate::structural::{
     validate_set_structural_load,
 };
 use crate::surface::{
-    GeneratedSurfaceResourceSpec, insert_generated_surface_resource,
-    validate_start_player_surface_gathering,
+    SurfaceResourceSpec, insert_surface_resource_for_test, validate_start_player_surface_gathering,
 };
 use crate::survival::{Vitality, assess_survival, initialize_player_survival, player_record};
 

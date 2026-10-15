@@ -13,14 +13,15 @@ use super::super::{
     EQUIPMENT_STONE_QUARRY_PICK, EQUIPMENT_STONE_WOODWORKING_ADZE,
     EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
     EQUIPMENT_TIMBER_SPRING_POLE_LATHE, EQUIPMENT_TIMBER_TREADLE_DRIVE,
-    EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_BOARD, FORM_FOOD, FORM_HANDLE, FORM_LOG, FORM_LUMP,
-    FORM_NATIVE_METAL, FORM_TOOL, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER,
+    EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_BOARD, FORM_CHIP, FORM_FOOD, FORM_HANDLE, FORM_LOG,
+    FORM_LUMP, FORM_NATIVE_METAL, FORM_TOOL, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER,
     MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
     PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_TOOL,
     PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
     STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     SURFACE_GATHERING_HAND_COLLECT_CLAY, SURFACE_GATHERING_HAND_COLLECT_STONE,
-    SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
+    SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS, SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+    SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use crate::core::quantity::{Mass, Power, Volume};
 use crate::core::time::TickSpan;
@@ -226,6 +227,10 @@ fn built_in_wilderness_gathering_distinguishes_foraging_from_bulk_material_colle
         .labor()
         .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_CLAY)
         .unwrap_or_else(|| panic!("clay collection disappeared"));
+    let stone_chips = *registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS)
+        .unwrap_or_else(|| panic!("stone-chip recovery disappeared"));
 
     assert_eq!(
         stone.commodity(),
@@ -243,6 +248,10 @@ fn built_in_wilderness_gathering_distinguishes_foraging_from_bulk_material_colle
         clay.commodity(),
         CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)
     );
+    assert_eq!(
+        stone_chips.commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+    );
     assert!(berries.maximum_batch_mass() < stone.maximum_batch_mass());
     assert!(berries.maximum_batch_mass() < timber.maximum_batch_mass());
 
@@ -250,12 +259,16 @@ fn built_in_wilderness_gathering_distinguishes_foraging_from_bulk_material_colle
     let stone_ticks = stone
         .duration_for_mass(comparison_mass)
         .unwrap_or_else(|| panic!("stone comparison gather disappeared"));
+    let chip_ticks = stone_chips
+        .duration_for_mass(comparison_mass)
+        .unwrap_or_else(|| panic!("stone-chip comparison gather disappeared"));
     let timber_ticks = timber
         .duration_for_mass(comparison_mass)
         .unwrap_or_else(|| panic!("timber comparison gather disappeared"));
     let forage_ticks = berries
         .duration_for_mass(comparison_mass)
         .unwrap_or_else(|| panic!("berry comparison gather disappeared"));
+    assert!(chip_ticks < stone_ticks);
     assert!(timber_ticks > stone_ticks);
     assert!(forage_ticks > timber_ticks);
 }

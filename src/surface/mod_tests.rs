@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::content::{
-    FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE,
+    FORM_CHIP, FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE,
+    SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
     SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
@@ -29,7 +30,7 @@ fn seed_surface(
     commodity: CommodityKey,
     mass: Mass,
 ) -> SurfaceResourceId {
-    let spec = GeneratedSurfaceResourceSpec::new(
+    let spec = SurfaceResourceSpec::new(
         position,
         commodity,
         mass,
@@ -37,8 +38,8 @@ fn seed_surface(
         MaterialComposition::pure(commodity.material()),
     )
     .unwrap_or_else(|error| panic!("surface test resource specification failed: {error}"));
-    insert_generated_surface_resource(registries, state, spec)
-        .unwrap_or_else(|error| panic!("surface test resource generation failed: {error}"))
+    insert_surface_resource_for_test(registries, state, spec)
+        .unwrap_or_else(|error| panic!("surface test resource creation failed: {error}"))
 }
 
 #[test]
@@ -78,6 +79,66 @@ fn ordinary_surface_gathering_derives_carried_custody() {
             .surface_gathering()
             .map(|gathered| gathered.destination()),
         Some(carried)
+    );
+}
+
+#[test]
+fn stone_chip_surface_matter_is_ordinarily_recoverable() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let mass = Mass::from_milligrams(200_000);
+    let chips = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        mass,
+    );
+    let carried = admit_player(&registries, &mut state, position);
+
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+        chips,
+        mass,
+    )
+    .unwrap_or_else(|error| panic!("stone-chip gathering validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("stone-chip gathering commit failed: {error}"));
+    let completes_at = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work.completes_at(),
+        other => panic!("stone-chip gathering did not own player work: {other:?}"),
+    };
+    let mut completion = None;
+    while state.tick() < completes_at {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("stone-chip gathering tick failed: {error}"));
+        if let Some(gathered) = outcome.surface_gathering() {
+            assert!(completion.replace(gathered.clone()).is_none());
+        }
+    }
+    let completion =
+        completion.unwrap_or_else(|| panic!("stone-chip gathering produced no outcome"));
+    assert_eq!(completion.resource(), chips);
+    assert_eq!(completion.gathered_mass(), mass);
+    assert_eq!(completion.remaining_mass(), Mass::ZERO);
+    assert!(
+        state
+            .surface()
+            .get(chips)
+            .is_some_and(|resource| resource.lifecycle() == SurfaceResourceLifecycle::Depleted)
+    );
+    let lot = state
+        .inventory()
+        .get_lot(completion.lot())
+        .unwrap_or_else(|| panic!("stone-chip gathering output lot disappeared"));
+    assert_eq!(lot.stockpile(), carried);
+    assert_eq!(lot.mass(), mass);
+    assert_eq!(
+        lot.commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
     );
 }
 

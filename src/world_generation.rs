@@ -25,9 +25,9 @@ use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    GeneratedSurfaceResourceSpec, GeneratedSurfaceResourceSpecError, SurfaceGenerationCommitError,
-    SurfaceGenerationError, SurfaceResourceValidationError, ValidatedSurfaceGeneration,
-    validate_generate_surface_resources,
+    SurfaceResourceCreationCommitError, SurfaceResourceCreationError, SurfaceResourceSpec,
+    SurfaceResourceSpecError, SurfaceResourceValidationError, ValidatedSurfaceResourceCreation,
+    validate_create_surface_resources,
 };
 use crate::world::WorldGenerationSeed;
 
@@ -257,7 +257,7 @@ impl Error for InitialWildernessGenerationCommitError {}
 pub struct ValidatedInitialWildernessGeneration {
     expected_control_tick: ControlTick,
     expected_tick: SimulationTick,
-    surface_generation: ValidatedSurfaceGeneration,
+    surface_generation: ValidatedSurfaceResourceCreation,
     water_generation: ValidatedFluidGeneration,
     water_position: VoxelCoord,
     traversal_edges: Vec<TraversalEdge>,
@@ -294,16 +294,16 @@ impl ValidatedInitialWildernessGeneration {
         self.surface_generation
             .precheck(state)
             .map_err(|error| match error {
-                SurfaceGenerationCommitError::Tick { expected, actual } => {
+                SurfaceResourceCreationCommitError::Tick { expected, actual } => {
                     InitialWildernessGenerationCommitError::TickChanged { expected, actual }
                 }
-                SurfaceGenerationCommitError::Revision { expected, actual } => {
+                SurfaceResourceCreationCommitError::Revision { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleSurfaceRevision {
                         expected,
                         actual,
                     }
                 }
-                SurfaceGenerationCommitError::NextResourceId { expected, actual } => {
+                SurfaceResourceCreationCommitError::NextResourceId { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleSurfaceIdentity {
                         expected,
                         actual,
@@ -360,8 +360,8 @@ fn generated_spec(
     position: VoxelCoord,
     commodity: CommodityKey,
     mass: Mass,
-) -> Result<GeneratedSurfaceResourceSpec, GeneratedSurfaceResourceSpecError> {
-    GeneratedSurfaceResourceSpec::new(
+) -> Result<SurfaceResourceSpec, SurfaceResourceSpecError> {
+    SurfaceResourceSpec::new(
         position,
         commodity,
         mass,
@@ -469,21 +469,22 @@ pub fn validate_generate_initial_wilderness(
         .unwrap_or_else(|error| {
             panic!("built-in wilderness generation specification is invalid: {error}")
         });
-    let surface_generation = validate_generate_surface_resources(registries, state, specs)
-        .map_err(|error| match error {
-            SurfaceGenerationError::Empty => {
+    let surface_generation = validate_create_surface_resources(registries, state, specs).map_err(
+        |error| match error {
+            SurfaceResourceCreationError::Empty => {
                 unreachable!("built-in wilderness generation always emits three resources")
             }
-            SurfaceGenerationError::IdExhausted => {
+            SurfaceResourceCreationError::IdExhausted => {
                 InitialWildernessGenerationError::SurfaceIdExhausted
             }
-            SurfaceGenerationError::RevisionExhausted => {
+            SurfaceResourceCreationError::RevisionExhausted => {
                 InitialWildernessGenerationError::SurfaceRevisionExhausted
             }
-            SurfaceGenerationError::InvalidResource(error) => {
+            SurfaceResourceCreationError::InvalidResource(error) => {
                 InitialWildernessGenerationError::InvalidGeneratedResource(error)
             }
-        })?;
+        },
+    )?;
     let water_volume = generated_volume(
         seed,
         spawn,

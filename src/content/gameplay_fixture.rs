@@ -31,7 +31,7 @@ use crate::structural::{
     bind_structural_construction_selection, resolve_structural_material_requirement,
     validate_activate_structural_element, validate_structural_construction,
 };
-use crate::surface::{GeneratedSurfaceResourceSpec, validate_generate_surface_resources};
+use crate::surface::{SurfaceResourceSpec, validate_create_surface_resources};
 use crate::survival::{
     initialize_player_survival, initialize_player_survival_at_hunger_warning_boundary_for_fixture,
     initialize_player_survival_at_hydration_warning_boundary_for_fixture,
@@ -143,12 +143,11 @@ pub fn seed_surface_resource(
     composition: MaterialComposition,
 ) {
     assert_pre_admission(state, "surface-resource seed");
-    let spec =
-        GeneratedSurfaceResourceSpec::new(position, commodity, mass, temperature, composition)
-            .unwrap_or_else(|error| {
-                panic!("gameplay bootstrap surface-resource specification failed: {error}")
-            });
-    validate_generate_surface_resources(registries, state, [spec])
+    let spec = SurfaceResourceSpec::new(position, commodity, mass, temperature, composition)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap surface-resource specification failed: {error}")
+        });
+    validate_create_surface_resources(registries, state, [spec])
         .unwrap_or_else(|error| panic!("gameplay bootstrap surface-resource seed failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| {

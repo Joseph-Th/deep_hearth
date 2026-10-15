@@ -44,8 +44,10 @@ pub(super) fn validate_reserved_inbound(
     if let Some(PlayerWork::SurfaceGathering { work }) = state.player_work().active() {
         expected.add(work.destination(), work.gathered_mass())?;
     }
-    if let Some(PlayerWork::BlockExcavation { work }) = state.player_work().active() {
-        expected.add(work.destination(), work.excavated_mass())?;
+    if let Some(PlayerWork::BlockExcavation { work }) = state.player_work().active()
+        && let Some(stockpile) = work.output().carried_stockpile()
+    {
+        expected.add(stockpile, work.excavated_mass())?;
     }
     for stockpile in state.systems.inventory.stockpiles() {
         let expected_mass = expected.get(stockpile.id());

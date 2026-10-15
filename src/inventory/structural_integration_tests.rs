@@ -39,7 +39,7 @@ use crate::structural::{
     validate_remove_structural_element, validate_set_structural_load,
 };
 use crate::surface::{
-    GeneratedSurfaceResourceSpec, SurfaceGatheringRequest, insert_generated_surface_resource,
+    SurfaceGatheringRequest, SurfaceResourceSpec, insert_surface_resource_for_test,
     validate_start_surface_gathering,
 };
 use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_survival};
@@ -182,10 +182,10 @@ fn active_surface_gathering_destination_cannot_be_mounted() {
             panic!("surface gathering support placement commit failed: {error}")
         });
     let support = active_support(&registries, &mut state, 0);
-    let resource = insert_generated_surface_resource(
+    let resource = insert_surface_resource_for_test(
         &registries,
         &mut state,
-        GeneratedSurfaceResourceSpec::new(
+        SurfaceResourceSpec::new(
             position,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(100),

@@ -29,11 +29,22 @@ impl AppState {
         Some(self.systems.player_work.future_surface_revision_demand())
     }
 
+    pub(crate) fn checked_future_surface_resource_id_demand(&self) -> Option<u32> {
+        Some(self.systems.player_work.future_surface_resource_id_demand())
+    }
+
     pub(crate) fn checked_future_inventory_revision_demand(&self) -> Option<u64> {
         checked_combined_demand(
             self.systems.production.future_inventory_revision_demand(),
             self.future_nonproduction_inventory_revision_demand(),
         )
+    }
+
+    pub(crate) fn has_surface_resource_id_headroom(&self, additional_future_demand: u32) -> bool {
+        self.checked_future_surface_resource_id_demand()
+            .and_then(|future| self.systems.surface.next_resource_id().checked_add(future))
+            .and_then(|cursor| cursor.checked_add(additional_future_demand))
+            .is_some()
     }
 
     pub(crate) fn future_nonproduction_inventory_revision_demand(&self) -> u64 {

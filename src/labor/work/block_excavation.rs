@@ -11,6 +11,32 @@ use crate::mining::MiningMethodId;
 use crate::spatial::VoxelCoord;
 use crate::world::BlockStateId;
 
+/// Durable custody destination for one excavation batch's fragmented output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum BlockExcavationOutputCustody {
+    Carried { stockpile: StockpileId },
+    Surface { position: VoxelCoord },
+}
+
+impl BlockExcavationOutputCustody {
+    #[must_use]
+    pub const fn carried_stockpile(self) -> Option<StockpileId> {
+        match self {
+            Self::Carried { stockpile } => Some(stockpile),
+            Self::Surface { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn surface_position(self) -> Option<VoxelCoord> {
+        match self {
+            Self::Surface { position } => Some(position),
+            Self::Carried { .. } => None,
+        }
+    }
+}
+
 /// One bounded hand-excavation batch against a targeted world cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,7 +46,7 @@ pub struct BlockExcavationWork {
     source_mass_before: Mass,
     excavated_mass: Mass,
     method: MiningMethodId,
-    destination: StockpileId,
+    output: BlockExcavationOutputCustody,
     equipment: EquipmentOperationTrace,
     condition_after: Condition,
     started_at: SimulationTick,
@@ -35,7 +61,7 @@ impl BlockExcavationWork {
         source_mass_before: Mass,
         excavated_mass: Mass,
         method: MiningMethodId,
-        destination: StockpileId,
+        output: BlockExcavationOutputCustody,
         equipment: EquipmentOperationTrace,
         condition_after: Condition,
         started_at: SimulationTick,
@@ -47,7 +73,7 @@ impl BlockExcavationWork {
             source_mass_before,
             excavated_mass,
             method,
-            destination,
+            output,
             equipment,
             condition_after,
             started_at,
@@ -81,8 +107,8 @@ impl BlockExcavationWork {
     }
 
     #[must_use]
-    pub const fn destination(self) -> StockpileId {
-        self.destination
+    pub const fn output(self) -> BlockExcavationOutputCustody {
+        self.output
     }
 
     #[must_use]

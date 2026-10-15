@@ -177,7 +177,7 @@ but that is presentation metadata, not a runtime block model.
 | Block entity | Sparse state beyond finite block-state palette | Separate domain records | `DIFFERENT+` | Voxel attachment points to canonical domain owner. Generic opaque NBT-like state is not the authority. |
 | Breaking hardness | Block + tool determine break duration | Stone terrain authors excavation hardness and reuses canonical mining throughput/batch/wear physics for timed partial removal; held primary input chains repeated legal batches | `DIFFERENT+` | Preserve this physical contract while moving player-facing progress to responsive control time rather than adding a parallel fast-break rule. |
 | Tool requirement | Tags/tiers determine drops and speed | Capability/hardness contracts | `PARITY+` conceptually | Integrate those contracts into block breaking instead of adding parallel tool-tier tags. |
-| Drops | Block destruction resolves item drops | Completed terrain excavation transfers exact stone fragments into reserved carried custody; insufficient carried capacity currently rejects admission | `DIFFERENT+` | Add conserved world-drop custody for overflow, then automatic pickup when capacity permits. |
+| Drops | Block destruction resolves item drops | Completed terrain excavation transfers exact stone fragments into reserved carried custody when a whole batch fits; otherwise it creates conserved loose surface matter at the player's work voxel, with a normal stone-chip gathering route | `DIFFERENT+` | Add automatic pickup and a familiar item/drop projection over this conserved custody; keep capacity failure as world retention rather than matter deletion. |
 
 ## 4. Rendering, textures, meshing, and visibility
 

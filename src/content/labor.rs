@@ -22,7 +22,8 @@ use super::equipment::{
     EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME, EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL,
 };
 use super::{
-    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
@@ -34,6 +35,8 @@ pub const SURFACE_GATHERING_HAND_FORAGE_BERRIES: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(3);
 pub const SURFACE_GATHERING_HAND_COLLECT_CLAY: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(4);
+pub const SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(5);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
 pub const MANUAL_POWER_TREADLE_DYNAMO: ManualPowerMethodId = ManualPowerMethodId::new(4);
@@ -97,6 +100,19 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_000_000_000_000),
                     Volume::from_microliters(260),
+                ),
+            ),
+            // Excavation already performed the hard fragmentation work. Recovering a local chip
+            // pile is faster than collecting intact loose stone, but remains explicit player
+            // attention and preserves the fragmented commodity instead of reforming it into lumps.
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(5_000_000),
+                TickSpan::new(45),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_000_000_000_000),
+                    Volume::from_microliters(250),
                 ),
             ),
         ],

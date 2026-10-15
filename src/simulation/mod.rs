@@ -242,6 +242,8 @@ fn advance_simulation_tick(
     .map_err(|error| match error {
         BlockExcavationTickError::MaterialLotId => TickError::MaterialLotIdExhausted,
         BlockExcavationTickError::InventoryRevision => TickError::InventoryRevisionExhausted,
+        BlockExcavationTickError::SurfaceResourceId => TickError::SurfaceResourceIdExhausted,
+        BlockExcavationTickError::SurfaceRevision => TickError::SurfaceRevisionExhausted,
         BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
         BlockExcavationTickError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
     })?;
@@ -326,7 +328,9 @@ fn advance_simulation_tick(
         &mut completion_plan,
     )?;
     let inventory_owner_busy = completion_plan.has_inventory_deposits()
-        || block_excavation_plan.is_some()
+        || block_excavation_plan
+            .as_ref()
+            .is_some_and(|plan| plan.mutates_inventory())
         || surface_gathering_plan.is_some()
         || storage_enclosure_dismantling_plan.is_some()
         || player_death_effects

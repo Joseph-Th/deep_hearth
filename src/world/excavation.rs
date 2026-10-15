@@ -2,12 +2,12 @@
 
 mod runtime;
 
-pub use runtime::BlockExcavationOutcome;
 pub(crate) use runtime::{
     BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
     apply_block_excavation_tick, decide_block_excavation_cancellation,
     decide_block_excavation_tick,
 };
+pub use runtime::{BlockExcavationOutcome, BlockExcavationOutputReceipt};
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -18,12 +18,11 @@ use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::inventory::{
-    InboundReservationError, StockpileStorageError, ValidatedInboundReservation,
-    validate_inbound_reservation, validate_stockpile_storage,
+    ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
 };
 use crate::labor::{
-    BlockExcavationWork, PlayerWork, PlayerWorkCommitError, PlayerWorkStartError,
-    ValidatedPlayerWorkStart, validate_player_work_start,
+    BlockExcavationOutputCustody, BlockExcavationWork, PlayerWork, PlayerWorkCommitError,
+    PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start,
 };
 use crate::logistics::{PlayerEquipmentAccessError, validate_player_equipment_access};
 use crate::material::MaterialLotSpec;
@@ -71,14 +70,11 @@ pub enum BlockExcavationError {
     EquipmentMounted { equipment: EquipmentId },
     Physics(MiningPhysicsError),
     PlayerWork(PlayerWorkStartError),
-    InventoryRevisionExhausted,
     EquipmentRevisionExhausted,
     WorldRevisionExhausted,
-    MaterialLotIdExhausted,
+    SurfaceRevisionExhausted,
+    SurfaceResourceIdExhausted,
     CarriedStockpileMissing,
-    CarriedMassOverflow,
-    CarriedCapacityExceeded { requested: Mass, available: Mass },
-    CarriedStorage(StockpileStorageError),
     ScheduleOverflow,
 }
 
@@ -120,36 +116,18 @@ impl Display for BlockExcavationError {
             ),
             Self::Physics(error) => write!(formatter, "block excavation physics failed: {error}"),
             Self::PlayerWork(error) => write!(formatter, "block excavation labor failed: {error}"),
-            Self::InventoryRevisionExhausted => formatter.write_str(
-                "inventory cannot reserve and settle excavated material within revision capacity",
-            ),
             Self::EquipmentRevisionExhausted => formatter
                 .write_str("equipment cannot reserve excavation wear within revision capacity"),
             Self::WorldRevisionExhausted => formatter
                 .write_str("world cannot reserve excavation completion within revision capacity"),
-            Self::MaterialLotIdExhausted => {
-                formatter.write_str("material-lot identity space cannot reserve excavated output")
-            }
+            Self::SurfaceRevisionExhausted => formatter.write_str(
+                "surface state cannot reserve overflow excavation output within revision capacity",
+            ),
+            Self::SurfaceResourceIdExhausted => formatter.write_str(
+                "surface resource identity space cannot reserve overflow excavation output",
+            ),
             Self::CarriedStockpileMissing => {
                 formatter.write_str("player carried stockpile disappeared before excavation start")
-            }
-            Self::CarriedMassOverflow => {
-                formatter.write_str("player carried stockpile mass accounting overflowed")
-            }
-            Self::CarriedCapacityExceeded {
-                requested,
-                available,
-            } => write!(
-                formatter,
-                "excavated output requires {} mg of carried capacity but only {} mg remains",
-                requested.milligrams(),
-                available.milligrams()
-            ),
-            Self::CarriedStorage(error) => {
-                write!(
-                    formatter,
-                    "player carried storage rejects excavated material: {error}"
-                )
             }
             Self::ScheduleOverflow => {
                 formatter.write_str("block excavation completion exceeds authoritative time")
@@ -166,20 +144,17 @@ impl Error for BlockExcavationError {
             Self::Equipment(error) => Some(error),
             Self::Physics(error) => Some(error),
             Self::PlayerWork(error) => Some(error),
-            Self::CarriedStorage(error) => Some(error),
             Self::NoTarget
             | Self::TargetNotExcavatable { .. }
             | Self::ZeroMass
             | Self::MassExceedsCell { .. }
             | Self::UnknownMethod { .. }
             | Self::EquipmentMounted { .. }
-            | Self::InventoryRevisionExhausted
             | Self::EquipmentRevisionExhausted
             | Self::WorldRevisionExhausted
-            | Self::MaterialLotIdExhausted
+            | Self::SurfaceRevisionExhausted
+            | Self::SurfaceResourceIdExhausted
             | Self::CarriedStockpileMissing
-            | Self::CarriedMassOverflow
-            | Self::CarriedCapacityExceeded { .. }
             | Self::ScheduleOverflow => None,
         }
     }
@@ -191,6 +166,8 @@ pub enum BlockExcavationCommitError {
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleEquipmentRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleSurfaceRevision { expected: u64, actual: u64 },
+    StaleSurfaceIdentity { expected: u32, actual: u32 },
     TargetChanged,
     EquipmentChanged,
     PlayerWork(PlayerWorkCommitError),
@@ -214,6 +191,14 @@ impl Display for BlockExcavationCommitError {
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "inventory revision changed from {expected} to {actual} before block excavation start"
+            ),
+            Self::StaleSurfaceRevision { expected, actual } => write!(
+                formatter,
+                "surface revision changed from {expected} to {actual} before block excavation start"
+            ),
+            Self::StaleSurfaceIdentity { expected, actual } => write!(
+                formatter,
+                "surface resource identity cursor changed from {expected} to {actual} before block excavation start"
             ),
             Self::TargetChanged => {
                 formatter.write_str("block excavation target changed before start")
@@ -239,6 +224,8 @@ impl Error for BlockExcavationCommitError {
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleEquipmentRevision { .. }
             | Self::StaleInventoryRevision { .. }
+            | Self::StaleSurfaceRevision { .. }
+            | Self::StaleSurfaceIdentity { .. }
             | Self::TargetChanged
             | Self::EquipmentChanged => None,
         }
@@ -250,6 +237,7 @@ impl Error for BlockExcavationCommitError {
 pub struct BlockExcavationStartOutcome {
     target: VoxelCoord,
     excavated_mass: Mass,
+    output: BlockExcavationOutputCustody,
     completes_at: SimulationTick,
 }
 
@@ -265,6 +253,11 @@ impl BlockExcavationStartOutcome {
     }
 
     #[must_use]
+    pub const fn output(self) -> BlockExcavationOutputCustody {
+        self.output
+    }
+
+    #[must_use]
     pub const fn completes_at(self) -> SimulationTick {
         self.completes_at
     }
@@ -276,7 +269,9 @@ pub struct ValidatedPlayerBlockExcavationStart {
     expected_logistics_revision: u64,
     expected_equipment_revision: u64,
     expected_state: BlockStateId,
-    reservation: ValidatedInboundReservation,
+    reservation: Option<ValidatedInboundReservation>,
+    expected_surface_revision: Option<u64>,
+    expected_surface_resource_id: Option<u32>,
     work: BlockExcavationWork,
     player_work: ValidatedPlayerWorkStart,
 }
@@ -307,12 +302,26 @@ impl ValidatedPlayerBlockExcavationStart {
                 actual: actual_equipment,
             });
         }
-        let actual_inventory = state.inventory().revision();
-        if actual_inventory != self.reservation.expected_revision() {
-            return Err(BlockExcavationCommitError::StaleInventoryRevision {
-                expected: self.reservation.expected_revision(),
-                actual: actual_inventory,
-            });
+        if let Some(reservation) = &self.reservation {
+            let actual_inventory = state.inventory().revision();
+            if actual_inventory != reservation.expected_revision() {
+                return Err(BlockExcavationCommitError::StaleInventoryRevision {
+                    expected: reservation.expected_revision(),
+                    actual: actual_inventory,
+                });
+            }
+        }
+        if let Some(expected) = self.expected_surface_revision {
+            let actual = state.surface().revision();
+            if actual != expected {
+                return Err(BlockExcavationCommitError::StaleSurfaceRevision { expected, actual });
+            }
+        }
+        if let Some(expected) = self.expected_surface_resource_id {
+            let actual = state.surface().next_resource_id();
+            if actual != expected {
+                return Err(BlockExcavationCommitError::StaleSurfaceIdentity { expected, actual });
+            }
         }
         if state.world().block_at(self.work.target()) != Some(self.expected_state) {
             return Err(BlockExcavationCommitError::TargetChanged);
@@ -328,35 +337,17 @@ impl ValidatedPlayerBlockExcavationStart {
         self.player_work
             .precheck(state)
             .map_err(BlockExcavationCommitError::PlayerWork)?;
-        self.reservation.assert_matches_state(state.inventory());
-        self.reservation.apply(state.inventory_state_mut());
+        if let Some(reservation) = self.reservation {
+            reservation.assert_matches_state(state.inventory());
+            reservation.apply(state.inventory_state_mut());
+        }
         self.player_work.apply(state);
         Ok(BlockExcavationStartOutcome {
             target: self.work.target(),
             excavated_mass: self.work.excavated_mass(),
+            output: self.work.output(),
             completes_at: self.work.completes_at(),
         })
-    }
-}
-
-fn map_reservation_error(error: InboundReservationError) -> BlockExcavationError {
-    match error {
-        InboundReservationError::RevisionExhausted => {
-            BlockExcavationError::InventoryRevisionExhausted
-        }
-        InboundReservationError::CapacityExceeded {
-            requested,
-            capacity,
-            committed,
-            ..
-        } => BlockExcavationError::CarriedCapacityExceeded {
-            requested,
-            available: capacity.checked_sub(committed).unwrap_or(Mass::ZERO),
-        },
-        InboundReservationError::UnknownStockpile { .. } => {
-            BlockExcavationError::CarriedStockpileMissing
-        }
-        InboundReservationError::MassOverflow { .. } => BlockExcavationError::CarriedMassOverflow,
     }
 }
 
@@ -426,17 +417,11 @@ pub fn validate_start_player_block_excavation(
         .player()
         .copied()
         .unwrap_or_else(|| unreachable!("targeting requires admitted player"));
-    if !state.can_spend_inventory_revisions(2) {
-        return Err(BlockExcavationError::InventoryRevisionExhausted);
-    }
     if !state.can_spend_equipment_revisions(1) {
         return Err(BlockExcavationError::EquipmentRevisionExhausted);
     }
     if !state.can_spend_world_revisions(1) {
         return Err(BlockExcavationError::WorldRevisionExhausted);
-    }
-    if !state.has_material_lot_id_headroom_from(state.inventory().next_lot_id(), 1) {
-        return Err(BlockExcavationError::MaterialLotIdExhausted);
     }
     let destination = state
         .inventory()
@@ -447,7 +432,7 @@ pub fn validate_start_player_block_excavation(
         request.mass,
         excavation.temperature(),
     );
-    validate_stockpile_storage(
+    let carried_storage_valid = validate_stockpile_storage(
         registries,
         destination,
         player.carried_stockpile(),
@@ -456,17 +441,46 @@ pub fn validate_start_player_block_excavation(
         output.temperature(),
         output.particle_size_distribution(),
     )
-    .map_err(BlockExcavationError::CarriedStorage)?;
-    let reservation =
+    .is_ok();
+    let reservation = (carried_storage_valid
+        && state.can_spend_inventory_revisions(2)
+        && state.has_material_lot_id_headroom_from(state.inventory().next_lot_id(), 1))
+    .then(|| {
         validate_inbound_reservation(state.inventory(), player.carried_stockpile(), request.mass)
-            .map_err(map_reservation_error)?;
+            .ok()
+    })
+    .flatten();
+    let (output, expected_surface_revision, expected_surface_resource_id) = if reservation.is_some()
+    {
+        (
+            BlockExcavationOutputCustody::Carried {
+                stockpile: player.carried_stockpile(),
+            },
+            None,
+            None,
+        )
+    } else {
+        if !state.can_spend_surface_revisions(1) {
+            return Err(BlockExcavationError::SurfaceRevisionExhausted);
+        }
+        if !state.has_surface_resource_id_headroom(1) {
+            return Err(BlockExcavationError::SurfaceResourceIdExhausted);
+        }
+        (
+            BlockExcavationOutputCustody::Surface {
+                position: player.position(),
+            },
+            Some(state.surface().revision()),
+            Some(state.surface().next_resource_id()),
+        )
+    };
     let work = BlockExcavationWork::new(
         target.voxel(),
         target.state(),
         source_mass,
         request.mass,
         request.method,
-        player.carried_stockpile(),
+        output,
         provider.validated_use().trace(),
         physics.condition_after(),
         state.tick(),
@@ -486,6 +500,8 @@ pub fn validate_start_player_block_excavation(
         expected_equipment_revision: state.equipment().revision(),
         expected_state: target.state(),
         reservation,
+        expected_surface_revision,
+        expected_surface_resource_id,
         work,
         player_work,
     })

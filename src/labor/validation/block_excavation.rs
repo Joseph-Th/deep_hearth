@@ -4,7 +4,7 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::validate_stockpile_storage;
-use crate::labor::BlockExcavationWork;
+use crate::labor::{BlockExcavationOutputCustody, BlockExcavationWork};
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::material::MaterialLotSpec;
 use crate::mining::resolve_mining_physics;
@@ -87,36 +87,50 @@ pub(super) fn validate_block_excavation_work(
         .logistics()
         .player()
         .copied()
-        .ok_or(PlayerWorkValidationError::BlockExcavationDestinationNotCarried)?;
-    if player.carried_stockpile() != work.destination() {
-        return Err(PlayerWorkValidationError::BlockExcavationDestinationNotCarried);
-    }
-    validate_player_stockpile_access(state, work.destination())
-        .map_err(PlayerWorkValidationError::BlockExcavationDestinationAccess)?;
-    let destination = state
-        .inventory()
-        .get_stockpile(work.destination())
-        .ok_or(PlayerWorkValidationError::BlockExcavationDestinationMissing)?;
-    if destination.supported_by().is_some() {
-        return Err(PlayerWorkValidationError::BlockExcavationDestinationMounted);
-    }
-    let output = MaterialLotSpec::new(
-        excavation.fragmented_commodity(),
-        work.excavated_mass(),
-        excavation.temperature(),
-    );
-    validate_stockpile_storage(
-        registries,
-        destination,
-        work.destination(),
-        output.commodity(),
-        output.composition(),
-        output.temperature(),
-        output.particle_size_distribution(),
-    )
-    .map_err(PlayerWorkValidationError::BlockExcavationDestinationStorage)?;
-    if destination.reserved_inbound() < work.excavated_mass() {
-        return Err(PlayerWorkValidationError::BlockExcavationReservationMissing);
+        .ok_or(PlayerWorkValidationError::BlockExcavationPlayerNotLocated)?;
+    match work.output() {
+        BlockExcavationOutputCustody::Carried { stockpile } => {
+            if player.carried_stockpile() != stockpile {
+                return Err(PlayerWorkValidationError::BlockExcavationDestinationNotCarried);
+            }
+            validate_player_stockpile_access(state, stockpile)
+                .map_err(PlayerWorkValidationError::BlockExcavationDestinationAccess)?;
+            let destination = state
+                .inventory()
+                .get_stockpile(stockpile)
+                .ok_or(PlayerWorkValidationError::BlockExcavationDestinationMissing)?;
+            if destination.supported_by().is_some() {
+                return Err(PlayerWorkValidationError::BlockExcavationDestinationMounted);
+            }
+            let output = MaterialLotSpec::new(
+                excavation.fragmented_commodity(),
+                work.excavated_mass(),
+                excavation.temperature(),
+            );
+            validate_stockpile_storage(
+                registries,
+                destination,
+                stockpile,
+                output.commodity(),
+                output.composition(),
+                output.temperature(),
+                output.particle_size_distribution(),
+            )
+            .map_err(PlayerWorkValidationError::BlockExcavationDestinationStorage)?;
+            if destination.reserved_inbound() < work.excavated_mass() {
+                return Err(PlayerWorkValidationError::BlockExcavationReservationMissing);
+            }
+        }
+        BlockExcavationOutputCustody::Surface { position } => {
+            if position != player.position() {
+                return Err(
+                    PlayerWorkValidationError::BlockExcavationSurfacePositionMismatch {
+                        stored: position,
+                        player: player.position(),
+                    },
+                );
+            }
+        }
     }
 
     let physics = resolve_mining_physics(

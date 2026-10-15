@@ -202,6 +202,8 @@ impl Error for StateValidationError {
             | Self::FutureEquipmentRevisionDemandOverflow
             | Self::FutureSurfaceRevisionCapacityExhausted { .. }
             | Self::FutureSurfaceRevisionDemandOverflow
+            | Self::FutureSurfaceResourceIdCapacityExhausted { .. }
+            | Self::FutureSurfaceResourceIdDemandOverflow
             | Self::FutureMiningRevisionCapacityExhausted { .. }
             | Self::FutureMiningRevisionDemandOverflow
             | Self::FutureStructureRevisionCapacityExhausted { .. }

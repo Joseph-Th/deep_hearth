@@ -119,11 +119,13 @@ fall injury, and adapter residency/unload remain open; deterministic player-neig
 and the timed one-voxel labor step is rejected once generated-world body
 physics is active. Deterministic player-eye targeting now feeds a conserved timed terrain-excavation owner path:
 authored mining physics binds portable tool throughput/hardness/wear, partial represented mass persists per cell,
-and completed fragments land in reserved carried custody. `PlayerDirectControlInput` now composes held primary
+and completed fragments land in reserved carried custody when the complete batch fits, otherwise in finite loose
+surface custody at the player's work position. Dropped stone chips remain recoverable through ordinary local
+surface gathering rather than a special excavation-only reclaim path. `PlayerDirectControlInput` now composes held primary
 excavation intent over that same owner path: an idle slow boundary chooses the largest target/tool batch, typed
 rejection is observable, and a held action can start the next legal batch on the same boundary that completes the
 previous one. Admission is still slow-boundary gated, so control-rate break progress, hotbar-selected tool context,
-overflow world-drop custody, placement/use, and inventory/container projection remain open.
+automatic pickup, placement/use, and inventory/container projection remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

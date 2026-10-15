@@ -128,7 +128,7 @@ impl TickOutcome {
         self.surface_gathering.as_ref()
     }
 
-    /// Returns block-world matter excavated into carried inventory on this tick, if any.
+    /// Returns block-world matter excavated into carried or finite surface custody this tick, if any.
     #[must_use]
     pub const fn block_excavation(&self) -> Option<BlockExcavationOutcome> {
         self.block_excavation

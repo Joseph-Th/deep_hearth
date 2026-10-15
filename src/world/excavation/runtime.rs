@@ -9,18 +9,41 @@ use crate::inventory::{
     ValidatedInboundReservationRelease, ValidatedMaterialIngress, apply_material_ingress,
     validate_inbound_reservation_release, validate_reserved_material_ingress,
 };
-use crate::labor::BlockExcavationWork;
+use crate::labor::{BlockExcavationOutputCustody, BlockExcavationWork};
 use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
+use crate::surface::{
+    SurfaceResourceCreationError, SurfaceResourceId, SurfaceResourceSpec,
+    ValidatedSurfaceResourceCreation, validate_create_surface_resources_at,
+};
+
+enum BlockExcavationSettlementPlan {
+    Carried(ValidatedMaterialIngress),
+    Surface(ValidatedSurfaceResourceCreation),
+}
 
 #[must_use]
 pub(crate) struct BlockExcavationTickPlan {
     work: BlockExcavationWork,
-    ingress: ValidatedMaterialIngress,
+    settlement: BlockExcavationSettlementPlan,
     next_world_revision: u64,
     next_equipment_revision: u64,
+}
+
+impl BlockExcavationTickPlan {
+    #[must_use]
+    pub(crate) const fn mutates_inventory(&self) -> bool {
+        matches!(self.settlement, BlockExcavationSettlementPlan::Carried(_))
+    }
+}
+
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockExcavationOutputReceipt {
+    Carried { lot: MaterialLotId },
+    Surface { resource: SurfaceResourceId },
 }
 
 #[must_use]
@@ -29,7 +52,7 @@ pub struct BlockExcavationOutcome {
     target: VoxelCoord,
     excavated_mass: Mass,
     remaining_mass: Mass,
-    lot: MaterialLotId,
+    output: BlockExcavationOutputReceipt,
 }
 
 impl BlockExcavationOutcome {
@@ -48,9 +71,8 @@ impl BlockExcavationOutcome {
         self.remaining_mass
     }
 
-    #[must_use]
-    pub const fn lot(self) -> MaterialLotId {
-        self.lot
+    pub const fn output(self) -> BlockExcavationOutputReceipt {
+        self.output
     }
 }
 
@@ -58,6 +80,8 @@ impl BlockExcavationOutcome {
 pub(crate) enum BlockExcavationTickError {
     MaterialLotId,
     InventoryRevision,
+    SurfaceResourceId,
+    SurfaceRevision,
     WorldRevision,
     EquipmentRevision,
 }
@@ -90,33 +114,71 @@ pub(crate) fn decide_block_excavation_tick(
         work.excavated_mass(),
         excavation.temperature(),
     );
-    let ingress = validate_reserved_material_ingress(
-        registries,
-        projected_inventory,
-        work.destination(),
-        [MaterialIngressEntry::from_lot_spec(lot, next_tick)],
-        next_tick,
-        work.excavated_mass(),
-    )
-    .map_err(|error| match error {
-        MaterialIngressError::LotIdExhausted => BlockExcavationTickError::MaterialLotId,
-        MaterialIngressError::RevisionExhausted => BlockExcavationTickError::InventoryRevision,
-        other @ (MaterialIngressError::Empty
-        | MaterialIngressError::UnknownStockpile { .. }
-        | MaterialIngressError::UnknownMaterial { .. }
-        | MaterialIngressError::UnknownForm { .. }
-        | MaterialIngressError::UnknownCompositionMaterial { .. }
-        | MaterialIngressError::ZeroMass
-        | MaterialIngressError::InvalidComposition { .. }
-        | MaterialIngressError::CompositionMissingHost { .. }
-        | MaterialIngressError::Storage(_)
-        | MaterialIngressError::ProvenanceInFuture { .. }
-        | MaterialIngressError::MassOverflow { .. }
-        | MaterialIngressError::CapacityExceeded { .. }
-        | MaterialIngressError::ReservationMismatch { .. }) => {
-            panic!("runtime invariant broken: admitted block excavation ingress failed: {other:?}")
+    let settlement = match work.output() {
+        BlockExcavationOutputCustody::Carried { stockpile } => {
+            let ingress = validate_reserved_material_ingress(
+                registries,
+                projected_inventory,
+                stockpile,
+                [MaterialIngressEntry::from_lot_spec(lot, next_tick)],
+                next_tick,
+                work.excavated_mass(),
+            )
+            .map_err(|error| match error {
+                MaterialIngressError::LotIdExhausted => BlockExcavationTickError::MaterialLotId,
+                MaterialIngressError::RevisionExhausted => {
+                    BlockExcavationTickError::InventoryRevision
+                }
+                other @ (MaterialIngressError::Empty
+                | MaterialIngressError::UnknownStockpile { .. }
+                | MaterialIngressError::UnknownMaterial { .. }
+                | MaterialIngressError::UnknownForm { .. }
+                | MaterialIngressError::UnknownCompositionMaterial { .. }
+                | MaterialIngressError::ZeroMass
+                | MaterialIngressError::InvalidComposition { .. }
+                | MaterialIngressError::CompositionMissingHost { .. }
+                | MaterialIngressError::Storage(_)
+                | MaterialIngressError::ProvenanceInFuture { .. }
+                | MaterialIngressError::MassOverflow { .. }
+                | MaterialIngressError::CapacityExceeded { .. }
+                | MaterialIngressError::ReservationMismatch { .. }) => {
+                    panic!("runtime invariant broken: admitted block excavation ingress failed: {other:?}")
+                }
+            })?;
+            BlockExcavationSettlementPlan::Carried(ingress)
         }
-    })?;
+        BlockExcavationOutputCustody::Surface { position } => {
+            let spec = SurfaceResourceSpec::new(
+                position,
+                excavation.fragmented_commodity(),
+                work.excavated_mass(),
+                excavation.temperature(),
+                lot.composition().clone(),
+            )
+            .unwrap_or_else(|error| {
+                panic!("runtime invariant broken: admitted excavation drop is invalid: {error}")
+            });
+            let creation = validate_create_surface_resources_at(
+                registries,
+                state,
+                [spec],
+                next_tick,
+            )
+            .map_err(|error| match error {
+                SurfaceResourceCreationError::IdExhausted => {
+                    BlockExcavationTickError::SurfaceResourceId
+                }
+                SurfaceResourceCreationError::RevisionExhausted => {
+                    BlockExcavationTickError::SurfaceRevision
+                }
+                SurfaceResourceCreationError::Empty
+                | SurfaceResourceCreationError::InvalidResource(_) => {
+                    panic!("runtime invariant broken: admitted excavation surface creation failed: {error}")
+                }
+            })?;
+            BlockExcavationSettlementPlan::Surface(creation)
+        }
+    };
     let equipment = state
         .equipment()
         .get_equipment(work.equipment())
@@ -135,7 +197,7 @@ pub(crate) fn decide_block_excavation_tick(
         .ok_or(BlockExcavationTickError::EquipmentRevision)?;
     Ok(Some(BlockExcavationTickPlan {
         work,
-        ingress,
+        settlement,
         next_world_revision,
         next_equipment_revision,
     }))
@@ -158,11 +220,26 @@ pub(crate) fn apply_block_excavation_tick(
         .source_mass_before()
         .checked_sub(plan.work.excavated_mass())
         .unwrap_or_else(|| panic!("runtime invariant broken: excavation exceeds source cell mass"));
-    plan.ingress.assert_matches_state(state.inventory());
-    let lots = apply_material_ingress(state.inventory_state_mut(), plan.ingress);
-    let lot = *lots
-        .first()
-        .unwrap_or_else(|| panic!("block excavation ingress created no material lot"));
+    let output = match plan.settlement {
+        BlockExcavationSettlementPlan::Carried(ingress) => {
+            ingress.assert_matches_state(state.inventory());
+            let lots = apply_material_ingress(state.inventory_state_mut(), ingress);
+            let lot = *lots
+                .first()
+                .unwrap_or_else(|| panic!("block excavation ingress created no material lot"));
+            BlockExcavationOutputReceipt::Carried { lot }
+        }
+        BlockExcavationSettlementPlan::Surface(creation) => {
+            creation.precheck(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: excavation surface creation became stale: {error}"
+                )
+            });
+            let resource = creation.first_resource_id();
+            creation.apply(state);
+            BlockExcavationOutputReceipt::Surface { resource }
+        }
+    };
     state.equipment_state_mut().apply_condition_change(
         plan.work.equipment(),
         plan.work.equipment_trace().condition(),
@@ -182,13 +259,13 @@ pub(crate) fn apply_block_excavation_tick(
         target: plan.work.target(),
         excavated_mass: plan.work.excavated_mass(),
         remaining_mass,
-        lot,
+        output,
     })
 }
 
 #[must_use]
 pub(crate) struct BlockExcavationCancellationPlan {
-    reservation_release: ValidatedInboundReservationRelease,
+    reservation_release: Option<ValidatedInboundReservationRelease>,
     equipment: EquipmentId,
     condition_before: Condition,
     condition_after: Condition,
@@ -204,6 +281,11 @@ impl BlockExcavationCancellationPlan {
             0
         }
     }
+
+    #[must_use]
+    pub(crate) const fn mutates_inventory(&self) -> bool {
+        self.reservation_release.is_some()
+    }
 }
 
 pub(crate) fn decide_block_excavation_cancellation(
@@ -213,12 +295,17 @@ pub(crate) fn decide_block_excavation_cancellation(
     work: BlockExcavationWork,
     next_tick: SimulationTick,
 ) -> Result<BlockExcavationCancellationPlan, BlockExcavationTickError> {
-    let reservation_release = validate_inbound_reservation_release(
-        projected_inventory,
-        work.destination(),
-        work.excavated_mass(),
-    )
-    .map_err(|_| BlockExcavationTickError::InventoryRevision)?;
+    let reservation_release = match work.output().carried_stockpile() {
+        Some(stockpile) => Some(
+            validate_inbound_reservation_release(
+                projected_inventory,
+                stockpile,
+                work.excavated_mass(),
+            )
+            .map_err(|_| BlockExcavationTickError::InventoryRevision)?,
+        ),
+        None => None,
+    };
     let elapsed = next_tick
         .checked_duration_since(work.started_at())
         .unwrap_or_else(|| panic!("fatal tick cannot precede excavation start"));
@@ -256,7 +343,9 @@ pub(crate) fn apply_block_excavation_cancellation(
     state: &mut AppState,
     plan: BlockExcavationCancellationPlan,
 ) {
-    plan.reservation_release.apply(state.inventory_state_mut());
+    if let Some(release) = plan.reservation_release {
+        release.apply(state.inventory_state_mut());
+    }
     if let Some(next_revision) = plan.next_equipment_revision {
         state.equipment_state_mut().apply_condition_change(
             plan.equipment,

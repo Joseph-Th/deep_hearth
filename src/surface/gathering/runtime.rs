@@ -126,10 +126,10 @@ pub(crate) fn decide_surface_gathering_tick(
         work.destination(),
         [MaterialIngressEntry::from_lot_spec_with_ambient_exposure(
             lot,
-            resource.generated_at(),
+            resource.created_at(),
             next_tick,
         )
-        .unwrap_or_else(|| unreachable!("surface resource exposure cannot precede generation"))],
+        .unwrap_or_else(|| unreachable!("surface resource exposure cannot precede creation"))],
         next_tick,
         work.gathered_mass(),
     )

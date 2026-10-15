@@ -423,9 +423,18 @@ fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_
             .represented_mass_at(registries.world(), target),
         Some(remaining)
     );
+    let lot = match completion.output() {
+        BlockExcavationOutputReceipt::Carried { lot } => lot,
+        BlockExcavationOutputReceipt::Surface { resource } => {
+            panic!(
+                "carried excavation unexpectedly produced surface resource {}",
+                resource.value()
+            )
+        }
+    };
     let output = state
         .inventory()
-        .get_lot(completion.lot())
+        .get_lot(lot)
         .unwrap_or_else(|| panic!("block excavation output lot disappeared"));
     assert_eq!(output.stockpile(), carried);
     assert_eq!(output.mass(), batch);
@@ -544,7 +553,7 @@ fn held_primary_excavation_chains_the_next_batch_on_the_completion_boundary() {
 }
 
 #[test]
-fn held_primary_excavation_rejects_a_tool_batch_that_does_not_fit_carried_capacity() {
+fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
     let (registries, mut state, pick, target) = generated_excavation_fixture();
     let carried = state
         .logistics()
@@ -575,37 +584,166 @@ fn held_primary_excavation_rejects_a_tool_batch_that_does_not_fit_carried_capaci
         .world()
         .represented_mass_at(registries.world(), target)
         .unwrap_or_else(|| panic!("capacity-blocked target mass disappeared"));
+    let player_position = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("capacity-blocked player disappeared"))
+        .position();
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("capacity-blocked matter baseline failed: {error}"));
     let input = PlayerDirectControlInput::NEUTRAL.with_primary(
         PrimaryControlIntent::block_excavation(positive_x_view(), MINING_METHOD_HAND_PICK, pick),
     );
 
-    let rejection = loop {
+    let start = loop {
         let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
             .unwrap_or_else(|error| panic!("capacity-blocked control failed: {error}"));
         match control.primary_action() {
-            Some(PrimaryActionOutcome::BlockExcavationRejected(error)) => break error.clone(),
-            Some(PrimaryActionOutcome::BlockExcavationStarted(_)) => {
-                panic!("capacity-blocked held excavation unexpectedly started")
+            Some(PrimaryActionOutcome::BlockExcavationStarted(start)) => break *start,
+            Some(PrimaryActionOutcome::BlockExcavationRejected(error)) => {
+                panic!(
+                    "capacity-blocked held excavation was rejected instead of dropping output: {error}"
+                )
             }
             None => {}
         }
     };
-
+    assert_eq!(start.excavated_mass(), batch);
     assert_eq!(
-        rejection,
-        BlockExcavationError::CarriedCapacityExceeded {
-            requested: batch,
-            available: remaining_capacity,
+        start.output(),
+        crate::labor::BlockExcavationOutputCustody::Surface {
+            position: player_position,
         }
     );
-    assert_eq!(state.player_work().active(), None);
+    let work = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::BlockExcavation { work }) => work,
+        other => panic!("capacity-blocked excavation did not retain player work: {other:?}"),
+    };
+    assert_eq!(
+        work.output(),
+        crate::labor::BlockExcavationOutputCustody::Surface {
+            position: player_position,
+        }
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(Mass::ZERO),
+        "surface-routed excavation must not reserve carried capacity"
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("surface-routed excavation serialization failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("surface-routed excavation decode failed: {error}"));
+    assert_eq!(
+        loaded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!(
+                "surface-routed excavation trusted load failed: {error}"
+            )),
+        state
+    );
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("surface-route tamper serialization failed: {error}"));
+    tampered["state"]["systems"]["player_work"]["active"]["BlockExcavation"]["work"]["output"]["Surface"]
+        ["position"]["x"] = serde_json::json!(player_position.x() + 1);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("surface-route tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::BlockExcavationSurfacePositionMismatch {
+                stored: VoxelCoord::new(
+                    player_position.x() + 1,
+                    player_position.y(),
+                    player_position.z(),
+                ),
+                player: player_position,
+            }
+        )))
+    );
+    let mut exhausted = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("surface-id exhaustion serialization failed: {error}"));
+    exhausted["state"]["systems"]["surface"]["next_resource_id"] = serde_json::json!(u32::MAX);
+    let exhausted: LoadedSaveEnvelope = serde_json::from_value(exhausted)
+        .unwrap_or_else(|error| panic!("surface-id exhaustion decode failed: {error}"));
+    assert_eq!(
+        exhausted.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::FutureSurfaceResourceIdCapacityExhausted {
+                next_resource_id: u32::MAX,
+                required: 1,
+            }
+        ))
+    );
     assert_eq!(
         state
             .world()
             .represented_mass_at(registries.world(), target),
         Some(source_mass),
-        "rejected direct excavation must not reduce represented world matter"
+        "surface-routed excavation must not reduce represented world matter before completion"
     );
+
+    let completion = loop {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("surface-drop excavation advancement failed: {error}"));
+        if let Some(completion) = control
+            .simulation()
+            .and_then(|simulation| simulation.block_excavation())
+        {
+            break completion;
+        }
+    };
+    let resource = match completion.output() {
+        BlockExcavationOutputReceipt::Surface { resource } => resource,
+        BlockExcavationOutputReceipt::Carried { lot } => {
+            panic!(
+                "capacity-blocked excavation unexpectedly created carried lot {}",
+                lot.value()
+            )
+        }
+    };
+    let drop = state
+        .surface()
+        .get(resource)
+        .unwrap_or_else(|| panic!("capacity-blocked excavation surface drop disappeared"));
+    assert_eq!(drop.position(), player_position);
+    assert_eq!(drop.remaining_mass(), batch);
+    assert_eq!(
+        drop.commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+    );
+    assert_eq!(drop.created_at(), state.tick());
+    let remaining = source_mass
+        .checked_sub(batch)
+        .unwrap_or_else(|| panic!("surface-drop batch exceeds source mass"));
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(remaining)
+    );
+    let matter_after = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("surface-drop matter accounting failed: {error}"));
+    assert_eq!(matter_after.total(), matter_before.total());
+    assert_eq!(
+        matter_after.world(),
+        matter_before
+            .world()
+            .checked_sub(crate::core::quantity::AggregateMass::from_mass(batch))
+            .unwrap_or_else(|| panic!("surface-drop world matter underflow"))
+    );
+    assert_eq!(
+        matter_after.surface(),
+        matter_before
+            .surface()
+            .checked_add(crate::core::quantity::AggregateMass::from_mass(batch))
+            .unwrap_or_else(|| panic!("surface-drop matter overflow"))
+    );
+    assert_eq!(matter_after.stored(), matter_before.stored());
 }
 
 fn positive_x_view() -> ViewDirection {

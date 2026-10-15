@@ -787,10 +787,10 @@ fn blocked_unsettled_mining_with_local_stone(
         &[destination],
         &[pick],
     );
-    let stone = insert_generated_surface_resource(
+    let stone = insert_surface_resource_for_test(
         &registries,
         &mut state,
-        GeneratedSurfaceResourceSpec::new(
+        SurfaceResourceSpec::new(
             position,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(100_000),

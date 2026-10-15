@@ -18,8 +18,8 @@ pub(crate) use excavation::{
 };
 pub use excavation::{
     BlockExcavationCommitError, BlockExcavationError, BlockExcavationOutcome,
-    BlockExcavationRequest, BlockExcavationStartOutcome, ValidatedPlayerBlockExcavationStart,
-    validate_start_player_block_excavation,
+    BlockExcavationOutputReceipt, BlockExcavationRequest, BlockExcavationStartOutcome,
+    ValidatedPlayerBlockExcavationStart, validate_start_player_block_excavation,
 };
 pub(crate) use generation::WorldGenerationProfile;
 pub use generation::{

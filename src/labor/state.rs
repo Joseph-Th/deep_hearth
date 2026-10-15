@@ -30,6 +30,14 @@ impl PlayerWorkState {
     }
 
     #[must_use]
+    pub(crate) const fn future_surface_resource_id_demand(&self) -> u32 {
+        match self.active {
+            Some(work) => work.future_surface_resource_id_demand(),
+            None => 0,
+        }
+    }
+
+    #[must_use]
     pub(crate) const fn future_surface_revision_demand(&self) -> u64 {
         match self.active {
             Some(work) => work.future_surface_revision_demand(),
@@ -117,9 +125,17 @@ impl PlayerWorkState {
 
     #[must_use]
     pub(crate) fn future_material_lot_id_demand(&self, inventory: &InventoryState) -> u64 {
-        if self.active.is_some_and(|work| {
-            work.surface_gathering().is_some() || work.block_excavation().is_some()
-        }) {
+        if self
+            .active
+            .is_some_and(|work| work.surface_gathering().is_some())
+        {
+            return 1;
+        }
+        if self
+            .active
+            .and_then(PlayerWork::block_excavation)
+            .is_some_and(|work| work.output().carried_stockpile().is_some())
+        {
             return 1;
         }
         let Some(work) = self.active.and_then(PlayerWork::storage_dismantling) else {

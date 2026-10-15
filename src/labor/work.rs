@@ -11,7 +11,7 @@ mod prospecting;
 mod storage_dismantling;
 mod structural_construction;
 
-pub use block_excavation::BlockExcavationWork;
+pub use block_excavation::{BlockExcavationOutputCustody, BlockExcavationWork};
 pub use consumption::{DrinkingWork, EatingWork};
 pub use gathering::SurfaceGatheringWork;
 pub use maintenance::EquipmentMaintenanceWork;

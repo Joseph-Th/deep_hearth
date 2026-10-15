@@ -15,8 +15,7 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_control_tick;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    GeneratedSurfaceResourceSpec, available_adjacent_surface_resources,
-    validate_generate_surface_resources,
+    SurfaceResourceSpec, available_adjacent_surface_resources, validate_create_surface_resources,
 };
 use crate::survival::{available_adjacent_drink_sources, available_local_drink_sources};
 
@@ -448,7 +447,7 @@ fn initial_wilderness_generation_rejects_stale_surface_commit_without_mutation()
     .unwrap_or_else(|error| panic!("stale world generation validation failed: {error}"));
 
     let mut state = AppState::new();
-    let competing = GeneratedSurfaceResourceSpec::new(
+    let competing = SurfaceResourceSpec::new(
         spawn,
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(1),
@@ -456,7 +455,7 @@ fn initial_wilderness_generation_rejects_stale_surface_commit_without_mutation()
         MaterialComposition::pure(MATERIAL_STONE),
     )
     .unwrap_or_else(|error| panic!("competing surface spec failed: {error}"));
-    validate_generate_surface_resources(&registries, &state, [competing])
+    validate_create_surface_resources(&registries, &state, [competing])
         .unwrap_or_else(|error| panic!("competing surface generation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("competing surface generation commit failed: {error}"));

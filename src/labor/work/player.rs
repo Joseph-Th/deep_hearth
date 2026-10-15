@@ -79,6 +79,7 @@ impl PlayerWork {
     pub(in crate::labor) const fn future_surface_revision_demand(self) -> u64 {
         match self {
             Self::SurfaceGathering { .. } => 1,
+            Self::BlockExcavation { work } if work.output().surface_position().is_some() => 1,
             Self::Step { .. }
             | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
@@ -119,9 +120,11 @@ impl PlayerWork {
     #[must_use]
     pub(in crate::labor) const fn future_inventory_revision_demand(self) -> u64 {
         match self {
-            Self::SurfaceGathering { .. } | Self::BlockExcavation { .. } => 1,
+            Self::SurfaceGathering { .. } => 1,
+            Self::BlockExcavation { work } if work.output().carried_stockpile().is_some() => 1,
             Self::StorageEnclosureDismantling { .. } => 2,
             Self::Step { .. }
+            | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -129,6 +132,26 @@ impl PlayerWork {
             | Self::Eating { .. }
             | Self::Drinking { .. }
             | Self::EquipmentMaintenance { .. }
+            | Self::StructuralConstruction { .. } => 0,
+        }
+    }
+
+    /// Future surface-resource identities still owed directly by this work after admission.
+    #[must_use]
+    pub(in crate::labor) const fn future_surface_resource_id_demand(self) -> u32 {
+        match self {
+            Self::BlockExcavation { work } if work.output().surface_position().is_some() => 1,
+            Self::Step { .. }
+            | Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
+            | Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
+            | Self::StorageEnclosureDismantling { .. }
             | Self::StructuralConstruction { .. } => 0,
         }
     }

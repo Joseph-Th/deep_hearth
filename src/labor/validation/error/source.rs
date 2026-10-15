@@ -56,10 +56,12 @@ impl Error for PlayerWorkValidationError {
             | Self::BlockExcavationEquipmentConditionMismatch
             | Self::BlockExcavationEquipmentMounted
             | Self::BlockExcavationEquipmentResourceDoubleBooked
+            | Self::BlockExcavationPlayerNotLocated
             | Self::BlockExcavationDestinationMissing
             | Self::BlockExcavationDestinationNotCarried
             | Self::BlockExcavationDestinationMounted
             | Self::BlockExcavationReservationMissing
+            | Self::BlockExcavationSurfacePositionMismatch { .. }
             | Self::BlockExcavationPhysicsInvalid
             | Self::BlockExcavationScheduleInvalid
             | Self::BlockExcavationDurationMismatch

@@ -1,10 +1,11 @@
-//! Validated admission of finite world-generated loose matter into surface ownership.
+//! Validated creation of finite loose world matter in surface ownership.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, CompositionError, MaterialComposition, MaterialId};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -13,7 +14,7 @@ use super::state::validation::{SurfaceResourceValidationError, validate_surface_
 use super::state::{SurfaceResourceId, SurfaceResourceRecord};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct GeneratedSurfaceResourceSpec {
+pub(crate) struct SurfaceResourceSpec {
     position: VoxelCoord,
     commodity: CommodityKey,
     mass: Mass,
@@ -21,22 +22,22 @@ pub(crate) struct GeneratedSurfaceResourceSpec {
     composition: MaterialComposition,
 }
 
-impl GeneratedSurfaceResourceSpec {
+impl SurfaceResourceSpec {
     pub(crate) fn new(
         position: VoxelCoord,
         commodity: CommodityKey,
         mass: Mass,
         temperature: Temperature,
         composition: MaterialComposition,
-    ) -> Result<Self, GeneratedSurfaceResourceSpecError> {
+    ) -> Result<Self, SurfaceResourceSpecError> {
         if mass.is_zero() {
-            return Err(GeneratedSurfaceResourceSpecError::ZeroMass);
+            return Err(SurfaceResourceSpecError::ZeroMass);
         }
         composition
             .validate()
-            .map_err(GeneratedSurfaceResourceSpecError::InvalidComposition)?;
+            .map_err(SurfaceResourceSpecError::InvalidComposition)?;
         if composition.parts_per_million(commodity.material()) == 0 {
-            return Err(GeneratedSurfaceResourceSpecError::MissingHostMaterial {
+            return Err(SurfaceResourceSpecError::MissingHostMaterial {
                 host: commodity.material(),
             });
         }
@@ -51,31 +52,29 @@ impl GeneratedSurfaceResourceSpec {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum GeneratedSurfaceResourceSpecError {
+pub(crate) enum SurfaceResourceSpecError {
     ZeroMass,
     InvalidComposition(CompositionError),
     MissingHostMaterial { host: MaterialId },
 }
 
-impl Display for GeneratedSurfaceResourceSpecError {
+impl Display for SurfaceResourceSpecError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ZeroMass => {
-                formatter.write_str("generated surface resource mass must be nonzero")
-            }
+            Self::ZeroMass => formatter.write_str("surface resource mass must be nonzero"),
             Self::InvalidComposition(error) => {
-                write!(formatter, "invalid generated surface composition: {error}")
+                write!(formatter, "invalid surface resource composition: {error}")
             }
             Self::MissingHostMaterial { host } => write!(
                 formatter,
-                "generated surface composition omits host material {}",
+                "surface resource composition omits host material {}",
                 host.value()
             ),
         }
     }
 }
 
-impl Error for GeneratedSurfaceResourceSpecError {
+impl Error for SurfaceResourceSpecError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidComposition(error) => Some(error),
@@ -85,17 +84,17 @@ impl Error for GeneratedSurfaceResourceSpecError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SurfaceGenerationError {
+pub(crate) enum SurfaceResourceCreationError {
     Empty,
     IdExhausted,
     RevisionExhausted,
     InvalidResource(SurfaceResourceValidationError),
 }
 
-impl Display for SurfaceGenerationError {
+impl Display for SurfaceResourceCreationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Empty => formatter.write_str("surface generation batch must contain a resource"),
+            Self::Empty => formatter.write_str("surface resource creation must contain a resource"),
             Self::IdExhausted => {
                 formatter.write_str("surface resource identifier space is exhausted")
             }
@@ -103,13 +102,13 @@ impl Display for SurfaceGenerationError {
                 formatter.write_str("surface resource revision space is exhausted")
             }
             Self::InvalidResource(error) => {
-                write!(formatter, "generated surface resource is invalid: {error}")
+                write!(formatter, "created surface resource is invalid: {error}")
             }
         }
     }
 }
 
-impl Error for SurfaceGenerationError {
+impl Error for SurfaceResourceCreationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidResource(error) => Some(error),
@@ -119,7 +118,7 @@ impl Error for SurfaceGenerationError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SurfaceGenerationCommitError {
+pub(crate) enum SurfaceResourceCreationCommitError {
     Tick {
         expected: crate::core::time::SimulationTick,
         actual: crate::core::time::SimulationTick,
@@ -134,32 +133,32 @@ pub(crate) enum SurfaceGenerationCommitError {
     },
 }
 
-impl Display for SurfaceGenerationCommitError {
+impl Display for SurfaceResourceCreationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Tick { expected, actual } => write!(
                 formatter,
-                "surface generation expected tick {} but state advanced to {} before commit",
+                "surface resource creation expected tick {} but state advanced to {} before commit",
                 expected.value(),
                 actual.value()
             ),
             Self::Revision { expected, actual } => write!(
                 formatter,
-                "surface generation revision changed from {expected} to {actual} before commit"
+                "surface resource revision changed from {expected} to {actual} before creation commit"
             ),
             Self::NextResourceId { expected, actual } => write!(
                 formatter,
-                "surface generation expected next resource id {expected} but found {actual} before commit"
+                "surface resource creation expected next id {expected} but found {actual} before commit"
             ),
         }
     }
 }
 
-impl Error for SurfaceGenerationCommitError {}
+impl Error for SurfaceResourceCreationCommitError {}
 
 #[must_use]
-pub(crate) struct ValidatedSurfaceGeneration {
-    expected_tick: crate::core::time::SimulationTick,
+pub(crate) struct ValidatedSurfaceResourceCreation {
+    expected_tick: SimulationTick,
     expected_revision: u64,
     expected_next_resource_id: u32,
     records: Vec<SurfaceResourceRecord>,
@@ -167,25 +166,28 @@ pub(crate) struct ValidatedSurfaceGeneration {
     next_revision: u64,
 }
 
-impl ValidatedSurfaceGeneration {
-    pub(crate) fn precheck(&self, state: &AppState) -> Result<(), SurfaceGenerationCommitError> {
+impl ValidatedSurfaceResourceCreation {
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
+    ) -> Result<(), SurfaceResourceCreationCommitError> {
         let actual_tick = state.tick();
         if actual_tick != self.expected_tick {
-            return Err(SurfaceGenerationCommitError::Tick {
+            return Err(SurfaceResourceCreationCommitError::Tick {
                 expected: self.expected_tick,
                 actual: actual_tick,
             });
         }
         let actual_revision = state.surface().revision();
         if actual_revision != self.expected_revision {
-            return Err(SurfaceGenerationCommitError::Revision {
+            return Err(SurfaceResourceCreationCommitError::Revision {
                 expected: self.expected_revision,
                 actual: actual_revision,
             });
         }
         let actual_next_resource_id = state.surface().next_resource_id();
         if actual_next_resource_id != self.expected_next_resource_id {
-            return Err(SurfaceGenerationCommitError::NextResourceId {
+            return Err(SurfaceResourceCreationCommitError::NextResourceId {
                 expected: self.expected_next_resource_id,
                 actual: actual_next_resource_id,
             });
@@ -193,8 +195,16 @@ impl ValidatedSurfaceGeneration {
         Ok(())
     }
 
+    #[must_use]
+    pub(crate) fn first_resource_id(&self) -> SurfaceResourceId {
+        self.records
+            .first()
+            .map(SurfaceResourceRecord::id)
+            .unwrap_or_else(|| unreachable!("validated surface creation contains a resource"))
+    }
+
     pub(crate) fn apply(self, state: &mut AppState) {
-        state.surface_state_mut().apply_generated_batch(
+        state.surface_state_mut().apply_created_batch(
             self.records,
             self.next_resource_id,
             self.next_revision,
@@ -202,50 +212,61 @@ impl ValidatedSurfaceGeneration {
     }
 
     #[cfg(any(test, feature = "test-gameplay"))]
-    pub(crate) fn commit(self, state: &mut AppState) -> Result<(), SurfaceGenerationCommitError> {
+    pub(crate) fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<(), SurfaceResourceCreationCommitError> {
         self.precheck(state)?;
         self.apply(state);
         Ok(())
     }
 }
 
-pub(crate) fn validate_generate_surface_resources(
+pub(crate) fn validate_create_surface_resources(
     registries: &Registries,
     state: &AppState,
-    specs: impl IntoIterator<Item = GeneratedSurfaceResourceSpec>,
-) -> Result<ValidatedSurfaceGeneration, SurfaceGenerationError> {
+    specs: impl IntoIterator<Item = SurfaceResourceSpec>,
+) -> Result<ValidatedSurfaceResourceCreation, SurfaceResourceCreationError> {
+    validate_create_surface_resources_at(registries, state, specs, state.tick())
+}
+
+pub(crate) fn validate_create_surface_resources_at(
+    registries: &Registries,
+    state: &AppState,
+    specs: impl IntoIterator<Item = SurfaceResourceSpec>,
+    created_at: SimulationTick,
+) -> Result<ValidatedSurfaceResourceCreation, SurfaceResourceCreationError> {
     let specs = specs.into_iter().collect::<Vec<_>>();
     if specs.is_empty() {
-        return Err(SurfaceGenerationError::Empty);
+        return Err(SurfaceResourceCreationError::Empty);
     }
     let expected_revision = state.surface().revision();
     let expected_next_resource_id = state.surface().next_resource_id();
     let next_revision = expected_revision
         .checked_add(1)
-        .ok_or(SurfaceGenerationError::RevisionExhausted)?;
-    let generated_at = state.tick();
+        .ok_or(SurfaceResourceCreationError::RevisionExhausted)?;
     let mut next_resource_id = expected_next_resource_id;
     let mut records = Vec::with_capacity(specs.len());
     for spec in specs {
         let id = SurfaceResourceId::new(next_resource_id);
         next_resource_id = next_resource_id
             .checked_add(1)
-            .ok_or(SurfaceGenerationError::IdExhausted)?;
-        let record = SurfaceResourceRecord::generated(
+            .ok_or(SurfaceResourceCreationError::IdExhausted)?;
+        let record = SurfaceResourceRecord::created(
             id,
             spec.position,
             spec.commodity,
             spec.mass,
             spec.temperature,
             spec.composition,
-            generated_at,
+            created_at,
         );
-        validate_surface_resource_record(registries.materials(), id, &record, generated_at)
-            .map_err(SurfaceGenerationError::InvalidResource)?;
+        validate_surface_resource_record(registries.materials(), id, &record, created_at)
+            .map_err(SurfaceResourceCreationError::InvalidResource)?;
         records.push(record);
     }
-    Ok(ValidatedSurfaceGeneration {
-        expected_tick: generated_at,
+    Ok(ValidatedSurfaceResourceCreation {
+        expected_tick: state.tick(),
         expected_revision,
         expected_next_resource_id,
         records,
@@ -255,16 +276,16 @@ pub(crate) fn validate_generate_surface_resources(
 }
 
 #[cfg(test)]
-pub(crate) fn insert_generated_surface_resource(
+pub(crate) fn insert_surface_resource_for_test(
     registries: &Registries,
     state: &mut AppState,
-    spec: GeneratedSurfaceResourceSpec,
-) -> Result<SurfaceResourceId, SurfaceGenerationError> {
+    spec: SurfaceResourceSpec,
+) -> Result<SurfaceResourceId, SurfaceResourceCreationError> {
     let id = SurfaceResourceId::new(state.surface().next_resource_id());
-    validate_generate_surface_resources(registries, state, [spec])?
+    validate_create_surface_resources(registries, state, [spec])?
         .commit(state)
         .unwrap_or_else(|error| {
-            unreachable!("immediate test surface generation cannot become stale: {error}")
+            unreachable!("immediate test surface creation cannot become stale: {error}")
         });
     Ok(id)
 }

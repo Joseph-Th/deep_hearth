@@ -494,6 +494,16 @@ impl Display for StateValidationError {
             Self::FutureSurfaceRevisionDemandOverflow => formatter.write_str(
                 "already-admitted future surface revision demand exceeds the representable u64 range",
             ),
+            Self::FutureSurfaceResourceIdCapacityExhausted {
+                next_resource_id,
+                required,
+            } => write!(
+                formatter,
+                "surface resource identity cursor {next_resource_id} cannot reserve {required} already-admitted future loose-matter identities"
+            ),
+            Self::FutureSurfaceResourceIdDemandOverflow => formatter.write_str(
+                "already-admitted future surface-resource identity demand exceeds the representable u32 range",
+            ),
             Self::FutureMiningRevisionCapacityExhausted { revision, required } => write!(
                 formatter,
                 "mining revision {revision} cannot reserve {required} already-admitted future revisions"

@@ -43,19 +43,19 @@ pub struct SurfaceResourceRecord {
     temperature: Temperature,
     composition: MaterialComposition,
     lifecycle: SurfaceResourceLifecycle,
-    generated_at: SimulationTick,
+    created_at: SimulationTick,
     depleted_at: Option<SimulationTick>,
 }
 
 impl SurfaceResourceRecord {
-    pub(super) fn generated(
+    pub(super) fn created(
         id: SurfaceResourceId,
         position: VoxelCoord,
         commodity: CommodityKey,
         mass: Mass,
         temperature: Temperature,
         composition: MaterialComposition,
-        generated_at: SimulationTick,
+        created_at: SimulationTick,
     ) -> Self {
         Self {
             id,
@@ -66,7 +66,7 @@ impl SurfaceResourceRecord {
             temperature,
             composition,
             lifecycle: SurfaceResourceLifecycle::Available,
-            generated_at,
+            created_at,
             depleted_at: None,
         }
     }
@@ -104,8 +104,8 @@ impl SurfaceResourceRecord {
         self.lifecycle
     }
     #[must_use]
-    pub(crate) const fn generated_at(&self) -> SimulationTick {
-        self.generated_at
+    pub(crate) const fn created_at(&self) -> SimulationTick {
+        self.created_at
     }
 }
 
@@ -205,7 +205,7 @@ impl SurfaceResourceState {
         self.revision == 0 && self.next_resource_id == 1 && self.resources.is_empty()
     }
 
-    pub(crate) fn apply_generated_batch(
+    pub(crate) fn apply_created_batch(
         &mut self,
         records: Vec<SurfaceResourceRecord>,
         next_resource_id: u32,
@@ -239,7 +239,7 @@ impl SurfaceResourceState {
         });
         assert_eq!(record.lifecycle, SurfaceResourceLifecycle::Available);
         assert!(record.depleted_at.is_none());
-        assert!(gathered_at >= record.generated_at);
+        assert!(gathered_at >= record.created_at);
         assert!(!gathered.is_zero());
         let remaining = record
             .remaining_mass

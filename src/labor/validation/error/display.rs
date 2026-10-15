@@ -118,6 +118,9 @@ impl Display for PlayerWorkValidationError {
             Self::BlockExcavationEquipmentResourceDoubleBooked => formatter.write_str(
                 "block excavation equipment is simultaneously owned by another operation",
             ),
+            Self::BlockExcavationPlayerNotLocated => {
+                formatter.write_str("block excavation work requires an admitted player location")
+            }
             Self::BlockExcavationDestinationMissing => formatter
                 .write_str("block excavation work references a missing destination stockpile"),
             Self::BlockExcavationDestinationNotCarried => formatter.write_str(
@@ -136,6 +139,16 @@ impl Display for PlayerWorkValidationError {
             ),
             Self::BlockExcavationReservationMissing => formatter.write_str(
                 "block excavation destination no longer retains its reserved inbound capacity",
+            ),
+            Self::BlockExcavationSurfacePositionMismatch { stored, player } => write!(
+                formatter,
+                "block excavation surface output is anchored at ({},{},{}) but the player work position is ({},{},{})",
+                stored.x(),
+                stored.y(),
+                stored.z(),
+                player.x(),
+                player.y(),
+                player.z()
             ),
             Self::BlockExcavationPhysicsInvalid => formatter.write_str(
                 "block excavation persisted work no longer resolves against authored mining physics",

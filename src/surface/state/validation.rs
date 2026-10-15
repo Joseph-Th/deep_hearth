@@ -43,10 +43,10 @@ pub enum SurfaceResourceValidationError {
     DepletedMissingDepletionTick {
         resource: SurfaceResourceId,
     },
-    GeneratedInFuture {
+    CreatedInFuture {
         resource: SurfaceResourceId,
     },
-    DepletionBeforeGeneration {
+    DepletionBeforeCreation {
         resource: SurfaceResourceId,
     },
     DepletedInFuture {
@@ -139,14 +139,14 @@ impl Display for SurfaceResourceValidationError {
                 "depleted surface resource {} has no depletion tick",
                 resource.value()
             ),
-            Self::GeneratedInFuture { resource } => write!(
+            Self::CreatedInFuture { resource } => write!(
                 formatter,
-                "surface resource {} was generated after the current simulation tick",
+                "surface resource {} was created after the current simulation tick",
                 resource.value()
             ),
-            Self::DepletionBeforeGeneration { resource } => write!(
+            Self::DepletionBeforeCreation { resource } => write!(
                 formatter,
-                "surface resource {} depletion predates generation",
+                "surface resource {} depletion predates creation",
                 resource.value()
             ),
             Self::DepletedInFuture { resource } => write!(
@@ -233,8 +233,8 @@ impl Error for SurfaceResourceValidationError {
             | Self::DepletedWithRemainingMass { .. }
             | Self::AvailableHasDepletionTick { .. }
             | Self::DepletedMissingDepletionTick { .. }
-            | Self::GeneratedInFuture { .. }
-            | Self::DepletionBeforeGeneration { .. }
+            | Self::CreatedInFuture { .. }
+            | Self::DepletionBeforeCreation { .. }
             | Self::DepletedInFuture { .. }
             | Self::CompositionMissingHost { .. }
             | Self::UnknownMaterial { .. }
@@ -333,8 +333,8 @@ pub(in crate::surface) fn validate_surface_resource_record(
         }
         SurfaceResourceLifecycle::Available | SurfaceResourceLifecycle::Depleted => {}
     }
-    if record.generated_at > current {
-        return Err(SurfaceResourceValidationError::GeneratedInFuture { resource: key });
+    if record.created_at > current {
+        return Err(SurfaceResourceValidationError::CreatedInFuture { resource: key });
     }
     match (record.lifecycle, record.depleted_at) {
         (SurfaceResourceLifecycle::Available, Some(_)) => {
@@ -347,10 +347,8 @@ pub(in crate::surface) fn validate_surface_resource_record(
                 SurfaceResourceValidationError::DepletedMissingDepletionTick { resource: key },
             );
         }
-        (SurfaceResourceLifecycle::Depleted, Some(at)) if at < record.generated_at => {
-            return Err(SurfaceResourceValidationError::DepletionBeforeGeneration {
-                resource: key,
-            });
+        (SurfaceResourceLifecycle::Depleted, Some(at)) if at < record.created_at => {
+            return Err(SurfaceResourceValidationError::DepletionBeforeCreation { resource: key });
         }
         (SurfaceResourceLifecycle::Depleted, Some(at)) if at > current => {
             return Err(SurfaceResourceValidationError::DepletedInFuture { resource: key });
