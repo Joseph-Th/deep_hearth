@@ -108,7 +108,7 @@ then read the owning section/source for exact semantics and errors.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |
-| Root simulation and time | core definitions, typed quantities/time | `AppState::control_tick()`, `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_control_tick` is the canonical 20 Hz step and owns active body physics; `advance_tick` atomically advances one slow boundary only when no generated-world body requires those intervening control steps; direct clock/owner applies stay crate-private |
+| Root simulation and time | core definitions, typed quantities/time | `AppState::control_tick()`, `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_control_tick` is the canonical 20 Hz step and owns active body physics; at a slow boundary it settles prior locomotion exertion into the slow transaction, then decides current body motion from the post-transaction state before direct interactions observe that committed body state; `advance_tick` atomically advances one slow boundary only when no generated-world body requires those intervening control steps; direct clock/owner applies stay crate-private |
 | Registries and built-in content | `Registries` plus domain registries; `build_registries` validates cross-references | public immutable `Registries::*()` accessors; derived authored topology may provide goal-directed reverse lookup | callers inspect authored possibilities; topology never claims current legality or ordinary reachability | none; registries and derived definition indexes are immutable after construction |
 | Block world | `WorldRegistry` block/state definitions, excavation profiles, canonical `CubeFace`, fixed-point `ViewDirection`, authored eye/reach geometry, plus persisted `WorldGenerationProfile` | `AppState::world()`, generated chunk/section records, exact block lookup/represented mass, and bounded actor-safe `raycast_player_block` | `validate_generate_chunk` / `validate_generate_player_neighborhood` derive deterministic terrain; targeting derives stance-specific eye origin; exact excavation admission binds the first hit, authored mining physics, portable tool, batch mass, and one durable output-custody route | excavation reserves tool occupancy and attention, then chooses reserved carried custody only when the complete batch fits; otherwise completion creates one finite loose surface-resource drop at the player's admitted work voxel. Sparse cell mass preserves partial excavation, the start/completion receipts expose selected/landed custody, and trusted load validates future surface revision/identity headroom plus persisted drop position/kind. A whole local player-created drop auto-transfers on control time when carried capacity and future owner headroom permit; oversized drops remain for manual partial gathering. `PlayerDirectControlInput` can hold a direction-only primary excavation intent; logistics persists one active carried-equipment reference, and any idle 20 Hz control step derives the applicable canonical mining method from that selected tool plus the pointed target, chooses the fastest physically legal batch throughput, surfaces typed rejection through `PrimaryActionOutcome`, and can chain the next batch on the exact completion step. The durable excavation schedule is in `ControlTick`, exposes normalized progress, and apportions authored slow-tick exertion/wear without changing the total physical cost. Placement, generic item/drop projection, full hotbar/stack presentation, richer shapes, and residency/unload remain open |
 | Inventory and storage | material/form/storage definitions | `AppState::inventory()`, stockpile/lot records and stable iterators | feature owners construct explicit lot selections; enclosure validators derive storage consequences | no generic public transport command; feature-specific validators own ingress/egress/reform, enclosure, and support transitions |
@@ -205,7 +205,7 @@ explicit fresh-world seed + spawn voxel -> finite optional-branch water + five t
 explicit fresh-world seed + chunk coordinate + authored solid block state + material density -> deterministic mass-backed terrain chunk -> WorldState
 player-eye target + carried tool + mining physics -> timed block excavation -> reduced cell mass + carried inventory lot or local loose surface matter
 pointed face + selected finished storage body -> validated adjacent generated-air placement -> located ground storage; exact-local pickup/drop <-> player-carried inventory lot
-derived player voxel + persisted traversal edge + carried mass + physiology -> legacy timed adjacent step -> logistics body snapped to destination voxel floor
+derived player voxel + persisted traversal edge + carried mass + physiology -> bounded timed adjacent step -> logistics body snapped to destination voxel floor
 generated chunk truth + persisted player body + gravity -> 20 Hz vertical sweep/contact -> logistics body
 inventory traces -> equipment @ player voxel -> optional structural support
 exact-local equipment observation -> player tool/machine selection -> canonical owner action
@@ -390,9 +390,9 @@ origin. Mount/unmount changes support without teleporting an existing location. 
 world custody for newly created equipment/energy stores; disassembly removes that custody.
 
 Slow `TickSpan` player work may start in generated-world body mode only at an exact control/simulation boundary
-while the body is grounded and horizontally stopped. The older timed face-adjacent step remains available only
+while the body is grounded and horizontally stopped. The bounded timed face-adjacent step remains available only
 where generated-world body physics is inactive; it is rejected once the player's footprint is backed by generated
-chunks, so ordinary terrain movement cannot accidentally continue through the legacy traversal-edge path.
+chunks, so ordinary terrain movement cannot accidentally continue through the traversal-edge path.
 
 Prospecting requires the player inside the survey region and any instrument at the player voxel. Mining requires
 the player inside the acquired resolved target region plus local tool/output access. Manual power requires local provider
@@ -406,7 +406,7 @@ load-sensitive locomotion budget until the reserved parcel has actually landed.
 
 General pathfinding, automatic proximity search, generic stockpile/energy/fluid transport, arbitrary equipment
 teleportation, and mounted-production site/contact geometry are absent. Explicit
-player carrying still provides exact-local pickup/drop; the traversal-edge step remains a bounded legacy/planning
+player carrying still provides exact-local pickup/drop; the traversal-edge step remains a bounded planning
 surface outside generated-world body mode rather than the ordinary terrain locomotion path.
 
 ### Geology and knowledge

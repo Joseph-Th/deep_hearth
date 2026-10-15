@@ -496,13 +496,7 @@ fn loaded_mining_state_rejects_equipment_double_booking_after_index_rebuild() {
         .unwrap_or_else(|error| panic!("mining double-book destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining double-book deposit failed: {error}"));
-    admit_known_mining_player_at_deposit(
-        &registries,
-        &mut state,
-        deposit,
-        &[destination],
-        &[pick],
-    );
+    admit_known_mining_player_at_deposit(&registries, &mut state, deposit, &[destination], &[pick]);
     let job = validate_known_mining(
         &registries,
         &state,

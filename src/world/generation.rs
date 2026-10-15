@@ -127,7 +127,7 @@ impl Display for ChunkGenerationError {
                 destination,
             } => write!(
                 formatter,
-                "terrain generation cannot activate direct-world motion while legacy player step ({},{},{}) -> ({},{},{}) is in progress",
+                "terrain generation cannot activate direct-world motion while bounded player step ({},{},{}) -> ({},{},{}) is in progress",
                 origin.x(),
                 origin.y(),
                 origin.z(),

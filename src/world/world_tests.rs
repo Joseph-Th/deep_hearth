@@ -9,9 +9,9 @@ use crate::core::state::{AppState, StateValidationError};
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-use crate::labor::PlayerWorkValidationError;
+use crate::labor::{PlayerWorkStartError, PlayerWorkValidationError};
 use crate::logistics::{
-    PlayerActiveSelection, PlayerControlInput, PlayerEquipmentCarryError,
+    HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, PlayerEquipmentCarryError,
     add_traversable_edge_for_test, place_equipment_for_fixture, validate_drop_equipment,
     validate_pickup_equipment, validate_set_active_selection, validate_start_player_step,
 };
@@ -38,6 +38,98 @@ fn generate(state: &mut AppState, coord: ChunkCoord) {
         .unwrap_or_else(|error| panic!("terrain generation validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("terrain generation commit failed: {error}"));
+}
+
+#[test]
+fn simulation_boundary_applies_body_motion_before_primary_action() {
+    let (registries, mut state, _pick, _target) = generated_excavation_fixture();
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("boundary-primary setup control failed: {error}"));
+    }
+    let before = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("boundary-primary player disappeared before input"))
+        .body();
+    let movement = PlayerControlInput::new(
+        HorizontalControlInput::new(0, VIEW_DIRECTION_PARTS_PER_MILLION)
+            .unwrap_or_else(|error| panic!("boundary-primary movement input failed: {error}")),
+    );
+    let input = PlayerDirectControlInput::new(movement)
+        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
+
+    let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("boundary-primary control failed: {error}"));
+    assert!(control.simulation().is_some());
+    assert_eq!(
+        control.primary_action(),
+        Some(&PrimaryActionOutcome::BlockExcavationRejected(
+            BlockExcavationError::PlayerWork(PlayerWorkStartError::PlayerMoving)
+        ))
+    );
+    let after = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("boundary-primary player disappeared after input"))
+        .body();
+    assert_ne!(after.foot_position(), before.foot_position());
+    assert_ne!(after.horizontal_velocity(), before.horizontal_velocity());
+    assert_eq!(state.player_work().active(), None);
+}
+
+#[test]
+fn simulation_boundary_uses_work_state_after_slow_completion_for_body_motion() {
+    let (registries, mut state, _pick, _target) = generated_excavation_fixture();
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("completion-boundary setup control failed: {error}"));
+    }
+    let start = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::block_excavation(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("completion-boundary excavation start failed: {error}"));
+    let completes_at = match start.primary_action() {
+        Some(PrimaryActionOutcome::BlockExcavationStarted(start)) => start.completes_at(),
+        other => panic!("completion-boundary excavation did not start: {other:?}"),
+    };
+    assert!(completes_at.is_simulation_boundary());
+    while state.control_tick().value() + 1 < completes_at.value() {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("completion-boundary work advance failed: {error}"));
+    }
+    assert!(state.player_work().active().is_some());
+    let before = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("completion-boundary player disappeared before completion"))
+        .body();
+    let movement = PlayerControlInput::new(
+        HorizontalControlInput::new(0, VIEW_DIRECTION_PARTS_PER_MILLION)
+            .unwrap_or_else(|error| panic!("completion-boundary movement input failed: {error}")),
+    );
+
+    let control = advance_control_tick_with_input(&registries, &mut state, movement)
+        .unwrap_or_else(|error| panic!("completion-boundary control failed: {error}"));
+
+    assert_eq!(control.control_tick(), completes_at);
+    assert!(control.simulation().is_some());
+    assert!(control.block_excavation().is_some());
+    assert_eq!(state.player_work().active(), None);
+    let after = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("completion-boundary player disappeared after completion"))
+        .body();
+    assert_ne!(after.foot_position(), before.foot_position());
+    assert_ne!(after.horizontal_velocity(), before.horizontal_velocity());
 }
 
 fn assemble_stone_pick_at(
@@ -1582,9 +1674,9 @@ fn validated_chunk_cannot_cross_player_or_player_work_changes() {
         .unwrap_or_else(|error| panic!("stale-work terrain validation failed: {error}"));
     let expected_player_work_revision = state.player_work().revision();
     validate_start_player_step(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("stale-work legacy step validation failed: {error}"))
+        .unwrap_or_else(|error| panic!("stale-work bounded step validation failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("stale-work legacy step commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("stale-work bounded step commit failed: {error}"));
     let actual_player_work_revision = state.player_work().revision();
     assert_eq!(
         validated.commit(&mut state),

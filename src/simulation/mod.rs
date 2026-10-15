@@ -1,6 +1,7 @@
 //! Canonical synchronous simulation tick pipeline with active subsystem phases wired in visible order.
 
 mod control;
+mod direct_actions;
 mod error;
 mod outcome;
 mod planning;
@@ -8,7 +9,6 @@ mod player_death;
 
 pub use control::{PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent};
 pub use error::TickError;
-use outcome::DirectActionOutcomes;
 pub use outcome::{
     ActiveSelectionDropOutcome, ControlTickOutcome, PrimaryActionOutcome, SecondaryActionOutcome,
     TickOutcome,
@@ -21,37 +21,33 @@ use crate::core::time::SimulationTick;
 use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
 use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
 use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
-use crate::inventory::{
-    StorageDefinitionId, apply_storage_enclosure_dismantling_tick, validate_place_player_storage_at,
-};
+use crate::inventory::apply_storage_enclosure_dismantling_tick;
 use crate::labor::{
     PlayerWork, apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
     decide_player_work_control_tick, decide_player_work_tick, player_work_exertion,
 };
 use crate::logistics::{
-    PlayerActiveSelection, PlayerControlInput, apply_player_body_motion, apply_player_step_tick,
-    decide_player_body_motion, decide_player_step_tick, player_body_occupies_voxel,
-    player_body_uses_generated_world, validate_drop_equipment,
+    PlayerControlInput, apply_player_body_motion, apply_player_step_tick,
+    decide_player_body_motion, decide_player_step_tick, player_body_uses_generated_world,
 };
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
 use crate::registry::Registries;
 use crate::structural::apply_structural_construction_tick;
 use crate::surface::{
-    PlayerMaterialDropOutcome, apply_automatic_surface_drop_pickup, apply_surface_gathering_tick,
-    decide_automatic_surface_drop_pickup, validate_drop_player_material,
+    apply_automatic_surface_drop_pickup, apply_surface_gathering_tick,
+    decide_automatic_surface_drop_pickup,
 };
 use crate::survival::{
-    SurvivalExertion, Vitality, apply_survival_tick, assess_survival, control_exertion_between,
+    SurvivalExertion, apply_survival_tick, assess_survival, control_exertion_between,
     decide_control_exertion_settlement, decide_survival_tick_with_local_heat,
-    validate_eat_lot_to_full,
 };
 use crate::world::{
-    BlockExcavationTickError, BlockStateId, apply_block_excavation_tick,
-    decide_block_excavation_completion, decide_block_excavation_tick, raycast_player_block,
-    validate_start_player_block_excavation_active,
+    BlockExcavationTickError, apply_block_excavation_tick, decide_block_excavation_completion,
+    decide_block_excavation_tick,
 };
 
+use direct_actions::attempt_direct_actions;
 use planning::{
     decide_automatic_mining_output, decide_storage_dismantling_after_completions,
     decide_structural_construction_after_completions, decide_surface_gathering_after_completions,
@@ -92,14 +88,9 @@ pub fn advance_control_tick_with_direct_input(
     let next_control = current
         .checked_next()
         .ok_or(TickError::ControlClockExhausted { current })?;
-    let body_plan = decide_player_body_motion(
-        registries,
-        state,
-        input.movement(),
-        next_control.is_simulation_boundary(),
-    )
-    .map_err(TickError::PlayerBodyMotion)?;
     if next_control.simulation_tick() == state.tick() {
+        let body_plan = decide_player_body_motion(registries, state, input.movement(), false)
+            .map_err(TickError::PlayerBodyMotion)?;
         let control_excavation = match state.player_work().active() {
             Some(PlayerWork::BlockExcavation { work }) if work.completes_at() == next_control => {
                 let boundary = crate::core::time::ControlTick::from_simulation_tick(state.tick())
@@ -163,18 +154,7 @@ pub fn advance_control_tick_with_direct_input(
         let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
             .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
         apply_control_clock_advance(state, next_control);
-        let primary_action = if state.player_work().active().is_none() {
-            attempt_primary_action(registries, state, input.primary())
-        } else {
-            None
-        };
-        let secondary_action = if state.player_work().active().is_none() {
-            attempt_secondary_action(registries, state, input.secondary())
-        } else {
-            None
-        };
-        let active_selection_drop =
-            attempt_active_selection_drop(registries, state, input.drop_active_selection());
+        let direct_actions = attempt_direct_actions(registries, state, input);
         debug_assert_runtime_invariants(registries, state);
         return Ok(ControlTickOutcome::new(
             next_control,
@@ -182,49 +162,30 @@ pub fn advance_control_tick_with_direct_input(
             body_motion,
             surface_drop_pickup,
             block_excavation,
-            DirectActionOutcomes::new(primary_action, secondary_action, active_selection_drop),
+            direct_actions,
         ));
     }
     debug_assert!(next_control.is_simulation_boundary());
-    let neutral_body_plan =
+    let settlement_plan =
         decide_player_body_motion(registries, state, PlayerControlInput::NEUTRAL, true)
             .map_err(TickError::PlayerBodyMotion)?;
-    let locomotion_exertion = body_plan.as_ref().map_or(SurvivalExertion::REST, |plan| {
-        plan.settled_locomotion_exertion()
-    });
+    let locomotion_exertion = settlement_plan
+        .as_ref()
+        .map_or(SurvivalExertion::REST, |plan| {
+            plan.settled_locomotion_exertion()
+        });
     let simulation = advance_simulation_tick(
         registries,
         state,
         next_control.simulation_tick(),
         locomotion_exertion,
     )?;
-    let primary_action = if state.player_work().active().is_none() {
-        attempt_primary_action(registries, state, input.primary())
-    } else {
-        None
-    };
-    let direct_control_allowed = state
-        .survival()
-        .player()
-        .is_some_and(|player| player.vitality() != Vitality::ZERO)
-        && state.player_work().active().is_none();
-    let body_motion = apply_player_body_motion(
-        state,
-        if direct_control_allowed {
-            body_plan
-        } else {
-            neutral_body_plan
-        },
-    );
+    let body_plan = decide_player_body_motion(registries, state, input.movement(), true)
+        .map_err(TickError::PlayerBodyMotion)?;
+    let body_motion = apply_player_body_motion(state, body_plan);
     let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
         .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
-    let secondary_action = if state.player_work().active().is_none() {
-        attempt_secondary_action(registries, state, input.secondary())
-    } else {
-        None
-    };
-    let active_selection_drop =
-        attempt_active_selection_drop(registries, state, input.drop_active_selection());
+    let direct_actions = attempt_direct_actions(registries, state, input);
     let block_excavation = simulation.block_excavation();
     debug_assert_runtime_invariants(registries, state);
     debug_assert_eq!(state.control_tick(), next_control);
@@ -234,146 +195,8 @@ pub fn advance_control_tick_with_direct_input(
         body_motion,
         surface_drop_pickup,
         block_excavation,
-        DirectActionOutcomes::new(primary_action, secondary_action, active_selection_drop),
+        direct_actions,
     ))
-}
-
-fn attempt_secondary_action(
-    registries: &Registries,
-    state: &mut AppState,
-    intent: Option<SecondaryControlIntent>,
-) -> Option<SecondaryActionOutcome> {
-    let intent = intent?;
-    match intent {
-        SecondaryControlIntent::UseActive { direction } => {
-            let Some(selection) = state.logistics().active_selection() else {
-                return Some(SecondaryActionOutcome::NoActiveSelection);
-            };
-            let commodity = match selection {
-                PlayerActiveSelection::Equipment(_) => {
-                    return Some(SecondaryActionOutcome::ActiveEquipmentNotContextual);
-                }
-                PlayerActiveSelection::Material(commodity) => commodity,
-            };
-            if let Some(outcome) =
-                attempt_selected_storage_placement(registries, state, commodity, direction)
-            {
-                return Some(outcome);
-            }
-            if registries.survival().get_food(commodity).is_none() {
-                return Some(SecondaryActionOutcome::MaterialNotContextual);
-            }
-            if !state.control_tick().is_simulation_boundary() {
-                return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
-            }
-            let carried = state
-                .logistics()
-                .player()
-                .map(|player| player.carried_stockpile())
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: active material selection requires player")
-                });
-            let lots = state
-                .inventory()
-                .lot_ids(carried)
-                .filter(|lot| {
-                    state
-                        .inventory()
-                        .get_lot(*lot)
-                        .is_some_and(|record| record.commodity() == commodity)
-                })
-                .collect::<Vec<_>>();
-            let lot = match lots.as_slice() {
-                [] => return Some(SecondaryActionOutcome::MaterialUnavailable),
-                [lot] => *lot,
-                lots => {
-                    return Some(SecondaryActionOutcome::AmbiguousMaterialLots {
-                        count: lots.len(),
-                    });
-                }
-            };
-            Some(match validate_eat_lot_to_full(registries, state, lot) {
-                Ok(Some(validated)) => {
-                    let outcome = validated.commit(state).unwrap_or_else(|error| {
-                        panic!(
-                            "runtime invariant broken: synchronous selected-food use became stale: {error}"
-                        )
-                    });
-                    SecondaryActionOutcome::EatingStarted(outcome)
-                }
-                Ok(None) => SecondaryActionOutcome::AlreadySatisfied,
-                Err(error) => SecondaryActionOutcome::EatingRejected(error),
-            })
-        }
-    }
-}
-
-fn attempt_selected_storage_placement(
-    registries: &Registries,
-    state: &mut AppState,
-    commodity: crate::material::CommodityKey,
-    direction: crate::spatial::ViewDirection,
-) -> Option<SecondaryActionOutcome> {
-    let definitions = registries
-        .storage()
-        .definitions()
-        .filter(|definition| {
-            let inputs = definition.assembly_profile().inputs();
-            inputs.len() == 1 && inputs[0].commodity() == commodity
-        })
-        .map(|definition| definition.id())
-        .collect::<Vec<StorageDefinitionId>>();
-    let definition = match definitions.as_slice() {
-        [] => return None,
-        [definition] => *definition,
-        definitions => {
-            return Some(SecondaryActionOutcome::AmbiguousStorageDefinitions {
-                count: definitions.len(),
-            });
-        }
-    };
-    let target = match raycast_player_block(registries, state, direction) {
-        Ok(Some(target)) => target,
-        Ok(None) => return Some(SecondaryActionOutcome::NoStoragePlacementTarget),
-        Err(error) => return Some(SecondaryActionOutcome::StorageTargetRejected(error)),
-    };
-    let Some(position) = target.face().adjacent_voxel(target.voxel()) else {
-        return Some(SecondaryActionOutcome::StoragePlacementCoordinateOverflow);
-    };
-    match state.world().block_at(position) {
-        None => {
-            return Some(SecondaryActionOutcome::StoragePlacementWorldUnavailable { position });
-        }
-        Some(BlockStateId::AIR) => {}
-        Some(block) => {
-            return Some(SecondaryActionOutcome::StoragePlacementOccupied {
-                position,
-                state: block,
-            });
-        }
-    }
-    if player_body_occupies_voxel(registries, state, position) {
-        return Some(SecondaryActionOutcome::StoragePlacementIntersectsPlayer { position });
-    }
-    if state.logistics().has_stationary_occupant_at(position) {
-        return Some(SecondaryActionOutcome::StoragePlacementLocationOccupied { position });
-    }
-    Some(
-        match validate_place_player_storage_at(registries, state, definition, position) {
-            Ok(validated) => {
-                let stockpile = validated.commit(state).unwrap_or_else(|error| {
-                panic!(
-                    "runtime invariant broken: synchronous selected-storage placement became stale: {error}"
-                )
-            });
-                SecondaryActionOutcome::StoragePlaced {
-                    definition,
-                    stockpile,
-                }
-            }
-            Err(error) => SecondaryActionOutcome::StoragePlacementRejected { definition, error },
-        },
-    )
 }
 
 fn map_block_excavation_tick_error(error: BlockExcavationTickError) -> TickError {
@@ -384,80 +207,6 @@ fn map_block_excavation_tick_error(error: BlockExcavationTickError) -> TickError
         BlockExcavationTickError::SurfaceRevision => TickError::SurfaceRevisionExhausted,
         BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
         BlockExcavationTickError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
-    }
-}
-
-fn attempt_active_selection_drop(
-    registries: &Registries,
-    state: &mut AppState,
-    requested: bool,
-) -> Option<ActiveSelectionDropOutcome> {
-    if !requested {
-        return None;
-    }
-    let Some(selection) = state.logistics().active_selection() else {
-        return Some(ActiveSelectionDropOutcome::NoActiveSelection);
-    };
-    Some(match selection {
-        PlayerActiveSelection::Equipment(equipment) => {
-            let position = state
-                .logistics()
-                .player()
-                .map(|player| player.position())
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: active carried equipment requires an admitted player")
-                });
-            match validate_drop_equipment(registries, state, equipment) {
-                Ok(validated) => {
-                    validated.commit(state).unwrap_or_else(|error| {
-                        panic!(
-                            "runtime invariant broken: synchronous active-equipment drop became stale: {error}"
-                        )
-                    });
-                    ActiveSelectionDropOutcome::EquipmentDropped {
-                        equipment,
-                        position,
-                    }
-                }
-                Err(error) => ActiveSelectionDropOutcome::EquipmentRejected(error),
-            }
-        }
-        PlayerActiveSelection::Material(commodity) => {
-            match validate_drop_player_material(registries, state, commodity) {
-                Ok(validated) => {
-                    let outcome: PlayerMaterialDropOutcome = validated.commit(state).unwrap_or_else(|error| {
-                        panic!(
-                            "runtime invariant broken: synchronous active-material drop became stale: {error}"
-                        )
-                    });
-                    ActiveSelectionDropOutcome::MaterialDropped(outcome)
-                }
-                Err(error) => ActiveSelectionDropOutcome::MaterialRejected(error),
-            }
-        }
-    })
-}
-
-fn attempt_primary_action(
-    registries: &Registries,
-    state: &mut AppState,
-    intent: Option<PrimaryControlIntent>,
-) -> Option<PrimaryActionOutcome> {
-    let intent = intent?;
-    match intent {
-        PrimaryControlIntent::BlockExcavation { direction } => Some(
-            match validate_start_player_block_excavation_active(registries, state, direction) {
-                Ok(validated) => {
-                    let started = validated.commit(state).unwrap_or_else(|error| {
-                        panic!(
-                            "runtime invariant broken: synchronous primary block excavation became stale: {error}"
-                        )
-                    });
-                    PrimaryActionOutcome::BlockExcavationStarted(started)
-                }
-                Err(error) => PrimaryActionOutcome::BlockExcavationRejected(error),
-            },
-        ),
     }
 }
 

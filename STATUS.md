@@ -47,7 +47,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Core | Deterministic simulation; persisted 20 Hz `ControlTick`; exact 72:1 slow `SimulationTick`; active body physics cannot be skipped by slow stepping. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
-| Logistics | Fixed-point body/carrying, 20 Hz walk/sprint/crouch/jump, full-cube collision, load-scaled exertion, legacy steps, equipment pickup/drop, semantic equipment/material quick-access selection, and access checks. |
+| Logistics | Fixed-point body/carrying, 20 Hz walk/sprint/crouch/jump, full-cube collision, load-scaled exertion, bounded traversal-edge steps, equipment pickup/drop, semantic equipment/material quick-access selection, and access checks. |
 | Loose surface matter | Finite local gathering/drop records with reservation, survival cost, depletion, cleanup, and conservation. Carried-material drops preserve physical profile, provenance, and storage age with a short self-pickup delay. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
