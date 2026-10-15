@@ -1045,11 +1045,11 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
         "surface-routed excavation must not reduce represented world matter before completion"
     );
 
-    let completion = loop {
+    let (completion, initial_pickup) = loop {
         let control = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("surface-drop excavation advancement failed: {error}"));
         if let Some(completion) = control.block_excavation() {
-            break completion;
+            break (completion, control.surface_drop_pickup());
         }
     };
     let resource = match completion.output() {
@@ -1065,9 +1065,18 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
         .surface()
         .get(resource)
         .unwrap_or_else(|| panic!("capacity-blocked excavation surface drop disappeared"));
+    let initial_pickup = initial_pickup.unwrap_or_else(|| {
+        panic!("surface-routed excavation did not fill available carried capacity")
+    });
+    assert_eq!(initial_pickup.resource(), resource);
+    assert_eq!(initial_pickup.destination(), carried);
+    assert_eq!(initial_pickup.picked_mass(), remaining_capacity);
+    let surface_remainder = batch
+        .checked_sub(remaining_capacity)
+        .unwrap_or_else(|| panic!("initial partial pickup exceeds excavation batch"));
     assert_eq!(drop.kind(), crate::surface::SurfaceResourceKind::Drop);
     assert_eq!(drop.position(), player_position);
-    assert_eq!(drop.remaining_mass(), batch);
+    assert_eq!(drop.remaining_mass(), surface_remainder);
     assert_eq!(
         drop.commodity(),
         CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
@@ -1111,10 +1120,20 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
         matter_after.surface(),
         matter_before
             .surface()
-            .checked_add(crate::core::quantity::AggregateMass::from_mass(batch))
+            .checked_add(crate::core::quantity::AggregateMass::from_mass(
+                surface_remainder
+            ))
             .unwrap_or_else(|| panic!("surface-drop matter overflow"))
     );
-    assert_eq!(matter_after.stored(), matter_before.stored());
+    assert_eq!(
+        matter_after.stored(),
+        matter_before
+            .stored()
+            .checked_add(crate::core::quantity::AggregateMass::from_mass(
+                remaining_capacity
+            ))
+            .unwrap_or_else(|| panic!("surface-drop initial pickup stored matter overflow"))
+    );
 
     validate_drop_equipment(&registries, &state, pick)
         .unwrap_or_else(|error| panic!("surface-drop pickup capacity release failed: {error}"))
@@ -1129,7 +1148,7 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
         .unwrap_or_else(|| panic!("fitting local excavation drop was not picked up automatically"));
     assert_eq!(pickup.resource(), resource);
     assert_eq!(pickup.destination(), carried);
-    assert_eq!(pickup.picked_mass(), batch);
+    assert_eq!(pickup.picked_mass(), surface_remainder);
     let picked = state
         .inventory()
         .get_lot(pickup.lot())

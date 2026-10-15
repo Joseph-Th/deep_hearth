@@ -39,3 +39,5 @@ mod primitive_liberation_contract_tests;
 mod process_catalog_contract_tests;
 #[path = "gameplay_harness/seed_contract_tests.rs"]
 mod seed_contract_tests;
+#[path = "gameplay_harness/world_drop_contract_tests.rs"]
+mod world_drop_contract_tests;

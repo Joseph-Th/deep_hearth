@@ -1,6 +1,7 @@
 //! Finite loose matter in world space, actor-local observation, and direct player gathering.
 
 mod creation;
+mod drop_projection;
 mod gathering;
 mod material_drop;
 mod observation;
@@ -14,6 +15,7 @@ pub(crate) use creation::{
     SurfaceResourceSpecError, ValidatedSurfaceResourceCreation, validate_create_surface_resources,
     validate_create_surface_resources_at,
 };
+pub use drop_projection::{PlayerWorldDropProjection, available_player_world_drops};
 pub(crate) use gathering::{
     SurfaceGatheringCancellationPlan, SurfaceGatheringTickError, SurfaceGatheringTickPlan,
     apply_surface_gathering_cancellation, apply_surface_gathering_tick,

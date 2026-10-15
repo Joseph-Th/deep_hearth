@@ -42,6 +42,129 @@ fn positive_x_view() -> ViewDirection {
         .unwrap_or_else(|error| panic!("surface positive-X view failed: {error}"))
 }
 
+#[test]
+fn player_world_drop_projection_excludes_natural_opportunities() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let opportunity = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(100_000),
+        TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("drop-projection opportunity specification failed: {error}"));
+    insert_surface_resource_for_test(&registries, &mut state, opportunity)
+        .unwrap_or_else(|error| panic!("drop-projection opportunity creation failed: {error}"));
+    let drop = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(200_000),
+        TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("drop-projection drop specification failed: {error}"));
+    let drop = insert_surface_resource_for_test(&registries, &mut state, drop)
+        .unwrap_or_else(|error| panic!("drop-projection drop creation failed: {error}"));
+    let _carried = admit_player(&registries, &mut state, position);
+
+    let drops = available_player_world_drops(&state).collect::<Vec<_>>();
+    assert_eq!(drops.len(), 1);
+    assert_eq!(drops[0].resource(), drop);
+    assert_eq!(drops[0].position(), position);
+    assert_eq!(
+        drops[0].commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+    );
+    assert_eq!(drops[0].mass(), Mass::from_milligrams(200_000));
+    assert_eq!(drops[0].temperature(), TEMPERATURE);
+    assert_eq!(
+        drops[0].composition(),
+        &MaterialComposition::pure(MATERIAL_STONE)
+    );
+    assert_eq!(drops[0].ambient_storage_age_parts(), 0);
+    assert_eq!(drops[0].automatic_pickup_available_at(), None);
+    assert!(drops[0].automatic_pickup_ready());
+}
+
+#[test]
+fn automatic_drop_pickup_takes_only_the_mass_that_fits() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let drop_mass = Mass::from_milligrams(500_000);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        drop_mass,
+        TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("partial pickup drop specification failed: {error}"));
+    let drop = insert_surface_resource_for_test(&registries, &mut state, spec)
+        .unwrap_or_else(|error| panic!("partial pickup drop creation failed: {error}"));
+    let carried = admit_player(&registries, &mut state, position);
+    let available = state
+        .inventory()
+        .get_stockpile(carried)
+        .unwrap_or_else(|| panic!("partial pickup carried stockpile disappeared"))
+        .available_capacity();
+    let pickup_capacity = Mass::from_milligrams(200_000);
+    let filler = available
+        .checked_sub(pickup_capacity)
+        .unwrap_or_else(|| panic!("partial pickup fixture has insufficient body capacity"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        filler,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("partial pickup filler deposit failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("partial pickup matter baseline failed: {error}"));
+
+    let control = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("partial pickup control tick failed: {error}"));
+    let pickup = control
+        .surface_drop_pickup()
+        .unwrap_or_else(|| panic!("partial fitting drop mass was not picked up"));
+    assert_eq!(pickup.resource(), drop);
+    assert_eq!(pickup.destination(), carried);
+    assert_eq!(pickup.picked_mass(), pickup_capacity);
+    assert_eq!(
+        state
+            .surface()
+            .get(drop)
+            .map(|resource| (resource.lifecycle(), resource.remaining_mass())),
+        Some((
+            SurfaceResourceLifecycle::Available,
+            Mass::from_milligrams(300_000),
+        ))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.available_capacity()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        available_player_world_drops(&state)
+            .map(|drop| drop.mass())
+            .collect::<Vec<_>>(),
+        vec![Mass::from_milligrams(300_000)]
+    );
+    let matter_after = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("partial pickup matter audit failed: {error}"));
+    assert_eq!(matter_after.total(), matter_before.total());
+}
+
 fn downward_view() -> ViewDirection {
     ViewDirection::new(0, -VIEW_DIRECTION_PARTS_PER_MILLION, 0)
         .unwrap_or_else(|error| panic!("surface downward view failed: {error}"))

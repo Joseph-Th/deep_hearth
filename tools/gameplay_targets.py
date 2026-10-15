@@ -145,6 +145,7 @@ GAMEPLAY_TEST_PREFIX_TARGETS = {
     "primitive_liberation_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "process_catalog_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "seed_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "world_drop_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "wilderness_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "fieldwork_probe::campaign::tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["fieldwork"],
     "fieldwork_probe::fieldwork_shortfall_policy_tests::": GAMEPLAY_FIELDWORK_POLICY_CONTRACT_TARGET,

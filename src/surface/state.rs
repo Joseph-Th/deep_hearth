@@ -174,6 +174,11 @@ impl SurfaceResourceRecord {
         .rebase(at, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
     }
 
+    pub(crate) fn ambient_storage_age_parts_at(&self, at: SimulationTick) -> Option<u128> {
+        self.ambient_storage_history_at(at)?
+            .project(at, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
+    }
+
     pub(crate) const fn ambient_age_parts_at_created_at(&self) -> u128 {
         self.material.ambient_age_parts_at_created_at
     }

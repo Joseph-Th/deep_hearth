@@ -43,7 +43,7 @@ through these foundations:
 2. compact runtime block states in streamed chunk/section ownership with deterministic seeded terrain;
 3. continuous player transform, gravity, collision, jump/crouch/sprint and terrain contact;
 4. camera targeting plus primary break/attack and secondary place/use interaction composition;
-5. generic world drops and adapter inventory/container/crafting interaction;
+5. world-drop rendering plus adapter inventory/container/crafting interaction;
 6. block/sky lighting, section meshing and enough renderer/input/save adapters to experience the real generated
    world rather than a harness-only abstraction.
 
@@ -121,8 +121,9 @@ physics is active. Deterministic player-eye targeting now feeds a conserved time
 authored mining physics binds portable tool throughput/hardness/wear, partial represented mass persists per cell,
 and completed fragments land in reserved carried custody when the complete batch fits, otherwise in finite loose
 surface custody at the player's work position. Player-created drops are persisted separately from natural
-opportunities: a whole local drop transfers into carried custody on control time when it fits, while an oversized
-drop remains in world custody and can still be recovered partially through ordinary surface gathering.
+opportunities and have an exact-local drop-only projection. Control-time pickup transfers as much mass as current
+carried capacity permits and leaves any remainder under the same conserved world identity; natural opportunities
+still require deliberate gathering.
 `PlayerDirectControlInput` now composes held primary excavation intent over that same owner path: any idle control
 step can choose the largest target/tool batch, typed rejection is observable, and a held action can start the next
 legal batch on the exact control step that completes the previous one. Excavation persists 20 Hz start/completion
@@ -145,7 +146,7 @@ Personal manual crafting now composes the same carried custody into a stable rec
 start action. Durable homogeneous inputs resolve to exact lots privately; freshness-sensitive inputs keep one
 explicit revision-bound stack choice, optional equipment remains an exact revalidated provider, and output returns
 to carried custody through ordinary timed production. Adapter inventory/container/crafting rendering and gestures,
-arbitrary block/object placement, and generic item entities remain open.
+rendered/spatial drop presentation, arbitrary block/object placement, and generic moving item entities remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

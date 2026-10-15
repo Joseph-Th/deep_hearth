@@ -319,6 +319,8 @@ mod workshop_contract_tests;
 mod workshop_craft_planning;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
+#[path = "gameplay_harness/world_drop_contract_tests.rs"]
+mod world_drop_contract_tests;
 
 #[test]
 fn gameplay_harness_gate() {

@@ -75,6 +75,10 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
     }
 
     let destination = player.carried_stockpile();
+    let destination_record = state
+        .inventory()
+        .get_stockpile(destination)
+        .unwrap_or_else(|| unreachable!("admitted player carried stockpile exists"));
     let picked_at = state.tick();
     for resource in state
         .surface()
@@ -93,7 +97,12 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
                 continue;
             }
         }
-        let picked_mass = resource.remaining_mass();
+        let picked_mass = resource
+            .remaining_mass()
+            .min(destination_record.available_capacity());
+        if picked_mass.is_zero() {
+            continue;
+        }
         let entry = MaterialIngressEntry::from_surface_parcel(
             picked_mass,
             resource.material_profile().clone(),
@@ -110,7 +119,9 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
             picked_at,
         ) {
             Ok(ingress) => ingress,
-            Err(MaterialIngressError::CapacityExceeded { .. }) => continue,
+            Err(MaterialIngressError::CapacityExceeded { .. }) => {
+                unreachable!("pickup mass is bounded by current carried available capacity")
+            }
             Err(MaterialIngressError::LotIdExhausted | MaterialIngressError::RevisionExhausted) => {
                 return None;
             }

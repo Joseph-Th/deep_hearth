@@ -187,7 +187,7 @@ impl ControlTickOutcome {
         self.body_motion
     }
 
-    /// Whole player-created loose drop transferred into carried custody on this control step.
+    /// Player-created loose drop mass transferred into carried custody on this control step.
     #[must_use]
     pub const fn surface_drop_pickup(&self) -> Option<SurfaceDropPickupOutcome> {
         self.surface_drop_pickup
