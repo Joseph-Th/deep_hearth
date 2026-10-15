@@ -25,6 +25,42 @@ pub enum PlayerInventoryProjectionError {
     Stack(MaterialStackProjectionError),
 }
 
+/// One stationary equipment instance at the player's exact voxel.
+///
+/// This is the world-local counterpart to carried equipment presentation. Pickup legality remains
+/// owned by `validate_pickup_equipment`; the projection does not imply portability, free capacity,
+/// lack of occupancy, or structural detachment.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerLocalEquipmentProjection {
+    equipment: EquipmentId,
+    definition: EquipmentDefinitionId,
+    condition: Condition,
+    mass: Mass,
+}
+
+impl PlayerLocalEquipmentProjection {
+    #[must_use]
+    pub const fn equipment(self) -> EquipmentId {
+        self.equipment
+    }
+
+    #[must_use]
+    pub const fn definition(self) -> EquipmentDefinitionId {
+        self.definition
+    }
+
+    #[must_use]
+    pub const fn condition(self) -> Condition {
+        self.condition
+    }
+
+    #[must_use]
+    pub const fn mass(self) -> Mass {
+        self.mass
+    }
+}
+
 impl Display for PlayerInventoryProjectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -137,6 +173,7 @@ pub struct PlayerInventoryProjection {
     active_quick_access_slot: PlayerQuickAccessSlot,
     carried: PlayerStockpileProjection,
     equipment: Vec<PlayerCarriedEquipmentProjection>,
+    local_equipment: Vec<PlayerLocalEquipmentProjection>,
     local_containers: Vec<PlayerStockpileProjection>,
 }
 
@@ -166,6 +203,11 @@ impl PlayerInventoryProjection {
     #[must_use]
     pub fn equipment(&self) -> &[PlayerCarriedEquipmentProjection] {
         &self.equipment
+    }
+
+    #[must_use]
+    pub fn local_equipment(&self) -> &[PlayerLocalEquipmentProjection] {
+        &self.local_equipment
     }
 
     #[must_use]
@@ -227,6 +269,16 @@ pub fn project_player_inventory(
             }
         })
         .collect();
+    let local_equipment = state
+        .available_local_equipment()
+        .filter(|record| !state.logistics().is_equipment_carried(record.id()))
+        .map(|record| PlayerLocalEquipmentProjection {
+            equipment: record.id(),
+            definition: record.definition(),
+            condition: record.condition(),
+            mass: record.embodied_mass(),
+        })
+        .collect();
     let mut quick_access_slots = [None; PLAYER_QUICK_ACCESS_SLOT_COUNT];
     for (slot, selection) in state.logistics().quick_access_slots() {
         quick_access_slots[slot.index()] = selection;
@@ -241,6 +293,7 @@ pub fn project_player_inventory(
         active_quick_access_slot: state.logistics().active_quick_access_slot(),
         carried,
         equipment,
+        local_equipment,
         local_containers,
     })
 }

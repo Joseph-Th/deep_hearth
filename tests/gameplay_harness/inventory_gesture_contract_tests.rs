@@ -1,11 +1,19 @@
 //! Ordinary-player contracts for familiar carried/container transfer gestures.
 
-use deep_hearth::content::gameplay_fixture::{seed_ground_stockpile, seed_lot};
-use deep_hearth::content::{FORM_CHIP, FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, build_registries};
+use deep_hearth::content::gameplay_fixture::{
+    seed_assembled_equipment_at, seed_ground_stockpile, seed_lot, seed_stockpile,
+};
+use deep_hearth::content::{
+    EQUIPMENT_STONE_PICK, FORM_CHIP, FORM_HANDLE, FORM_LOG, FORM_TOOL, MATERIAL_STONE,
+    MATERIAL_WOOD, build_registries,
+};
 use deep_hearth::core::quantity::{Mass, Temperature};
 use deep_hearth::core::state::AppState;
-use deep_hearth::inventory::{MaterialStackProjection, StockpileId};
-use deep_hearth::logistics::{project_player_inventory, validate_quick_move_player_stack};
+use deep_hearth::inventory::{MaterialStackProjection, StockpileId, StockpileStorageProfile};
+use deep_hearth::logistics::{
+    project_player_inventory, validate_drop_equipment, validate_pickup_equipment,
+    validate_quick_move_player_stack,
+};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
@@ -30,6 +38,84 @@ fn stack_from_local_container(
         .find(|stack| stack.commodity() == commodity)
         .cloned()
         .unwrap_or_else(|| panic!("inventory-gesture local stack {commodity:?} disappeared"))
+}
+
+#[test]
+fn dropped_tool_remains_visible_in_player_projection_and_can_be_picked_back_up() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let source = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(1_000_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    seed_lot(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(800_000),
+        Temperature::from_millikelvin(293_150),
+    );
+    seed_lot(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        Mass::from_milligrams(200_000),
+        Temperature::from_millikelvin(293_150),
+    );
+    let pick = seed_assembled_equipment_at(
+        &registries,
+        &mut state,
+        EQUIPMENT_STONE_PICK,
+        source,
+        position,
+    );
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("equipment-projection admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("equipment-projection admission commit failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("equipment-projection matter baseline failed: {error}"));
+
+    let view = project_player_inventory(&registries, &state)
+        .unwrap_or_else(|error| panic!("equipment-projection initial view failed: {error}"));
+    assert!(view.equipment().is_empty());
+    assert_eq!(view.local_equipment().len(), 1);
+    assert_eq!(view.local_equipment()[0].equipment(), pick);
+    assert_eq!(view.local_equipment()[0].definition(), EQUIPMENT_STONE_PICK);
+    assert_eq!(
+        view.local_equipment()[0].mass(),
+        Mass::from_milligrams(1_000_000)
+    );
+
+    validate_pickup_equipment(&registries, &state, pick)
+        .unwrap_or_else(|error| panic!("equipment-projection pickup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("equipment-projection pickup commit failed: {error}"));
+    let carried = project_player_inventory(&registries, &state)
+        .unwrap_or_else(|error| panic!("equipment-projection carried view failed: {error}"));
+    assert_eq!(carried.equipment().len(), 1);
+    assert_eq!(carried.equipment()[0].equipment(), pick);
+    assert!(carried.local_equipment().is_empty());
+
+    validate_drop_equipment(&registries, &state, pick)
+        .unwrap_or_else(|error| panic!("equipment-projection drop failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("equipment-projection drop commit failed: {error}"));
+    let dropped = project_player_inventory(&registries, &state)
+        .unwrap_or_else(|error| panic!("equipment-projection dropped view failed: {error}"));
+    assert!(dropped.equipment().is_empty());
+    assert_eq!(dropped.local_equipment().len(), 1);
+    assert_eq!(dropped.local_equipment()[0].equipment(), pick);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("equipment-projection matter audit failed: {error}"))
+            .total(),
+        matter_before.total()
+    );
 }
 
 fn stack_from_carried(

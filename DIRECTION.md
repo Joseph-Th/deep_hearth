@@ -141,7 +141,9 @@ projection derived from the same physical compatibility rules as lot coalescing,
 storage-age exposure for freshness presentation. A projected stack can drive partial same-voxel carried↔ground/storage
 transfer by mass while inventory privately resolves exact lot slices and rejects stale projections. A single
 player-facing inventory projection composes carrying state, all nine hotbar bindings, carried equipment/stacks,
-and only exact-local containers. `validate_quick_move_player_stack` now composes the familiar maximum-fit transfer
+stationary equipment at the player's exact voxel, and only exact-local containers. Dropped portable equipment
+therefore remains visible through the same projection and still uses canonical pickup/drop validation.
+`validate_quick_move_player_stack` now composes the familiar maximum-fit transfer
 gesture between carried custody and one local container while exact relocation remains authoritative. Direct
 control can switch slots before primary/use/drop on the same 20 Hz sample.
 Personal manual crafting now composes the same carried custody into a stable recipe catalog plus recipe/batch

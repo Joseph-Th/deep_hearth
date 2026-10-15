@@ -71,7 +71,7 @@ pub(crate) use initialization::{
 };
 pub use inventory_view::{
     PlayerCarriedEquipmentProjection, PlayerInventoryProjection, PlayerInventoryProjectionError,
-    PlayerStockpileProjection, project_player_inventory,
+    PlayerLocalEquipmentProjection, PlayerStockpileProjection, project_player_inventory,
 };
 pub use kinematics::{PlayerBodyMotionError, PlayerBodyMotionOutcome};
 pub(crate) use kinematics::{
