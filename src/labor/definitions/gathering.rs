@@ -30,6 +30,7 @@ pub struct SurfaceGatheringDefinition {
     id: SurfaceGatheringMethodId,
     commodity: CommodityKey,
     maximum_batch_mass: Mass,
+    direct_batch_mass: Mass,
     maximum_batch_duration: TickSpan,
     exertion: SurvivalExertion,
 }
@@ -40,16 +41,20 @@ impl SurfaceGatheringDefinition {
         id: SurfaceGatheringMethodId,
         commodity: CommodityKey,
         maximum_batch_mass: Mass,
+        direct_batch_mass: Mass,
         maximum_batch_duration: TickSpan,
         exertion: SurvivalExertion,
     ) -> Self {
         assert!(!maximum_batch_mass.is_zero());
+        assert!(!direct_batch_mass.is_zero());
+        assert!(direct_batch_mass <= maximum_batch_mass);
         assert!(!maximum_batch_duration.is_zero());
         exertion.assert_active_player_work();
         Self {
             id,
             commodity,
             maximum_batch_mass,
+            direct_batch_mass,
             maximum_batch_duration,
             exertion,
         }
@@ -68,6 +73,14 @@ impl SurfaceGatheringDefinition {
     #[must_use]
     pub const fn maximum_batch_mass(self) -> Mass {
         self.maximum_batch_mass
+    }
+
+    /// Familiar one-gesture gathering commitment used by the direct-control shell.
+    ///
+    /// Deliberate callers may still request any positive amount through `maximum_batch_mass`.
+    #[must_use]
+    pub const fn direct_batch_mass(self) -> Mass {
+        self.direct_batch_mass
     }
 
     #[must_use]

@@ -254,6 +254,15 @@ fn built_in_wilderness_gathering_distinguishes_foraging_from_bulk_material_colle
     );
     assert!(berries.maximum_batch_mass() < stone.maximum_batch_mass());
     assert!(berries.maximum_batch_mass() < timber.maximum_batch_mass());
+    assert_eq!(berries.direct_batch_mass(), Mass::from_milligrams(500_000));
+    for method in [stone, timber, clay, stone_chips] {
+        assert_eq!(
+            method.direct_batch_mass(),
+            Mass::from_milligrams(1_000_000),
+            "bulk loose-material direct use should commit one kilogram at a time"
+        );
+        assert!(method.direct_batch_mass() <= method.maximum_batch_mass());
+    }
 
     let comparison_mass = Mass::from_milligrams(500_000);
     let stone_ticks = stone

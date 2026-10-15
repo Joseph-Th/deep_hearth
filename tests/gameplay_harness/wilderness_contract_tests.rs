@@ -128,7 +128,7 @@ impl WildernessStartProfile {
     }
 }
 
-fn assert_generated_wilderness_water_is_directly_usable_with_empty_hands() {
+fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands() {
     let registries = build_registries();
     let mut state = AppState::new();
     validate_generate_initial_wilderness(
@@ -152,8 +152,49 @@ fn assert_generated_wilderness_water_is_directly_usable_with_empty_hands() {
         &registries,
         &mut state,
         forage.position(),
-        "direct-water forage approach",
+        "direct-use forage approach",
     );
+    let forage_before = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == forage.resource())
+        .map(|resource| resource.remaining_mass())
+        .unwrap_or_else(|| panic!("direct-use forage disappeared before gathering"));
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
+        .unwrap_or_else(|error| panic!("direct-use view direction failed: {error}"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(direction));
+    let gathering = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("direct-use forage control failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => break *work,
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            other => panic!("direct-use forage returned unexpected outcome: {other:?}"),
+        }
+    };
+    assert_eq!(gathering.resource(), forage.resource());
+    assert!(!gathering.gathered_mass().is_zero());
+    advance_to(
+        &registries,
+        &mut state,
+        gathering.completes_at(),
+        TickEventAllowance {
+            surface_resources: &[forage.resource()],
+            ..TickEventAllowance::default()
+        },
+        "direct-use forage gathering",
+    );
+    let forage_after = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == forage.resource())
+        .map(|resource| resource.remaining_mass())
+        .unwrap_or_else(|| panic!("direct-use forage disappeared after gathering"));
+    assert_eq!(
+        forage_before.checked_sub(gathering.gathered_mass()),
+        Some(forage_after),
+        "direct-use forage gathering must consume exactly its admitted finite batch"
+    );
+
     let water = adjacent_drinkable_source(&registries, &state);
     step_to(
         &registries,
@@ -172,10 +213,6 @@ fn assert_generated_wilderness_water_is_directly_usable_with_empty_hands() {
     let hydration_before = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("direct-water actor disappeared before use"))
         .hydration();
-    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
-        .unwrap_or_else(|error| panic!("direct-water view direction failed: {error}"));
-    let input = PlayerDirectControlInput::NEUTRAL
-        .with_secondary(SecondaryControlIntent::use_active(direction));
 
     let started = loop {
         let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
@@ -221,8 +258,11 @@ fn assert_generated_wilderness_water_is_directly_usable_with_empty_hands() {
             .map(|store| store.stored_volume())
             .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
         std::println!(
-            "WILDERNESS DIRECT USE seed=0x{:016X} route-steps=2 input=empty-hand-secondary water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            "WILDERNESS DIRECT USE seed=0x{:016X} route-steps=2 input=empty-hand-secondary gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
             WILDERNESS_WORLD_SEED.value(),
+            forage_before.milligrams(),
+            gathering.gathered_mass().milligrams(),
+            forage_after.milligrams(),
             water_before.microliters(),
             started.volume().microliters(),
             water_after.microliters(),
@@ -2446,7 +2486,7 @@ pub(super) fn run_wilderness_report() {
 
 #[test]
 fn generated_wilderness_opening_stabilizes_without_premature_investment() {
-    assert_generated_wilderness_water_is_directly_usable_with_empty_hands();
+    assert_generated_wilderness_resources_are_directly_usable_with_empty_hands();
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         run_wilderness_report();
     } else {

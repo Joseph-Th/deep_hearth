@@ -25,6 +25,7 @@ fn surface_gathering_authoring_rejects_unknown_commodity() {
         SurfaceGatheringMethodId::new(55_011),
         CommodityKey::new(MaterialId::new(999_999), FormId::new(999)),
         Mass::from_milligrams(1),
+        Mass::from_milligrams(1),
         TickSpan::new(1),
         active_exertion(),
     );

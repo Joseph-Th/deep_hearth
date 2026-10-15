@@ -349,6 +349,177 @@ fn empty_hand_secondary_use_refuses_ambiguous_local_drink_sources() {
 }
 
 #[test]
+fn empty_hand_secondary_use_gathers_one_local_natural_opportunity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let source_mass = Mass::from_milligrams(6_000_000);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        source_mass,
+    );
+    let carried = admit_player(&registries, &mut state, position);
+    let direct_batch = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_STONE)
+        .map(|method| method.direct_batch_mass())
+        .unwrap_or_else(|| panic!("direct-gather stone method disappeared"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+
+    let work = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("direct-gather control failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => break *work,
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            other => panic!("direct-gather returned unexpected outcome: {other:?}"),
+        }
+    };
+
+    assert_eq!(work.resource(), stone);
+    assert_eq!(work.method(), SURFACE_GATHERING_HAND_COLLECT_STONE);
+    assert_eq!(work.destination(), carried);
+    assert_eq!(work.gathered_mass(), direct_batch);
+    assert_eq!(
+        state
+            .surface()
+            .get(stone)
+            .map(|resource| resource.remaining_mass()),
+        Some(source_mass),
+        "starting direct gathering must not remove surface matter before completion"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(direct_batch)
+    );
+}
+
+#[test]
+fn empty_hand_secondary_use_clamps_surface_gathering_to_carried_capacity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(5_000_000),
+    );
+    let carried = admit_player(&registries, &mut state, position);
+    let remaining_capacity = Mass::from_milligrams(250_000);
+    let capacity = state
+        .inventory()
+        .get_stockpile(carried)
+        .map(|stockpile| stockpile.capacity())
+        .unwrap_or_else(|| panic!("capacity-clamped direct-gather carried stockpile disappeared"));
+    let filler = capacity.checked_sub(remaining_capacity).unwrap_or_else(|| {
+        panic!("direct-gather fixture capacity is smaller than desired remainder")
+    });
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        filler,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("capacity-clamped direct-gather filler failed: {error}"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+
+    let work = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| {
+                panic!("capacity-clamped direct-gather control failed: {error}")
+            });
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => break *work,
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            other => {
+                panic!("capacity-clamped direct-gather returned unexpected outcome: {other:?}")
+            }
+        }
+    };
+
+    assert_eq!(work.resource(), stone);
+    assert_eq!(work.gathered_mass(), remaining_capacity);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.available_capacity()),
+        Some(Mass::ZERO),
+        "direct gathering should reserve exactly the remaining carrying envelope"
+    );
+}
+
+#[test]
+fn empty_hand_secondary_use_refuses_water_and_surface_context_ambiguity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let stone_mass = Mass::from_milligrams(1_000_000);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        stone_mass,
+    );
+    let _carried = admit_player(&registries, &mut state, position);
+    let water_volume = Volume::from_microliters(1_000_000);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        water_volume,
+        FLUID_WATER,
+        water_volume,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("ambiguous-context water fixture failed: {error}"));
+    validate_place_fluid_store(&state, water, position)
+        .unwrap_or_else(|error| panic!("ambiguous-context water placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("ambiguous-context water placement commit failed: {error}"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+
+    let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("ambiguous-context direct use failed: {error}"));
+
+    assert_eq!(
+        control.secondary_action(),
+        Some(&SecondaryActionOutcome::AmbiguousEmptyHandContext {
+            drink_sources: 1,
+            surface_resources: 1,
+        })
+    );
+    assert_eq!(
+        state
+            .fluid()
+            .get_store(water)
+            .map(|store| store.stored_volume()),
+        Some(water_volume)
+    );
+    assert_eq!(
+        state
+            .surface()
+            .get(stone)
+            .map(|resource| resource.remaining_mass()),
+        Some(stone_mass)
+    );
+    assert_eq!(state.player_work().active(), None);
+}
+
+#[test]
 fn secondary_use_refuses_ambiguous_physical_food_cohorts() {
     let registries = build_registries();
     let mut state = AppState::new();

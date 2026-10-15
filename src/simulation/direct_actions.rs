@@ -21,6 +21,7 @@ use crate::structural::{
     validate_start_player_structural_dismantling,
 };
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
+use crate::surface::{SurfaceResourceKind, validate_start_player_surface_gathering};
 use crate::survival::{
     available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
 };
@@ -97,93 +98,240 @@ fn attempt_secondary_action(
     let intent = intent?;
     match intent {
         SecondaryControlIntent::UseActive { direction } => {
-            let Some(selection) = state.logistics().active_selection() else {
-                let sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
-                let source = match sources.as_slice() {
-                    [] => return Some(SecondaryActionOutcome::NoActiveSelection),
-                    [source] => *source,
-                    sources => {
-                        return Some(SecondaryActionOutcome::AmbiguousLocalDrinkSources {
-                            count: sources.len(),
-                        });
-                    }
-                };
-                if !state.control_tick().is_simulation_boundary() {
-                    return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
+            Some(match state.logistics().active_selection() {
+                None => attempt_empty_hand_secondary_action(registries, state),
+                Some(selection) => {
+                    attempt_selected_secondary_action(registries, state, selection, direction)
                 }
-                return Some(
-                    match validate_drink_store_to_full(registries, state, source.store()) {
-                        Ok(Some(validated)) => {
-                            let outcome = validated.commit(state).unwrap_or_else(|error| {
-                            panic!(
-                                "runtime invariant broken: synchronous local-drink use became stale: {error}"
-                            )
-                        });
-                            SecondaryActionOutcome::DrinkingStarted(outcome)
-                        }
-                        Ok(None) => SecondaryActionOutcome::AlreadySatisfied,
-                        Err(error) => SecondaryActionOutcome::DrinkingRejected(error),
-                    },
-                );
-            };
-            let commodity = match selection {
-                PlayerActiveSelection::Equipment(_) => {
-                    return Some(SecondaryActionOutcome::ActiveEquipmentNotContextual);
-                }
-                PlayerActiveSelection::Material(commodity) => commodity,
-            };
-            if let Some(outcome) =
-                attempt_selected_storage_placement(registries, state, commodity, direction)
-            {
-                return Some(outcome);
-            }
-            if let Some(outcome) =
-                attempt_selected_timber_placement(registries, state, commodity, direction)
-            {
-                return Some(outcome);
-            }
-            if registries.survival().get_food(commodity).is_none() {
-                return Some(SecondaryActionOutcome::MaterialNotContextual);
-            }
-            if !state.control_tick().is_simulation_boundary() {
-                return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
-            }
-            let carried = state
-                .logistics()
-                .player()
-                .map(|player| player.carried_stockpile())
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: active material selection requires player")
-                });
-            let stacks = project_material_stacks(registries, state, carried)
-                .unwrap_or_else(|error| {
-                    panic!("runtime invariant broken: carried stack projection failed: {error}")
-                })
-                .into_iter()
-                .filter(|stack| stack.commodity() == commodity)
-                .collect::<Vec<_>>();
-            let stack = match stacks.as_slice() {
-                [] => return Some(SecondaryActionOutcome::MaterialUnavailable),
-                [stack] => stack,
-                stacks => {
-                    return Some(SecondaryActionOutcome::AmbiguousMaterialStacks {
-                        count: stacks.len(),
-                    });
-                }
-            };
-            Some(match validate_eat_stack_to_full(registries, state, stack) {
-                Ok(Some(validated)) => {
-                    let outcome = validated.commit(state).unwrap_or_else(|error| {
-                        panic!(
-                            "runtime invariant broken: synchronous selected-food use became stale: {error}"
-                        )
-                    });
-                    SecondaryActionOutcome::EatingStarted(outcome)
-                }
-                Ok(None) => SecondaryActionOutcome::AlreadySatisfied,
-                Err(error) => SecondaryActionOutcome::EatingRejected(error),
             })
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DirectSurfaceGatheringTarget {
+    resource: crate::surface::SurfaceResourceId,
+    source_mass: crate::core::quantity::Mass,
+    method: crate::labor::SurfaceGatheringMethodId,
+    direct_batch_mass: crate::core::quantity::Mass,
+}
+
+enum DirectSurfaceGatheringResolution {
+    None,
+    One(DirectSurfaceGatheringTarget),
+    AmbiguousResources { count: usize },
+    AmbiguousMethods { count: usize },
+}
+
+fn resolve_direct_surface_gathering(
+    registries: &Registries,
+    state: &AppState,
+) -> DirectSurfaceGatheringResolution {
+    let mut targets = Vec::new();
+    for resource in state
+        .available_surface_resources()
+        .filter(|resource| resource.kind() == SurfaceResourceKind::Opportunity)
+    {
+        let mut methods = registries
+            .labor()
+            .surface_gathering_definitions()
+            .filter(|method| method.commodity() == resource.commodity());
+        let Some(method) = methods.next() else {
+            continue;
+        };
+        let Some(second) = methods.next() else {
+            targets.push(DirectSurfaceGatheringTarget {
+                resource: resource.id(),
+                source_mass: resource.remaining_mass(),
+                method: method.id(),
+                direct_batch_mass: method.direct_batch_mass(),
+            });
+            continue;
+        };
+        let count = 2 + methods.count();
+        debug_assert_eq!(second.commodity(), resource.commodity());
+        return DirectSurfaceGatheringResolution::AmbiguousMethods { count };
+    }
+    match targets.as_slice() {
+        [] => DirectSurfaceGatheringResolution::None,
+        [target] => DirectSurfaceGatheringResolution::One(*target),
+        targets => DirectSurfaceGatheringResolution::AmbiguousResources {
+            count: targets.len(),
+        },
+    }
+}
+
+fn attempt_empty_hand_secondary_action(
+    registries: &Registries,
+    state: &mut AppState,
+) -> SecondaryActionOutcome {
+    let drink_sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
+    let gathering = resolve_direct_surface_gathering(registries, state);
+    match gathering {
+        DirectSurfaceGatheringResolution::AmbiguousMethods { count } => {
+            return SecondaryActionOutcome::AmbiguousSurfaceGatheringMethods { count };
+        }
+        DirectSurfaceGatheringResolution::AmbiguousResources { count } => {
+            return SecondaryActionOutcome::AmbiguousLocalSurfaceResources { count };
+        }
+        DirectSurfaceGatheringResolution::None | DirectSurfaceGatheringResolution::One(_) => {}
+    }
+    if !drink_sources.is_empty() && matches!(gathering, DirectSurfaceGatheringResolution::One(_)) {
+        return SecondaryActionOutcome::AmbiguousEmptyHandContext {
+            drink_sources: drink_sources.len(),
+            surface_resources: 1,
+        };
+    }
+    if let DirectSurfaceGatheringResolution::One(target) = gathering {
+        return attempt_direct_surface_gathering(registries, state, target);
+    }
+    match drink_sources.as_slice() {
+        [] => SecondaryActionOutcome::NoActiveSelection,
+        [source] => attempt_direct_drinking(registries, state, source.store()),
+        sources => SecondaryActionOutcome::AmbiguousLocalDrinkSources {
+            count: sources.len(),
+        },
+    }
+}
+
+fn attempt_direct_surface_gathering(
+    registries: &Registries,
+    state: &mut AppState,
+    target: DirectSurfaceGatheringTarget,
+) -> SecondaryActionOutcome {
+    if !state.control_tick().is_simulation_boundary() {
+        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+    }
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: local surface resource requires player")
+        });
+    let available_capacity = state
+        .inventory()
+        .get_stockpile(carried)
+        .map(|stockpile| stockpile.available_capacity())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: admitted player lost carried stockpile")
+        });
+    let desired = target.source_mass.min(target.direct_batch_mass);
+    let gathered_mass = desired.min(available_capacity);
+    let request_mass = if gathered_mass.is_zero() {
+        desired
+    } else {
+        gathered_mass
+    };
+    match validate_start_player_surface_gathering(
+        registries,
+        state,
+        target.method,
+        target.resource,
+        request_mass,
+    ) {
+        Ok(validated) => {
+            validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous surface gathering became stale: {error}"
+                )
+            });
+            let work = match state.player_work().active() {
+                Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work,
+                other => {
+                    panic!("runtime invariant broken: direct surface gathering started {other:?}")
+                }
+            };
+            SecondaryActionOutcome::SurfaceGatheringStarted(work)
+        }
+        Err(error) => SecondaryActionOutcome::SurfaceGatheringRejected(error),
+    }
+}
+
+fn attempt_direct_drinking(
+    registries: &Registries,
+    state: &mut AppState,
+    store: crate::fluid::FluidStoreId,
+) -> SecondaryActionOutcome {
+    if !state.control_tick().is_simulation_boundary() {
+        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+    }
+    match validate_drink_store_to_full(registries, state, store) {
+        Ok(Some(validated)) => {
+            let outcome = validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous local-drink use became stale: {error}"
+                )
+            });
+            SecondaryActionOutcome::DrinkingStarted(outcome)
+        }
+        Ok(None) => SecondaryActionOutcome::AlreadySatisfied,
+        Err(error) => SecondaryActionOutcome::DrinkingRejected(error),
+    }
+}
+
+fn attempt_selected_secondary_action(
+    registries: &Registries,
+    state: &mut AppState,
+    selection: PlayerActiveSelection,
+    direction: ViewDirection,
+) -> SecondaryActionOutcome {
+    let commodity = match selection {
+        PlayerActiveSelection::Equipment(_) => {
+            return SecondaryActionOutcome::ActiveEquipmentNotContextual;
+        }
+        PlayerActiveSelection::Material(commodity) => commodity,
+    };
+    if let Some(outcome) =
+        attempt_selected_storage_placement(registries, state, commodity, direction)
+    {
+        return outcome;
+    }
+    if let Some(outcome) =
+        attempt_selected_timber_placement(registries, state, commodity, direction)
+    {
+        return outcome;
+    }
+    if registries.survival().get_food(commodity).is_none() {
+        return SecondaryActionOutcome::MaterialNotContextual;
+    }
+    if !state.control_tick().is_simulation_boundary() {
+        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+    }
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: active material selection requires player")
+        });
+    let stacks = project_material_stacks(registries, state, carried)
+        .unwrap_or_else(|error| {
+            panic!("runtime invariant broken: carried stack projection failed: {error}")
+        })
+        .into_iter()
+        .filter(|stack| stack.commodity() == commodity)
+        .collect::<Vec<_>>();
+    let stack = match stacks.as_slice() {
+        [] => return SecondaryActionOutcome::MaterialUnavailable,
+        [stack] => stack,
+        stacks => {
+            return SecondaryActionOutcome::AmbiguousMaterialStacks {
+                count: stacks.len(),
+            };
+        }
+    };
+    match validate_eat_stack_to_full(registries, state, stack) {
+        Ok(Some(validated)) => {
+            let outcome = validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous selected-food use became stale: {error}"
+                )
+            });
+            SecondaryActionOutcome::EatingStarted(outcome)
+        }
+        Ok(None) => SecondaryActionOutcome::AlreadySatisfied,
+        Err(error) => SecondaryActionOutcome::EatingRejected(error),
     }
 }
 

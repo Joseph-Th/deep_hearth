@@ -7,7 +7,7 @@ use crate::inventory::{
     PlayerStoragePlacementError, StockpileId, StorageDefinitionId,
     StorageEnclosureDismantlingOutcome,
 };
-use crate::labor::{ManualPowerOutcome, StructuralConstructionWork};
+use crate::labor::{ManualPowerOutcome, StructuralConstructionWork, SurfaceGatheringWork};
 use crate::logistics::{
     PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
     PlayerQuickAccessSelectionError, PlayerQuickAccessSlot, PlayerStepOutcome,
@@ -21,7 +21,7 @@ use crate::structural::{
 };
 use crate::surface::{
     PlayerMaterialDropError, PlayerMaterialDropOutcome, SurfaceDropPickupOutcome,
-    SurfaceGatheringOutcome,
+    SurfaceGatheringError, SurfaceGatheringOutcome,
 };
 use crate::survival::{
     DrinkOutcome, DrinkStoreToTargetError, EatOutcome, EatStackToTargetError, SurvivalAssessment,
@@ -60,6 +60,7 @@ pub enum QuickAccessSelectionOutcome {
 pub enum SecondaryActionOutcome {
     EatingStarted(EatOutcome),
     DrinkingStarted(DrinkOutcome),
+    SurfaceGatheringStarted(SurfaceGatheringWork),
     StructuralConstructionStarted(StructuralConstructionWork),
     StoragePlaced {
         definition: StorageDefinitionId,
@@ -119,9 +120,20 @@ pub enum SecondaryActionOutcome {
     AmbiguousLocalDrinkSources {
         count: usize,
     },
+    AmbiguousLocalSurfaceResources {
+        count: usize,
+    },
+    AmbiguousSurfaceGatheringMethods {
+        count: usize,
+    },
+    AmbiguousEmptyHandContext {
+        drink_sources: usize,
+        surface_resources: usize,
+    },
     MaterialNotContextual,
     EatingRejected(EatStackToTargetError),
     DrinkingRejected(DrinkStoreToTargetError),
+    SurfaceGatheringRejected(SurfaceGatheringError),
 }
 
 /// Observable result of a one-step request to drop the active quick-access selection.

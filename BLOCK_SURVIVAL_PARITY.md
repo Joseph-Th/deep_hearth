@@ -66,7 +66,7 @@ Foundational blockers:
 - held excavation now admits, progresses, completes, and chains canonical timed batches on the 20 Hz control
   clock while preserving authored mining costs; secondary hotbar use can consume one unambiguous selected food
   commodity, while an explicit projected stack can select among visible freshness cohorts without exposing lot IDs;
-  with empty hands, secondary use drinks from exactly one co-located finite drinkable store and rejects ambiguous local sources;
+  with empty hands, secondary use gathers one authored direct batch from a co-located natural opportunity or drinks one finite source, clamps gathering to carried capacity, and rejects ambiguous local contexts;
   secondary use can also place an authored finished storage object into generated air adjacent to the pointed face, with body/object
   overlap rejection; an unambiguous carried wood-log stack can likewise set one authored timber post on the top face
   of adjacent generated terrain through atomic timed hand-setting. Primary break targets a visible structure before
@@ -503,7 +503,7 @@ require enough content to exercise the substrate through the same recognizable f
 | --- | --- | --- | --- |
 | Orient | Look around generated terrain | Camera + visible terrain + local resource clues | `GAP-P0` |
 | Move | Walk/sprint/jump across blocks | Continuous movement with encumbrance/exertion | `GAP-P0` |
-| Acquire wood/stone | Break logs/stone, collect drops | Break/gather world material through capability physics | `GAP-P0` shell, deeper owner pieces exist |
+| Acquire wood/stone | Break logs/stone, collect drops | Empty-hand gathering of local loose roots plus pointed terrain excavation and conserved pickup | `GAP-P0` world-source/adapter breadth; core verbs exist |
 | Make basic tools | Inventory/crafting table recipes | Familiar recipe action over exact material transformations | `GAP-P0` shell, crafting owner exists |
 | Carry items | Hotbar/inventory stacks | Hotbar/stacks projected over exact mass custody | `GAP-P0` shell |
 | Store items | Chest | Material-backed container with slot-like UI and mass/storage constraints | `GAP-P0` shell, storage owner exists |

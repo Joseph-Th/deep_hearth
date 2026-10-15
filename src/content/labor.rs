@@ -57,6 +57,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SURFACE_GATHERING_HAND_COLLECT_STONE,
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
                 Mass::from_milligrams(5_000_000),
+                Mass::from_milligrams(1_000_000),
                 TickSpan::new(60),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_200_000_000_000),
@@ -70,6 +71,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SURFACE_GATHERING_HAND_COLLECT_TIMBER,
                 CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
                 Mass::from_milligrams(5_000_000),
+                Mass::from_milligrams(1_000_000),
                 TickSpan::new(90),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_200_000_000_000),
@@ -83,6 +85,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SURFACE_GATHERING_HAND_FORAGE_BERRIES,
                 CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
                 Mass::from_milligrams(1_000_000),
+                Mass::from_milligrams(500_000),
                 TickSpan::new(120),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(900_000_000_000),
@@ -96,6 +99,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SURFACE_GATHERING_HAND_COLLECT_CLAY,
                 CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
                 Mass::from_milligrams(5_000_000),
+                Mass::from_milligrams(1_000_000),
                 TickSpan::new(75),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_000_000_000_000),
@@ -109,6 +113,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
                 CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
                 Mass::from_milligrams(5_000_000),
+                Mass::from_milligrams(1_000_000),
                 TickSpan::new(45),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_000_000_000_000),
