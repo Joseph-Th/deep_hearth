@@ -43,7 +43,7 @@ through these foundations:
 2. compact runtime block states in streamed chunk/section ownership with deterministic seeded terrain;
 3. continuous player transform, gravity, collision, jump/crouch/sprint and terrain contact;
 4. camera targeting plus primary break/attack and secondary place/use interaction composition;
-5. generic world drops, pickup/drop, hotbar/stack projection, inventory/container transfer and personal crafting;
+5. generic world drops, adapter inventory/container interaction and personal crafting;
 6. block/sky lighting, section meshing and enough renderer/input/save adapters to experience the real generated
    world rather than a harness-only abstraction.
 
@@ -127,19 +127,22 @@ drop remains in world custody and can still be recovered partially through ordin
 step can choose the largest target/tool batch, typed rejection is observable, and a held action can start the next
 legal batch on the exact control step that completes the previous one. Excavation persists 20 Hz start/completion
 schedule and normalized progress while preserving authored mining duration, exertion, wear, custody, and save/load
-continuation. Logistics now persists one semantic quick-access selection over canonical carried custody. Equipment
-selection still drives primary excavation and one-step equipment drop through the existing carry owner. Material
-selection names an authored carried commodity rather than a transient lot identity; contextual secondary use
+continuation. Logistics now persists nine semantic quick-access slots plus one selected slot over canonical carried
+custody. Equipment bindings still drive primary excavation and one-step equipment drop through the existing carry
+owner. Material bindings name authored carried commodities rather than transient lot identities; contextual secondary use
 composes that selection into canonical food consumption when one physical cohort is unambiguous, and can place
 an authored finished storage body into the generated-air voxel adjacent to the pointed block face. Placement
 rejects missing world authority, terrain occupancy, player-body overlap, and existing stationary object custody.
 Direct drop transfers the selected carried commodity into exact finite surface parcels without flattening
 temperature, composition, particulate state, provenance, or storage age, and uses a short control-time self-pickup
 delay before ordinary automatic recovery. Inventory now also owns a revision-bound familiar material-stack
-projection derived from the same physical compatibility rules as lot coalescing. A projected stack can drive
-partial same-voxel carried↔ground/storage transfer by mass while inventory privately resolves exact lot slices and
-rejects stale projections. Full multi-slot hotbar and container presentation/gesture composition, arbitrary
-block/object placement, and generic item entities remain open.
+projection derived from the same physical compatibility rules as lot coalescing, including current physical
+storage-age exposure for freshness presentation. A projected stack can drive partial same-voxel carried↔ground/storage
+transfer by mass while inventory privately resolves exact lot slices and rejects stale projections. A single
+player-facing inventory projection composes carrying state, all nine hotbar bindings, carried equipment/stacks,
+and only exact-local containers. Direct control can switch slots before primary/use/drop on the same 20 Hz sample.
+Adapter hotbar/container rendering and gesture composition, arbitrary block/object placement, and generic item
+entities remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

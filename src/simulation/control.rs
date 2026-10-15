@@ -1,6 +1,6 @@
 //! Transient direct-control intents above locomotion ownership.
 
-use crate::logistics::PlayerControlInput;
+use crate::logistics::{PlayerControlInput, PlayerQuickAccessSlot};
 use crate::spatial::ViewDirection;
 
 /// Held primary-control intent sampled alongside one 20 Hz locomotion input.
@@ -36,6 +36,7 @@ impl PrimaryControlIntent {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlayerDirectControlInput {
     movement: PlayerControlInput,
+    quick_access_slot: Option<PlayerQuickAccessSlot>,
     primary: Option<PrimaryControlIntent>,
     secondary: Option<SecondaryControlIntent>,
     drop_active_selection: bool,
@@ -44,6 +45,7 @@ pub struct PlayerDirectControlInput {
 impl PlayerDirectControlInput {
     pub const NEUTRAL: Self = Self {
         movement: PlayerControlInput::NEUTRAL,
+        quick_access_slot: None,
         primary: None,
         secondary: None,
         drop_active_selection: false,
@@ -53,10 +55,18 @@ impl PlayerDirectControlInput {
     pub const fn new(movement: PlayerControlInput) -> Self {
         Self {
             movement,
+            quick_access_slot: None,
             primary: None,
             secondary: None,
             drop_active_selection: false,
         }
+    }
+
+    /// Requests switching the direct-action hand to one persisted quick-access slot this step.
+    #[must_use]
+    pub const fn with_quick_access_slot(mut self, slot: PlayerQuickAccessSlot) -> Self {
+        self.quick_access_slot = Some(slot);
+        self
     }
 
     #[must_use]
@@ -81,6 +91,11 @@ impl PlayerDirectControlInput {
     #[must_use]
     pub const fn movement(self) -> PlayerControlInput {
         self.movement
+    }
+
+    #[must_use]
+    pub const fn quick_access_slot(self) -> Option<PlayerQuickAccessSlot> {
+        self.quick_access_slot
     }
 
     #[must_use]

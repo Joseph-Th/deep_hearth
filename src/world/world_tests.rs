@@ -12,8 +12,9 @@ use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWorkStartError, PlayerWorkValidationError};
 use crate::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, PlayerEquipmentCarryError,
-    add_traversable_edge_for_test, place_equipment_for_fixture, validate_drop_equipment,
-    validate_pickup_equipment, validate_set_active_selection, validate_start_player_step,
+    PlayerQuickAccessSlot, add_traversable_edge_for_test, place_equipment_for_fixture,
+    validate_drop_equipment, validate_pickup_equipment, validate_set_active_selection,
+    validate_set_quick_access_slot, validate_start_player_step,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
@@ -22,8 +23,8 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::{PlayerAdmissionCommitError, validate_admit_player};
 use crate::simulation::{
     ActiveSelectionDropOutcome, PlayerDirectControlInput, PrimaryActionOutcome,
-    PrimaryControlIntent, advance_control_tick, advance_control_tick_with_direct_input,
-    advance_control_tick_with_input,
+    PrimaryControlIntent, QuickAccessSelectionOutcome, advance_control_tick,
+    advance_control_tick_with_direct_input, advance_control_tick_with_input,
 };
 use crate::spatial::{CubeFace, VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
 use crate::survival::{Vitality, player_record, project_survival_resource_budget};
@@ -219,6 +220,42 @@ fn generated_excavation_fixture() -> (
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("block excavation active-pick commit failed: {error}"));
     (registries, state, pick, target)
+}
+
+#[test]
+fn quick_access_switch_precedes_primary_action_on_the_same_control_step() {
+    let (registries, mut state, pick, _target) = generated_excavation_fixture();
+    let tool_slot = PlayerQuickAccessSlot::new(1)
+        .unwrap_or_else(|| panic!("same-step quick-access tool slot disappeared"));
+    validate_set_quick_access_slot(
+        &registries,
+        &state,
+        tool_slot,
+        Some(PlayerActiveSelection::equipment(pick)),
+    )
+    .unwrap_or_else(|error| panic!("same-step quick-access tool binding failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("same-step quick-access tool binding commit failed: {error}"));
+    assert_eq!(state.logistics().active_selection(), None);
+
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_quick_access_slot(tool_slot)
+        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
+    let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("same-step quick-access control failed: {error}"));
+
+    assert_eq!(
+        control.quick_access_selection(),
+        Some(&QuickAccessSelectionOutcome::Selected {
+            slot: tool_slot,
+            selection: Some(PlayerActiveSelection::equipment(pick)),
+        })
+    );
+    assert!(matches!(
+        control.primary_action(),
+        Some(PrimaryActionOutcome::BlockExcavationStarted(_))
+    ));
+    assert_eq!(state.logistics().active_quick_access_slot(), tool_slot);
 }
 
 fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut AppState) {

@@ -15,6 +15,7 @@ mod fixture;
 mod fluid;
 mod ground;
 mod initialization;
+mod inventory_view;
 mod kinematics;
 mod movement;
 mod selection;
@@ -67,6 +68,10 @@ pub(crate) use initialization::{
     InitializePlayerLogisticsCommitError, InitializePlayerLogisticsError,
     ValidatedPlayerLogisticsInitialization, validate_player_logistics_initialization,
 };
+pub use inventory_view::{
+    PlayerCarriedEquipmentProjection, PlayerInventoryProjection, PlayerInventoryProjectionError,
+    PlayerStockpileProjection, project_player_inventory,
+};
 pub use kinematics::{PlayerBodyMotionError, PlayerBodyMotionOutcome};
 pub(crate) use kinematics::{
     apply_player_body_motion, decide_player_body_motion, first_player_body_collision,
@@ -79,14 +84,17 @@ pub use movement::{
 };
 pub(crate) use movement::{apply_player_step_tick, decide_player_step_tick};
 pub use selection::{
-    PlayerActiveSelectionCommitError, PlayerActiveSelectionError, ValidatedPlayerActiveSelection,
-    validate_set_active_selection,
+    PlayerActiveSelectionCommitError, PlayerActiveSelectionError,
+    PlayerQuickAccessSelectionCommitError, PlayerQuickAccessSelectionError,
+    ValidatedPlayerActiveSelection, ValidatedPlayerQuickAccessSelection,
+    validate_select_quick_access_slot, validate_set_active_selection,
+    validate_set_quick_access_slot,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use state::add_traversable_edge_for_test;
 pub use state::{
-    LogisticsState, PlayerActiveSelection, PlayerCarryingAssessment, PlayerLogisticsRecord,
-    assess_player_carrying,
+    LogisticsState, PLAYER_QUICK_ACCESS_SLOT_COUNT, PlayerActiveSelection,
+    PlayerCarryingAssessment, PlayerLogisticsRecord, PlayerQuickAccessSlot, assess_player_carrying,
 };
 pub(crate) use traversal::TraversalEdge;
 pub use validation::LogisticsValidationError;

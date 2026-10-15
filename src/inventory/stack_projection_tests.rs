@@ -69,6 +69,14 @@ fn familiar_stack_projection_preserves_physical_and_perishable_cohorts() {
             .collect::<Vec<_>>(),
         vec![100_000, 200_000]
     );
+    assert_eq!(
+        berry_stacks
+            .iter()
+            .map(|stack| stack.ambient_storage_age_parts())
+            .collect::<Vec<_>>(),
+        vec![1_000_000, 0],
+        "freshness-relevant stack boundaries must expose their current physical storage age"
+    );
     let wood_stacks = stacks
         .iter()
         .filter(|stack| stack.commodity() == wood)

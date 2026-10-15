@@ -8,7 +8,10 @@ use crate::inventory::{
     StorageEnclosureDismantlingOutcome,
 };
 use crate::labor::ManualPowerOutcome;
-use crate::logistics::{PlayerBodyMotionOutcome, PlayerEquipmentCarryError, PlayerStepOutcome};
+use crate::logistics::{
+    PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
+    PlayerQuickAccessSelectionError, PlayerQuickAccessSlot, PlayerStepOutcome,
+};
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
 use crate::spatial::VoxelCoord;
@@ -29,6 +32,17 @@ use crate::world::{
 pub enum PrimaryActionOutcome {
     BlockExcavationStarted(BlockExcavationStartOutcome),
     BlockExcavationRejected(BlockExcavationError),
+}
+
+/// Observable result of a direct-control quick-access slot switch.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QuickAccessSelectionOutcome {
+    Selected {
+        slot: PlayerQuickAccessSlot,
+        selection: Option<PlayerActiveSelection>,
+    },
+    Rejected(PlayerQuickAccessSelectionError),
 }
 
 /// Observable result of one contextual-use request on the active quick-access selection.
@@ -91,6 +105,7 @@ pub enum ActiveSelectionDropOutcome {
 
 #[must_use]
 pub(super) struct DirectActionOutcomes {
+    quick_access: Option<QuickAccessSelectionOutcome>,
     primary: Option<PrimaryActionOutcome>,
     secondary: Option<SecondaryActionOutcome>,
     drop: Option<ActiveSelectionDropOutcome>,
@@ -98,11 +113,13 @@ pub(super) struct DirectActionOutcomes {
 
 impl DirectActionOutcomes {
     pub(super) fn new(
+        quick_access: Option<QuickAccessSelectionOutcome>,
         primary: Option<PrimaryActionOutcome>,
         secondary: Option<SecondaryActionOutcome>,
         drop: Option<ActiveSelectionDropOutcome>,
     ) -> Self {
         Self {
+            quick_access,
             primary,
             secondary,
             drop,
@@ -119,6 +136,7 @@ pub struct ControlTickOutcome {
     body_motion: Option<PlayerBodyMotionOutcome>,
     surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
     block_excavation: Option<BlockExcavationOutcome>,
+    quick_access_selection: Option<QuickAccessSelectionOutcome>,
     primary_action: Option<PrimaryActionOutcome>,
     secondary_action: Option<SecondaryActionOutcome>,
     active_selection_drop: Option<ActiveSelectionDropOutcome>,
@@ -134,6 +152,7 @@ impl ControlTickOutcome {
         direct_actions: DirectActionOutcomes,
     ) -> Self {
         let DirectActionOutcomes {
+            quick_access: quick_access_selection,
             primary: primary_action,
             secondary: secondary_action,
             drop: active_selection_drop,
@@ -144,6 +163,7 @@ impl ControlTickOutcome {
             body_motion,
             surface_drop_pickup,
             block_excavation,
+            quick_access_selection,
             primary_action,
             secondary_action,
             active_selection_drop,
@@ -177,6 +197,12 @@ impl ControlTickOutcome {
     #[must_use]
     pub const fn block_excavation(&self) -> Option<BlockExcavationOutcome> {
         self.block_excavation
+    }
+
+    /// Quick-access slot switch requested on this control step, if any.
+    #[must_use]
+    pub const fn quick_access_selection(&self) -> Option<&QuickAccessSelectionOutcome> {
+        self.quick_access_selection.as_ref()
     }
 
     /// Primary interaction attempted on this control step, if any.

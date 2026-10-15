@@ -91,6 +91,7 @@ pub struct MaterialStackProjection {
     profile: MaterialLotProfile,
     provenance: MaterialLotProvenance,
     storage_history: MaterialStorageHistory,
+    ambient_storage_age_parts: u128,
     mass: Mass,
     selections: Vec<MaterialLotSelection>,
 }
@@ -139,6 +140,15 @@ impl MaterialStackProjection {
     #[must_use]
     pub const fn latest_created_at(&self) -> SimulationTick {
         self.provenance.latest_created_at()
+    }
+
+    /// Current ambient-equivalent storage exposure used by perishability rules.
+    ///
+    /// One ambient simulation tick equals `STORAGE_AGE_PARTS_PER_TICK` parts. This is a read-side
+    /// physical freshness fact, not a lot identity or a second storage-history owner.
+    #[must_use]
+    pub const fn ambient_storage_age_parts(&self) -> u128 {
+        self.ambient_storage_age_parts
     }
 
     pub(crate) fn selections_for_mass(
@@ -247,6 +257,10 @@ pub fn project_material_stacks(
             profile: lot.profile().clone(),
             provenance: lot.provenance(),
             storage_history: lot.storage_history(),
+            ambient_storage_age_parts: lot
+                .storage_history()
+                .project(at, preservation)
+                .unwrap_or_else(|| panic!("validated material storage-age projection overflowed")),
             mass: lot.mass(),
             selections: vec![MaterialLotSelection::new(lot.id(), lot.mass())],
         });

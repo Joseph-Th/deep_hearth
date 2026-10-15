@@ -47,12 +47,12 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Core | Deterministic simulation; persisted 20 Hz `ControlTick`; exact 72:1 slow `SimulationTick`; active body physics cannot be skipped by slow stepping. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
-| Logistics | Fixed-point body/carrying, 20 Hz walk/sprint/crouch/jump, full-cube collision, load-scaled exertion, bounded steps, equipment pickup/drop, semantic quick-access selection, familiar material stacks with partial local-storage transfer, and access checks. |
+| Logistics | Fixed-point body/carrying, 20 Hz locomotion/collision, load-scaled exertion, bounded steps, equipment pickup/drop, nine-slot semantic hotbar, carried/local inventory projection, stack transfer, and access checks. |
 | Loose surface matter | Finite local gathering/drop records with reservation, survival cost, depletion, cleanup, and conservation. Carried-material drops preserve physical profile, provenance, and storage age with a short self-pickup delay. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure physics plus grounded hand-setting from exact material. |
-| Block world | Mass-backed chunks, neighborhood demand, full-cube collision, 4.5 m targeting, 20 Hz excavation, semantic equipment/material selection, conserved fragment custody, selected-food use, and pointed-face storage placement. Generic terrain placement, hotbar/container UI, richer shapes, and residency remain absent. |
+| Block world | Mass-backed chunks, neighborhood demand, collision, 4.5 m targeting, 20 Hz excavation, conserved fragments, selected use/drop, storage placement, and inventory/hotbar core shell. Adapter UI, general placement, richer shapes, and residency remain absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
@@ -72,7 +72,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Wilderness opening | Travel beyond the bounded graph, shelter/weather, light, and one continuous empty-inventory first-day loop. The graph is not pathfinding, hydrology, climate, or enclosure simulation. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Residency, indexing, height/light summaries, placement/updates, partial shapes, geology/biome/ecology, and clue discovery. Terrain demand, locomotion, targeting, and conserved partial excavation exist. |
-| Logistics | General access generation, multi-step routing, haulage, delivery/transport, remote acquisition, container/hotbar presentation, fluid transport, and mounted-production geometry. |
+| Logistics | General access generation, routing/haulage/transport, remote acquisition, adapter inventory UI, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Regional generation, voxel ore topology, deep/laboratory/geophysical exploration, mechanized excavation, mine access, drainage, ground control, and waste/tailings logistics. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, general combustion/fuel chemistry/emissions, mixed/alloy phases, reduction/smelting, alloying, forging, machining, and broad recycling. The campfire is not a general combustion or atmospheric model. |
 | Maintenance/structures | Maintenance tools, construction/deconstruction/salvage, bending, shear, torsion, buckling, joints/panels, and terrain support. |

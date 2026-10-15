@@ -4,6 +4,7 @@ use crate::core::state::AppState;
 use crate::inventory::{StorageDefinitionId, validate_place_player_storage_at};
 use crate::logistics::{
     PlayerActiveSelection, player_body_occupies_voxel, validate_drop_equipment,
+    validate_select_quick_access_slot,
 };
 use crate::registry::Registries;
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
@@ -14,7 +15,8 @@ use crate::world::{
 
 use super::control::{PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent};
 use super::outcome::{
-    ActiveSelectionDropOutcome, DirectActionOutcomes, PrimaryActionOutcome, SecondaryActionOutcome,
+    ActiveSelectionDropOutcome, DirectActionOutcomes, PrimaryActionOutcome,
+    QuickAccessSelectionOutcome, SecondaryActionOutcome,
 };
 
 pub(super) fn attempt_direct_actions(
@@ -22,6 +24,7 @@ pub(super) fn attempt_direct_actions(
     state: &mut AppState,
     input: PlayerDirectControlInput,
 ) -> DirectActionOutcomes {
+    let quick_access = attempt_quick_access_selection(state, input.quick_access_slot());
     let primary = if state.player_work().active().is_none() {
         attempt_primary_action(registries, state, input.primary())
     } else {
@@ -33,7 +36,28 @@ pub(super) fn attempt_direct_actions(
         None
     };
     let drop = attempt_active_selection_drop(registries, state, input.drop_active_selection());
-    DirectActionOutcomes::new(primary, secondary, drop)
+    DirectActionOutcomes::new(quick_access, primary, secondary, drop)
+}
+
+fn attempt_quick_access_selection(
+    state: &mut AppState,
+    requested: Option<crate::logistics::PlayerQuickAccessSlot>,
+) -> Option<QuickAccessSelectionOutcome> {
+    let slot = requested?;
+    Some(match validate_select_quick_access_slot(state, slot) {
+        Ok(validated) => {
+            validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous quick-access selection became stale: {error}"
+                )
+            });
+            QuickAccessSelectionOutcome::Selected {
+                slot,
+                selection: state.logistics().active_selection(),
+            }
+        }
+        Err(error) => QuickAccessSelectionOutcome::Rejected(error),
+    })
 }
 
 fn attempt_primary_action(

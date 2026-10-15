@@ -10,8 +10,8 @@ mod player_death;
 pub use control::{PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent};
 pub use error::TickError;
 pub use outcome::{
-    ActiveSelectionDropOutcome, ControlTickOutcome, PrimaryActionOutcome, SecondaryActionOutcome,
-    TickOutcome,
+    ActiveSelectionDropOutcome, ControlTickOutcome, PrimaryActionOutcome,
+    QuickAccessSelectionOutcome, SecondaryActionOutcome, TickOutcome,
 };
 
 use crate::core::state::{

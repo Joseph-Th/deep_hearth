@@ -14,8 +14,8 @@ use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralElementId, StructureState};
 
 use super::{
-    LogisticsState, PlayerActiveSelection, TraversalEdge, first_player_body_collision,
-    player_body_fits_continuous_world,
+    LogisticsState, PlayerActiveSelection, PlayerQuickAccessSlot, TraversalEdge,
+    first_player_body_collision, player_body_fits_continuous_world,
 };
 
 /// Persistent-state validation failure for player logistics.
@@ -70,12 +70,23 @@ pub enum LogisticsValidationError {
     CarriedEquipmentRequiresSupport {
         equipment: EquipmentId,
     },
-    ActiveEquipmentNotCarried {
+    QuickAccessSlotOutOfRange {
+        slot: u8,
+    },
+    QuickAccessSelectionWithoutPlayer {
+        slot: PlayerQuickAccessSlot,
+    },
+    QuickAccessEquipmentNotCarried {
+        slot: PlayerQuickAccessSlot,
         equipment: EquipmentId,
     },
-    ActiveSelectionWithoutPlayer,
-    ActiveMaterialUnsupported {
+    QuickAccessMaterialUnsupported {
+        slot: PlayerQuickAccessSlot,
         commodity: CommodityKey,
+    },
+    DuplicateQuickAccessSelection {
+        first: PlayerQuickAccessSlot,
+        second: PlayerQuickAccessSlot,
     },
     EquipmentOutsideSupport {
         equipment: EquipmentId,
@@ -201,19 +212,33 @@ impl Display for LogisticsValidationError {
                 "equipment {} requires structural support and cannot be player-carried",
                 equipment.value()
             ),
-            Self::ActiveEquipmentNotCarried { equipment } => write!(
+            Self::QuickAccessSlotOutOfRange { slot } => write!(
                 formatter,
-                "active equipment {} is not in player-carried custody",
+                "active quick-access slot {slot} is outside the nine-slot bar"
+            ),
+            Self::QuickAccessSelectionWithoutPlayer { slot } => write!(
+                formatter,
+                "quick-access slot {} has a selection without an admitted logistics player",
+                slot.value()
+            ),
+            Self::QuickAccessEquipmentNotCarried { slot, equipment } => write!(
+                formatter,
+                "quick-access slot {} references equipment {} outside player-carried custody",
+                slot.value(),
                 equipment.value()
             ),
-            Self::ActiveSelectionWithoutPlayer => {
-                formatter.write_str("active selection exists without an admitted logistics player")
-            }
-            Self::ActiveMaterialUnsupported { commodity } => write!(
+            Self::QuickAccessMaterialUnsupported { slot, commodity } => write!(
                 formatter,
-                "active material {} form {} is not an authored commodity",
+                "quick-access slot {} references material {} form {} which is not an authored commodity",
+                slot.value(),
                 commodity.material().value(),
                 commodity.form().value()
+            ),
+            Self::DuplicateQuickAccessSelection { first, second } => write!(
+                formatter,
+                "quick-access slots {} and {} reference the same semantic selection",
+                first.value(),
+                second.value()
             ),
             Self::EquipmentOutsideSupport {
                 equipment,
@@ -331,6 +356,10 @@ fn validate_revision(state: &LogisticsState) -> Result<(), LogisticsValidationEr
     let populated = state.player().is_some()
         || state.traversable_edges().next().is_some()
         || state.carried_equipment().next().is_some()
+        || state
+            .quick_access_slots()
+            .any(|(_, selection)| selection.is_some())
+        || state.active_quick_access_slot() != PlayerQuickAccessSlot::FIRST
         || state.stockpile_locations().next().is_some()
         || state.equipment_locations().next().is_some()
         || state.energy_store_locations().next().is_some()
@@ -423,26 +452,52 @@ fn validate_carried_equipment(
     Ok(())
 }
 
-fn validate_active_selection(
+fn validate_quick_access(
     registries: &Registries,
     state: &LogisticsState,
 ) -> Result<(), LogisticsValidationError> {
-    let Some(selection) = state.active_selection() else {
-        return Ok(());
-    };
-    if state.player().is_none() {
-        return Err(LogisticsValidationError::ActiveSelectionWithoutPlayer);
+    let active = state.active_quick_access_slot();
+    if !active.is_valid() {
+        return Err(LogisticsValidationError::QuickAccessSlotOutOfRange {
+            slot: active.value(),
+        });
     }
-    match selection {
-        PlayerActiveSelection::Equipment(equipment) => {
-            if !state.is_equipment_carried(equipment) {
-                return Err(LogisticsValidationError::ActiveEquipmentNotCarried { equipment });
+
+    let slots = state.quick_access_slots().collect::<Vec<_>>();
+    for (index, (slot, selection)) in slots.iter().copied().enumerate() {
+        let Some(selection) = selection else {
+            continue;
+        };
+        if state.player().is_none() {
+            return Err(LogisticsValidationError::QuickAccessSelectionWithoutPlayer { slot });
+        }
+        match selection {
+            PlayerActiveSelection::Equipment(equipment) => {
+                if !state.is_equipment_carried(equipment) {
+                    return Err(LogisticsValidationError::QuickAccessEquipmentNotCarried {
+                        slot,
+                        equipment,
+                    });
+                }
+            }
+            PlayerActiveSelection::Material(commodity) => {
+                if !registries.materials().has_commodity(commodity) {
+                    return Err(LogisticsValidationError::QuickAccessMaterialUnsupported {
+                        slot,
+                        commodity,
+                    });
+                }
             }
         }
-        PlayerActiveSelection::Material(commodity) => {
-            if !registries.materials().has_commodity(commodity) {
-                return Err(LogisticsValidationError::ActiveMaterialUnsupported { commodity });
-            }
+        if let Some((duplicate_slot, _)) = slots[index + 1..]
+            .iter()
+            .copied()
+            .find(|(_, other)| *other == Some(selection))
+        {
+            return Err(LogisticsValidationError::DuplicateQuickAccessSelection {
+                first: slot,
+                second: duplicate_slot,
+            });
         }
     }
     Ok(())
@@ -573,7 +628,7 @@ pub(crate) fn validate_loaded_logistics(
     validate_traversal_edges(state)?;
     validate_player_custody(state, app.inventory())?;
     validate_carried_equipment(state, app.equipment(), registries.equipment())?;
-    validate_active_selection(registries, state)?;
+    validate_quick_access(registries, state)?;
     validate_stockpile_locations(state, app.inventory(), app.structures())?;
     validate_equipment_locations(state, app.equipment(), app.structures())?;
     validate_energy_store_locations(state, app.energy())?;

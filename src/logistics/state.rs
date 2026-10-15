@@ -27,6 +27,43 @@ pub(crate) struct LocomotionExertionAccumulator {
     hydration_remainder: u8,
 }
 
+/// Familiar fixed quick-access bar width.
+pub const PLAYER_QUICK_ACCESS_SLOT_COUNT: usize = 9;
+
+/// Stable zero-based quick-access slot identity.
+///
+/// The field stays private so ordinary callers cannot construct an out-of-range slot. Trusted-load
+/// validation still checks decoded values because persistence is untrusted until promotion.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PlayerQuickAccessSlot(u8);
+
+impl PlayerQuickAccessSlot {
+    pub const FIRST: Self = Self(0);
+
+    #[must_use]
+    pub const fn new(index: u8) -> Option<Self> {
+        if index < PLAYER_QUICK_ACCESS_SLOT_COUNT as u8 {
+            Some(Self(index))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+
+    pub(crate) const fn is_valid(self) -> bool {
+        self.0 < PLAYER_QUICK_ACCESS_SLOT_COUNT as u8
+    }
+}
+
 /// Persisted quick-access selection for the player's direct-action hand.
 ///
 /// Equipment references canonical carried equipment identity. Material references a semantic
@@ -149,7 +186,8 @@ pub struct LogisticsState {
     player: Option<PlayerLogisticsRecord>,
     traversable_edges: Vec<TraversalEdge>,
     carried_equipment: Vec<EquipmentId>,
-    active_selection: Option<PlayerActiveSelection>,
+    quick_access_slots: [Option<PlayerActiveSelection>; PLAYER_QUICK_ACCESS_SLOT_COUNT],
+    active_quick_access_slot: PlayerQuickAccessSlot,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -168,7 +206,8 @@ impl LogisticsState {
             player: None,
             traversable_edges: Vec::new(),
             carried_equipment: Vec::new(),
-            active_selection: None,
+            quick_access_slots: [None; PLAYER_QUICK_ACCESS_SLOT_COUNT],
+            active_quick_access_slot: PlayerQuickAccessSlot::FIRST,
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
@@ -229,12 +268,42 @@ impl LogisticsState {
         self.carried_equipment.iter().copied()
     }
 
-    /// Returns the persisted player quick-access selection.
+    /// Returns the selection bound to one persisted quick-access slot.
+    #[must_use]
+    pub fn quick_access_slot(&self, slot: PlayerQuickAccessSlot) -> Option<PlayerActiveSelection> {
+        self.quick_access_slots[slot.index()]
+    }
+
+    /// Iterates all nine persisted quick-access slots in familiar left-to-right order.
+    pub fn quick_access_slots(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (PlayerQuickAccessSlot, Option<PlayerActiveSelection>)> + '_
+    {
+        self.quick_access_slots
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, selection)| {
+                let index = u8::try_from(index)
+                    .unwrap_or_else(|_| unreachable!("quick-access slot index fits u8"));
+                let slot = PlayerQuickAccessSlot::new(index)
+                    .unwrap_or_else(|| unreachable!("quick-access array uses authored slot count"));
+                (slot, selection)
+            })
+    }
+
+    /// Returns the persisted currently selected quick-access slot.
+    #[must_use]
+    pub const fn active_quick_access_slot(&self) -> PlayerQuickAccessSlot {
+        self.active_quick_access_slot
+    }
+
+    /// Returns the current direct-action selection from the selected quick-access slot.
     ///
     /// This is a reference into canonical carried custody, never a second item/matter container.
     #[must_use]
-    pub const fn active_selection(&self) -> Option<PlayerActiveSelection> {
-        self.active_selection
+    pub fn active_selection(&self) -> Option<PlayerActiveSelection> {
+        self.quick_access_slot(self.active_quick_access_slot)
     }
 
     /// Iterates equipment present at the admitted player's voxel in stable equipment-ID order.
@@ -282,7 +351,8 @@ impl LogisticsState {
             && self.player.is_none()
             && self.traversable_edges.is_empty()
             && self.carried_equipment.is_empty()
-            && self.active_selection.is_none()
+            && self.quick_access_slots.iter().all(Option::is_none)
+            && self.active_quick_access_slot == PlayerQuickAccessSlot::FIRST
             && self.stockpile_locations.is_empty()
             && self.equipment_locations.is_empty()
             && self.energy_store_locations.is_empty()
@@ -516,10 +586,11 @@ impl LogisticsState {
         self.revision = next_revision;
     }
 
-    pub(super) fn apply_active_selection(
+    pub(super) fn apply_quick_access_binding(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
+        slot: PlayerQuickAccessSlot,
         selection: Option<PlayerActiveSelection>,
     ) {
         assert_eq!(self.revision, expected_revision);
@@ -528,6 +599,7 @@ impl LogisticsState {
             self.player.is_some(),
             "active selection requires a logistics player"
         );
+        assert!(slot.is_valid(), "quick-access slot must be in range");
         assert!(
             selection.is_none_or(|selection| match selection {
                 PlayerActiveSelection::Equipment(equipment) => self.is_equipment_carried(equipment),
@@ -535,7 +607,31 @@ impl LogisticsState {
             }),
             "active selection must reference canonical carried custody"
         );
-        self.active_selection = selection;
+        if let Some(selection) = selection {
+            for existing in &mut self.quick_access_slots {
+                if *existing == Some(selection) {
+                    *existing = None;
+                }
+            }
+        }
+        self.quick_access_slots[slot.index()] = selection;
+        self.revision = next_revision;
+    }
+
+    pub(super) fn apply_active_quick_access_slot(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        slot: PlayerQuickAccessSlot,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            self.player.is_some(),
+            "quick-access selection requires a logistics player"
+        );
+        assert!(slot.is_valid(), "quick-access slot must be in range");
+        self.active_quick_access_slot = slot;
         self.revision = next_revision;
     }
 
@@ -553,8 +649,10 @@ impl LogisticsState {
             Err(_) => panic!("validated equipment drop requires carried custody"),
         };
         self.carried_equipment.remove(index);
-        if self.active_selection == Some(PlayerActiveSelection::Equipment(equipment)) {
-            self.active_selection = None;
+        for selection in &mut self.quick_access_slots {
+            if *selection == Some(PlayerActiveSelection::Equipment(equipment)) {
+                *selection = None;
+            }
         }
         assert!(
             self.equipment_locations
