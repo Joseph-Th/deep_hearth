@@ -50,7 +50,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Crafting | Carried recipe/batch crafting selects exact lots privately; meaningful stack choice stays explicit. |
 | Logistics | Fixed-point body/carrying, 20 Hz locomotion/collision, load-scaled exertion, bounded steps, equipment pickup/drop, nine-slot hotbar, carried/local inventory+equipment projection, max-fit quick-move, and access checks. |
 | Loose surface matter | Finite gathering/drop custody; exact-local drop projection; partial capacity-filling auto-pickup; natural opportunities stay deliberate. |
-| Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
+| Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local heat affects warmth. Fluids support local exact withdrawal, finite opening water, and empty-hand drinking. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; stack-based setting/posts; primary-break exact-matter recovery of isolated grounded members. |
 | Block world | Mass-backed chunks, demand, collision, 4.5 m targeting, 20 Hz excavation, conserved fragments, selected use/drop, storage/post placement, and inventory/hotbar shell. Adapter UI, general placement, richer shapes, and residency remain absent. |

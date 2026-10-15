@@ -23,6 +23,21 @@ def wilderness_summary(lines: list[str]) -> str | None:
     ]
     if not experiences:
         return None
+    direct_use_lines = [
+        line for line in lines if line.startswith("WILDERNESS DIRECT USE ")
+    ]
+    if len(direct_use_lines) > 1:
+        raise ValueError("wilderness report has multiple direct-use witnesses")
+    direct_use = ""
+    if direct_use_lines:
+        direct_use = (
+            "direct-use=["
+            + compact_fields(
+                direct_use_lines[0],
+                ("route-steps", "input", "water", "hydration", "timed"),
+            )
+            + "]"
+        )
     maintained = [line for line in experiences if " sample=maintained " in line]
     coverage = [line for line in experiences if " sample=coverage " in line]
     organic = [line for line in experiences if " sample=organic " in line]
@@ -222,6 +237,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"ORDINARY SUMMARY probe=wilderness samples={len(experiences)} "
         f"sample-shape=[{sample_shape}] "
         f"{baseline} "
+        f"{direct_use + ' ' if direct_use else ''}"
         f"pressure-route=[steps:{pressure_steps.group(1)} water:visited "
         f"consumed:{pressure_drink.group(1)}uL] "
         f"{resource_runway} "

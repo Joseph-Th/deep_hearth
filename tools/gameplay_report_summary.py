@@ -151,6 +151,7 @@ def settlement_specialization_summary(
 _ORDINARY_DIGEST_FIELDS = {
     "wilderness": (
         "movement",
+        "direct-use",
         "pressure-route",
         "resource-runway",
         "camp-goals",

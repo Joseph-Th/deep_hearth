@@ -23,7 +23,9 @@ use crate::surface::{
     PlayerMaterialDropError, PlayerMaterialDropOutcome, SurfaceDropPickupOutcome,
     SurfaceGatheringOutcome,
 };
-use crate::survival::{EatOutcome, EatStackToTargetError, SurvivalAssessment};
+use crate::survival::{
+    DrinkOutcome, DrinkStoreToTargetError, EatOutcome, EatStackToTargetError, SurvivalAssessment,
+};
 use crate::world::{
     BlockExcavationError, BlockExcavationOutcome, BlockExcavationStartOutcome, BlockStateId,
     PlayerBlockTargetError,
@@ -57,6 +59,7 @@ pub enum QuickAccessSelectionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SecondaryActionOutcome {
     EatingStarted(EatOutcome),
+    DrinkingStarted(DrinkOutcome),
     StructuralConstructionStarted(StructuralConstructionWork),
     StoragePlaced {
         definition: StorageDefinitionId,
@@ -113,8 +116,12 @@ pub enum SecondaryActionOutcome {
     AmbiguousStorageDefinitions {
         count: usize,
     },
+    AmbiguousLocalDrinkSources {
+        count: usize,
+    },
     MaterialNotContextual,
     EatingRejected(EatStackToTargetError),
+    DrinkingRejected(DrinkStoreToTargetError),
 }
 
 /// Observable result of a one-step request to drop the active quick-access selection.

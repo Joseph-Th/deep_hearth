@@ -66,6 +66,7 @@ Foundational blockers:
 - held excavation now admits, progresses, completes, and chains canonical timed batches on the 20 Hz control
   clock while preserving authored mining costs; secondary hotbar use can consume one unambiguous selected food
   commodity, while an explicit projected stack can select among visible freshness cohorts without exposing lot IDs;
+  with empty hands, secondary use drinks from exactly one co-located finite drinkable store and rejects ambiguous local sources;
   secondary use can also place an authored finished storage object into generated air adjacent to the pointed face, with body/object
   overlap rejection; an unambiguous carried wood-log stack can likewise set one authored timber post on the top face
   of adjacent generated terrain through atomic timed hand-setting. Primary break targets a visible structure before
@@ -506,8 +507,8 @@ require enough content to exercise the substrate through the same recognizable f
 | Make basic tools | Inventory/crafting table recipes | Familiar recipe action over exact material transformations | `GAP-P0` shell, crafting owner exists |
 | Carry items | Hotbar/inventory stacks | Hotbar/stacks projected over exact mass custody | `GAP-P0` shell |
 | Store items | Chest | Material-backed container with slot-like UI and mass/storage constraints | `GAP-P0` shell, storage owner exists |
-| Eat | Hold/use food | Contextual use with human-scale serving | `PARITY+` owner, input shell absent |
-| Drink | Vanilla has no hydration requirement | Local source/container use | `PARITY+` depth, input shell absent |
+| Eat | Hold/use food | Contextual selected-food use with human-scale serving | `PARITY+` core verb; adapter absent |
+| Drink | Vanilla has no hydration requirement | Empty-hand use of one local finite drink source | `PARITY+` core verb; adapter absent |
 | Survive night/environment | Light, shelter-ish construction, hostile mobs | Darkness, weather/thermal exposure, shelter, fire, basic threat | `GAP-P1` |
 | Place shelter blocks | Right-click blocks into world | Contextual placement plus structural consequences | `GAP-P0` |
 | Use fire | Furnace/campfire/torches | Exact fuel/heat plus cooking/light/warmth | `PARITY+` heat core, `GAP-P1` world effects |

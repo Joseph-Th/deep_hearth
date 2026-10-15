@@ -21,7 +21,9 @@ use crate::structural::{
     validate_start_player_structural_dismantling,
 };
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
-use crate::survival::validate_eat_stack_to_full;
+use crate::survival::{
+    available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
+};
 use crate::world::{
     BlockStateId, PlayerBlockTargetError, raycast_player_air_voxel, raycast_player_block,
     validate_start_player_block_excavation_active,
@@ -96,7 +98,33 @@ fn attempt_secondary_action(
     match intent {
         SecondaryControlIntent::UseActive { direction } => {
             let Some(selection) = state.logistics().active_selection() else {
-                return Some(SecondaryActionOutcome::NoActiveSelection);
+                let sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
+                let source = match sources.as_slice() {
+                    [] => return Some(SecondaryActionOutcome::NoActiveSelection),
+                    [source] => *source,
+                    sources => {
+                        return Some(SecondaryActionOutcome::AmbiguousLocalDrinkSources {
+                            count: sources.len(),
+                        });
+                    }
+                };
+                if !state.control_tick().is_simulation_boundary() {
+                    return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
+                }
+                return Some(
+                    match validate_drink_store_to_full(registries, state, source.store()) {
+                        Ok(Some(validated)) => {
+                            let outcome = validated.commit(state).unwrap_or_else(|error| {
+                            panic!(
+                                "runtime invariant broken: synchronous local-drink use became stale: {error}"
+                            )
+                        });
+                            SecondaryActionOutcome::DrinkingStarted(outcome)
+                        }
+                        Ok(None) => SecondaryActionOutcome::AlreadySatisfied,
+                        Err(error) => SecondaryActionOutcome::DrinkingRejected(error),
+                    },
+                );
             };
             let commodity = match selection {
                 PlayerActiveSelection::Equipment(_) => {

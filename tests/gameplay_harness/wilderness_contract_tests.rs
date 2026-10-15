@@ -43,8 +43,13 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::advance_tick;
-use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
+use deep_hearth::simulation::{
+    PlayerDirectControlInput, SecondaryActionOutcome, SecondaryControlIntent,
+    advance_control_tick_with_direct_input, advance_tick,
+};
+use deep_hearth::spatial::{
+    VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelBounds, VoxelCoord,
+};
 use deep_hearth::structural::{
     GroundedStructuralElementPlan, PrismaticMemberLoadRequest, StructuralElementGeometry,
     StructuralLifecycle, StructuralLoadKind, project_prismatic_member_load,
@@ -120,6 +125,110 @@ impl WildernessStartProfile {
             Self::HungerPressure => "hunger-pressure",
             Self::HydrationPressure => "hydration-pressure",
         }
+    }
+}
+
+fn assert_generated_wilderness_water_is_directly_usable_with_empty_hands() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_initial_wilderness(
+        &registries,
+        &state,
+        WILDERNESS_WORLD_SEED,
+        STATIONARY_PLAYER_ORIGIN,
+    )
+    .unwrap_or_else(|error| panic!("direct-water wilderness generation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("direct-water wilderness generation commit failed: {error}"));
+    let _ = admit_player_at_hydration_warning_boundary(
+        &registries,
+        &mut state,
+        STATIONARY_PLAYER_ORIGIN,
+    );
+    assert_eq!(state.logistics().active_selection(), None);
+
+    let forage = adjacent_surface_resource(&state, CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD));
+    step_to(
+        &registries,
+        &mut state,
+        forage.position(),
+        "direct-water forage approach",
+    );
+    let water = adjacent_drinkable_source(&registries, &state);
+    step_to(
+        &registries,
+        &mut state,
+        water.position(),
+        "direct-water source approach",
+    );
+    let local = available_local_drink_sources(&registries, &state).collect::<Vec<_>>();
+    assert_eq!(local.len(), 1);
+    assert_eq!(local[0].store(), water.store());
+    let water_before = state
+        .fluid()
+        .get_store(water.store())
+        .map(|store| store.stored_volume())
+        .unwrap_or_else(|| panic!("direct-water source disappeared before use"));
+    let hydration_before = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("direct-water actor disappeared before use"))
+        .hydration();
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
+        .unwrap_or_else(|error| panic!("direct-water view direction failed: {error}"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(direction));
+
+    let started = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("direct-water control failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => break *outcome,
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary) | None => {}
+            other => panic!("direct-water returned unexpected outcome: {other:?}"),
+        }
+    };
+    assert_eq!(started.store(), water.store());
+    assert!(!started.volume().is_zero());
+    assert_eq!(
+        state
+            .fluid()
+            .get_store(water.store())
+            .map(|store| store.stored_volume()),
+        water_before.checked_sub(started.volume()),
+        "empty-hand direct use must withdraw exactly the admitted finite water volume"
+    );
+    assert!(matches!(
+        state.player_work().active(),
+        Some(PlayerWork::Drinking { work }) if work.volume() == started.volume()
+    ));
+    advance_to(
+        &registries,
+        &mut state,
+        started.completes_at(),
+        TickEventAllowance::default(),
+        "direct-water drinking",
+    );
+    let hydration_after = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("direct-water actor disappeared after use"))
+        .hydration();
+    assert!(
+        hydration_after > hydration_before,
+        "timed direct drinking should improve the actor's hydration"
+    );
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
+        let water_after = state
+            .fluid()
+            .get_store(water.store())
+            .map(|store| store.stored_volume())
+            .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
+        std::println!(
+            "WILDERNESS DIRECT USE seed=0x{:016X} route-steps=2 input=empty-hand-secondary water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            WILDERNESS_WORLD_SEED.value(),
+            water_before.microliters(),
+            started.volume().microliters(),
+            water_after.microliters(),
+            hydration_before.microliters(),
+            hydration_after.microliters(),
+        );
     }
 }
 
@@ -2337,6 +2446,7 @@ pub(super) fn run_wilderness_report() {
 
 #[test]
 fn generated_wilderness_opening_stabilizes_without_premature_investment() {
+    assert_generated_wilderness_water_is_directly_usable_with_empty_hands();
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         run_wilderness_report();
     } else {

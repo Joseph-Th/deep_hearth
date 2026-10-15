@@ -2,21 +2,22 @@
 
 use super::*;
 use crate::content::{
-    BLOCK_STATE_STONE, FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY,
+    BLOCK_STATE_STONE, FLUID_WATER, FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY,
     MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
     SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
-use crate::core::quantity::{Energy, Mass, Temperature};
+use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
 use crate::core::time::{SimulationTick, TickSpan};
+use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{StockpileStorageError, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    PlayerActiveSelection, add_traversable_edge_for_test, validate_set_active_selection,
-    validate_start_player_step,
+    PlayerActiveSelection, add_traversable_edge_for_test, validate_place_fluid_store,
+    validate_set_active_selection, validate_start_player_step,
 };
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::matter::calculate_matter_accounting;
@@ -253,6 +254,98 @@ fn held_secondary_use_composes_selected_food_without_exposing_lot_identity() {
         state.player_work().active(),
         Some(crate::labor::PlayerWork::Eating { .. })
     ));
+}
+
+#[test]
+fn empty_hand_secondary_use_drinks_from_one_finite_local_source() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let _carried = admit_player(&registries, &mut state, position);
+    let source_volume = Volume::from_microliters(1_000_000);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        source_volume,
+        FLUID_WATER,
+        source_volume,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("direct-drink water fixture failed: {error}"));
+    validate_place_fluid_store(&state, water, position)
+        .unwrap_or_else(|error| panic!("direct-drink water placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("direct-drink water placement commit failed: {error}"));
+    assert_eq!(state.logistics().active_selection(), None);
+
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+    let started = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("direct-drink control failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => break *outcome,
+            Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary)
+            | Some(SecondaryActionOutcome::AlreadySatisfied)
+            | None => {}
+            other => panic!("direct-drink returned unexpected outcome: {other:?}"),
+        }
+    };
+    assert!(!started.volume().is_zero());
+    assert_eq!(started.store(), water);
+    assert_eq!(
+        state
+            .fluid()
+            .get_store(water)
+            .and_then(|store| store.contents())
+            .map(|contents| contents.volume()),
+        source_volume.checked_sub(started.volume())
+    );
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::Drinking { work }) if work.volume() == started.volume()
+    ));
+}
+
+#[test]
+fn empty_hand_secondary_use_refuses_ambiguous_local_drink_sources() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let _carried = admit_player(&registries, &mut state, position);
+    let source_volume = Volume::from_microliters(1_000_000);
+    for _ in 0..2 {
+        let store = add_fluid_store_with_contents_for_fixture(
+            &registries,
+            &mut state,
+            source_volume,
+            FLUID_WATER,
+            source_volume,
+            TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("ambiguous direct-drink water fixture failed: {error}"));
+        validate_place_fluid_store(&state, store, position)
+            .unwrap_or_else(|error| {
+                panic!("ambiguous direct-drink water placement failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("ambiguous direct-drink water placement commit failed: {error}")
+            });
+    }
+    let before = state.clone();
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+
+    let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("ambiguous direct-drink control failed: {error}"));
+
+    assert_eq!(
+        control.secondary_action(),
+        Some(&SecondaryActionOutcome::AmbiguousLocalDrinkSources { count: 2 })
+    );
+    assert_eq!(state.fluid(), before.fluid());
+    assert_eq!(state.player_work().active(), None);
 }
 
 #[test]
