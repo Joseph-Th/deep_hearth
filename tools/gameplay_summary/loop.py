@@ -299,14 +299,19 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         and " provisioning=[" in line
         for line in evidence.wilderness
     )
+    mobile_wilderness = [
+        line for line in evidence.wilderness if " goal=stay-mobile " in line
+    ]
     rational_mobility = sum(
         " storage-choice=[selected:defer " in line
         and " tool-choice=[selected:defer " in line
-        and " goal=stay-mobile " in line
-        for line in evidence.wilderness
+        for line in mobile_wilderness
     )
+    camp_projects = [
+        line for line in evidence.wilderness if " goal=stay-mobile " not in line
+    ]
     camp_leverage = 0
-    for line in evidence.wilderness:
+    for line in camp_projects:
         project = re.search(
             r"\bcamp-project=\[.*?\blogistics-steps:(\d+) "
             r"source:(\d+)mg->(\d+)mg",
@@ -369,10 +374,14 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         exact_local_progression = (
             f" generated-exact-local-progression-campaigns:{completed}/{len(evidence.progression_local_campaigns)}"
         )
-    delegated_orders = sum(
-        (match := re.search(r"\bdelegated:(\d+)t", line)) is not None
-        and int(match.group(1)) > 0
+    mechanized_settlement = [
+        line
         for line in evidence.settlement
+        if " choice:sash-sawmill " in line or " route:sash-sawmill " in line
+    ]
+    delegated_orders = sum(
+        any(int(value) > 0 for value in re.findall(r"\bdelegated:(\d+)t", line))
+        for line in mechanized_settlement
     )
     electrical_foundries = sum(
         " foundry-build=true " in line
@@ -414,13 +423,13 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
     return (
         "agency-growth=["
         f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
-        f"rational-mobility:{rational_mobility}/{len(evidence.wilderness)} "
-        f"camp-leverage:{camp_leverage}/{len(evidence.wilderness)} "
+        f"rational-mobility:{_conditional_ratio(rational_mobility, len(mobile_wilderness))} "
+        f"camp-leverage:{_conditional_ratio(camp_leverage, len(camp_projects))} "
         f"{worksite_construction_evidence}"
         f"{worksite_warmth_evidence}"
         f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
-        f"delegated-settlement-orders:{delegated_orders}/{len(evidence.settlement)} "
-        f"electrical-foundry:{electrical_foundries}/{foundry_builds}"
+        f"delegated-settlement-orders:{_conditional_ratio(delegated_orders, len(mechanized_settlement))} "
+        f"electrical-foundry:{_conditional_ratio(electrical_foundries, foundry_builds)}"
         f"{exact_local_progression}{exact_local}{generated_exact_local}{exact_local_depletion}]"
     )
 
@@ -446,6 +455,10 @@ def _attention_saved_span(progression: list[str]) -> str:
         if (match := re.search(r"\bsaved:(\d+)t", line)) is not None
     ]
     return f"{min(values)}..{max(values)}t" if values else "n/a"
+
+
+def _conditional_ratio(success: int, eligible: int) -> str:
+    return f"{success}/{eligible}" if eligible else "n/a"
 
 
 def _fieldwork_extracted(fieldwork: list[str]) -> int:
@@ -593,10 +606,14 @@ def _delegate_reinvest_evidence(
         if autonomous_room
         else "n/a"
     )
-    settlement_delegated = sum(
-        (match := re.search(r"\bdelegated:(\d+)t", line)) is not None
-        and int(match.group(1)) > 0
+    mechanized_settlement = [
+        line
         for line in settlement
+        if " choice:sash-sawmill " in line or " route:sash-sawmill " in line
+    ]
+    settlement_delegated = sum(
+        any(int(value) > 0 for value in re.findall(r"\bdelegated:(\d+)t", line))
+        for line in mechanized_settlement
     )
     settlement_reinvested = sum(" reinvested:true " in line for line in settlement)
     settlement_reused = sum(
@@ -608,7 +625,7 @@ def _delegate_reinvest_evidence(
     delegate = (
         "delegate=["
         f"mechanized-processing:{mechanized}/{len(progression)} "
-        f"settlement-orders:{settlement_delegated}/{len(settlement)} "
+        f"settlement-orders:{_conditional_ratio(settlement_delegated, len(mechanized_settlement))} "
         f"order-attention-saved:{_attention_saved_span(progression)} "
         "stockpile-alt=[selected:false "
         f"overlap:{overlap_span} open:{room_span}]]"
@@ -677,10 +694,10 @@ def _survival_adaptation_evidence(
         "short-expedition=["
         f"serving-floor:{serving_floor} "
         f"followup-surveys:{followup_surveys}/{len(survival)} "
-        f"continuations:{continuations}/{followup_surveys} "
-        f"followup-drinks:{followup_drinks}/{followup_surveys} "
-        f"stored-work:{executed_power}/{opportunity_power} "
-        f"power-drinks:{power_drinks}/{opportunity_power} "
+        f"continuations:{_conditional_ratio(continuations, followup_surveys)} "
+        f"followup-drinks:{_conditional_ratio(followup_drinks, followup_surveys)} "
+        f"stored-work:{_conditional_ratio(executed_power, opportunity_power)} "
+        f"power-drinks:{_conditional_ratio(power_drinks, opportunity_power)} "
         f"policy:task-floor{task_floor}/working-reserve{working_reserve}] "
         f"sustained-project-provisioning=[breaks:{sum(value > 0 for value in project_breaks)}/{len(project_breaks)} "
         f"events:{sum(project_breaks)} drinks:{sum(project_drinks)} meals:{sum(project_meals)}] "

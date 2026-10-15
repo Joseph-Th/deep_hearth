@@ -72,12 +72,13 @@ impl SurvivalAssessment {
         self.diet_quality_ppm
     }
 
-    /// Returns the current whole-ppm per-tick vitality recovery supported by recent dietary balance,
-    /// rounded to the nearest ppm for presentation.
+    /// Returns a coarse whole-ppm per-tick vitality-recovery signal supported by recent dietary
+    /// balance, rounded to the nearest ppm for presentation.
     ///
+    /// The survival owner still accumulates sub-ppm recovery exactly; this read surface avoids
+    /// implying that tiny fractional differences are automatically meaningful player decisions.
     /// Recovery still requires the player to remain above the authored hunger and thirst warning
-    /// thresholds. Exposing the rate here makes the practical consequence of diet quality available
-    /// to UI and gameplay policy without duplicating survival-owner arithmetic.
+    /// thresholds and at or above the thermal-comfort warning threshold.
     #[must_use]
     pub const fn diet_supported_vitality_recovery_ppm_per_tick(self) -> u32 {
         self.diet_supported_vitality_recovery_ppm_per_tick

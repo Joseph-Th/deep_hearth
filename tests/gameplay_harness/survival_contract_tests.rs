@@ -14,10 +14,6 @@ use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::{CommoditySource, CommodityUse};
 
-use super::focused_case::FocusedProbeRole;
-use super::focused_seeds::{
-    EXPLORATORY_VARIATION_COUNT, FocusedProbeSeedPlan, focused_probe_cases_from,
-};
 use super::focused_witnesses::{
     SURVIVAL_DECLINE_COVERAGE_SEED, SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED,
     SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
@@ -31,9 +27,7 @@ use super::survival_probe::preservation_evaluation::{
     project_preservation_candidates_with_raw_opportunity, select_preservation_projection,
     select_preservation_projection_for_attention_value,
 };
-use super::survival_provisioning_policy::{
-    DietProvisioningPolicy, diet_provisioning_policy_for_behavior_seed, selected_food_indices,
-};
+use super::survival_provisioning_policy::{DietProvisioningPolicy, selected_food_indices};
 use super::survival_world_generation::{
     SurvivalStartProfile, minimum_visible_preservation_age_ticks, provisioning_world,
 };
@@ -77,6 +71,56 @@ fn constrained_food_worlds_execute_real_diet_recovery_instead_of_collapsing_evid
     assert!(recovery.balanced_meal_actions > 0);
     assert!(recovery.vitality_before_ppm > 0);
     assert!(available_category_count > 0);
+    assert!(recovery.fire_warmup_ticks > 0);
+    assert!(recovery.fire_fuel_mass_mg > 0);
+    assert!(recovery.compact_fire_refuels > 0);
+    assert_eq!(
+        recovery.compact_fire_refuels, recovery.balanced_fire_refuels,
+        "matched diet branches must pay the same finite warmth-management cost"
+    );
+    let comfort_warning = registries
+        .survival()
+        .physiology()
+        .thermal_comfort()
+        .warning_below_ppm();
+    assert!(recovery.compact_min_thermal_comfort_ppm >= comfort_warning);
+    assert!(recovery.balanced_min_thermal_comfort_ppm >= comfort_warning);
+}
+
+#[test]
+fn full_variety_diet_recovery_exposes_a_real_balanced_diet_consequence() {
+    let registries = build_registries();
+    let authored_category_count = registries
+        .survival()
+        .foods()
+        .map(|food| food.category())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let world = (1_u64..=256)
+        .map(|seed| provisioning_world(&registries, seed))
+        .find(|world| {
+            world
+                .foods
+                .iter()
+                .map(|food| food.category())
+                .collect::<BTreeSet<_>>()
+                .len()
+                == authored_category_count
+        })
+        .unwrap_or_else(|| panic!("bounded survival generator produced no full-variety world"));
+
+    let recovery = super::survival_probe::evaluate_diet_recovery_consequence(&registries, &world);
+    assert!(recovery.balanced_diet_quality_ppm > recovery.compact_diet_quality_ppm);
+    assert!(recovery.balanced_vitality_after_ppm > recovery.compact_vitality_after_ppm);
+    assert!(recovery.realized_vitality_delta_ppm > 0);
+    assert!(recovery.compact_recovery_window_delta_ppm > 0);
+    assert!(
+        recovery.balanced_recovery_window_delta_ppm > recovery.compact_recovery_window_delta_ppm
+    );
+    assert_eq!(
+        recovery.compact_fire_refuels,
+        recovery.balanced_fire_refuels
+    );
 }
 
 fn storage_capacity(
@@ -693,35 +737,6 @@ fn survival_investment_policy_generation_stays_bounded_and_registry_valid() {
         ),
         STORAGE_INSULATED_TIMBER_PANTRY,
         "a timber opportunity should retain the authored maximum-protection endpoint"
-    );
-
-    let exploratory = focused_probe_cases_from(FocusedProbeSeedPlan {
-        variation_count: EXPLORATORY_VARIATION_COUNT,
-        scenario_raw: None,
-        variation_raw: Some("0x1111"),
-        behavior_raw: Some("0x2222"),
-        maintained_seed: 0x1234,
-        maintained_coverage_seeds: &[],
-        probe_salt: 0x5355_5256_5052_4F42,
-        default_variation_root: 0,
-        default_behavior_root: Some(0),
-    })
-    .unwrap_or_else(|error| panic!("exploratory survival seed plan failed: {error:?}"));
-    assert_eq!(
-        exploratory
-            .into_iter()
-            .filter(|case| case.role() == FocusedProbeRole::OrganicVariation)
-            .map(|case| {
-                diet_provisioning_policy_for_behavior_seed(
-                    case.behavior_seed()
-                        .unwrap_or_else(|| panic!("organic behavior seed missing")),
-                )
-            })
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from([
-            DietProvisioningPolicy::CompactCalories,
-            DietProvisioningPolicy::BalancedRecovery,
-        ])
     );
 
     let original = provisioning_world(&registries, 0x51A2_0001);

@@ -3355,7 +3355,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("GAMEPLAY loop-dynamics ", concise)
         self.assertIn("thermal-bootstrap=1/1", concise)
         self.assertIn(
-            "GAMEPLAY fantasy role=self-reliant-field-engineer agency-growth=[opening-stabilized:2/2 rational-mobility:2/2 camp-leverage:0/2 workload-sensitive-processing:1/1",
+            "GAMEPLAY fantasy role=self-reliant-field-engineer agency-growth=[opening-stabilized:2/2 rational-mobility:2/2 camp-leverage:n/a workload-sensitive-processing:1/1",
             concise,
         )
         self.assertIn(
@@ -3369,7 +3369,7 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "delegate=[mechanized-processing:1/1 settlement-orders:0/1 order-attention-saved:2041..2041t",
+            "delegate=[mechanized-processing:1/1 settlement-orders:n/a order-attention-saved:2041..2041t",
             concise,
         )
         self.assertIn(

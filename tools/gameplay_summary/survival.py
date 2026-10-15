@@ -26,6 +26,10 @@ def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
     balanced_meal_delta_mg: list[int] = []
     balanced_diet_quality_delta_ppm: list[int] = []
     balanced_realized_vitality_delta_ppm: list[int] = []
+    recovery_warmup_ticks: list[int] = []
+    recovery_fuel_mg: list[int] = []
+    recovery_refuels: list[int] = []
+    recovery_min_comfort_ppm: list[int] = []
     for line in lines:
         if not line.startswith("SURVIVAL REVIEW "):
             continue
@@ -44,6 +48,26 @@ def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
         )
         if recovery is not None:
             balanced_realized_vitality_delta_ppm.append(int(recovery.group(1)))
+        warmth = re.search(
+            r"recovery-consequence=\[choice:(?:policy-sensitive|supply-converged) .*?"
+            r"warmth=\[setup:(\d+)t fuel:(\d+)mg "
+            r"refuels=\[compact:(\d+) balanced:(\d+)\] "
+            r"min-comfort=\[compact:(\d+) balanced:(\d+)ppm\]\]",
+            line,
+        )
+        if warmth is not None:
+            recovery_warmup_ticks.append(int(warmth.group(1)))
+            recovery_fuel_mg.append(int(warmth.group(2)))
+            recovery_refuels.extend((int(warmth.group(3)), int(warmth.group(4))))
+            recovery_min_comfort_ppm.extend((int(warmth.group(5)), int(warmth.group(6))))
+
+    warm_recovery = ""
+    if recovery_warmup_ticks:
+        warm_recovery = (
+            f" warm-recovery=[setup:{_span(recovery_warmup_ticks, 't')} "
+            f"fuel:{scaled_span(recovery_fuel_mg, 1_000_000, 'kg')} "
+            f"refuels:{_span(recovery_refuels)} min-comfort:{_span(recovery_min_comfort_ppm, 'ppm')}]"
+        )
 
     return (
         "provisioning=["
@@ -52,7 +76,8 @@ def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
         "balanced-diet-counterfactual=["
         f"meal-delta:{scaled_span(balanced_meal_delta_mg, 1_000, 'g')} "
         f"diet-quality-delta:{scaled_span(balanced_diet_quality_delta_ppm, 1, 'ppm')} "
-        f"realized-vitality-delta:{scaled_span(balanced_realized_vitality_delta_ppm, 1, 'ppm')}]"
+        f"realized-vitality-delta:{scaled_span(balanced_realized_vitality_delta_ppm, 1, 'ppm')}"
+        f"{warm_recovery}]"
     )
 
 

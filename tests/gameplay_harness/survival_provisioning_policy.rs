@@ -19,15 +19,21 @@ impl DietProvisioningPolicy {
     }
 }
 
-pub(super) fn diet_provisioning_policy_for_behavior_seed(
-    behavior_seed: u64,
+pub(super) fn diet_provisioning_policy_from_visible_recovery(
+    current_recovery_ppm_per_tick: u32,
+    maximum_recovery_ppm_per_tick: u32,
+    full_category_supply_available: bool,
 ) -> DietProvisioningPolicy {
-    // Focused behavior generation deliberately stratifies this low bit in exploratory samples while
-    // leaving the physical world seed independent. Maintained/replay seeds remain exact and stable.
-    if behavior_seed.is_multiple_of(2) {
-        DietProvisioningPolicy::CompactCalories
-    } else {
+    assert!(
+        current_recovery_ppm_per_tick <= maximum_recovery_ppm_per_tick,
+        "visible diet recovery cannot exceed its authored maximum"
+    );
+    if full_category_supply_available
+        && current_recovery_ppm_per_tick < maximum_recovery_ppm_per_tick
+    {
         DietProvisioningPolicy::BalancedRecovery
+    } else {
+        DietProvisioningPolicy::CompactCalories
     }
 }
 

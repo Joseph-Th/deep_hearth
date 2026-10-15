@@ -165,13 +165,19 @@ pub(in super::super) fn run_survival_provisioning_probe(
     let reserve_recovered = diet_comparison.reserve_recovered;
     let diet_recovery = diet_comparison.recovery;
     let recovery_consequence = format!(
-        "choice:{} deprivation:{}t provisioning=[compact:{}t balanced:{}t horizon:{}t] servings=[compact:{}meal+{}drink balanced:{}meal+{}drink] observe:{}t vitality:{}->[compact:{} balanced:{} realized-delta:{:+}ppm window-delta=[compact:{:+} balanced:{:+}]] diet:[compact:{} balanced:{}ppm]",
+        "choice:{} deprivation:{}t warmth=[setup:{}t fuel:{}mg refuels=[compact:{} balanced:{}] min-comfort=[compact:{} balanced:{}ppm]] provisioning=[compact:{}t balanced:{}t horizon:{}t] servings=[compact:{}meal+{}drink balanced:{}meal+{}drink] observe:{}t vitality:{}->[compact:{} balanced:{} realized-delta:{:+}ppm window-delta=[compact:{:+} balanced:{:+}]] diet:[compact:{} balanced:{}ppm]",
         if diet_recovery.policy_sensitive {
             "policy-sensitive"
         } else {
             "supply-converged"
         },
         diet_recovery.deprivation_ticks,
+        diet_recovery.fire_warmup_ticks,
+        diet_recovery.fire_fuel_mass_mg,
+        diet_recovery.compact_fire_refuels,
+        diet_recovery.balanced_fire_refuels,
+        diet_recovery.compact_min_thermal_comfort_ppm,
+        diet_recovery.balanced_min_thermal_comfort_ppm,
         diet_recovery.compact_provisioning_ticks,
         diet_recovery.balanced_provisioning_ticks,
         diet_recovery.provisioning_horizon_ticks,

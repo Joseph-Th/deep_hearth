@@ -239,6 +239,12 @@ pub(super) fn evaluate_provisioning_comparison(
 ) -> DietComparisonReview {
     let drink_supply = provisioning_drink_supply(registries, world);
     let prepared = prepare_provisioning_world(registries, world, drink_supply);
+    let authored_category_count = registries
+        .survival()
+        .foods()
+        .map(|food| food.category())
+        .collect::<BTreeSet<_>>()
+        .len();
     let available_category_count =
         observed_provisioning_foods(registries, &prepared.state, prepared.ambient_meal)
             .iter()
@@ -308,7 +314,18 @@ pub(super) fn evaluate_provisioning_comparison(
         || compact.diet_quality_after_ppm != balanced.diet_quality_after_ppm
         || compact.recovery_rate_after_ppm_per_tick != balanced.recovery_rate_after_ppm_per_tick;
 
-    let natural_policy = diet_provisioning_policy_for_behavior_seed(behavior_seed);
+    let visible_survival = assess_survival(registries, &prepared.state).unwrap_or_else(|| {
+        panic!("survival probe player disappeared before diet-policy selection")
+    });
+    let natural_policy = diet_provisioning_policy_from_visible_recovery(
+        visible_survival.diet_supported_vitality_recovery_ppm_per_tick(),
+        registries
+            .survival()
+            .physiology()
+            .nutrition()
+            .vitality_recovery_ppm_per_tick(),
+        available_category_count == authored_category_count,
+    );
     let natural = match natural_policy {
         DietProvisioningPolicy::CompactCalories => compact,
         DietProvisioningPolicy::BalancedRecovery => balanced,

@@ -7,14 +7,16 @@ use deep_hearth::content::gameplay_fixture::{
     seed_player_survival_at_hydration_warning_boundary, seed_preexisting_world_age, seed_stockpile,
 };
 use deep_hearth::content::{
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, FORM_ORE, MANUAL_POWER_HAND_CRANK,
-    MATERIAL_COPPER, PROSPECTING_REGIONAL_RECONNAISSANCE,
+    CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_FLYWHEEL_DRIVE,
+    ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_HAND_CRANK, FORM_LOG, FORM_LUMP, FORM_ORE,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
 use deep_hearth::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Pressure, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::{SimulationTick, TickSpan};
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
-use deep_hearth::energy::validate_assemble_energy_store;
+use deep_hearth::energy::{EnergyStoreId, validate_assemble_energy_store, validate_combust_fuel};
 use deep_hearth::equipment::validate_assemble_equipment;
 use deep_hearth::fluid::{FluidStoreId, calculate_fluid_volume_accounting};
 use deep_hearth::geology::{FieldProspectingRequest, validate_start_field_prospecting};
@@ -50,7 +52,7 @@ use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 use super::survival_provisioning_policy::{
-    DietProvisioningPolicy, diet_provisioning_policy_for_behavior_seed, mass_for_target_energy,
+    DietProvisioningPolicy, diet_provisioning_policy_from_visible_recovery, mass_for_target_energy,
     selected_food_indices,
 };
 use super::survival_world_generation::{
@@ -120,6 +122,7 @@ use provisioning_evaluation::{
 };
 
 const DIET_RECOVERY_TARGET_VITALITY_PPM: u32 = 950_000;
+const DIET_RECOVERY_FIRE_FUEL_CHARGES: u64 = 6;
 
 fn fresh_age(registries: &Registries, state: &AppState, lot: MaterialLotId) -> u64 {
     match assess_food_freshness(registries, state, lot)
@@ -209,6 +212,12 @@ pub(super) struct DietRecoveryReview {
     pub(super) compact_drink_actions: u64,
     pub(super) balanced_meal_actions: u64,
     pub(super) balanced_drink_actions: u64,
+    pub(super) fire_warmup_ticks: u64,
+    pub(super) fire_fuel_mass_mg: u64,
+    pub(super) compact_fire_refuels: u64,
+    pub(super) balanced_fire_refuels: u64,
+    pub(super) compact_min_thermal_comfort_ppm: u32,
+    pub(super) balanced_min_thermal_comfort_ppm: u32,
 }
 
 #[cfg_attr(
@@ -285,6 +294,7 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, case: Foc
 struct DietRecoveryBranch<'a> {
     prepared: &'a AppState,
     food_store: StockpileId,
+    campfire: EnergyStoreId,
     matter_total: AggregateMass,
     fluid_total: AggregateVolume,
 }
@@ -449,6 +459,75 @@ struct DietRecoveryObservation {
     diet_quality_ppm: u32,
     vitality_after_ppm: u32,
     vitality_window_delta_ppm: i64,
+    fire_refuels: u64,
+    minimum_thermal_comfort_ppm: u32,
+}
+
+fn try_refuel_diet_recovery_fire(
+    registries: &Registries,
+    state: &mut AppState,
+    campfire: EnergyStoreId,
+    fuel_store: StockpileId,
+) -> bool {
+    let record = state
+        .energy()
+        .get_store(campfire)
+        .unwrap_or_else(|| panic!("diet-recovery campfire disappeared"));
+    let definition = registries
+        .energy()
+        .get_store(record.definition())
+        .unwrap_or_else(|| panic!("diet-recovery campfire definition disappeared"));
+    let can_fit = record
+        .stored()
+        .checked_add(CAMPFIRE_FUEL_THERMAL_ENERGY)
+        .is_some_and(|stored| stored <= definition.capacity());
+    let fuel_available = state
+        .inventory()
+        .get_stockpile(fuel_store)
+        .is_some_and(|stockpile| {
+            stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG)) >= CAMPFIRE_FUEL_MASS
+        });
+    if !can_fit || !fuel_available {
+        return false;
+    }
+    let released = validate_combust_fuel(registries, state, campfire, fuel_store)
+        .unwrap_or_else(|error| panic!("diet-recovery campfire refuel failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("diet-recovery campfire refuel commit failed: {error}"));
+    assert_eq!(released, CAMPFIRE_FUEL_THERMAL_ENERGY);
+    true
+}
+
+fn advance_diet_recovery_with_fire(
+    registries: &Registries,
+    state: &mut AppState,
+    campfire: EnergyStoreId,
+    fuel_store: StockpileId,
+    ticks: u64,
+    context: &'static str,
+) -> (u64, u32) {
+    let warning = registries
+        .survival()
+        .physiology()
+        .thermal_comfort()
+        .warning_below_ppm();
+    let mut refuels = 0_u64;
+    let mut minimum_comfort = u32::MAX;
+    for _ in 0..ticks {
+        refuels += u64::from(try_refuel_diet_recovery_fire(
+            registries, state, campfire, fuel_store,
+        ));
+        advance_idle_ticks(registries, state, 1, context);
+        let comfort = assess_survival(registries, state)
+            .unwrap_or_else(|| panic!("diet-recovery player disappeared during warm recovery"))
+            .thermal_comfort_ppm();
+        minimum_comfort = minimum_comfort.min(comfort);
+        assert!(
+            comfort >= warning,
+            "diet-recovery warm recovery dropped below the authored comfort threshold"
+        );
+    }
+    (refuels, minimum_comfort)
 }
 
 fn observe_diet_recovery_branch(
@@ -462,18 +541,22 @@ fn observe_diet_recovery_branch(
         provisioned.elapsed_ticks <= comparison_horizon_ticks,
         "diet-recovery branch exceeded the policy-independent comparison horizon"
     );
-    advance_idle_ticks(
+    let (matched_refuels, matched_minimum_comfort) = advance_diet_recovery_with_fire(
         registries,
         &mut provisioned.state,
+        branch.campfire,
+        branch.food_store,
         comparison_horizon_ticks - provisioned.elapsed_ticks,
         "diet-recovery matched horizon",
     );
     let restored = assess_survival(registries, &provisioned.state)
         .unwrap_or_else(|| panic!("diet-recovery player disappeared at matched observation start"));
     let diet_quality_ppm = restored.diet_quality_ppm();
-    advance_idle_ticks(
+    let (observation_refuels, observation_minimum_comfort) = advance_diet_recovery_with_fire(
         registries,
         &mut provisioned.state,
+        branch.campfire,
+        branch.food_store,
         observation_ticks,
         "diet-recovery observation",
     );
@@ -500,6 +583,8 @@ fn observe_diet_recovery_branch(
         vitality_after_ppm: recovered.vitality().parts_per_million(),
         vitality_window_delta_ppm: i64::from(recovered.vitality().parts_per_million())
             - i64::from(restored.vitality().parts_per_million()),
+        fire_refuels: matched_refuels + observation_refuels,
+        minimum_thermal_comfort_ppm: matched_minimum_comfort.min(observation_minimum_comfort),
     }
 }
 
@@ -514,9 +599,30 @@ pub(super) fn evaluate_diet_recovery_consequence(
         .iter()
         .map(|food| mass_for_target_energy(*food, physiology.maximum_metabolic_energy()))
         .collect::<Vec<_>>();
+    let campfire_stone_mass = registries
+        .energy()
+        .get_store(ENERGY_STONE_RING_CAMPFIRE)
+        .and_then(|definition| definition.assembly_profile())
+        .and_then(|profile| profile.inputs().first())
+        .map(|input| {
+            assert_eq!(
+                input.commodity(),
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+            );
+            input.mass()
+        })
+        .unwrap_or_else(|| panic!("diet-recovery campfire stone input disappeared"));
+    let fire_fuel_mass = Mass::from_milligrams(
+        CAMPFIRE_FUEL_MASS
+            .milligrams()
+            .checked_mul(DIET_RECOVERY_FIRE_FUEL_CHARGES)
+            .unwrap_or_else(|| panic!("diet-recovery fire fuel mass overflowed")),
+    );
     let food_capacity = offered_masses
         .iter()
         .try_fold(Mass::ZERO, |total, mass| total.checked_add(*mass))
+        .and_then(|total| total.checked_add(campfire_stone_mass))
+        .and_then(|total| total.checked_add(fire_fuel_mass))
         .unwrap_or_else(|| panic!("diet-recovery food capacity overflowed"));
     let food_store = seed_stockpile(
         &mut state,
@@ -533,6 +639,22 @@ pub(super) fn evaluate_diet_recovery_consequence(
             ROOM_TEMPERATURE,
         );
     }
+    seed_lot(
+        registries,
+        &mut state,
+        food_store,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        campfire_stone_mass,
+        ROOM_TEMPERATURE,
+    );
+    seed_lot(
+        registries,
+        &mut state,
+        food_store,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        fire_fuel_mass,
+        ROOM_TEMPERATURE,
+    );
     let drink_supply = world
         .drink
         .minimum_volume_for_hydration(physiology.maximum_hydration())
@@ -579,6 +701,38 @@ pub(super) fn evaluate_diet_recovery_consequence(
         .vitality()
         .parts_per_million();
 
+    // The deprivation episode intentionally uses cold exposure to create a real vitality deficit.
+    // Recovery is a different decision state: the actor establishes a finite local fire through
+    // ordinary material-backed assembly and combustion, then warms back above the authored
+    // recovery threshold before either diet policy branches.
+    let campfire =
+        validate_assemble_energy_store(registries, &state, ENERGY_STONE_RING_CAMPFIRE, food_store)
+            .unwrap_or_else(|error| panic!("diet-recovery campfire assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("diet-recovery campfire assembly commit failed: {error}")
+            });
+    assert!(try_refuel_diet_recovery_fire(
+        registries, &mut state, campfire, food_store,
+    ));
+    assert!(try_refuel_diet_recovery_fire(
+        registries, &mut state, campfire, food_store,
+    ));
+    let thermal_warning = physiology.thermal_comfort().warning_below_ppm();
+    let mut fire_warmup_ticks = 0_u64;
+    while assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("diet-recovery player disappeared during fire warmup"))
+        .thermal_comfort_ppm()
+        < thermal_warning
+    {
+        advance_idle_ticks(registries, &mut state, 1, "diet-recovery fire warmup");
+        fire_warmup_ticks += 1;
+        assert!(
+            fire_warmup_ticks < 100,
+            "diet-recovery campfire failed to restore recovery-capable warmth"
+        );
+    }
+
     let matter_total = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("diet-recovery initial matter audit failed: {error}"))
         .total();
@@ -588,13 +742,14 @@ pub(super) fn evaluate_diet_recovery_consequence(
     let branch = DietRecoveryBranch {
         prepared: &state,
         food_store,
+        campfire,
         matter_total,
         fluid_total,
     };
-    // Nutrition is a long-horizon recovery lever, not an immediate consumption bonus. Observe an
-    // eighth of one authored day so the harness measures a player-relevant multi-hour recovery
-    // window without making exploratory reports pay for an unnecessarily long idle simulation.
-    let observation_ticks = (registries.core().calendar().ticks_per_day() / 8).max(1);
+    // Nutrition is a recovery lever rather than an immediate consumption bonus. One authored hour
+    // is long enough to expose accumulated recovery while keeping the actor's finite campfire
+    // management visible instead of hiding the comparison inside a multi-hour idle fast-forward.
+    let observation_ticks = (registries.core().calendar().ticks_per_day() / 24).max(1);
     let compact_provisioned = provision_diet_recovery_branch(
         registries,
         &branch,
@@ -664,6 +819,12 @@ pub(super) fn evaluate_diet_recovery_consequence(
         compact_drink_actions,
         balanced_meal_actions,
         balanced_drink_actions,
+        fire_warmup_ticks,
+        fire_fuel_mass_mg: fire_fuel_mass.milligrams(),
+        compact_fire_refuels: compact_observation.fire_refuels,
+        balanced_fire_refuels: balanced_observation.fire_refuels,
+        compact_min_thermal_comfort_ppm: compact_observation.minimum_thermal_comfort_ppm,
+        balanced_min_thermal_comfort_ppm: balanced_observation.minimum_thermal_comfort_ppm,
     }
 }
 

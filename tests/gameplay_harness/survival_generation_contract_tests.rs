@@ -6,7 +6,7 @@ use deep_hearth::content::build_registries;
 
 use super::survival_preservation_catalog::preservation_storage_candidates;
 use super::survival_provisioning_policy::{
-    DietProvisioningPolicy, diet_provisioning_policy_for_behavior_seed,
+    DietProvisioningPolicy, diet_provisioning_policy_from_visible_recovery,
 };
 use super::survival_world_generation::{
     SurvivalStartProfile, minimum_visible_preservation_age_ticks, provisioning_world,
@@ -190,14 +190,19 @@ fn survival_world_generation_stays_within_authored_options_and_varies_visible_pr
 }
 
 #[test]
-fn survival_behavior_seed_spans_both_diet_policies() {
+fn diet_policy_responds_to_visible_recovery_and_available_variety() {
+    let maximum = 10;
     assert_eq!(
-        (0_u64..4)
-            .map(diet_provisioning_policy_for_behavior_seed)
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from([
-            DietProvisioningPolicy::CompactCalories,
-            DietProvisioningPolicy::BalancedRecovery,
-        ])
+        diet_provisioning_policy_from_visible_recovery(maximum, maximum, true),
+        DietProvisioningPolicy::CompactCalories
+    );
+    assert_eq!(
+        diet_provisioning_policy_from_visible_recovery(maximum - 1, maximum, true),
+        DietProvisioningPolicy::BalancedRecovery
+    );
+    assert_eq!(
+        diet_provisioning_policy_from_visible_recovery(maximum - 1, maximum, false),
+        DietProvisioningPolicy::CompactCalories,
+        "the actor must not choose a balance-restoring policy when the missing category is unavailable"
     );
 }
