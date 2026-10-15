@@ -1,32 +1,18 @@
 //! Transient direct-control intents above locomotion ownership.
 
-use crate::equipment::EquipmentId;
 use crate::logistics::PlayerControlInput;
-use crate::mining::MiningMethodId;
 use crate::spatial::ViewDirection;
 
 /// Held primary-control intent sampled alongside one 20 Hz locomotion input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimaryControlIntent {
-    BlockExcavation {
-        direction: ViewDirection,
-        method: MiningMethodId,
-        equipment: EquipmentId,
-    },
+    BlockExcavation { direction: ViewDirection },
 }
 
 impl PrimaryControlIntent {
     #[must_use]
-    pub const fn block_excavation(
-        direction: ViewDirection,
-        method: MiningMethodId,
-        equipment: EquipmentId,
-    ) -> Self {
-        Self::BlockExcavation {
-            direction,
-            method,
-            equipment,
-        }
+    pub const fn block_excavation(direction: ViewDirection) -> Self {
+        Self::BlockExcavation { direction }
     }
 }
 

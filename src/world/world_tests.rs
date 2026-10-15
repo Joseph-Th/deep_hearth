@@ -12,7 +12,8 @@ use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
     PlayerControlInput, add_traversable_edge_for_test, place_equipment_for_fixture,
-    validate_drop_equipment, validate_pickup_equipment, validate_start_player_step,
+    validate_drop_equipment, validate_pickup_equipment, validate_set_active_equipment,
+    validate_start_player_step,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
@@ -116,6 +117,10 @@ fn generated_excavation_fixture() -> (
         .unwrap_or_else(|error| panic!("block excavation pick pickup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("block excavation pick pickup commit failed: {error}"));
+    validate_set_active_equipment(&state, Some(pick))
+        .unwrap_or_else(|error| panic!("block excavation active-pick validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("block excavation active-pick commit failed: {error}"));
     (registries, state, pick, target)
 }
 
@@ -586,16 +591,36 @@ fn off_boundary_block_excavation_replays_and_preserves_authored_total_cost() {
 }
 
 #[test]
+fn primary_excavation_requires_active_equipment_context() {
+    let (registries, mut state, _pick, _target) = generated_excavation_fixture();
+    validate_set_active_equipment(&state, None)
+        .unwrap_or_else(|error| panic!("empty-hand validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("empty-hand commit failed: {error}"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
+
+    let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("empty-hand primary control failed: {error}"));
+    assert_eq!(
+        control.primary_action(),
+        Some(&PrimaryActionOutcome::BlockExcavationRejected(
+            BlockExcavationError::NoActiveEquipment
+        ))
+    );
+    assert_eq!(state.player_work().active(), None);
+}
+
+#[test]
 fn held_primary_excavation_chains_the_next_batch_on_the_completion_control_step() {
-    let (registries, mut state, pick, target) = generated_excavation_fixture();
+    let (registries, mut state, _pick, target) = generated_excavation_fixture();
     let batch = Mass::from_milligrams(200_000);
     let source_mass = state
         .world()
         .represented_mass_at(registries.world(), target)
         .unwrap_or_else(|| panic!("held excavation target mass disappeared"));
-    let input = PlayerDirectControlInput::NEUTRAL.with_primary(
-        PrimaryControlIntent::block_excavation(positive_x_view(), MINING_METHOD_HAND_PICK, pick),
-    );
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
 
     let first_start = loop {
         let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
@@ -610,6 +635,11 @@ fn held_primary_excavation_chains_the_next_batch_on_the_completion_control_step(
     };
     assert_eq!(first_start.target(), target);
     assert_eq!(first_start.excavated_mass(), batch);
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::BlockExcavation { work })
+            if work.method() == MINING_METHOD_HAND_PICK
+    ));
 
     let (first_completion, second_start) = loop {
         let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
@@ -699,9 +729,8 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
         .position();
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("capacity-blocked matter baseline failed: {error}"));
-    let input = PlayerDirectControlInput::NEUTRAL.with_primary(
-        PrimaryControlIntent::block_excavation(positive_x_view(), MINING_METHOD_HAND_PICK, pick),
-    );
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_primary(PrimaryControlIntent::block_excavation(positive_x_view()));
 
     let start = loop {
         let control = advance_control_tick_with_direct_input(&registries, &mut state, input)

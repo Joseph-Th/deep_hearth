@@ -68,6 +68,9 @@ pub enum LogisticsValidationError {
     CarriedEquipmentRequiresSupport {
         equipment: EquipmentId,
     },
+    ActiveEquipmentNotCarried {
+        equipment: EquipmentId,
+    },
     EquipmentOutsideSupport {
         equipment: EquipmentId,
         position: VoxelCoord,
@@ -190,6 +193,11 @@ impl Display for LogisticsValidationError {
             Self::CarriedEquipmentRequiresSupport { equipment } => write!(
                 formatter,
                 "equipment {} requires structural support and cannot be player-carried",
+                equipment.value()
+            ),
+            Self::ActiveEquipmentNotCarried { equipment } => write!(
+                formatter,
+                "active equipment {} is not in player-carried custody",
                 equipment.value()
             ),
             Self::EquipmentOutsideSupport {
@@ -396,6 +404,11 @@ fn validate_carried_equipment(
                 equipment: equipment_id,
             });
         }
+    }
+    if let Some(equipment) = state.active_equipment()
+        && !state.is_equipment_carried(equipment)
+    {
+        return Err(LogisticsValidationError::ActiveEquipmentNotCarried { equipment });
     }
     Ok(())
 }

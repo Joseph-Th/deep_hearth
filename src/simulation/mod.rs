@@ -40,7 +40,7 @@ use crate::survival::{
 };
 use crate::world::{
     BlockExcavationTickError, apply_block_excavation_tick, decide_block_excavation_completion,
-    decide_block_excavation_tick, validate_start_player_block_excavation_available,
+    decide_block_excavation_tick, validate_start_player_block_excavation_active,
 };
 
 use planning::{
@@ -233,14 +233,8 @@ fn attempt_primary_action(
 ) -> Option<PrimaryActionOutcome> {
     let intent = intent?;
     match intent {
-        PrimaryControlIntent::BlockExcavation {
-            direction,
-            method,
-            equipment,
-        } => Some(
-            match validate_start_player_block_excavation_available(
-                registries, state, direction, method, equipment,
-            ) {
+        PrimaryControlIntent::BlockExcavation { direction } => Some(
+            match validate_start_player_block_excavation_active(registries, state, direction) {
                 Ok(validated) => {
                     let started = validated.commit(state).unwrap_or_else(|error| {
                         panic!(

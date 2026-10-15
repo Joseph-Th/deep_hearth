@@ -15,7 +15,7 @@ use std::fmt::{Display, Formatter};
 use crate::capability::{CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::ControlTick;
+use crate::core::time::{ControlTick, TickSpan};
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::inventory::{
     ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
@@ -62,6 +62,8 @@ pub enum BlockExcavationError {
     Target(PlayerBlockTargetError),
     NoTarget,
     TargetNotExcavatable { target: VoxelCoord },
+    NoActiveEquipment,
+    NoApplicableMethod { equipment: EquipmentId },
     ZeroMass,
     MassExceedsCell { requested: Mass, available: Mass },
     UnknownMethod { method: MiningMethodId },
@@ -91,6 +93,14 @@ impl Display for BlockExcavationError {
                 target.x(),
                 target.y(),
                 target.z()
+            ),
+            Self::NoActiveEquipment => {
+                formatter.write_str("block excavation requires active player-carried equipment")
+            }
+            Self::NoApplicableMethod { equipment } => write!(
+                formatter,
+                "active equipment {} provides no applicable block-excavation method",
+                equipment.value()
             ),
             Self::ZeroMass => formatter.write_str("block excavation mass must be nonzero"),
             Self::MassExceedsCell {
@@ -146,6 +156,8 @@ impl Error for BlockExcavationError {
             Self::PlayerWork(error) => Some(error),
             Self::NoTarget
             | Self::TargetNotExcavatable { .. }
+            | Self::NoActiveEquipment
+            | Self::NoApplicableMethod { .. }
             | Self::ZeroMass
             | Self::MassExceedsCell { .. }
             | Self::UnknownMethod { .. }
@@ -572,5 +584,116 @@ pub(crate) fn validate_start_player_block_excavation_available(
         registries,
         state,
         BlockExcavationRequest::new(direction, method, equipment, mass),
+    )
+}
+
+#[derive(Clone, Copy)]
+struct DirectExcavationCandidate {
+    method: MiningMethodId,
+    mass: Mass,
+    duration: TickSpan,
+}
+
+fn candidate_is_faster(
+    candidate: DirectExcavationCandidate,
+    current: DirectExcavationCandidate,
+) -> bool {
+    let candidate_rate =
+        u128::from(candidate.mass.milligrams()) * u128::from(current.duration.value());
+    let current_rate =
+        u128::from(current.mass.milligrams()) * u128::from(candidate.duration.value());
+    candidate_rate > current_rate
+        || (candidate_rate == current_rate && candidate.method < current.method)
+}
+
+/// Resolves one familiar held-tool block action entirely from the active carried equipment and
+/// pointed world target. Exact method/equipment selection remains available through
+/// [`BlockExcavationRequest`] for planning surfaces that intentionally expose those details.
+pub(crate) fn validate_start_player_block_excavation_active(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+) -> Result<ValidatedPlayerBlockExcavationStart, BlockExcavationError> {
+    let equipment = state
+        .logistics()
+        .active_equipment()
+        .ok_or(BlockExcavationError::NoActiveEquipment)?;
+    let target = raycast_player_block(registries, state, direction)
+        .map_err(BlockExcavationError::Target)?
+        .ok_or(BlockExcavationError::NoTarget)?;
+    let block = registries
+        .world()
+        .block_for_state(target.state())
+        .unwrap_or_else(|| unreachable!("targeted block state is registered"));
+    let excavation = block
+        .excavation()
+        .ok_or(BlockExcavationError::TargetNotExcavatable {
+            target: target.voxel(),
+        })?;
+    let source_mass = state
+        .world()
+        .represented_mass_at(registries.world(), target.voxel())
+        .unwrap_or_else(|| unreachable!("target ray established generated world truth"));
+    validate_player_equipment_access(state, equipment)
+        .map_err(BlockExcavationError::EquipmentAccess)?;
+    let provider = resolve_available_equipment_provider(registries, state, equipment)
+        .map_err(BlockExcavationError::Equipment)?;
+
+    let mut best: Option<DirectExcavationCandidate> = None;
+    let mut first_physics_failure = None;
+    for method in registries.mining().definitions() {
+        let Some(CapabilityValue::MassFlow(flow)) =
+            provider.get_capability(method.mass_flow_capability())
+        else {
+            continue;
+        };
+        let Some(CapabilityValue::Mass(maximum_batch)) =
+            provider.get_capability(method.max_batch_mass_capability())
+        else {
+            continue;
+        };
+        let Some(CapabilityValue::Pressure(maximum_hardness)) =
+            provider.get_capability(method.max_hardness_capability())
+        else {
+            continue;
+        };
+        if flow.is_zero() || maximum_batch.is_zero() || maximum_hardness.is_zero() {
+            continue;
+        }
+        let mass = std::cmp::min(maximum_batch, source_mass);
+        match resolve_mining_physics(
+            registries.core().physical_tick_duration(),
+            method,
+            provider.definition(),
+            provider.condition(),
+            excavation.hardness(),
+            mass,
+        ) {
+            Ok(physics) => {
+                let candidate = DirectExcavationCandidate {
+                    method: method.id(),
+                    mass,
+                    duration: physics.duration(),
+                };
+                if best.is_none_or(|current| candidate_is_faster(candidate, current)) {
+                    best = Some(candidate);
+                }
+            }
+            Err(error) => {
+                first_physics_failure.get_or_insert(error);
+            }
+        }
+    }
+    let method = match best {
+        Some(candidate) => candidate.method,
+        None => {
+            if let Some(error) = first_physics_failure {
+                return Err(BlockExcavationError::Physics(error));
+            }
+            return Err(BlockExcavationError::NoApplicableMethod { equipment });
+        }
+    };
+    validate_start_player_block_excavation_available(
+        registries, state, direction, method, equipment,
     )
 }

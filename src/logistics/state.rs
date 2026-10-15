@@ -125,6 +125,7 @@ pub struct LogisticsState {
     player: Option<PlayerLogisticsRecord>,
     traversable_edges: Vec<TraversalEdge>,
     carried_equipment: Vec<EquipmentId>,
+    active_equipment: Option<EquipmentId>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -143,6 +144,7 @@ impl LogisticsState {
             player: None,
             traversable_edges: Vec::new(),
             carried_equipment: Vec::new(),
+            active_equipment: None,
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
@@ -203,6 +205,15 @@ impl LogisticsState {
         self.carried_equipment.iter().copied()
     }
 
+    /// Returns the player-selected carried equipment used as the default direct-action tool.
+    ///
+    /// This is a reference into `carried_equipment`, not another custody container. Trusted-state
+    /// validation guarantees that a selected equipment instance is physically player-carried.
+    #[must_use]
+    pub const fn active_equipment(&self) -> Option<EquipmentId> {
+        self.active_equipment
+    }
+
     /// Iterates equipment present at the admitted player's voxel in stable equipment-ID order.
     ///
     /// Stationary equipment at the player voxel and player-carried equipment are both local. The
@@ -248,6 +259,7 @@ impl LogisticsState {
             && self.player.is_none()
             && self.traversable_edges.is_empty()
             && self.carried_equipment.is_empty()
+            && self.active_equipment.is_none()
             && self.stockpile_locations.is_empty()
             && self.equipment_locations.is_empty()
             && self.energy_store_locations.is_empty()
@@ -462,6 +474,26 @@ impl LogisticsState {
         self.revision = next_revision;
     }
 
+    pub(super) fn apply_active_equipment_selection(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        equipment: Option<EquipmentId>,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            self.player.is_some(),
+            "active equipment requires a logistics player"
+        );
+        assert!(
+            equipment.is_none_or(|equipment| self.is_equipment_carried(equipment)),
+            "active equipment selection must reference carried custody"
+        );
+        self.active_equipment = equipment;
+        self.revision = next_revision;
+    }
+
     pub(super) fn apply_equipment_drop(
         &mut self,
         expected_revision: u64,
@@ -476,6 +508,9 @@ impl LogisticsState {
             Err(_) => panic!("validated equipment drop requires carried custody"),
         };
         self.carried_equipment.remove(index);
+        if self.active_equipment == Some(equipment) {
+            self.active_equipment = None;
+        }
         assert!(
             self.equipment_locations
                 .insert(equipment, position)

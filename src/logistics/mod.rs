@@ -9,6 +9,7 @@ mod access;
 mod body;
 mod control;
 mod equipment_carry;
+mod equipment_selection;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
 #[cfg(any(test, feature = "test-gameplay"))]
@@ -40,6 +41,10 @@ pub use control::{
 pub use equipment_carry::{
     PlayerEquipmentCarryCommitError, PlayerEquipmentCarryError, ValidatedPlayerEquipmentCarry,
     validate_drop_equipment, validate_pickup_equipment,
+};
+pub use equipment_selection::{
+    PlayerEquipmentSelectionCommitError, PlayerEquipmentSelectionError,
+    ValidatedPlayerEquipmentSelection, validate_set_active_equipment,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fixture::place_energy_store_for_fixture;
