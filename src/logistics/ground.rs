@@ -29,7 +29,8 @@ pub use allocation::{
 };
 pub use transfer::{
     GroundMaterialTransferCommitError, GroundMaterialTransferError,
-    ValidatedGroundMaterialTransfer, validate_drop_to_ground, validate_pickup_from_ground,
+    ValidatedGroundMaterialTransfer, validate_drop_stack_to_ground, validate_drop_to_ground,
+    validate_pickup_from_ground, validate_pickup_stack_from_ground,
 };
 
 /// Failure while binding an existing unsupported stockpile to one ground voxel.

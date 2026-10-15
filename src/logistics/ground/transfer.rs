@@ -3,11 +3,13 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotSelection, MaterialRelocationCommitError,
-    MaterialRelocationError, StockpileId, ValidatedMaterialRelocation,
-    validate_explicit_consumption_selection, validate_material_relocation_from_selection,
+    MaterialRelocationError, MaterialStackProjection, MaterialStackProjectionError, StockpileId,
+    ValidatedMaterialRelocation, validate_explicit_consumption_selection,
+    validate_material_relocation_from_selection,
 };
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
@@ -29,6 +31,7 @@ pub enum GroundMaterialTransferError {
         player: VoxelCoord,
     },
     PickupDuringPlayerStep,
+    Stack(MaterialStackProjectionError),
     Selection(ExplicitConsumptionSelectionError),
     Inventory(MaterialRelocationError),
 }
@@ -63,6 +66,7 @@ impl Display for GroundMaterialTransferError {
             Self::PickupDuringPlayerStep => formatter.write_str(
                 "ground pickup cannot increase carried load while a player step is in progress",
             ),
+            Self::Stack(error) => write!(formatter, "ground stack projection failed: {error}"),
             Self::Selection(error) => {
                 write!(formatter, "ground transfer selection failed: {error}")
             }
@@ -76,6 +80,7 @@ impl Display for GroundMaterialTransferError {
 impl Error for GroundMaterialTransferError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Stack(error) => Some(error),
             Self::Selection(error) => Some(error),
             Self::Inventory(error) => Some(error),
             Self::PlayerUninitialized
@@ -224,6 +229,20 @@ pub fn validate_pickup_from_ground(
     })
 }
 
+/// Validates familiar stack pickup without exposing the projection's runtime lot identities.
+pub fn validate_pickup_stack_from_ground(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    stack: &MaterialStackProjection,
+    mass: Mass,
+) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
+    let selections = stack
+        .selections_for_mass(state, source, mass)
+        .map_err(GroundMaterialTransferError::Stack)?;
+    validate_pickup_from_ground(registries, state, source, &selections)
+}
+
 /// Validates exact stack drop from carried custody into a ground stockpile at the player's voxel.
 pub fn validate_drop_to_ground(
     registries: &Registries,
@@ -248,4 +267,23 @@ pub fn validate_drop_to_ground(
         destination,
         relocation,
     })
+}
+
+/// Validates familiar stack drop without exposing the projection's runtime lot identities.
+pub fn validate_drop_stack_to_ground(
+    registries: &Registries,
+    state: &AppState,
+    destination: StockpileId,
+    stack: &MaterialStackProjection,
+    mass: Mass,
+) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .ok_or(GroundMaterialTransferError::PlayerUninitialized)?;
+    let selections = stack
+        .selections_for_mass(state, carried, mass)
+        .map_err(GroundMaterialTransferError::Stack)?;
+    validate_drop_to_ground(registries, state, destination, &selections)
 }

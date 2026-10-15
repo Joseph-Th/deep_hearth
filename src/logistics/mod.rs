@@ -56,7 +56,8 @@ pub use ground::{
     GroundStockpileAllocationCommitError, GroundStockpileAllocationError,
     PlayerGroundStockpileAllocationError, ValidatedGroundMaterialTransfer,
     ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile,
-    validate_drop_to_ground, validate_pickup_from_ground,
+    validate_drop_stack_to_ground, validate_drop_to_ground, validate_pickup_from_ground,
+    validate_pickup_stack_from_ground,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use ground::{validate_allocate_ground_stockpile, validate_place_ground_stockpile};

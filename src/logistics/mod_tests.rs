@@ -1,12 +1,15 @@
 //! Contracts for persistent player world location and carried custody.
 
 use super::*;
-use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
+use crate::content::{
+    FORM_LOG, FORM_ROUGH_BOX_BODY, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX, build_registries,
+};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::inventory::{
-    MaterialLotSelection, MaterialRelocationError, StockpileId, add_solid_stockpile_for_test,
-    deposit_lot_for_test,
+    MaterialLotSelection, MaterialRelocationError, MaterialStackProjectionError, StockpileId,
+    add_solid_stockpile_for_test, deposit_lot_for_test, project_material_stacks,
+    validate_place_player_storage,
 };
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -243,6 +246,132 @@ fn same_voxel_pickup_and_partial_drop_preserve_inventory_custody() {
     assert_eq!(
         assess_player_carrying(&state).map(|assessment| assessment.stored()),
         Some(Mass::from_milligrams(6))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn familiar_stack_transfer_moves_partial_mass_through_real_storage_without_lot_ids() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("stack-transfer player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stack-transfer player admission commit failed: {error}"));
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| panic!("stack-transfer player disappeared"));
+    let body = CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY);
+    let cargo = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        body,
+        Mass::from_milligrams(1_600_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("stack-transfer field-box body failed: {error}"));
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        cargo,
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("stack-transfer cargo failed: {error}"));
+    let storage =
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap_or_else(|error| panic!("stack-transfer storage placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("stack-transfer storage placement commit failed: {error}")
+            });
+    let matter_before = crate::matter::calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("stack-transfer matter baseline failed: {error}"))
+        .total();
+
+    let stale_stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("stack-transfer carried projection failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == cargo)
+        .unwrap_or_else(|| panic!("stack-transfer cargo stack disappeared"));
+    let _ = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stack-transfer stale revision fixture failed: {error}"));
+    assert!(matches!(
+        validate_drop_stack_to_ground(
+            &registries,
+            &state,
+            storage,
+            &stale_stack,
+            Mass::from_milligrams(400_000),
+        ),
+        Err(GroundMaterialTransferError::Stack(
+            MaterialStackProjectionError::StaleInventoryRevision { .. }
+        ))
+    ));
+
+    let carried_stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("stack-transfer reprojection failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == cargo)
+        .unwrap_or_else(|| panic!("stack-transfer reprojected cargo disappeared"));
+    validate_drop_stack_to_ground(
+        &registries,
+        &state,
+        storage,
+        &carried_stack,
+        Mass::from_milligrams(400_000),
+    )
+    .unwrap_or_else(|error| panic!("familiar stack drop failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("familiar stack drop commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(storage)
+            .map(|stockpile| stockpile.get_mass(cargo)),
+        Some(Mass::from_milligrams(400_000))
+    );
+
+    let stored_stack = project_material_stacks(&registries, &state, storage)
+        .unwrap_or_else(|error| panic!("stored stack projection failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == cargo)
+        .unwrap_or_else(|| panic!("stored cargo stack disappeared"));
+    validate_pickup_stack_from_ground(
+        &registries,
+        &state,
+        storage,
+        &stored_stack,
+        Mass::from_milligrams(150_000),
+    )
+    .unwrap_or_else(|error| panic!("familiar stack pickup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("familiar stack pickup commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.get_mass(cargo)),
+        Some(Mass::from_milligrams(750_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(storage)
+            .map(|stockpile| stockpile.get_mass(cargo)),
+        Some(Mass::from_milligrams(250_000))
+    );
+    assert_eq!(
+        crate::matter::calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("stack-transfer final matter audit failed: {error}"))
+            .total(),
+        matter_before
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

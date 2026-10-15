@@ -132,11 +132,14 @@ selection still drives primary excavation and one-step equipment drop through th
 selection names an authored carried commodity rather than a transient lot identity; contextual secondary use
 composes that selection into canonical food consumption when one physical cohort is unambiguous, and can place
 an authored finished storage body into the generated-air voxel adjacent to the pointed block face. Placement
-rejects missing world authority, terrain occupancy, player-body overlap, and existing stationary object custody. Direct drop transfers the selected carried commodity
-into exact finite surface parcels without flattening temperature, composition, particulate state, provenance, or
-storage age, and uses a short control-time self-pickup delay before ordinary automatic recovery. Full multi-slot
-hotbar/stack projection, arbitrary block/object placement, generic item entities, and container presentation or
-transfer remain open.
+rejects missing world authority, terrain occupancy, player-body overlap, and existing stationary object custody.
+Direct drop transfers the selected carried commodity into exact finite surface parcels without flattening
+temperature, composition, particulate state, provenance, or storage age, and uses a short control-time self-pickup
+delay before ordinary automatic recovery. Inventory now also owns a revision-bound familiar material-stack
+projection derived from the same physical compatibility rules as lot coalescing. A projected stack can drive
+partial same-voxel carried↔ground/storage transfer by mass while inventory privately resolves exact lot slices and
+rejects stale projections. Full multi-slot hotbar and container presentation/gesture composition, arbitrary
+block/object placement, and generic item entities remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

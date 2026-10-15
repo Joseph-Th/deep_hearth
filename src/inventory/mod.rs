@@ -13,6 +13,7 @@ mod ingress;
 mod lot_identity;
 mod reserved_ingress;
 mod selection;
+mod stack_projection;
 mod state;
 mod storage;
 mod storage_validation;
@@ -70,6 +71,9 @@ pub(crate) use selection::{
     validate_consumption_selection, validate_explicit_consumption_selection,
 };
 pub use selection::{ExplicitConsumptionSelectionError, MaterialLotSelection};
+pub use stack_projection::{
+    MaterialStackProjection, MaterialStackProjectionError, project_material_stacks,
+};
 pub(crate) use state::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotProfile, MaterialLotProvenance,
     MaterialStorageHistory, PureMaterialTraceValidationError, STORAGE_AGE_PARTS_PER_TICK,

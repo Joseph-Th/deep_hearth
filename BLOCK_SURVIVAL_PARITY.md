@@ -67,9 +67,11 @@ Foundational blockers:
   clock while preserving authored mining costs; secondary use can consume one unambiguous selected food cohort or
   place an authored finished storage object into generated air adjacent to the pointed face, with body/object
   overlap rejection; generic terrain placement, broader interact semantics, and adapter feedback remain absent;
-- no generic dropped-item world entity, full hotbar, familiar stack projection, or container UI shell; selected
-  carried material can now be dropped into exact finite surface custody and later recovered without losing its
-  physical profile, provenance, or storage history;
+- no generic dropped-item world entity, full hotbar, or container UI shell; inventory now projects revision-bound
+  familiar material stacks from only physically merge-compatible lots, and those projections can drive partial
+  same-voxel transfer between carried custody and real storage without exposing lot IDs; selected carried material
+  can also be dropped into exact finite surface custody and later recovered without losing its physical profile,
+  provenance, or storage history;
 - deterministic terrain generation and admitted-player neighborhood demand exist; residency/unload streaming,
   biome/climate fields, and general world discovery do not;
 - no world lighting, sky light, darkness gameplay, weather, or environmental heat transport;
@@ -286,18 +288,18 @@ stockpiles. The underlying Deep Hearth model is stronger, but the familiar manip
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
 | Item definition | Registry item plus prototype components | Material/form/equipment definitions | `DIFFERENT+` | Keep typed domain definitions. Add a player-facing item presentation identity that can refer to material lots, equipment or placeables without becoming another owner. |
-| Item stack | Item identity + count + component differences | Exact material lots may coalesce by compatible physical state | `DIFFERENT+` | Project compatible lots as familiar stacks. Split visible stacks when freshness, temperature, composition, provenance or physical state makes the difference meaningful. |
+| Item stack | Item identity + count + component differences | Inventory projects revision-bound familiar material stacks from its authoritative lots using the same physical merge rules that govern coalescing; temperature, composition, particle state and age-sensitive storage history therefore remain real stack boundaries while lot IDs stay private to the owner action | `DIFFERENT+` | Keep stack presentation derived from inventory rather than persisting a second custody model. Add discrete counts where forms actually have unit identity. |
 | Stack count | Discrete count up to stack max | Natural bulk is exact mass | `DIFFERENT+` | Use counts where the form has discrete unit identity; use mass/volume for bulk. This is already the design law. |
 | Hotbar | Nine quick slots | No slot bar; one persisted active carried-equipment context exists | `GAP-P0` shell | Add nine-slot or equivalently familiar quick-access projection spanning equipment and material-stack presentation without duplicating custody. |
 | Main inventory | Slot grid | Carried stockpile with mass capacity | `GAP-P0` shell | Add slot/container presentation over carried custody. Physical capacity remains independently enforced. |
 | Weight | None | 25 kg unaided body-carry capacity plus equipment mass | `PARITY+` physical model | Keep as second constraint. Do not make the player micromanage lots to satisfy it. |
 | Pickup | Item entity transfers into inventory if space | Player-created local surface drops transfer whole into carried custody when capacity permits; natural opportunities never auto-pick, and oversized drops remain for gathering | `DIFFERENT+` narrow foundation | Generalize the same custody/pickup rule to the future item/drop projection without auto-harvesting natural world opportunities. |
-| Drop | Spawn item stack entity | Active carried equipment has a one-step direct drop into stationary logistics custody at the player position; material dropping remains narrower owner APIs | `PARITY` narrow equipment | Extend the same familiar action to active material-stack projection and later generic drop entities without duplicating custody. |
+| Drop | Spawn item stack entity | Active carried equipment has a one-step direct drop into stationary logistics custody at the player position; active carried material already drops directly into finite surface custody with physical profile, provenance and storage history preserved | `PARITY` narrow direct action | Later generic drop entities should compose the same conserved custody paths rather than creating another item owner. |
 | Merge nearby drops | Compatible item entities can merge | Lot coalescing exists in inventory | `GAP-P1` | World item custody may coalesce compatible material to reduce entity count while preserving physical distinctions. |
 | Despawn drops | Item entities eventually despawn | Matter conservation rejects silent deletion | `DIFFERENT+` | Do not copy magical matter deletion. If cleanup is needed, use explicit decay, scattering, garbage collection into an environmental sink, or no despawn for conserved matter. |
-| Container slots | Chests/furnaces expose slot policies | Stockpiles/storage profiles exist | `GAP-P0` shell | Containers are UI/projection over storage owners plus typed input/output slots where machines require them. |
-| Shift-click/quick move | Familiar transfer gesture | No UI | `GAP-P0` | Implement as request composition over canonical relocation/ingress rules. |
-| Drag/split stack | Familiar manipulation | Exact lot selection APIs exist | `GAP-P1` | UI translates count/mass gesture into exact lot partition transaction. |
+| Container slots | Chests/furnaces expose slot policies | Stockpiles/storage profiles exist, and familiar stack projections can move partial mass between carried custody and a co-located ground/storage stockpile through canonical relocation while preserving physical cohorts | `GAP-P0` UI shell | Add container presentation and typed machine-slot policy over these owners; do not duplicate storage state. |
+| Shift-click/quick move | Familiar transfer gesture | Core now accepts projected-stack pickup/drop requests by mass for co-located storage; no UI gesture layer exists | `GAP-P0` UI | Compose the gesture over the existing stack-transfer request, with destination choice remaining adapter policy. |
+| Drag/split stack | Familiar manipulation | Projected stacks resolve partial mass back into revision-bound exact lot slices inside inventory | `GAP-P1` UI | UI should express count/mass intent against the projection; inventory keeps exact partitioning and stale-state rejection private. |
 | Capacity rejection | Full slots block transfer | Mass, phase, temperature, enclosure and reservation constraints | `PARITY+` | Surface the physical blocker clearly while preserving expected transfer gestures. |
 | Equipment durability | Stack component durability | Separate equipment condition/maintenance | `PARITY+` | Better owner model. Hotbar/item projection should show condition without flattening it to generic stack damage. |
 

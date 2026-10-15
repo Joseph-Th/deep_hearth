@@ -28,7 +28,7 @@ Current graph boundaries, not priorities:
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Generated world + body + targeting + excavation | Full hotbar/stack/container shell, general placement, residency, richer contact, and remote discovery. |
+| Generated world + body + targeting + excavation | Hotbar/container UI over stack transfer, plus general placement, residency, richer contact, and remote discovery. |
 | Structural physics | Non-grounded construction, joints/panels, deconstruction/salvage, and terrain support. |
 | Equipment maintenance | Maintenance tools and service-site transport. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
@@ -47,12 +47,12 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Core | Deterministic simulation; persisted 20 Hz `ControlTick`; exact 72:1 slow `SimulationTick`; active body physics cannot be skipped by slow stepping. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
-| Logistics | Fixed-point body/carrying, 20 Hz walk/sprint/crouch/jump, full-cube collision, load-scaled exertion, bounded traversal-edge steps, equipment pickup/drop, semantic equipment/material quick-access selection, and access checks. |
+| Logistics | Fixed-point body/carrying, 20 Hz walk/sprint/crouch/jump, full-cube collision, load-scaled exertion, bounded steps, equipment pickup/drop, semantic quick-access selection, familiar material stacks with partial local-storage transfer, and access checks. |
 | Loose surface matter | Finite local gathering/drop records with reservation, survival cost, depletion, cleanup, and conservation. Carried-material drops preserve physical profile, provenance, and storage age with a short self-pickup delay. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure physics plus grounded hand-setting from exact material. |
-| Block world | Mass-backed chunks, neighborhood demand, full-cube collision, 4.5 m targeting, 20 Hz excavation, semantic equipment/material selection, conserved fragment custody, selected-food use, and pointed-face placement of finished storage into free generated air. Generic terrain placement, hotbar/stack UI, richer shapes, and residency remain absent. |
+| Block world | Mass-backed chunks, neighborhood demand, full-cube collision, 4.5 m targeting, 20 Hz excavation, semantic equipment/material selection, conserved fragment custody, selected-food use, and pointed-face storage placement. Generic terrain placement, hotbar/container UI, richer shapes, and residency remain absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
