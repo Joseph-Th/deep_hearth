@@ -61,9 +61,10 @@ Foundational blockers:
 - continuous fixed-point body position, persisted velocity/stance, 20 Hz walk/sprint/crouch/jump control,
   gravity, falling, ledge-safe crouching, and swept full-cube collision now exist; swimming and general shape
   collision do not;
-- no camera/input adapter or composed primary/secondary action shell; bounded fixed-point player-eye block
-  raycast targeting now exists;
-- no generic continuous hold-to-break composition or contextual place/use pipeline; core terrain excavation is timed and tool/hardness bound;
+- no camera/input adapter or secondary action shell; bounded fixed-point player-eye targeting and a typed held
+  primary excavation intent now exist in core;
+- held excavation can chain canonical timed batches, but admission/progress still use slow boundaries rather than
+  responsive control-time break progress, and contextual place/use remains absent;
 - no generic dropped-item world entity, hotbar, familiar stack projection, or container UI shell;
 - deterministic terrain generation and admitted-player neighborhood demand exist; residency/unload streaming,
   biome/climate fields, and general world discovery do not;
@@ -174,7 +175,7 @@ but that is presentation metadata, not a runtime block model.
 | Random tick | Selected active blocks update stochastically | No runtime RNG/world blocks | `GAP-P2` | Add only when ecology/growth/fire needs it, with deterministic state-owned or position-derived random streams. |
 | Block event | Short delayed action channel for pistons/notes/etc. | None | `GAP-P2` | Prefer typed owner events or scheduled state transitions. Do not add a generic event bus solely for parity. |
 | Block entity | Sparse state beyond finite block-state palette | Separate domain records | `DIFFERENT+` | Voxel attachment points to canonical domain owner. Generic opaque NBT-like state is not the authority. |
-| Breaking hardness | Block + tool determine break duration | Stone terrain authors excavation hardness and reuses canonical mining throughput/batch/wear physics for timed partial removal | `DIFFERENT+` | Preserve the same physical contract while composing repeated work behind familiar hold-to-break input. |
+| Breaking hardness | Block + tool determine break duration | Stone terrain authors excavation hardness and reuses canonical mining throughput/batch/wear physics for timed partial removal; held primary input chains repeated legal batches | `DIFFERENT+` | Preserve this physical contract while moving player-facing progress to responsive control time rather than adding a parallel fast-break rule. |
 | Tool requirement | Tags/tiers determine drops and speed | Capability/hardness contracts | `PARITY+` conceptually | Integrate those contracts into block breaking instead of adding parallel tool-tier tags. |
 | Drops | Block destruction resolves item drops | Completed terrain excavation transfers exact stone fragments into reserved carried custody; insufficient carried capacity currently rejects admission | `DIFFERENT+` | Add conserved world-drop custody for overflow, then automatic pickup when capacity permits. |
 
@@ -263,7 +264,7 @@ interaction composition layer.
 | --- | --- | --- | --- | --- |
 | Camera raycast | Crosshair selects block/entity within reach | `raycast_player_block` performs deterministic fixed-point 3D voxel traversal from the stance-derived player eye, returns the first `FullCube` block plus entry face, and fails closed at absent world truth | `PARITY` foundation | Extend the same query grammar to richer block interaction shapes and entities; adapter camera state remains non-authoritative. |
 | Reach | Player has bounded interaction distance | Physiology authors 1.62 m standing / 1.27 m crouching eye height and a 4.5 m block-interaction reach; exact boundary contact is included | `PARITY` foundation | Direct actions should consume this target result while owning validators still recheck exact target legality and mutation freshness. |
-| Hold-to-break | Break progress accrues every tick from tool speed, block hardness and player modifiers; client predicts while server validates | Gathering/mining are admitted timed jobs | `GAP-P0` shell | Map held primary action to canonical break work with deterministic progress from material resistance, tool capability, condition, stance and environment. Progress is owner-derived work, not an extra confirmation action. |
+| Hold-to-break | Break progress accrues every tick from tool speed, block hardness and player modifiers; client predicts while server validates | `PlayerDirectControlInput` can hold one excavation intent; idle slow boundaries admit the maximum legal target/tool batch, completion can chain the next batch, and typed admission rejection is observable | `GAP-P0` responsiveness | Keep the canonical physical work, but expose control-rate progress/start responsiveness and later hotbar context without duplicating excavation legality or throughput. |
 | Crack/progress feedback | Visual breaking stages | Timed work can expose schedule but no renderer | `GAP-P1` | Expose normalized progress and target identity for adapter feedback. |
 | Tool selection | Held hotbar item defines tool context | Equipment can be carried but no hotbar | `GAP-P0` | Add active-hand/hotbar projection that resolves to canonical equipment/material identity. |
 | Placement preview | Click face and state placement rules determine result | Grounded structural plan is explicit API | `GAP-P0` | Secondary action should derive candidate placeable/block state from held stack and hit result. Heavy structural work may then continue as timed construction. |

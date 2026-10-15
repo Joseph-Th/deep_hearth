@@ -12,6 +12,15 @@ use crate::structural::StructuralElementId;
 use crate::surface::SurfaceGatheringOutcome;
 use crate::survival::SurvivalAssessment;
 use crate::world::BlockExcavationOutcome;
+use crate::world::{BlockExcavationError, BlockExcavationStartOutcome};
+
+/// Observable result of an attempted primary action on a slow-control boundary.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PrimaryActionOutcome {
+    BlockExcavationStarted(BlockExcavationStartOutcome),
+    BlockExcavationRejected(BlockExcavationError),
+}
 
 /// Result of one canonical 20 Hz control/kinematic tick.
 #[must_use]
@@ -20,6 +29,7 @@ pub struct ControlTickOutcome {
     control_tick: ControlTick,
     simulation: Option<TickOutcome>,
     body_motion: Option<PlayerBodyMotionOutcome>,
+    primary_action: Option<PrimaryActionOutcome>,
 }
 
 impl ControlTickOutcome {
@@ -27,11 +37,13 @@ impl ControlTickOutcome {
         control_tick: ControlTick,
         simulation: Option<TickOutcome>,
         body_motion: Option<PlayerBodyMotionOutcome>,
+        primary_action: Option<PrimaryActionOutcome>,
     ) -> Self {
         Self {
             control_tick,
             simulation,
             body_motion,
+            primary_action,
         }
     }
 
@@ -50,6 +62,12 @@ impl ControlTickOutcome {
     #[must_use]
     pub const fn body_motion(&self) -> Option<PlayerBodyMotionOutcome> {
         self.body_motion
+    }
+
+    /// Primary interaction attempted on this slow boundary, if any.
+    #[must_use]
+    pub const fn primary_action(&self) -> Option<&PrimaryActionOutcome> {
+        self.primary_action.as_ref()
     }
 }
 

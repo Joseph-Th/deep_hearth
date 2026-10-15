@@ -12,6 +12,7 @@ pub(crate) use runtime::{
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::capability::{CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -488,4 +489,72 @@ pub fn validate_start_player_block_excavation(
         work,
         player_work,
     })
+}
+
+/// Validates one familiar primary-action excavation batch using the largest currently useful
+/// batch supported by the selected tool and targeted cell.
+///
+/// This is a convenience admission surface for held direct input. Exact planning callers retain
+/// [`BlockExcavationRequest`] when they need to choose a smaller explicit mass.
+pub(crate) fn validate_start_player_block_excavation_available(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+    method: MiningMethodId,
+    equipment: EquipmentId,
+) -> Result<ValidatedPlayerBlockExcavationStart, BlockExcavationError> {
+    let target = raycast_player_block(registries, state, direction)
+        .map_err(BlockExcavationError::Target)?
+        .ok_or(BlockExcavationError::NoTarget)?;
+    let block = registries
+        .world()
+        .block_for_state(target.state())
+        .unwrap_or_else(|| unreachable!("targeted block state is registered"));
+    let _excavation = block
+        .excavation()
+        .ok_or(BlockExcavationError::TargetNotExcavatable {
+            target: target.voxel(),
+        })?;
+    let source_mass = state
+        .world()
+        .represented_mass_at(registries.world(), target.voxel())
+        .unwrap_or_else(|| unreachable!("target ray established generated world truth"));
+    let method_definition = registries
+        .mining()
+        .get_method(method)
+        .ok_or(BlockExcavationError::UnknownMethod { method })?;
+    validate_player_equipment_access(state, equipment)
+        .map_err(BlockExcavationError::EquipmentAccess)?;
+    let provider = resolve_available_equipment_provider(registries, state, equipment)
+        .map_err(BlockExcavationError::Equipment)?;
+    if state
+        .equipment()
+        .get_equipment(equipment)
+        .is_some_and(|record| record.supported_by().is_some())
+    {
+        return Err(BlockExcavationError::EquipmentMounted { equipment });
+    }
+    let batch_capability = method_definition.max_batch_mass_capability();
+    let Some(batch_value) = provider.get_capability(batch_capability) else {
+        return Err(BlockExcavationError::Physics(
+            MiningPhysicsError::MissingCapability {
+                capability: batch_capability,
+            },
+        ));
+    };
+    let CapabilityValue::Mass(maximum_batch) = batch_value else {
+        return Err(BlockExcavationError::Physics(
+            MiningPhysicsError::CapabilityKindMismatch {
+                capability: batch_capability,
+                expected: CapabilityValueKind::Mass,
+                found: batch_value.kind(),
+            },
+        ));
+    };
+    let mass = std::cmp::min(maximum_batch, source_mass);
+    validate_start_player_block_excavation(
+        registries,
+        state,
+        BlockExcavationRequest::new(direction, method, equipment, mass),
+    )
 }

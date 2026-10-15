@@ -19,7 +19,10 @@ use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::{PlayerAdmissionCommitError, validate_admit_player};
-use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
+use crate::simulation::{
+    PlayerDirectControlInput, PrimaryActionOutcome, PrimaryControlIntent, advance_control_tick,
+    advance_control_tick_with_direct_input, advance_control_tick_with_input,
+};
 use crate::spatial::{CubeFace, VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
 use crate::survival::{Vitality, player_record};
 
@@ -460,6 +463,148 @@ fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_
             .stored()
             .checked_add(crate::core::quantity::AggregateMass::from_mass(batch))
             .unwrap_or_else(|| panic!("block excavation stored matter overflow"))
+    );
+}
+
+#[test]
+fn held_primary_excavation_chains_the_next_batch_on_the_completion_boundary() {
+    let (registries, mut state, pick, target) = generated_excavation_fixture();
+    let batch = Mass::from_milligrams(200_000);
+    let source_mass = state
+        .world()
+        .represented_mass_at(registries.world(), target)
+        .unwrap_or_else(|| panic!("held excavation target mass disappeared"));
+    let input = PlayerDirectControlInput::NEUTRAL.with_primary(
+        PrimaryControlIntent::block_excavation(positive_x_view(), MINING_METHOD_HAND_PICK, pick),
+    );
+
+    let first_start = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("held excavation initial control failed: {error}"));
+        match control.primary_action() {
+            Some(PrimaryActionOutcome::BlockExcavationStarted(start)) => break *start,
+            Some(PrimaryActionOutcome::BlockExcavationRejected(error)) => {
+                panic!("held excavation initial admission was rejected: {error}")
+            }
+            None => {}
+        }
+    };
+    assert_eq!(first_start.target(), target);
+    assert_eq!(first_start.excavated_mass(), batch);
+
+    let (first_completion, second_start) = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("held excavation continuation failed: {error}"));
+        match control.primary_action() {
+            Some(PrimaryActionOutcome::BlockExcavationStarted(start)) => {
+                let completion = control
+                    .simulation()
+                    .and_then(|simulation| simulation.block_excavation())
+                    .unwrap_or_else(|| {
+                        panic!("held excavation restarted without completing the prior batch")
+                    });
+                break (completion, *start);
+            }
+            Some(PrimaryActionOutcome::BlockExcavationRejected(error)) => {
+                panic!("held excavation continuation was rejected: {error}")
+            }
+            None => {}
+        }
+    };
+
+    let remaining = source_mass
+        .checked_sub(batch)
+        .unwrap_or_else(|| panic!("held excavation batch exceeds source mass"));
+    assert_eq!(first_completion.target(), target);
+    assert_eq!(first_completion.excavated_mass(), batch);
+    assert_eq!(first_completion.remaining_mass(), remaining);
+    assert_eq!(second_start.target(), target);
+    assert_eq!(second_start.excavated_mass(), batch);
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(remaining),
+        "the newly chained batch must not remove matter before its own completion"
+    );
+    let carried = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("held excavation player disappeared"))
+        .carried_stockpile();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| (stockpile.stored_mass(), stockpile.reserved_inbound())),
+        Some((batch, batch)),
+        "the completed batch should be stored while the chained batch owns exactly one inbound reservation"
+    );
+}
+
+#[test]
+fn held_primary_excavation_rejects_a_tool_batch_that_does_not_fit_carried_capacity() {
+    let (registries, mut state, pick, target) = generated_excavation_fixture();
+    let carried = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("capacity-blocked excavation player disappeared"))
+        .carried_stockpile();
+    let batch = Mass::from_milligrams(200_000);
+    let remaining_capacity = Mass::from_milligrams(199_999);
+    let available_before = state
+        .inventory()
+        .get_stockpile(carried)
+        .unwrap_or_else(|| panic!("capacity-blocked carried stockpile disappeared"))
+        .available_capacity();
+    let filler = available_before
+        .checked_sub(remaining_capacity)
+        .unwrap_or_else(|| panic!("capacity-blocked fixture has insufficient carried capacity"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        filler,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("capacity-blocked carried filler failed: {error}"));
+    let source_mass = state
+        .world()
+        .represented_mass_at(registries.world(), target)
+        .unwrap_or_else(|| panic!("capacity-blocked target mass disappeared"));
+    let input = PlayerDirectControlInput::NEUTRAL.with_primary(
+        PrimaryControlIntent::block_excavation(positive_x_view(), MINING_METHOD_HAND_PICK, pick),
+    );
+
+    let rejection = loop {
+        let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("capacity-blocked control failed: {error}"));
+        match control.primary_action() {
+            Some(PrimaryActionOutcome::BlockExcavationRejected(error)) => break error.clone(),
+            Some(PrimaryActionOutcome::BlockExcavationStarted(_)) => {
+                panic!("capacity-blocked held excavation unexpectedly started")
+            }
+            None => {}
+        }
+    };
+
+    assert_eq!(
+        rejection,
+        BlockExcavationError::CarriedCapacityExceeded {
+            requested: batch,
+            available: remaining_capacity,
+        }
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(source_mass),
+        "rejected direct excavation must not reduce represented world matter"
     );
 }
 

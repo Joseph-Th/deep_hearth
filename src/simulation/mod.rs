@@ -1,12 +1,14 @@
 //! Canonical synchronous simulation tick pipeline with active subsystem phases wired in visible order.
 
+mod control;
 mod error;
 mod outcome;
 mod planning;
 mod player_death;
 
+pub use control::{PlayerDirectControlInput, PrimaryControlIntent};
 pub use error::TickError;
-pub use outcome::{ControlTickOutcome, TickOutcome};
+pub use outcome::{ControlTickOutcome, PrimaryActionOutcome, TickOutcome};
 
 use crate::core::state::{
     AppState, apply_clock_advance, apply_control_clock_advance, debug_assert_runtime_invariants,
@@ -35,6 +37,7 @@ use crate::survival::{
 };
 use crate::world::{
     BlockExcavationTickError, apply_block_excavation_tick, decide_block_excavation_tick,
+    validate_start_player_block_excavation_available,
 };
 
 use planning::{
@@ -55,7 +58,7 @@ pub fn advance_control_tick(
     registries: &Registries,
     state: &mut AppState,
 ) -> Result<ControlTickOutcome, TickError> {
-    advance_control_tick_with_input(registries, state, PlayerControlInput::NEUTRAL)
+    advance_control_tick_with_direct_input(registries, state, PlayerDirectControlInput::NEUTRAL)
 }
 
 /// Advances one canonical 20 Hz direct-control tick with the sampled player input for this step.
@@ -64,6 +67,15 @@ pub fn advance_control_tick_with_input(
     state: &mut AppState,
     input: PlayerControlInput,
 ) -> Result<ControlTickOutcome, TickError> {
+    advance_control_tick_with_direct_input(registries, state, PlayerDirectControlInput::new(input))
+}
+
+/// Advances one canonical 20 Hz control tick with locomotion and held primary-action intent.
+pub fn advance_control_tick_with_direct_input(
+    registries: &Registries,
+    state: &mut AppState,
+    input: PlayerDirectControlInput,
+) -> Result<ControlTickOutcome, TickError> {
     let current = state.control_tick();
     let next_control = current
         .checked_next()
@@ -71,7 +83,7 @@ pub fn advance_control_tick_with_input(
     let body_plan = decide_player_body_motion(
         registries,
         state,
-        input,
+        input.movement(),
         next_control.is_simulation_boundary(),
     )
     .map_err(TickError::PlayerBodyMotion)?;
@@ -79,7 +91,12 @@ pub fn advance_control_tick_with_input(
         let body_motion = apply_player_body_motion(state, body_plan);
         apply_control_clock_advance(state, next_control);
         debug_assert_runtime_invariants(registries, state);
-        return Ok(ControlTickOutcome::new(next_control, None, body_motion));
+        return Ok(ControlTickOutcome::new(
+            next_control,
+            None,
+            body_motion,
+            None,
+        ));
     }
     debug_assert!(next_control.is_simulation_boundary());
     let neutral_body_plan =
@@ -94,6 +111,11 @@ pub fn advance_control_tick_with_input(
         next_control.simulation_tick(),
         locomotion_exertion,
     )?;
+    let primary_action = if state.player_work().active().is_none() {
+        attempt_primary_action(registries, state, input.primary())
+    } else {
+        None
+    };
     let direct_control_allowed = state
         .survival()
         .player()
@@ -113,7 +135,37 @@ pub fn advance_control_tick_with_input(
         next_control,
         Some(simulation),
         body_motion,
+        primary_action,
     ))
+}
+
+fn attempt_primary_action(
+    registries: &Registries,
+    state: &mut AppState,
+    intent: Option<PrimaryControlIntent>,
+) -> Option<PrimaryActionOutcome> {
+    let intent = intent?;
+    match intent {
+        PrimaryControlIntent::BlockExcavation {
+            direction,
+            method,
+            equipment,
+        } => Some(
+            match validate_start_player_block_excavation_available(
+                registries, state, direction, method, equipment,
+            ) {
+                Ok(validated) => {
+                    let started = validated.commit(state).unwrap_or_else(|error| {
+                        panic!(
+                            "runtime invariant broken: synchronous primary block excavation became stale: {error}"
+                        )
+                    });
+                    PrimaryActionOutcome::BlockExcavationStarted(started)
+                }
+                Err(error) => PrimaryActionOutcome::BlockExcavationRejected(error),
+            },
+        ),
+    }
 }
 
 /// Advances atomically to the next slow-simulation boundary when no control-rate body physics
