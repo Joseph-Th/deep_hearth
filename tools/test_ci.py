@@ -3027,12 +3027,18 @@ class GameplayReportContractTests(unittest.TestCase):
         lines = [
             "SURVIVAL EXPERIENCE seed=0x1 sample=organic pressure=hydration choice=[state:supply-constrained diet:balanced-recovery meal:500000mg drink:750000uL] inherited-reserve=[continuity:main-provisioning-episode storage:7:copper-crock preservation:5000000ppm rotation:consume-ambient-first retained:5800000mg age-saved:2500t] preservation-investment-episode=[continuity:separate-matched-episode protected-reserve:5800000mg raw-opportunity=[origin:5:field-box mode:scarce-timber inputs:wood:2000000mg] storage-policy:enclosure-singleton commitment:5:field-box state:invested commitment-reason:return-clears-threshold minimum-return:1000000ppm candidate-enclosure-evaluation=[policy:enclosure-singleton storage:5:field-box preservation:1750000ppm candidates:1]] work-interlock=[short-loop-serving-floor:250000uL integrated=[hydration-policy:task-floor initial-drink:250000uL/6t prospect:12t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:900000ppmE/900000ppmH warning-safe:true serving-actions=[initial:1 followup:0 power:0]]]",
             "SURVIVAL PRESERVATION PATH seed=0x1 sample=organic continuity=separate-matched-episode actor-selected=true canonical-execution=true action=build storage=5:field-box horizon=1000t build=125t raw-spent=2000000mg outcome=fresh remaining-fresh=700t",
+            "SURVIVAL PRESERVATION PATH seed=0x2 sample=organic continuity=separate-matched-episode actor-selected=true canonical-execution=true action=decline storage=none horizon=900t build=0t raw-spent=0mg outcome=fresh remaining-fresh=30t",
+            "SURVIVAL PRESERVATION PATH seed=0x3 sample=organic continuity=separate-matched-episode actor-selected=true canonical-execution=true action=decline storage=none horizon=950t build=0t raw-spent=0mg outcome=spoiled remaining-fresh=0t",
         ]
         summary = gameplay_report_summary.survival_summary(lines)
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertIn(
             "preservation-continuity=[inherited-main:1/1 investment-separate-matched:1/1]",
+            summary,
+        )
+        self.assertIn(
+            "selected-preservation=[build:1 decline:2 outcome:1fresh/1spoiled fresh-left:0..700t]",
             summary,
         )
         digest = gameplay_report_summary._digest_summary(summary)
@@ -3737,14 +3743,14 @@ class GameplayReportContractTests(unittest.TestCase):
             [
                 "POWER PROVIDER EXPERIENCE seed=0x1 decision=[selected:crank]",
                 "SETTLEMENT STORAGE EXPERIENCE stages=[stone:[capacity:500nJ portfolio-charges:107 max-packed:10] paired:[capacity:1000nJ portfolio-charges:44 max-packed:20] bank:[capacity:5000nJ portfolio-charges:10 max-packed:32]] portfolio=[families:5 batches-per-family:32 productive-batches:160]",
-                "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle shared-bank=timber-frame-flywheel shared-bank-concurrency=serialized-by-store-occupancy families=5 batches-per-family=32 productive-batches=160 charge-events=10 charge-attention=112t delegated=935t max-packed=32 elapsed=1047t survival=[energy:1nJ hydration:1uL] provider-condition=998320ppm matter=conserved",
+                "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle shared-bank=timber-frame-flywheel shared-bank-concurrency=serialized-by-store-occupancy families=5 batches-per-family=32 productive-batches=160 charge-events=10 charge-attention=112t parallel-maintenance=[component:stone-drill-bit attention:12t overlap:12t completed:true] delegated=935t max-packed=32 elapsed=1047t survival=[energy:1nJ hydration:1uL] provider-condition=998320ppm matter=conserved",
                 "POWER SETTLEMENT seed=0x1 copper-policy:preserve-for-other-uses comparison=[market-frontier:1:stone-crank,7:treadle,56:walking-wheel]",
             ]
         )
         self.assertIsNotNone(detailed)
         assert detailed is not None
         self.assertIn(
-            "shared-power=[lived:1 families:5 productive-batches:160 charges:10 provider:treadle provider-basis:matched-market-frontier treadle-entry:7 crosses:true active:112t delegated:935t concurrency:serialized-by-store-occupancy]",
+            "shared-power=[lived:1 families:5 productive-batches:160 charges:10 provider:treadle provider-basis:matched-market-frontier treadle-entry:7 crosses:true active:124t productive-overlap:12/12t delegated:935t concurrency:serialized-by-store-occupancy]",
             detailed,
         )
         self.assertNotIn("shared-power-projection=[", detailed)

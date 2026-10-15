@@ -88,6 +88,14 @@ def survival_summary(lines: list[str]) -> str | None:
     preservation_paths = [
         line for line in lines if line.startswith("SURVIVAL PRESERVATION PATH ")
     ]
+    declined_fresh = sum(
+        " action=decline " in line and " outcome=fresh " in line
+        for line in preservation_paths
+    )
+    declined_spoiled = sum(
+        " action=decline " in line and " outcome=spoiled " in line
+        for line in preservation_paths
+    )
     count = lambda marker: sum(marker in line for line in survival)
     path_count = lambda marker: sum(marker in line for line in preservation_paths)
     organic_survival = organic_only(survival)
@@ -177,8 +185,8 @@ def survival_summary(lines: list[str]) -> str | None:
         f"declined-return:{count('commitment-reason:return-does-not-clear-threshold')}] "
         f"selected-preservation=[build:{path_count(' action=build ')} "
         f"decline:{path_count(' action=decline ')} "
-        f"fresh:{path_count(' outcome=fresh ')} spoiled:{path_count(' outcome=spoiled ')} "
-        f"remaining-fresh:{_span(selected_remaining_fresh_ticks, 't')}] "
+        f"outcome:{declined_fresh}fresh/{declined_spoiled}spoiled "
+        f"fresh-left:{_span(selected_remaining_fresh_ticks, 't')}] "
         f"preservation-commitment=[cleared:{count('commitment-reason:return-clears-threshold')} "
         f"declined-return:{count('commitment-reason:return-does-not-clear-threshold')}] "
         f"work-interlock=[serving-floor:{scaled_span([int(match.group(1)) for line in survival if (match := re.search(r'short-loop-serving-floor:(\d+)uL', line))], 1_000, 'mL')} "

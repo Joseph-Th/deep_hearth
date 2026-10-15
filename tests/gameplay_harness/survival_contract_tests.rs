@@ -190,6 +190,7 @@ fn preservation_can_decline_a_low_benefit_singleton() {
         definition: STORAGE_TIMBER_PROVISIONS_CHEST,
         production_ticks: 150,
         raw_material_mass_mg: 2_000_000,
+        ambient_remaining_fresh_ticks: 0,
         remaining_fresh_ticks: 125,
     };
     assert_eq!(
@@ -213,6 +214,52 @@ fn preservation_can_decline_a_low_benefit_singleton() {
         Some(worthwhile),
         "time preference for faster construction must not itself force a worthwhile enclosure to be declined"
     );
+    let already_fresh = PreservationCandidateProjection {
+        ambient_remaining_fresh_ticks: 500,
+        remaining_fresh_ticks: 600,
+        ..worthwhile
+    };
+    assert_eq!(
+        select_preservation_investment(1_000_000, 1_000_000, 2_000_000, &[already_fresh]),
+        None,
+        "preservation must value only freshness added beyond the no-build reserve-use horizon"
+    );
+}
+
+#[test]
+fn preservation_need_horizon_spans_use_before_and_after_ambient_spoilage() {
+    let registries = build_registries();
+    let baselines = (1_u64..=64)
+        .map(|seed| {
+            let world = provisioning_world(&registries, seed);
+            let projections = project_preservation_candidates_with_raw_opportunity(
+                &registries,
+                seed,
+                world.foods[world.witness_index],
+                world.preserved_reserve_mass,
+                None,
+            );
+            let baseline = projections
+                .first()
+                .map(|projection| projection.ambient_remaining_fresh_ticks)
+                .unwrap_or_else(|| panic!("preservation horizon sample lost every enclosure"));
+            assert!(
+                projections
+                    .iter()
+                    .all(|projection| projection.ambient_remaining_fresh_ticks == baseline),
+                "one preservation comparison must share one no-build reserve-use horizon"
+            );
+            baseline
+        })
+        .collect::<BTreeSet<_>>();
+    assert!(
+        baselines.contains(&0),
+        "bounded preservation horizons lost post-spoilage reserve demand"
+    );
+    assert!(
+        baselines.iter().any(|remaining| *remaining > 0),
+        "bounded preservation horizons lost use-before-spoilage restraint cases"
+    );
 }
 
 #[test]
@@ -222,18 +269,21 @@ fn preservation_material_budget_makes_intermediate_frontier_actionable() {
         definition: STORAGE_ROUGH_TIMBER_FIELD_BOX,
         production_ticks: 100,
         raw_material_mass_mg: 2_000_000,
+        ambient_remaining_fresh_ticks: 0,
         remaining_fresh_ticks: 100,
     };
     let balanced = PreservationCandidateProjection {
         definition: STORAGE_TIMBER_PROVISIONS_CHEST,
         production_ticks: 150,
         raw_material_mass_mg: 3_000_000,
+        ambient_remaining_fresh_ticks: 0,
         remaining_fresh_ticks: 400,
     };
     let strongest = PreservationCandidateProjection {
         definition: STORAGE_INSULATED_TIMBER_PANTRY,
         production_ticks: 200,
         raw_material_mass_mg: 6_000_000,
+        ambient_remaining_fresh_ticks: 0,
         remaining_fresh_ticks: 1_000,
     };
     assert_eq!(
@@ -268,7 +318,6 @@ fn preservation_decline_executes_without_spending_the_raw_opportunity() {
     assert_eq!(decision.investment, None);
     assert!(decision.no_build.elapsed_ticks > 0);
     assert!(decision.no_build.retained_raw_mg > 0);
-    assert_eq!(decision.no_build.remaining_fresh_ticks, 0);
 }
 
 #[test]

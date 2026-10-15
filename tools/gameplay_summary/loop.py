@@ -217,19 +217,41 @@ def _lived_shared_power_evidence(
     families = re.search(r"\bfamilies=(\d+)", portfolio)
     productive_batches = re.search(r"\bproductive-batches=(\d+)", portfolio)
     charge_events = re.search(r"\bcharge-events=(\d+)", portfolio)
-    active = re.search(r"\bcharge-attention=(\d+)t", portfolio)
+    charge_attention = re.search(r"\bcharge-attention=(\d+)t", portfolio)
+    parallel_maintenance = re.search(
+        r"\bparallel-maintenance=\[component:stone-drill-bit attention:(\d+)t "
+        r"overlap:(\d+)t completed:(true|false)\]",
+        portfolio,
+    )
     delegated = re.search(r"\bdelegated=(\d+)t", portfolio)
     concurrency = re.search(r"\bshared-bank-concurrency=([^ ]+)", portfolio)
-    if None in (families, productive_batches, charge_events, active, delegated):
+    if None in (
+        families,
+        productive_batches,
+        charge_events,
+        charge_attention,
+        parallel_maintenance,
+        delegated,
+    ):
         raise AssertionError("settlement lived portfolio lost shared-power telemetry")
+    assert charge_attention is not None
+    assert parallel_maintenance is not None
+    maintenance_attention = int(parallel_maintenance.group(1))
+    maintenance_overlap = int(parallel_maintenance.group(2))
+    if parallel_maintenance.group(3) != "true" or maintenance_attention <= 0:
+        raise AssertionError("settlement shared power did not produce useful returned attention")
+    if maintenance_overlap != maintenance_attention:
+        raise AssertionError("settlement parallel maintenance was not fully overlapped with machine work")
     charges = int(charge_events.group(1))
     threshold = min(treadle_entry)
+    total_active = int(charge_attention.group(1)) + maintenance_attention
     return (
         "shared-power=["
         f"lived:1 families:{families.group(1)} productive-batches:{productive_batches.group(1)} "
         f"charges:{charges} provider:treadle provider-basis:matched-market-frontier "
         f"treadle-entry:{threshold} crosses:{str(charges >= threshold).lower()} "
-        f"active:{active.group(1)}t delegated:{delegated.group(1)}t "
+        f"active:{total_active}t productive-overlap:{maintenance_overlap}/{maintenance_attention}t "
+        f"delegated:{delegated.group(1)}t "
         f"concurrency:{concurrency.group(1) if concurrency is not None else 'unspecified'}]"
     )
 

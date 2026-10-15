@@ -64,6 +64,7 @@ pub(in super::super) struct PreservationNoBuildReview {
     pub(in super::super) elapsed_ticks: u64,
     pub(in super::super) retained_raw_mg: u64,
     pub(in super::super) remaining_fresh_ticks: u64,
+    pub(in super::super) spoiled: bool,
 }
 
 #[cfg_attr(
@@ -116,6 +117,7 @@ fn evaluate_no_build(
     food_mass: Mass,
     available: &[(super::CommodityKey, Mass)],
     reference: &PreservationInfrastructureReview,
+    expected_remaining_fresh_ticks: u64,
 ) -> PreservationNoBuildReview {
     use super::*;
     let mut state = AppState::new();
@@ -169,11 +171,6 @@ fn evaluate_no_build(
         .production_ticks
         .checked_add(reference.observation_ticks)
         .unwrap_or_else(|| panic!("bounded preservation horizon"));
-    assert!(
-        matches!(assess_food_freshness(registries, &state, lot),
-        Ok(FoodFreshness::Fresh { remaining, .. }) if remaining.value() == elapsed_ticks),
-        "the declared comparison horizon must be the observable ambient edible lifetime"
-    );
     advance_idle_ticks(
         registries,
         &mut state,
@@ -196,19 +193,23 @@ fn evaluate_no_build(
             .unwrap_or_else(|error| panic!("initial matter: {error:?}"))
             .total()
     );
-    assert!(
-        matches!(
-            assess_food_freshness(registries, &state, lot),
-            Ok(super::FoodFreshness::Spoiled { .. })
-        ),
-        "no-build must reach the same ambient spoilage endpoint, not receive free preservation"
+    let (spoiled, remaining_fresh_ticks) = match assess_food_freshness(registries, &state, lot)
+        .unwrap_or_else(|error| panic!("no-build freshness audit failed: {error:?}"))
+    {
+        FoodFreshness::Fresh { remaining, .. } => (false, remaining.value()),
+        FoodFreshness::Spoiled { .. } => (true, 0),
+    };
+    assert_eq!(
+        remaining_fresh_ticks, expected_remaining_fresh_ticks,
+        "no-build execution disagrees with the actor-visible ambient freshness projection"
     );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("no-build trusted load: {error:?}"));
     PreservationNoBuildReview {
         elapsed_ticks,
         retained_raw_mg,
-        remaining_fresh_ticks: 0,
+        remaining_fresh_ticks,
+        spoiled,
     }
 }
 
@@ -233,8 +234,9 @@ pub(in super::super) fn evaluate_preservation_decision(
         protected_reserve_mass,
         Some(available),
     );
-    // Freeze intent from observable projections before executing any comparison branch.
-    // The common scenario endpoint is ambient spoilage, so the no-build value is zero.
+    // Freeze intent from observable projections before executing any comparison branch. Every
+    // candidate shares the same no-build freshness at the disclosed reserve-use horizon, and
+    // investment value counts only freshness added beyond that baseline.
     let projections = project_preservation_candidates_with_raw_opportunity(
         registries,
         seed,
@@ -367,6 +369,7 @@ pub(in super::super) fn evaluate_preservation_decision(
         protected_reserve_mass,
         available,
         &selected,
+        selected_projection.ambient_remaining_fresh_ticks,
     );
     PreservationDecisionReview {
         opportunity,

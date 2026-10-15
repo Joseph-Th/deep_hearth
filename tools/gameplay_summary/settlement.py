@@ -58,19 +58,28 @@ def _shared_portfolio_evidence(lines: list[str]) -> str:
         r"continuity=single-state provider:?(?:=)?([^ ]+) shared-bank=([^ ]+) "
         r"shared-bank-concurrency=([^ ]+) families=(\d+) batches-per-family=(\d+) "
         r"productive-batches=(\d+) charge-events=(\d+) charge-attention=(\d+)t "
+        r"parallel-maintenance=\[component:stone-drill-bit attention:(\d+)t overlap:(\d+)t completed:(true|false)\] "
         r"delegated=(\d+)t max-packed=(\d+) elapsed=(\d+)t .*?provider-condition=(\d+)ppm",
         experiences[0],
     )
     if portfolio is None:
         raise AssertionError("settlement portfolio experience lost its lived telemetry")
+    maintenance_attention = int(portfolio.group(9))
+    maintenance_overlap = int(portfolio.group(10))
+    if portfolio.group(11) != "true" or maintenance_attention <= 0:
+        raise AssertionError("settlement portfolio lost useful parallel maintenance work")
+    if maintenance_overlap != maintenance_attention:
+        raise AssertionError("settlement portfolio maintenance was not fully overlapped with automation")
+    active_attention = int(portfolio.group(8)) + maintenance_attention
     return (
         " shared-portfolio=[scope:single-state "
         f"provider:{portfolio.group(1)} bank:{portfolio.group(2)} "
         f"concurrency:{portfolio.group(3)} families:{portfolio.group(4)} "
         f"productive-batches:{portfolio.group(6)} charges:{portfolio.group(7)} "
-        f"active:{portfolio.group(8)}t delegated:{portfolio.group(9)}t "
-        f"max-packed:{portfolio.group(10)} elapsed:{portfolio.group(11)}t "
-        f"condition:{portfolio.group(12)}ppm]"
+        f"active:{active_attention}t charge:{portfolio.group(8)}t "
+        f"parallel-maintenance=[attention:{maintenance_attention}t overlap:{maintenance_overlap}t] "
+        f"delegated:{portfolio.group(12)}t max-packed:{portfolio.group(13)} "
+        f"elapsed:{portfolio.group(14)}t condition:{portfolio.group(15)}ppm]"
     )
 
 

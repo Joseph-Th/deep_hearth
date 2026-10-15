@@ -33,6 +33,7 @@ pub(in super::super) struct PreservationCandidateProjection {
     pub(in super::super) definition: StorageDefinitionId,
     pub(in super::super) production_ticks: u64,
     pub(in super::super) raw_material_mass_mg: u64,
+    pub(in super::super) ambient_remaining_fresh_ticks: u64,
     pub(in super::super) remaining_fresh_ticks: u64,
 }
 
@@ -42,6 +43,8 @@ struct PreservationScenarioSpec {
     maximum_construction_ticks: u64,
     matched_observation_ticks: u64,
     bootstrap_age_ticks: u64,
+    ambient_remaining_fresh_ticks: u64,
+    ambient_spoiled_at_assessment: bool,
     food_mass: Mass,
 }
 
@@ -104,15 +107,49 @@ fn preservation_scenario_spec(
     let observation_ceiling = maximum_observation.min(1_200);
     let matched_observation_ticks = observation_floor
         + mix64(seed ^ 0x5052_4553_484F_5249) % (observation_ceiling - observation_floor + 1);
-    let bootstrap_age_ticks = shelf_life_ticks
-        .checked_sub(maximum_construction_ticks)
-        .and_then(|ticks| ticks.checked_sub(matched_observation_ticks))
-        .unwrap_or_else(|| unreachable!("bounded preservation horizon was derived above"));
+    // The reserve is not always judged exactly at ambient spoilage. Real preservation decisions
+    // are interesting because the player may need the food shortly before it would spoil, making
+    // construction unnecessary, or after it would spoil, making protection valuable. Keep the
+    // offset smaller than both the observation window and the pre-episode age headroom. The first
+    // bound keeps late-horizon construction starting while the food is still edible; the second
+    // keeps early-horizon worlds from projecting the reserve to a time before it existed.
+    let comparison_horizon_ticks = maximum_construction_ticks
+        .checked_add(matched_observation_ticks)
+        .unwrap_or_else(|| panic!("preservation comparison horizon overflowed"));
+    let pre_episode_age_headroom = shelf_life_ticks
+        .checked_sub(comparison_horizon_ticks)
+        .unwrap_or_else(|| unreachable!("bounded preservation horizon exceeds shelf life"));
+    let maximum_timing_offset = matched_observation_ticks
+        .saturating_sub(1)
+        .min(pre_episode_age_headroom)
+        .min(50)
+        .max(1);
+    let timing_offset = 1 + mix64(seed ^ 0x5052_4553_4E45_4544) % maximum_timing_offset;
+    let ambient_spoiled_at_assessment = !mix64(seed ^ 0x5052_4553_5449_4D45).is_multiple_of(2);
+    let assessment_age_ticks = if ambient_spoiled_at_assessment {
+        shelf_life_ticks
+            .checked_add(timing_offset)
+            .unwrap_or_else(|| panic!("preservation assessment age overflowed"))
+    } else {
+        shelf_life_ticks
+            .checked_sub(timing_offset)
+            .unwrap_or_else(|| unreachable!("timing offset is below shelf life"))
+    };
+    let bootstrap_age_ticks = assessment_age_ticks
+        .checked_sub(comparison_horizon_ticks)
+        .unwrap_or_else(|| unreachable!("bounded preservation horizon begins after food creation"));
+    let ambient_remaining_fresh_ticks = if ambient_spoiled_at_assessment {
+        0
+    } else {
+        timing_offset
+    };
     PreservationScenarioSpec {
         food,
         maximum_construction_ticks,
         matched_observation_ticks,
         bootstrap_age_ticks,
+        ambient_remaining_fresh_ticks,
+        ambient_spoiled_at_assessment,
         food_mass,
     }
 }
@@ -185,6 +222,7 @@ pub(in super::super) fn project_preservation_candidates_with_raw_opportunity(
                 definition: candidate.definition,
                 production_ticks: candidate.construction_plan.attention_ticks,
                 raw_material_mass_mg: candidate.construction_plan.raw_mass.milligrams(),
+                ambient_remaining_fresh_ticks: scenario.ambient_remaining_fresh_ticks,
                 remaining_fresh_ticks,
             }
         })
@@ -204,21 +242,36 @@ pub(in super::super) fn select_preservation_projection(
     )
 }
 
-/// Compares construction against abstention at this episode's ambient-spoilage endpoint (zero
-/// remaining edible lifetime without construction). Equal value favors retaining time and raw
-/// materials. This is an actor attention budget, not a prediction of how much food will be eaten.
+/// Compares construction against abstention at the same disclosed reserve-use horizon. Only the
+/// additional edible lifetime created by the enclosure counts as benefit; food that would still be
+/// fresh without construction is not credited to the investment. Equal value favors retaining time
+/// and raw materials. This is an actor attention budget, not a prediction of how much food will be
+/// eaten.
 pub(in super::super) fn select_preservation_investment(
     attention_value_ppm: u32,
     minimum_return_ppm: u32,
     material_budget_mg: u64,
     projections: &[PreservationCandidateProjection],
 ) -> Option<PreservationCandidateProjection> {
+    let ambient_remaining_fresh_ticks = projections
+        .first()
+        .map(|projection| projection.ambient_remaining_fresh_ticks)
+        .unwrap_or_else(|| panic!("preservation investment requires an authored candidate"));
+    assert!(
+        projections.iter().all(|projection| {
+            projection.ambient_remaining_fresh_ticks == ambient_remaining_fresh_ticks
+        }),
+        "matched preservation candidates must share one no-build freshness baseline"
+    );
     let selected = select_preservation_projection_for_attention_value(
         attention_value_ppm,
         material_budget_mg,
         projections,
     );
-    let benefit = i128::from(selected.remaining_fresh_ticks)
+    let incremental_fresh_ticks = selected
+        .remaining_fresh_ticks
+        .saturating_sub(selected.ambient_remaining_fresh_ticks);
+    let benefit = i128::from(incremental_fresh_ticks)
         .checked_mul(1_000_000)
         .unwrap_or_else(|| panic!("preservation projected freshness value overflowed"));
     let cost = i128::from(selected.production_ticks)
@@ -651,6 +704,12 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
         observation_ticks,
         "preservation observation",
     );
+    let ambient_freshness = assess_food_freshness(registries, &state, ambient_lot)
+        .unwrap_or_else(|error| panic!("preservation ambient freshness audit failed: {error:?}"));
+    let ambient_remaining_fresh_ticks = match ambient_freshness {
+        FoodFreshness::Fresh { remaining, .. } => remaining.value(),
+        FoodFreshness::Spoiled { .. } => 0,
+    };
     let (ambient_spoiled, ambient_age_after_ticks) = freshness_age(registries, &state, ambient_lot);
     let (enclosed_spoiled, enclosed_age_after_ticks) =
         freshness_age(registries, &state, enclosed_lot);
@@ -675,9 +734,13 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
         ambient_age_after_ticks,
         bootstrap_age_ticks + construction_ticks + observation_ticks
     );
-    assert!(
-        ambient_spoiled,
-        "matched ambient witness must cross its authored spoilage boundary"
+    assert_eq!(
+        ambient_spoiled, scenario.ambient_spoiled_at_assessment,
+        "matched ambient witness did not reach its disclosed reserve-use horizon"
+    );
+    assert_eq!(
+        ambient_remaining_fresh_ticks, scenario.ambient_remaining_fresh_ticks,
+        "matched ambient witness disagrees with the pre-action no-build freshness projection"
     );
     assert!(
         !enclosed_spoiled,
