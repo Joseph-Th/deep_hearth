@@ -91,7 +91,7 @@ pub(super) fn discover_primitive_progression(
             total.checked_add(acquire_copper_evidence(
                 registries,
                 state,
-                PROSPECTING_REGIONAL_RECONNAISSANCE,
+                GeologicalEvidenceKind::LooseIndicator,
                 region,
             ))
         })
@@ -124,7 +124,7 @@ pub(super) fn discover_primitive_progression(
             total.checked_add(acquire_copper_evidence(
                 registries,
                 state,
-                PROSPECTING_FIELD_INSPECTION,
+                GeologicalEvidenceKind::SurfaceExposure,
                 request.region(),
             ))
         })
@@ -175,16 +175,20 @@ pub(super) fn discover_primitive_progression(
         .iter()
         .copied()
         .try_fold(0_u64, |total, request| {
-            let projected = project_prospecting_work(
+            let method = select_visible_prospecting_method(
                 registries,
-                PROSPECTING_FIELD_INSPECTION,
+                state,
                 request.region(),
-            )
-            .unwrap_or_else(|error| {
-                panic!("primitive progression field-inspection projection failed: {error}")
-            })
-            .duration()
-            .value();
+                GeologicalEvidenceKind::SurfaceExposure,
+                None,
+                "primitive progression surface projection",
+            );
+            let projected = project_prospecting_work(registries, method, request.region())
+                .unwrap_or_else(|error| {
+                    panic!("primitive progression field-inspection projection failed: {error}")
+                })
+                .duration()
+                .value();
             total.checked_add(projected)
         })
         .unwrap_or_else(|| {
@@ -233,7 +237,7 @@ pub(super) fn discover_primitive_progression(
         let sample_ticks = acquire_copper_evidence_with_equipment(
             registries,
             state,
-            PROSPECTING_DETAILED_FIELD_SURVEY,
+            GeologicalEvidenceKind::ExcavationSample,
             clue.request.region(),
             Some(sampling_hammer),
         );
@@ -412,7 +416,7 @@ pub(super) fn discover_primitive_progression(
         let detailed_survey_ticks = acquire_copper_evidence_with_equipment(
             registries,
             state,
-            PROSPECTING_DETAILED_FIELD_SURVEY,
+            GeologicalEvidenceKind::ExcavationSample,
             refinement_request.region(),
             Some(sampling_hammer),
         );
@@ -425,7 +429,14 @@ pub(super) fn discover_primitive_progression(
             detailed_survey_ticks,
             project_prospecting_work(
                 registries,
-                PROSPECTING_DETAILED_FIELD_SURVEY,
+                select_visible_prospecting_method(
+                    registries,
+                    state,
+                    refinement_request.region(),
+                    GeologicalEvidenceKind::ExcavationSample,
+                    Some(sampling_hammer),
+                    "primitive progression refinement projection",
+                ),
                 refinement_request.region(),
             )
             .unwrap_or_else(|error| {

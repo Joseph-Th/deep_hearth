@@ -10,8 +10,7 @@ use deep_hearth::content::gameplay_fixture::{locate_ground_stockpile, seed_trave
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
     EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK, FORM_NATIVE_METAL, FORM_ORE,
-    MATERIAL_COPPER, MINING_METHOD_HAND_PICK, PROSPECTING_DETAILED_FIELD_SURVEY,
-    PROSPECTING_FIELD_INSPECTION, PROSPECTING_REGIONAL_RECONNAISSANCE,
+    MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
@@ -743,7 +742,7 @@ pub(super) fn run_exact_local_progression_campaign(
         acquire_copper_evidence(
             registries,
             &mut state,
-            PROSPECTING_REGIONAL_RECONNAISSANCE,
+            GeologicalEvidenceKind::LooseIndicator,
             region,
         );
     }
@@ -772,7 +771,7 @@ pub(super) fn run_exact_local_progression_campaign(
         acquire_copper_evidence(
             registries,
             &mut state,
-            PROSPECTING_FIELD_INSPECTION,
+            GeologicalEvidenceKind::SurfaceExposure,
             request.region(),
         );
     }
@@ -813,7 +812,7 @@ pub(super) fn run_exact_local_progression_campaign(
         acquire_copper_evidence_with_equipment(
             registries,
             &mut state,
-            PROSPECTING_DETAILED_FIELD_SURVEY,
+            GeologicalEvidenceKind::ExcavationSample,
             clue.request.region(),
             Some(hammer),
         );
@@ -940,7 +939,7 @@ pub(super) fn run_exact_local_progression_campaign(
         acquire_copper_evidence_with_equipment(
             registries,
             &mut state,
-            PROSPECTING_DETAILED_FIELD_SURVEY,
+            GeologicalEvidenceKind::ExcavationSample,
             request.region(),
             Some(hammer),
         );

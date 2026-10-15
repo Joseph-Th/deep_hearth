@@ -23,6 +23,7 @@ use super::progression_generation::{
     SHALLOW_OPPORTUNITY_MIN_BATCHES, ore_opportunity, varied_four_way_order,
 };
 use super::progression_upgrade_planning::{equipment_upgrade_additions, native_input_for_upgrade};
+use super::prospecting_timing::select_visible_prospecting_method;
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;
@@ -55,13 +56,13 @@ use deep_hearth::equipment::{
     validate_assemble_equipment, validate_equipment_maintenance, validate_upgrade_equipment,
 };
 use deep_hearth::geology::{
-    FieldProspectingRequest, GeologicalEvidenceConsistency, assess_geological_knowledge,
-    validate_start_field_prospecting,
+    FieldProspectingRequest, GeologicalEvidenceConsistency, GeologicalEvidenceKind,
+    assess_geological_knowledge, validate_start_field_prospecting,
 };
 use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::labor::{
-    ManualPowerError, ManualPowerRequest, ProspectingMethodId, project_manual_power,
-    project_prospecting_work, validate_start_manual_power,
+    ManualPowerError, ManualPowerRequest, project_manual_power, project_prospecting_work,
+    validate_start_manual_power,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{

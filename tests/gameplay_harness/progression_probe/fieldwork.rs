@@ -1,6 +1,8 @@
 //! Observable prospecting, mining execution, and clue interpretation for primitive progression.
 
-use super::super::prospecting_timing::complete_prospecting_work;
+use super::super::prospecting_timing::{
+    complete_prospecting_work, select_visible_prospecting_method,
+};
 use super::*;
 
 pub(super) fn mine_and_claim(
@@ -136,19 +138,27 @@ pub(super) fn resolve_progression_mining_target(
 pub(super) fn acquire_copper_evidence(
     registries: &Registries,
     state: &mut AppState,
-    method: ProspectingMethodId,
+    evidence: GeologicalEvidenceKind,
     region: VoxelBounds,
 ) -> u64 {
-    acquire_copper_evidence_with_equipment(registries, state, method, region, None)
+    acquire_copper_evidence_with_equipment(registries, state, evidence, region, None)
 }
 
 pub(super) fn acquire_copper_evidence_with_equipment(
     registries: &Registries,
     state: &mut AppState,
-    method: ProspectingMethodId,
+    evidence: GeologicalEvidenceKind,
     region: VoxelBounds,
     equipment: Option<EquipmentId>,
 ) -> u64 {
+    let method = select_visible_prospecting_method(
+        registries,
+        state,
+        region,
+        evidence,
+        equipment,
+        "primitive progression prospecting",
+    );
     let request = match equipment {
         Some(equipment) => {
             FieldProspectingRequest::new_with_equipment(method, region, MATERIAL_COPPER, equipment)
