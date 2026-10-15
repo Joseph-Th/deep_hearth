@@ -4,6 +4,16 @@
 
 Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, and [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) for automated-player evidence. Use the smallest lane that proves the changed contract.
 
+## Rust agent diagnostics
+
+Use these only when source reading and focused tests leave a named structural, test-strength, or macro uncertainty:
+
+- `cargo modules structure --lib --no-fns --no-traits --no-types --max-depth 4` gives a bounded module map. Narrow with `--focus-on` before requesting more hierarchy.
+- `cargo mutants --list --file src/lib.rs` lists candidate mutations without executing them. Run only a narrow file or selected mutant set when a consequential owner test may accept wrong behavior; never use `--in-place` on a dirty or shared worktree.
+- `cargo expand --lib simulation` is an on-demand view for material derive/proc-macro expansion in the simulation surface.
+
+These diagnostics do not extend `quick`, `gate`, or `audit`, and mutation counts are not quality metrics.
+
 ## Fast path
 
 | Need | Command |
