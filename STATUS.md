@@ -19,7 +19,7 @@ Progression:
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and first/settlement foundry routes. Compound-ore reduction is absent. |
 | Opening wilderness acquisition | Seeded forage/water/stone/timber graph, load-sensitive travel, and finite campfire heat. General terrain play, remote discovery, hydrology, shelter, and weather are absent. |
-| Structures | Grounded adjacent members use carried matter and timed work; load-bearing starts on completion. |
+| Structures | Grounded adjacent members atomically consume carried stacks into timed work; load-bearing starts on completion. |
 
 ## Current integration frontier
 
@@ -52,7 +52,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Loose surface matter | Finite gathering/drop custody; exact-local drop projection; partial capacity-filling auto-pickup; natural opportunities stay deliberate. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local passive heat affects warmth. Fluids support exact withdrawal/local observation and finite opening water. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
-| Structures | Support/load/failure physics plus grounded hand-setting from exact material. |
+| Structures | Support/load/failure physics plus atomic grounded hand-setting from carried stacks. |
 | Block world | Mass-backed chunks, neighborhood demand, collision, 4.5 m targeting, 20 Hz excavation, conserved fragments, selected use/drop, storage placement, and inventory/hotbar core shell. Adapter UI, general placement, richer shapes, and residency remain absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 

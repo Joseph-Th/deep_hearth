@@ -78,7 +78,7 @@ impl Error for StructuralMaterialRequirementError {
     }
 }
 
-pub(super) fn resolve_required_mass(
+pub(crate) fn resolve_required_mass(
     materials: &MaterialRegistry,
     record: &StructuralElementRecord,
 ) -> Result<Mass, StructuralGeometryError> {

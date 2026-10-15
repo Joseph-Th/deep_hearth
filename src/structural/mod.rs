@@ -8,6 +8,7 @@ mod geometry;
 mod load;
 mod member_projection;
 mod player_construction;
+mod player_placement;
 mod state;
 mod structural_execution;
 mod support_index;
@@ -40,6 +41,12 @@ pub use player_construction::{
 pub(crate) use player_construction::{
     StructuralConstructionTickPlan, apply_structural_construction_tick, bounds_are_local,
     decide_structural_construction_tick,
+    validate_start_player_structural_construction_for_planned_member,
+};
+pub use player_placement::{
+    PlayerGroundedStructuralConstructionCommitError, PlayerGroundedStructuralConstructionError,
+    ValidatedPlayerGroundedStructuralConstructionStart,
+    validate_start_player_grounded_structural_construction_from_stack,
 };
 pub use state::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
@@ -65,13 +72,15 @@ pub(crate) use structural_execution::{
     validate_link_support, validate_remove_structural_element, validate_set_structural_load,
 };
 
+#[cfg(feature = "test-gameplay")]
+pub(crate) use construction_execution::resolve_structural_material_requirement;
 pub use construction_execution::{
     StructuralConstructionBindingError, StructuralConstructionCommitError,
     StructuralConstructionError,
 };
 pub(crate) use construction_execution::{
-    bind_structural_construction_selection, resolve_structural_material_requirement,
-    validate_structural_construction,
+    bind_structural_construction_selection, resolve_required_mass,
+    validate_structural_construction, validate_structural_construction_for_planned_member,
 };
 pub(crate) use state::validate_loaded_structure;
 pub(crate) use structural_execution::{

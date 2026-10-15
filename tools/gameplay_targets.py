@@ -140,6 +140,7 @@ GAMEPLAY_FEATURE_REPAIR_TARGETS = {
 GAMEPLAY_TEST_PREFIX_TARGETS = {
     "capital_investment_policy_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "configuration_tests::": GAMEPLAY_CONTRACTS_TARGET,
+    "construction_gesture_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "fixture_boundary_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "inventory_gesture_contract_tests::": GAMEPLAY_CONTRACTS_TARGET,
     "manual_craft_selection_tests::": GAMEPLAY_CONTRACTS_TARGET,

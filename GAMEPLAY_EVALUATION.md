@@ -116,6 +116,11 @@ When inventory exposes multiple physical/freshness stacks for one food commodity
 those projected stacks. They must not recover or rank private lot IDs; the production action resolves exact lot
 slices only after the visible stack choice is made.
 
+Ordinary grounded-construction evidence should likewise begin from an actor-visible carried stack and use the
+atomic grounded-member action. Do not commit an inert plan first and then treat later material/work admission as
+inevitable; the two-step owner API remains valid when blueprint planning itself is the behavior under evaluation,
+but the familiar build gesture must fail without leaving an orphan planned member.
+
 ### Temporal observation horizon
 
 An actor may choose a bounded horizon from legitimate information such as a current schedule, policy deadline, or

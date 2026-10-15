@@ -8,8 +8,9 @@ use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::inventory::MaterialLotSelection;
 use crate::labor::{
-    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, StructuralConstructionMethodId,
-    StructuralConstructionWork, ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, StructuralConstructionDefinition,
+    StructuralConstructionMethodId, StructuralConstructionWork, ValidatedPlayerWorkStart,
+    validate_player_work_start,
 };
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -17,10 +18,10 @@ use crate::spatial::VoxelCoord;
 use super::construction_execution::ValidatedStructuralConstruction;
 use super::{
     StructuralConstructionBindingError, StructuralConstructionCommitError,
-    StructuralConstructionError, StructuralElementId, StructuralLifecycle,
-    ValidatedStructuralMutation, bind_structural_construction_selection,
-    resolve_structural_material_requirement, validate_activate_structural_element_in,
-    validate_structural_construction,
+    StructuralConstructionError, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
+    ValidatedStructuralMutation, bind_structural_construction_selection, resolve_required_mass,
+    validate_activate_structural_element_in, validate_structural_construction,
+    validate_structural_construction_for_planned_member,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,10 +184,10 @@ impl ValidatedPlayerStructuralConstructionStart {
         self.work.element()
     }
 
-    pub fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<StructuralConstructionWork, PlayerStructuralConstructionCommitError> {
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
+    ) -> Result<(), PlayerStructuralConstructionCommitError> {
         if state.logistics().revision() != self.expected_logistics_revision {
             return Err(PlayerStructuralConstructionCommitError::StaleLogistics {
                 expected: self.expected_logistics_revision,
@@ -208,11 +209,54 @@ impl ValidatedPlayerStructuralConstructionStart {
         self.work_start
             .precheck(state)
             .map_err(PlayerStructuralConstructionCommitError::Work)?;
+        Ok(())
+    }
+
+    pub(crate) fn precheck_before_planned_member(
+        &self,
+        state: &AppState,
+        record: &StructuralElementRecord,
+        projected_structure_revision: u64,
+    ) -> Result<(), PlayerStructuralConstructionCommitError> {
+        if state.logistics().revision() != self.expected_logistics_revision {
+            return Err(PlayerStructuralConstructionCommitError::StaleLogistics {
+                expected: self.expected_logistics_revision,
+                actual: state.logistics().revision(),
+            });
+        }
+        let actual_position = state.logistics().player().map(|player| player.position());
+        if actual_position != Some(self.expected_player_position) {
+            return Err(PlayerStructuralConstructionCommitError::PlayerMoved {
+                expected: self.expected_player_position,
+                actual: actual_position,
+            });
+        }
+        let material = self.material.as_ref().unwrap_or_else(|| {
+            panic!("atomic planned-member construction must include materialization")
+        });
+        material
+            .precheck_before_planned_member(state, record, projected_structure_revision)
+            .map_err(PlayerStructuralConstructionCommitError::Material)?;
+        self.work_start
+            .precheck(state)
+            .map_err(PlayerStructuralConstructionCommitError::Work)?;
+        Ok(())
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) -> StructuralConstructionWork {
         if let Some(material) = self.material {
             material.apply(state);
         }
         self.work_start.apply(state);
-        Ok(self.work)
+        self.work
+    }
+
+    pub fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<StructuralConstructionWork, PlayerStructuralConstructionCommitError> {
+        self.precheck(state)?;
+        Ok(self.apply(state))
     }
 }
 
@@ -250,13 +294,22 @@ pub(crate) fn bounds_are_local(bounds: crate::spatial::VoxelBounds, player: Voxe
         .any(|neighbor| bounds.has_voxel(neighbor))
 }
 
-pub fn validate_start_player_structural_construction(
+#[derive(Clone, Copy)]
+struct PlayerStructuralConstructionContext {
+    definition: StructuralConstructionDefinition,
+    player_position: VoxelCoord,
+    carried: crate::inventory::StockpileId,
+    required: Mass,
+    duration: crate::core::time::TickSpan,
+    completes_at: SimulationTick,
+}
+
+fn validate_player_structural_construction_context(
     registries: &Registries,
     state: &AppState,
     method: StructuralConstructionMethodId,
-    element: StructuralElementId,
-    selections: &[MaterialLotSelection],
-) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
+    record: &StructuralElementRecord,
+) -> Result<PlayerStructuralConstructionContext, PlayerStructuralConstructionError> {
     let definition = registries
         .labor()
         .get_structural_construction(method)
@@ -267,10 +320,7 @@ pub fn validate_start_player_structural_construction(
         .player()
         .copied()
         .ok_or(PlayerStructuralConstructionError::PlayerNotAdmitted)?;
-    let record = state
-        .structures()
-        .get_element(element)
-        .ok_or(PlayerStructuralConstructionError::UnknownElement { element })?;
+    let element = record.id();
     if record.lifecycle() != StructuralLifecycle::Planned {
         return Err(PlayerStructuralConstructionError::ElementNotPlanned { element });
     }
@@ -280,9 +330,8 @@ pub fn validate_start_player_structural_construction(
     if !bounds_are_local(record.bounds(), player.position()) {
         return Err(PlayerStructuralConstructionError::ElementNotLocal { element });
     }
-    let requirement = resolve_structural_material_requirement(registries, state, element)
+    let required = resolve_required_mass(registries.materials(), record)
         .map_err(|_| PlayerStructuralConstructionError::MaterialStateChanged { element })?;
-    let required = requirement.required_mass();
     let duration = definition.duration_for_mass(required).ok_or(
         PlayerStructuralConstructionError::MemberTooHeavy {
             required,
@@ -293,24 +342,43 @@ pub fn validate_start_player_structural_construction(
         .tick()
         .checked_add_span(duration)
         .ok_or(PlayerStructuralConstructionError::CompletionTickOverflow)?;
+    Ok(PlayerStructuralConstructionContext {
+        definition,
+        player_position: player.position(),
+        carried: player.carried_stockpile(),
+        required,
+        duration,
+        completes_at,
+    })
+}
+
+pub fn validate_start_player_structural_construction(
+    registries: &Registries,
+    state: &AppState,
+    method: StructuralConstructionMethodId,
+    element: StructuralElementId,
+    selections: &[MaterialLotSelection],
+) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
+    let record = state
+        .structures()
+        .get_element(element)
+        .ok_or(PlayerStructuralConstructionError::UnknownElement { element })?;
+    let context =
+        validate_player_structural_construction_context(registries, state, method, record)?;
 
     let material = if record.embodied_mass().is_zero() {
         if !state.can_spend_structure_revisions(2) {
             return Err(PlayerStructuralConstructionError::StructureRevisionExhausted);
         }
-        let resolution = bind_structural_construction_selection(
-            state,
-            element,
-            player.carried_stockpile(),
-            selections,
-        )
-        .map_err(PlayerStructuralConstructionError::Binding)?;
+        let resolution =
+            bind_structural_construction_selection(state, element, context.carried, selections)
+                .map_err(PlayerStructuralConstructionError::Binding)?;
         Some(
             validate_structural_construction(registries, state, resolution)
                 .map_err(PlayerStructuralConstructionError::Material)?,
         )
     } else {
-        if record.embodied_mass() != required {
+        if record.embodied_mass() != context.required {
             return Err(PlayerStructuralConstructionError::MaterialStateChanged { element });
         }
         if !selections.is_empty() {
@@ -322,19 +390,69 @@ pub fn validate_start_player_structural_construction(
         None
     };
 
-    let work = StructuralConstructionWork::new(element, method, state.tick(), completes_at);
+    let work = StructuralConstructionWork::new(element, method, state.tick(), context.completes_at);
     let work_start = validate_player_work_start(
         registries,
         state,
         PlayerWork::StructuralConstruction { work },
-        duration,
-        definition.exertion(),
+        context.duration,
+        context.definition.exertion(),
     )
     .map_err(PlayerStructuralConstructionError::Work)?;
     Ok(ValidatedPlayerStructuralConstructionStart {
         expected_logistics_revision: state.logistics().revision(),
-        expected_player_position: player.position(),
+        expected_player_position: context.player_position,
         material,
+        work_start,
+        work,
+    })
+}
+
+pub(crate) fn validate_start_player_structural_construction_for_planned_member(
+    registries: &Registries,
+    state: &AppState,
+    method: StructuralConstructionMethodId,
+    record: &StructuralElementRecord,
+    expected_structure_revision: u64,
+    selections: &[MaterialLotSelection],
+) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
+    let context =
+        validate_player_structural_construction_context(registries, state, method, record)?;
+    if !record.embodied_mass().is_zero() {
+        return Err(PlayerStructuralConstructionError::MaterialStateChanged {
+            element: record.id(),
+        });
+    }
+    // Planning, materialization, and the already-admitted future activation each consume one
+    // structure revision over this action's lifetime.
+    if !state.can_spend_structure_revisions(3) {
+        return Err(PlayerStructuralConstructionError::StructureRevisionExhausted);
+    }
+    let resolution =
+        bind_structural_construction_selection(state, record.id(), context.carried, selections)
+            .map_err(PlayerStructuralConstructionError::Binding)?;
+    let material = validate_structural_construction_for_planned_member(
+        registries,
+        state,
+        record,
+        expected_structure_revision,
+        resolution,
+    )
+    .map_err(PlayerStructuralConstructionError::Material)?;
+    let work =
+        StructuralConstructionWork::new(record.id(), method, state.tick(), context.completes_at);
+    let work_start = validate_player_work_start(
+        registries,
+        state,
+        PlayerWork::StructuralConstruction { work },
+        context.duration,
+        context.definition.exertion(),
+    )
+    .map_err(PlayerStructuralConstructionError::Work)?;
+    Ok(ValidatedPlayerStructuralConstructionStart {
+        expected_logistics_revision: state.logistics().revision(),
+        expected_player_position: context.player_position,
+        material: Some(material),
         work_start,
         work,
     })

@@ -27,8 +27,7 @@ pub(crate) use binding::{
     StructuralConstructionResolution, bind_structural_construction_selection,
 };
 pub use errors::{StructuralConstructionCommitError, StructuralConstructionError};
-use requirement::resolve_required_mass;
-pub(crate) use requirement::resolve_structural_material_requirement;
+pub(crate) use requirement::{resolve_required_mass, resolve_structural_material_requirement};
 
 /// Consumed proof that exact inventory matter can become one member's embodied matter atomically.
 #[must_use]
@@ -91,6 +90,55 @@ impl ValidatedStructuralConstruction {
         Ok(())
     }
 
+    /// Prechecks a construction token against the snapshot immediately before its planned member
+    /// is inserted by the same atomic player action.
+    ///
+    /// This narrow path is only valid for carried material, so no structure-owned source-stockpile
+    /// load mutation may accompany the egress. The member record and projected revision are supplied
+    /// by the already-validated player planning token rather than being read from authoritative state.
+    pub(crate) fn precheck_before_planned_member(
+        &self,
+        state: &AppState,
+        record: &StructuralElementRecord,
+        projected_structure_revision: u64,
+    ) -> Result<(), StructuralConstructionCommitError> {
+        let actual_projected_revision = state.structures().revision().checked_add(1).ok_or(
+            StructuralConstructionCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual: state.structures().revision(),
+            },
+        )?;
+        if actual_projected_revision != projected_structure_revision
+            || projected_structure_revision != self.expected_structure_revision
+        {
+            return Err(StructuralConstructionCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual: actual_projected_revision,
+            });
+        }
+        let actual_inventory_revision = state.inventory().revision();
+        if actual_inventory_revision != self.egress.expected_revision() {
+            return Err(StructuralConstructionCommitError::StaleInventoryRevision {
+                expected: self.egress.expected_revision(),
+                actual: actual_inventory_revision,
+            });
+        }
+        if record.id() != self.element
+            || record.lifecycle() != StructuralLifecycle::Planned
+            || !record.embodied_mass().is_zero()
+        {
+            return Err(StructuralConstructionCommitError::StateChanged {
+                element: self.element,
+            });
+        }
+        assert!(
+            self.stockpile_load.is_none(),
+            "atomic planned-member construction must consume player-carried, unsupported material"
+        );
+        self.egress.assert_matches_state(state.inventory());
+        Ok(())
+    }
+
     pub(crate) fn apply(self, state: &mut AppState) {
         if let Some(stockpile_load) = self.stockpile_load {
             stockpile_load.commit(state).unwrap_or_else(|error| {
@@ -113,6 +161,99 @@ impl ValidatedStructuralConstruction {
         self.apply(state);
         Ok(())
     }
+}
+
+/// Validates materialization for a member that will be inserted immediately before construction
+/// starts in the same atomic player action.
+///
+/// The source must be the player's carried stockpile, which has no structural support load. That
+/// lets this validator bind the post-plan structural revision without cloning or temporarily
+/// mutating the world state.
+pub(crate) fn validate_structural_construction_for_planned_member(
+    registries: &Registries,
+    state: &AppState,
+    record: &StructuralElementRecord,
+    expected_structure_revision: u64,
+    resolution: StructuralConstructionResolution,
+) -> Result<ValidatedStructuralConstruction, StructuralConstructionError> {
+    let element = resolution.element();
+    if record.id() != element {
+        return Err(StructuralConstructionError::UnknownElement { element });
+    }
+    validate_structural_construction_target(registries, element, record)?;
+    validate_structural_construction_material(
+        registries,
+        element,
+        record.material(),
+        resolution.selection().consumed_inputs(),
+    )?;
+    let required_mass = resolve_required_mass(registries.materials(), record)
+        .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
+    if resolution.mass() != required_mass {
+        return Err(StructuralConstructionError::MaterialQuantityMismatch {
+            element,
+            required: required_mass,
+            selected: resolution.mass(),
+        });
+    }
+    let selection = resolution.into_selection();
+    let source = selection.source();
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| {
+            unreachable!("validated planned-member construction requires admitted player logistics")
+        });
+    assert_eq!(
+        source, carried,
+        "planned-member atomic construction must bind player-carried material"
+    );
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .is_some_and(|stockpile| stockpile.supported_by().is_none()),
+        "player-carried stockpile cannot be structurally mounted"
+    );
+    let egress =
+        validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
+            match error {
+                MaterialEgressError::StaleSelection { expected, actual } => {
+                    StructuralConstructionError::InventorySelectionStale { expected, actual }
+                }
+                MaterialEgressError::RevisionExhausted => {
+                    StructuralConstructionError::InventoryRevisionExhausted
+                }
+            }
+        })?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(StructuralConstructionError::InventoryRevisionExhausted);
+    }
+    let current_structure_revision = state.structures().revision();
+    let projected = current_structure_revision
+        .checked_add(1)
+        .ok_or(StructuralConstructionError::StructureRevisionExhausted)?;
+    if projected != expected_structure_revision || !state.can_spend_structure_revisions(2) {
+        return Err(StructuralConstructionError::StructureRevisionExhausted);
+    }
+    let next_structure_revision = projected
+        .checked_add(1)
+        .ok_or(StructuralConstructionError::StructureRevisionExhausted)?;
+    let self_weight = calculate_aggregate_weight_force_ceiling(
+        AggregateMass::from_mass(required_mass),
+        registries.core().gravity(),
+    )
+    .ok_or(StructuralConstructionError::SelfWeightOverflow { element })?;
+    Ok(ValidatedStructuralConstruction {
+        element,
+        expected_structure_revision,
+        next_structure_revision,
+        material: egress.consumed_inputs().to_vec(),
+        self_weight,
+        egress,
+        stockpile_load: None,
+    })
 }
 
 fn validate_structural_construction_target(

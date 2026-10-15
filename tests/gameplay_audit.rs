@@ -221,6 +221,8 @@ mod bulk_fieldwork_workload;
 mod capital_investment_policy_tests;
 #[path = "gameplay_harness/configuration_tests.rs"]
 mod configuration_tests;
+#[path = "gameplay_harness/construction_gesture_contract_tests.rs"]
+mod construction_gesture_contract_tests;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
 mod exact_local_runtime;
 #[path = "gameplay_harness/fixture_boundary_tests.rs"]

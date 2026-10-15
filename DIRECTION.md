@@ -148,11 +148,16 @@ gesture between carried custody and one local container while exact relocation r
 control can switch slots before primary/use/drop on the same 20 Hz sample.
 Projected edible stacks can now drive the default timed eating action directly, so two visible freshness cohorts
 remain a player choice while exact lot slices stay private to inventory/survival owners.
+Grounded structural construction now has the same stack-facing atomicity: one revision-bound carried stack plus
+authored local member geometry validates planning, exact materialization, and timed hand-setting as one player
+action, so stale matter cannot leave an orphan planned member. This is not yet a pointed-face placement verb;
+targeting-to-geometry, generated-world vacancy/support integration, and general block placement remain open.
 Personal manual crafting now composes the same carried custody into a stable recipe catalog plus recipe/batch
 start action. Durable homogeneous inputs resolve to exact lots privately; freshness-sensitive inputs keep one
 explicit revision-bound stack choice, optional equipment remains an exact revalidated provider, and output returns
 to carried custody through ordinary timed production. Adapter inventory/container/crafting rendering and input bindings,
-rendered/spatial drop presentation, arbitrary block/object placement, and generic moving item entities remain open.
+rendered/spatial drop presentation, pointed-face structural placement mapping, general block placement, and generic
+moving item entities remain open.
 
 Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and

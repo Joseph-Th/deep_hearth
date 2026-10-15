@@ -31,6 +31,8 @@ mod world_admission;
 mod capital_investment_policy_tests;
 #[path = "gameplay_harness/configuration_tests.rs"]
 mod configuration_tests;
+#[path = "gameplay_harness/construction_gesture_contract_tests.rs"]
+mod construction_gesture_contract_tests;
 #[path = "gameplay_harness/fixture_boundary_tests.rs"]
 mod fixture_boundary_tests;
 #[path = "gameplay_harness/inventory_gesture_contract_tests.rs"]

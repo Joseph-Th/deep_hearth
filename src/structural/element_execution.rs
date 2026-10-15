@@ -288,10 +288,18 @@ impl ValidatedPlayerStructuralElementPlan {
         self.record.id
     }
 
-    pub fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<StructuralElementId, PlanPlayerStructuralElementCommitError> {
+    pub(crate) const fn record(&self) -> &StructuralElementRecord {
+        &self.record
+    }
+
+    pub(crate) const fn next_structure_revision(&self) -> u64 {
+        self.next_structure_revision
+    }
+
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
+    ) -> Result<(), PlanPlayerStructuralElementCommitError> {
         if state.tick() != self.expected_tick {
             return Err(PlanPlayerStructuralElementCommitError::TickChanged {
                 expected: self.expected_tick,
@@ -335,13 +343,25 @@ impl ValidatedPlayerStructuralElementPlan {
                 },
             );
         }
+        Ok(())
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) -> StructuralElementId {
         let id = self.record.id;
         state.structure_state_mut().insert_element(
             self.record,
             self.next_element_id,
             self.next_structure_revision,
         );
-        Ok(id)
+        id
+    }
+
+    pub fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<StructuralElementId, PlanPlayerStructuralElementCommitError> {
+        self.precheck(state)?;
+        Ok(self.apply(state))
     }
 }
 
