@@ -30,7 +30,10 @@ use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
 use crate::registry::Registries;
 use crate::structural::apply_structural_construction_tick;
-use crate::surface::apply_surface_gathering_tick;
+use crate::surface::{
+    apply_automatic_surface_drop_pickup, apply_surface_gathering_tick,
+    decide_automatic_surface_drop_pickup,
+};
 use crate::survival::{
     SurvivalExertion, Vitality, apply_survival_tick, assess_survival,
     decide_survival_tick_with_local_heat,
@@ -89,12 +92,15 @@ pub fn advance_control_tick_with_direct_input(
     .map_err(TickError::PlayerBodyMotion)?;
     if next_control.simulation_tick() == state.tick() {
         let body_motion = apply_player_body_motion(state, body_plan);
+        let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
+            .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
         apply_control_clock_advance(state, next_control);
         debug_assert_runtime_invariants(registries, state);
         return Ok(ControlTickOutcome::new(
             next_control,
             None,
             body_motion,
+            surface_drop_pickup,
             None,
         ));
     }
@@ -129,12 +135,15 @@ pub fn advance_control_tick_with_direct_input(
             neutral_body_plan
         },
     );
+    let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
+        .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
     debug_assert_runtime_invariants(registries, state);
     debug_assert_eq!(state.control_tick(), next_control);
     Ok(ControlTickOutcome::new(
         next_control,
         Some(simulation),
         body_motion,
+        surface_drop_pickup,
         primary_action,
     ))
 }

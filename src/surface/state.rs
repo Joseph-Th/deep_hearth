@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
-use crate::material::{CommodityKey, MaterialComposition};
+use crate::material::{CommodityKey, MaterialComposition, MaterialLotSpec};
 use crate::spatial::VoxelCoord;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -32,10 +32,17 @@ pub enum SurfaceResourceLifecycle {
     Depleted,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SurfaceResourceKind {
+    Opportunity,
+    Drop,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SurfaceResourceRecord {
     id: SurfaceResourceId,
+    kind: SurfaceResourceKind,
     position: VoxelCoord,
     commodity: CommodityKey,
     initial_mass: Mass,
@@ -50,21 +57,21 @@ pub struct SurfaceResourceRecord {
 impl SurfaceResourceRecord {
     pub(super) fn created(
         id: SurfaceResourceId,
+        kind: SurfaceResourceKind,
         position: VoxelCoord,
-        commodity: CommodityKey,
-        mass: Mass,
-        temperature: Temperature,
-        composition: MaterialComposition,
+        material: MaterialLotSpec,
         created_at: SimulationTick,
     ) -> Self {
+        let mass = material.mass();
         Self {
             id,
+            kind,
             position,
-            commodity,
+            commodity: material.commodity(),
             initial_mass: mass,
             remaining_mass: mass,
-            temperature,
-            composition,
+            temperature: material.temperature(),
+            composition: material.composition().clone(),
             lifecycle: SurfaceResourceLifecycle::Available,
             created_at,
             depleted_at: None,
@@ -74,6 +81,10 @@ impl SurfaceResourceRecord {
     #[must_use]
     pub const fn id(&self) -> SurfaceResourceId {
         self.id
+    }
+    #[must_use]
+    pub const fn kind(&self) -> SurfaceResourceKind {
+        self.kind
     }
     #[must_use]
     pub const fn position(&self) -> VoxelCoord {

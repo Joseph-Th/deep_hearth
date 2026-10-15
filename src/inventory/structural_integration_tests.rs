@@ -186,6 +186,7 @@ fn active_surface_gathering_destination_cannot_be_mounted() {
         &registries,
         &mut state,
         SurfaceResourceSpec::new(
+            crate::surface::SurfaceResourceKind::Opportunity,
             position,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(100),

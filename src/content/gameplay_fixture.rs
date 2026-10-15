@@ -143,10 +143,17 @@ pub fn seed_surface_resource(
     composition: MaterialComposition,
 ) {
     assert_pre_admission(state, "surface-resource seed");
-    let spec = SurfaceResourceSpec::new(position, commodity, mass, temperature, composition)
-        .unwrap_or_else(|error| {
-            panic!("gameplay bootstrap surface-resource specification failed: {error}")
-        });
+    let spec = SurfaceResourceSpec::new(
+        crate::surface::SurfaceResourceKind::Opportunity,
+        position,
+        commodity,
+        mass,
+        temperature,
+        composition,
+    )
+    .unwrap_or_else(|error| {
+        panic!("gameplay bootstrap surface-resource specification failed: {error}")
+    });
     validate_create_surface_resources(registries, state, [spec])
         .unwrap_or_else(|error| panic!("gameplay bootstrap surface-resource seed failed: {error}"))
         .commit(state)

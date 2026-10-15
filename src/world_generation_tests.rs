@@ -448,6 +448,7 @@ fn initial_wilderness_generation_rejects_stale_surface_commit_without_mutation()
 
     let mut state = AppState::new();
     let competing = SurfaceResourceSpec::new(
+        crate::surface::SurfaceResourceKind::Opportunity,
         spawn,
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(1),

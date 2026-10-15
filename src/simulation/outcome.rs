@@ -9,7 +9,7 @@ use crate::logistics::{PlayerBodyMotionOutcome, PlayerStepOutcome};
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
 use crate::structural::StructuralElementId;
-use crate::surface::SurfaceGatheringOutcome;
+use crate::surface::{SurfaceDropPickupOutcome, SurfaceGatheringOutcome};
 use crate::survival::SurvivalAssessment;
 use crate::world::BlockExcavationOutcome;
 use crate::world::{BlockExcavationError, BlockExcavationStartOutcome};
@@ -29,6 +29,7 @@ pub struct ControlTickOutcome {
     control_tick: ControlTick,
     simulation: Option<TickOutcome>,
     body_motion: Option<PlayerBodyMotionOutcome>,
+    surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
     primary_action: Option<PrimaryActionOutcome>,
 }
 
@@ -37,12 +38,14 @@ impl ControlTickOutcome {
         control_tick: ControlTick,
         simulation: Option<TickOutcome>,
         body_motion: Option<PlayerBodyMotionOutcome>,
+        surface_drop_pickup: Option<SurfaceDropPickupOutcome>,
         primary_action: Option<PrimaryActionOutcome>,
     ) -> Self {
         Self {
             control_tick,
             simulation,
             body_motion,
+            surface_drop_pickup,
             primary_action,
         }
     }
@@ -62,6 +65,12 @@ impl ControlTickOutcome {
     #[must_use]
     pub const fn body_motion(&self) -> Option<PlayerBodyMotionOutcome> {
         self.body_motion
+    }
+
+    /// Whole player-created loose drop transferred into carried custody on this control step.
+    #[must_use]
+    pub const fn surface_drop_pickup(&self) -> Option<SurfaceDropPickupOutcome> {
+        self.surface_drop_pickup
     }
 
     /// Primary interaction attempted on this slow boundary, if any.

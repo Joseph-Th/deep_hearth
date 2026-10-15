@@ -12,7 +12,7 @@ use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
     PlayerControlInput, add_traversable_edge_for_test, place_equipment_for_fixture,
-    validate_pickup_equipment, validate_start_player_step,
+    validate_drop_equipment, validate_pickup_equipment, validate_start_player_step,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
@@ -710,6 +710,7 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
         .surface()
         .get(resource)
         .unwrap_or_else(|| panic!("capacity-blocked excavation surface drop disappeared"));
+    assert_eq!(drop.kind(), crate::surface::SurfaceResourceKind::Drop);
     assert_eq!(drop.position(), player_position);
     assert_eq!(drop.remaining_mass(), batch);
     assert_eq!(
@@ -717,6 +718,21 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
         CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
     );
     assert_eq!(drop.created_at(), state.tick());
+    let encoded_drop = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("completed surface-drop serialization failed: {error}"));
+    let loaded_drop: LoadedSaveEnvelope = serde_json::from_slice(&encoded_drop)
+        .unwrap_or_else(|error| panic!("completed surface-drop decode failed: {error}"));
+    let loaded_drop = loaded_drop
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("completed surface-drop trusted load failed: {error}"));
+    assert_eq!(
+        loaded_drop
+            .surface()
+            .get(resource)
+            .map(|record| record.kind()),
+        Some(crate::surface::SurfaceResourceKind::Drop)
+    );
+    assert_eq!(loaded_drop, state);
     let remaining = source_mass
         .checked_sub(batch)
         .unwrap_or_else(|| panic!("surface-drop batch exceeds source mass"));
@@ -744,6 +760,51 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
             .unwrap_or_else(|| panic!("surface-drop matter overflow"))
     );
     assert_eq!(matter_after.stored(), matter_before.stored());
+
+    validate_drop_equipment(&registries, &state, pick)
+        .unwrap_or_else(|error| panic!("surface-drop pickup capacity release failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("surface-drop pickup capacity release commit failed: {error}")
+        });
+    let pickup_tick = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("surface-drop automatic pickup tick failed: {error}"));
+    let pickup = pickup_tick
+        .surface_drop_pickup()
+        .unwrap_or_else(|| panic!("fitting local excavation drop was not picked up automatically"));
+    assert_eq!(pickup.resource(), resource);
+    assert_eq!(pickup.destination(), carried);
+    assert_eq!(pickup.picked_mass(), batch);
+    let picked = state
+        .inventory()
+        .get_lot(pickup.lot())
+        .unwrap_or_else(|| panic!("automatic surface-drop pickup lot disappeared"));
+    assert_eq!(picked.stockpile(), carried);
+    assert_eq!(picked.mass(), batch);
+    assert_eq!(
+        picked.commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+    );
+    let depleted = state
+        .surface()
+        .get(resource)
+        .unwrap_or_else(|| panic!("automatic pickup removed surface identity"));
+    assert_eq!(depleted.remaining_mass(), Mass::ZERO);
+    assert_eq!(
+        depleted.lifecycle(),
+        crate::surface::SurfaceResourceLifecycle::Depleted
+    );
+    let matter_picked = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("automatic pickup matter accounting failed: {error}"));
+    assert_eq!(matter_picked.total(), matter_before.total());
+    assert_eq!(matter_picked.surface(), matter_before.surface());
+    assert_eq!(
+        matter_picked.stored(),
+        matter_before
+            .stored()
+            .checked_add(crate::core::quantity::AggregateMass::from_mass(batch))
+            .unwrap_or_else(|| panic!("automatic pickup stored matter overflow"))
+    );
 }
 
 fn positive_x_view() -> ViewDirection {

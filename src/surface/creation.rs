@@ -6,47 +6,46 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::material::{CommodityKey, CompositionError, MaterialComposition, MaterialId};
+use crate::material::{
+    CommodityKey, CompositionError, MaterialComposition, MaterialId, MaterialLotSpec,
+    MaterialLotSpecError,
+};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::state::validation::{SurfaceResourceValidationError, validate_surface_resource_record};
-use super::state::{SurfaceResourceId, SurfaceResourceRecord};
+use super::state::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SurfaceResourceSpec {
+    kind: SurfaceResourceKind,
     position: VoxelCoord,
-    commodity: CommodityKey,
-    mass: Mass,
-    temperature: Temperature,
-    composition: MaterialComposition,
+    material: MaterialLotSpec,
 }
 
 impl SurfaceResourceSpec {
     pub(crate) fn new(
+        kind: SurfaceResourceKind,
         position: VoxelCoord,
         commodity: CommodityKey,
         mass: Mass,
         temperature: Temperature,
         composition: MaterialComposition,
     ) -> Result<Self, SurfaceResourceSpecError> {
-        if mass.is_zero() {
-            return Err(SurfaceResourceSpecError::ZeroMass);
-        }
-        composition
-            .validate()
-            .map_err(SurfaceResourceSpecError::InvalidComposition)?;
-        if composition.parts_per_million(commodity.material()) == 0 {
-            return Err(SurfaceResourceSpecError::MissingHostMaterial {
-                host: commodity.material(),
-            });
-        }
+        let material = MaterialLotSpec::with_composition(commodity, mass, temperature, composition)
+            .map_err(|error| match error {
+                MaterialLotSpecError::ZeroMass => SurfaceResourceSpecError::ZeroMass,
+                MaterialLotSpecError::InvalidComposition(error) => {
+                    SurfaceResourceSpecError::InvalidComposition(error)
+                }
+                MaterialLotSpecError::MissingHostMaterial { host } => {
+                    SurfaceResourceSpecError::MissingHostMaterial { host }
+                }
+            })?;
         Ok(Self {
+            kind,
             position,
-            commodity,
-            mass,
-            temperature,
-            composition,
+            material,
         })
     }
 }
@@ -252,15 +251,8 @@ pub(crate) fn validate_create_surface_resources_at(
         next_resource_id = next_resource_id
             .checked_add(1)
             .ok_or(SurfaceResourceCreationError::IdExhausted)?;
-        let record = SurfaceResourceRecord::created(
-            id,
-            spec.position,
-            spec.commodity,
-            spec.mass,
-            spec.temperature,
-            spec.composition,
-            created_at,
-        );
+        let record =
+            SurfaceResourceRecord::created(id, spec.kind, spec.position, spec.material, created_at);
         validate_surface_resource_record(registries.materials(), id, &record, created_at)
             .map_err(SurfaceResourceCreationError::InvalidResource)?;
         records.push(record);

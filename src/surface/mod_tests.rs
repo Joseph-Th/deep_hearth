@@ -13,11 +13,11 @@ use crate::core::state::{
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::StockpileStorageError;
 use crate::labor::PlayerWorkValidationError;
-use crate::logistics::add_traversable_edge_for_test;
+use crate::logistics::{add_traversable_edge_for_test, validate_start_player_step};
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
-use crate::simulation::advance_tick;
+use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::VoxelCoord;
 use crate::survival::{FoodFreshness, Vitality, assess_food_freshness, player_record};
 
@@ -31,6 +31,7 @@ fn seed_surface(
     mass: Mass,
 ) -> SurfaceResourceId {
     let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
         position,
         commodity,
         mass,
@@ -79,6 +80,86 @@ fn ordinary_surface_gathering_derives_carried_custody() {
             .surface_gathering()
             .map(|gathered| gathered.destination()),
         Some(carried)
+    );
+}
+
+#[test]
+fn natural_surface_opportunities_do_not_auto_pick_into_carried_custody() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let mass = Mass::from_milligrams(100_000);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        mass,
+    );
+    let carried = admit_player(&registries, &mut state, position);
+
+    let control = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("natural-opportunity control tick failed: {error}"));
+    assert_eq!(control.surface_drop_pickup(), None);
+    let resource = state
+        .surface()
+        .get(stone)
+        .unwrap_or_else(|| panic!("natural surface opportunity disappeared"));
+    assert_eq!(resource.kind(), SurfaceResourceKind::Opportunity);
+    assert_eq!(resource.remaining_mass(), mass);
+    assert_eq!(resource.lifecycle(), SurfaceResourceLifecycle::Available);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "natural opportunities must still require an explicit gathering action"
+    );
+}
+
+#[test]
+fn automatic_drop_pickup_does_not_increase_load_during_an_admitted_step() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let origin = VoxelCoord::new(0, 0, 0);
+    let destination = VoxelCoord::new(1, 0, 0);
+    let mass = Mass::from_milligrams(100_000);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        origin,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        mass,
+        TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("step-blocked pickup drop specification failed: {error}"));
+    let drop = insert_surface_resource_for_test(&registries, &mut state, spec)
+        .unwrap_or_else(|error| panic!("step-blocked pickup drop creation failed: {error}"));
+    let carried = admit_player(&registries, &mut state, origin);
+    add_traversable_edge_for_test(&mut state, origin, destination);
+    validate_start_player_step(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("step-blocked pickup movement admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("step-blocked pickup movement commit failed: {error}"));
+
+    let control = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("step-blocked pickup control tick failed: {error}"));
+    assert_eq!(control.surface_drop_pickup(), None);
+    assert_eq!(
+        state
+            .surface()
+            .get(drop)
+            .map(|resource| (resource.lifecycle(), resource.remaining_mass())),
+        Some((SurfaceResourceLifecycle::Available, mass))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "automatic pickup must not change the load used to admit a timed step"
     );
 }
 

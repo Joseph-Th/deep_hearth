@@ -177,7 +177,7 @@ but that is presentation metadata, not a runtime block model.
 | Block entity | Sparse state beyond finite block-state palette | Separate domain records | `DIFFERENT+` | Voxel attachment points to canonical domain owner. Generic opaque NBT-like state is not the authority. |
 | Breaking hardness | Block + tool determine break duration | Stone terrain authors excavation hardness and reuses canonical mining throughput/batch/wear physics for timed partial removal; held primary input chains repeated legal batches | `DIFFERENT+` | Preserve this physical contract while moving player-facing progress to responsive control time rather than adding a parallel fast-break rule. |
 | Tool requirement | Tags/tiers determine drops and speed | Capability/hardness contracts | `PARITY+` conceptually | Integrate those contracts into block breaking instead of adding parallel tool-tier tags. |
-| Drops | Block destruction resolves item drops | Completed terrain excavation transfers exact stone fragments into reserved carried custody when a whole batch fits; otherwise it creates conserved loose surface matter at the player's work voxel, with a normal stone-chip gathering route | `DIFFERENT+` | Add automatic pickup and a familiar item/drop projection over this conserved custody; keep capacity failure as world retention rather than matter deletion. |
+| Drops | Block destruction resolves item drops | Completed terrain excavation transfers exact stone fragments into reserved carried custody when a whole batch fits; otherwise it creates a persisted local `Drop`. Whole fitting drops auto-pick on control time, while oversized drops remain conserved and gatherable | `DIFFERENT+` | Add a familiar generic item/drop projection over this custody; keep capacity failure as world retention rather than matter deletion. |
 
 ## 4. Rendering, textures, meshing, and visibility
 
@@ -287,7 +287,7 @@ stockpiles. The underlying Deep Hearth model is stronger, but the familiar manip
 | Hotbar | Nine quick slots | Absent | `GAP-P0` | Add nine-slot or equivalently familiar quick-access projection with active slot. |
 | Main inventory | Slot grid | Carried stockpile with mass capacity | `GAP-P0` shell | Add slot/container presentation over carried custody. Physical capacity remains independently enforced. |
 | Weight | None | 25 kg unaided body-carry capacity plus equipment mass | `PARITY+` physical model | Keep as second constraint. Do not make the player micromanage lots to satisfy it. |
-| Pickup | Item entity transfers into inventory if space | Surface gathering and job output can land in inventory | `GAP-P0` generic world item path | Add generic item/matter world custody and automatic pickup. |
+| Pickup | Item entity transfers into inventory if space | Player-created local surface drops transfer whole into carried custody when capacity permits; natural opportunities never auto-pick, and oversized drops remain for gathering | `DIFFERENT+` narrow foundation | Generalize the same custody/pickup rule to the future item/drop projection without auto-harvesting natural world opportunities. |
 | Drop | Spawn item stack entity | Material/equipment drop operations exist only in narrower forms | `GAP-P0` | Active stack/equipment can be dropped into world custody at player position with conserved identity. |
 | Merge nearby drops | Compatible item entities can merge | Lot coalescing exists in inventory | `GAP-P1` | World item custody may coalesce compatible material to reduce entity count while preserving physical distinctions. |
 | Despawn drops | Item entities eventually despawn | Matter conservation rejects silent deletion | `DIFFERENT+` | Do not copy magical matter deletion. If cleanup is needed, use explicit decay, scattering, garbage collection into an environmental sink, or no despawn for conserved matter. |
@@ -541,7 +541,7 @@ This is a dependency order, not a promise that every row becomes a separate subs
 3. Add deterministic seeded terrain generation and streaming sufficient for ordinary walking-world continuity.
 4. Add continuous fixed-point player transform, gravity, swept collision, jump, crouch, sprint, step-up and
    terrain contact.
-5. Add camera raycast, reach, primary break, secondary place/use, generic world item drops and automatic pickup.
+5. Add camera raycast, reach, primary break, secondary place/use, and generic world item/drop projection over the existing conserved drop/pickup path.
 6. Add hotbar, familiar stack projection, inventory/container interaction composition and personal crafting shell.
 7. Add section meshing, camera visibility, block model/shape rendering, indexed texture integration, block/sky light
    and a graphics adapter sufficient to inspect the actual world through a day/night cycle.

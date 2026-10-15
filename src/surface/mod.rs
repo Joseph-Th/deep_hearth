@@ -3,6 +3,7 @@
 mod creation;
 mod gathering;
 mod observation;
+mod pickup;
 mod state;
 
 #[cfg(test)]
@@ -23,8 +24,12 @@ pub use gathering::{
     validate_start_player_surface_gathering, validate_start_surface_gathering,
 };
 pub use observation::{AdjacentSurfaceResource, available_adjacent_surface_resources};
+pub use pickup::SurfaceDropPickupOutcome;
+pub(crate) use pickup::{
+    apply_automatic_surface_drop_pickup, decide_automatic_surface_drop_pickup,
+};
 pub use state::{
-    SurfaceResourceId, SurfaceResourceLifecycle, SurfaceResourceRecord,
+    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, SurfaceResourceRecord,
     SurfaceResourceValidationError,
 };
 pub(crate) use state::{

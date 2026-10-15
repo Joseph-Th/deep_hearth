@@ -791,6 +791,7 @@ fn blocked_unsettled_mining_with_local_stone(
         &registries,
         &mut state,
         SurfaceResourceSpec::new(
+            crate::surface::SurfaceResourceKind::Opportunity,
             position,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(100_000),

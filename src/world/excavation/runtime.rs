@@ -15,7 +15,7 @@ use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    SurfaceResourceCreationError, SurfaceResourceId, SurfaceResourceSpec,
+    SurfaceResourceCreationError, SurfaceResourceId, SurfaceResourceKind, SurfaceResourceSpec,
     ValidatedSurfaceResourceCreation, validate_create_surface_resources_at,
 };
 
@@ -149,6 +149,7 @@ pub(crate) fn decide_block_excavation_tick(
         }
         BlockExcavationOutputCustody::Surface { position } => {
             let spec = SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
                 position,
                 excavation.fragmented_commodity(),
                 work.excavated_mass(),

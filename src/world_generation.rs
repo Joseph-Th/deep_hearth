@@ -25,9 +25,9 @@ use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    SurfaceResourceCreationCommitError, SurfaceResourceCreationError, SurfaceResourceSpec,
-    SurfaceResourceSpecError, SurfaceResourceValidationError, ValidatedSurfaceResourceCreation,
-    validate_create_surface_resources,
+    SurfaceResourceCreationCommitError, SurfaceResourceCreationError, SurfaceResourceKind,
+    SurfaceResourceSpec, SurfaceResourceSpecError, SurfaceResourceValidationError,
+    ValidatedSurfaceResourceCreation, validate_create_surface_resources,
 };
 use crate::world::WorldGenerationSeed;
 
@@ -362,6 +362,7 @@ fn generated_spec(
     mass: Mass,
 ) -> Result<SurfaceResourceSpec, SurfaceResourceSpecError> {
     SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
         position,
         commodity,
         mass,
