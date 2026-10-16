@@ -17,6 +17,14 @@ def _tenths_span(values: list[int], unit: str) -> str:
     return f"{render(min(values))}..{render(max(values))}{unit}"
 
 
+def _mass_kg(milligrams: int) -> str:
+    whole, remainder = divmod(milligrams, 1_000_000)
+    if remainder == 0:
+        return str(whole)
+    tenths = (remainder * 10 + 500_000) // 1_000_000
+    return str(whole + 1) if tenths == 10 else f"{whole}.{tenths}"
+
+
 def wilderness_summary(lines: list[str]) -> str | None:
     experiences = [
         line for line in lines if line.startswith("WILDERNESS EXPERIENCE ")
@@ -38,14 +46,26 @@ def wilderness_summary(lines: list[str]) -> str | None:
             r"\bmaterial-choice=\[stone\+timber:(\d+) visited:(\d+)\]",
             direct_use_lines[0],
         )
-        if movement is None or material_choice is None:
-            raise ValueError("wilderness direct-use witness lost continuous-body route/material telemetry")
+        haul = re.search(
+            r"\bhaul=\[timber:(\d+)mg carried:(\d+)mg/(\d+)mg return:(\d+)ct\]",
+            direct_use_lines[0],
+        )
+        queue = re.search(
+            r"\bqueue=\[forage:(\d+)ct drink:(\d+)ct timber:(\d+)ct\]",
+            direct_use_lines[0],
+        )
+        if movement is None or material_choice is None or haul is None or queue is None:
+            raise ValueError(
+                "wilderness direct-use witness lost continuous-body route/material/haul/queue telemetry"
+            )
         direct_use = (
             f"direct-use=[route={movement.group(2)}/{movement.group(3)}e/{movement.group(4)}ct "
-            f"materials={material_choice.group(2)}/{material_choice.group(1)} use=one-shot-secondary "
+            f"mats={material_choice.group(2)}/{material_choice.group(1)} "
+            f"haul={_mass_kg(int(haul.group(1)))}/{_mass_kg(int(haul.group(2)))}/{_mass_kg(int(haul.group(3)))}kg@{haul.group(4)}ct "
+            f"q[f/d/t]={queue.group(1)}/{queue.group(2)}/{queue.group(3)}ct use=one-shot "
             + compact_fields(
                 direct_use_lines[0],
-                ("queue", "gather", "water", "hydration", "timed"),
+                ("gather", "water", "hydration", "timed"),
             )
             + "]"
         )

@@ -423,11 +423,87 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         timber.resource(),
         "continuous-body timber visit must recover the actor-visible adjacent timber source"
     );
+    let timber_haul_mass = Mass::from_milligrams(5_000_000);
+    let timber_before = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == timber.resource())
+        .map(|resource| resource.remaining_mass())
+        .unwrap_or_else(|| panic!("direct-use timber disappeared before haul gathering"));
+    let timber_queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-use timber queue failed: {error}"));
+    assert_eq!(
+        timber_queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary),
+        "one empty-hand timber press should survive until its legal gathering boundary"
+    );
+    let (timber_started_at, timber_direct) = loop {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("direct-use timber continuation failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => {
+                break (control.control_tick(), *work);
+            }
+            None => {}
+            other => panic!("direct-use timber returned unexpected outcome: {other:?}"),
+        }
+    };
+    let timber_queue_ticks = timber_started_at
+        .checked_steps_since(timber_queued.control_tick())
+        .unwrap_or_else(|| panic!("direct-use timber start preceded queued input"));
+    assert_eq!(timber_direct.resource(), timber.resource());
+    advance_to(
+        &registries,
+        &mut state,
+        timber_direct.completes_at(),
+        TickEventAllowance {
+            surface_resources: &[timber.resource()],
+            ..TickEventAllowance::default()
+        },
+        "direct-use first timber batch",
+    );
+    let bulk_remainder = timber_haul_mass
+        .checked_sub(timber_direct.gathered_mass())
+        .unwrap_or_else(|| panic!("direct-use timber batch exceeded the selected haul"));
+    if !bulk_remainder.is_zero() {
+        gather(
+            &registries,
+            &mut state,
+            SURFACE_GATHERING_HAND_COLLECT_TIMBER,
+            timber.resource(),
+            bulk_remainder,
+            "direct-use timber haul remainder",
+        );
+    }
+    let timber_after = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == timber.resource())
+        .map(|resource| resource.remaining_mass())
+        .unwrap_or_else(|| panic!("direct-use timber disappeared after haul gathering"));
+    assert_eq!(
+        timber_before.checked_sub(timber_haul_mass),
+        Some(timber_after),
+        "continuous-body haul witness must remove exactly its selected timber parcel"
+    );
+    let hauling = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("direct-use timber haul lost carrying assessment"));
+    assert_eq!(
+        hauling.stored(),
+        gathering
+            .gathered_mass()
+            .checked_add(timber_haul_mass)
+            .unwrap_or_else(|| panic!("direct-use carried haul mass overflowed")),
+        "timber haul must remain in finite carried custody alongside the selected forage ration"
+    );
     let return_to_junction_ticks = walk_body_to_adjacent(
         &registries,
         &mut state,
         junction,
-        "direct-use timber return",
+        "direct-use loaded timber return",
+    );
+    assert_eq!(
+        assess_player_carrying(&state).map(|assessment| assessment.stored()),
+        Some(hauling.stored()),
+        "continuous-body loaded return must keep the gathered timber in carried custody"
     );
     let stone_movement_ticks = walk_body_to_adjacent(
         &registries,
@@ -455,11 +531,16 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
             .map(|store| store.stored_volume())
             .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
         std::println!(
-            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/5 control-ticks:{}] material-choice=[stone+timber:2 visited:2] input=one-shot-empty-hand-secondary queue=[gather:{}ct drink:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/5 control-ticks:{}] material-choice=[stone+timber:2 visited:2] haul=[timber:{}mg carried:{}mg/{}mg return:{}ct] input=one-shot-empty-hand-secondary queue=[forage:{}ct drink:{}ct timber:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
             WILDERNESS_WORLD_SEED.value(),
             route_control_ticks,
+            timber_haul_mass.milligrams(),
+            hauling.stored().milligrams(),
+            hauling.capacity().milligrams(),
+            return_to_junction_ticks,
             forage_queue_ticks,
             water_queue_ticks,
+            timber_queue_ticks,
             forage_before.milligrams(),
             gathering.gathered_mass().milligrams(),
             forage_after.milligrams(),

@@ -243,6 +243,91 @@ fn sprint_and_crouch_use_distinct_authored_speeds_and_persist_stance() {
 }
 
 #[test]
+fn continuous_walking_settles_higher_survival_cost_under_carried_load() {
+    let (registries, mut unloaded, _) = generated_grounded_player_at(0, 0);
+    let mut loaded = unloaded.clone();
+    let carried = loaded
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded walking player disappeared"))
+        .carried_stockpile();
+    let load = Mass::from_milligrams(12_500_000);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut loaded,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        load,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("loaded walking material fixture failed: {error}"));
+    let before_unloaded = unloaded
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("unloaded walking survival player disappeared"));
+    let before_loaded = loaded
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded walking survival player disappeared"));
+    let walk = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("load-sensitive walking input failed: {error}")),
+    );
+
+    for control in 1..=CONTROL_TICKS_PER_SIMULATION_TICK {
+        let input = if control <= 10 {
+            walk
+        } else {
+            PlayerControlInput::NEUTRAL
+        };
+        let _ = advance_control_tick_with_input(&registries, &mut unloaded, input)
+            .unwrap_or_else(|error| panic!("unloaded walking control tick failed: {error}"));
+        let _ = advance_control_tick_with_input(&registries, &mut loaded, input)
+            .unwrap_or_else(|error| panic!("loaded walking control tick failed: {error}"));
+    }
+
+    let unloaded_body = unloaded
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("unloaded walking body disappeared"))
+        .body();
+    let loaded_body = loaded
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded walking body disappeared"))
+        .body();
+    assert_eq!(
+        loaded_body, unloaded_body,
+        "ordinary walking trajectory should remain matched while carried mass changes exertion"
+    );
+    let after_unloaded = unloaded
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("unloaded walking survival result disappeared"));
+    let after_loaded = loaded
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("loaded walking survival result disappeared"));
+    let unloaded_energy = before_unloaded.metabolic_energy().nanojoules()
+        - after_unloaded.metabolic_energy().nanojoules();
+    let loaded_energy = before_loaded.metabolic_energy().nanojoules()
+        - after_loaded.metabolic_energy().nanojoules();
+    let unloaded_hydration =
+        before_unloaded.hydration().microliters() - after_unloaded.hydration().microliters();
+    let loaded_hydration =
+        before_loaded.hydration().microliters() - after_loaded.hydration().microliters();
+    assert!(loaded_energy > unloaded_energy);
+    assert!(loaded_hydration > unloaded_hydration);
+}
+
+#[test]
 fn grounded_jump_is_load_sensitive_and_does_not_retrigger_in_air() {
     let (registries, mut unloaded, floor_y) = generated_grounded_player_at(0, 0);
     let mut loaded = unloaded.clone();
