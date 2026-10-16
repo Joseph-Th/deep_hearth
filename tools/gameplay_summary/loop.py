@@ -365,7 +365,7 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
     worksite_warmth = 0
     for line in worksite_projects:
         warmth = re.search(
-            r"\bwarmth=\[fire:true .*?comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ\]",
+            r"\bwarmth=\[fire:true .*?comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ(?: light:\d+)?\]",
             line,
         )
         if (
