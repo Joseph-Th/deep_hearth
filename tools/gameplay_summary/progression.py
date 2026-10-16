@@ -399,6 +399,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
     campaign_keys: set[tuple[str, str]] = set()
     parity_keys: set[tuple[str, str]] = set()
     steps: list[int] = []
+    continuous_body = 0
     hauls: list[int] = []
     next_feed: list[int] = []
     overlap: list[int] = []
@@ -415,7 +416,10 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
     for line in campaigns:
         seed = field(line, "seed")
         sample = field(line, "sample")
-        corridor = re.search(r"\bcorridor=\[[^]]* steps:(\d+)\]", line)
+        corridor = re.search(
+            r"\bcorridor=\[(?:body:(continuous-generated-terrain) )?[^]]* (?:steps|edges):(\d+)\]",
+            line,
+        )
         information = re.search(r"\binformation=\[[^]]* refinement:(true|false) ", line)
         extraction = re.search(r"\bextraction=\[[^]]* haul-trips:(\d+)\]", line)
         decision = re.search(r"\bdecision=\[selected:([^\s\]]+) ", line)
@@ -466,7 +470,8 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
         if key in campaign_keys:
             raise ValueError(f"duplicate exact-local progression campaign for {key}")
         campaign_keys.add(key)
-        steps.append(int(corridor.group(1)))
+        continuous_body += corridor.group(1) == "continuous-generated-terrain"
+        steps.append(int(corridor.group(2)))
         hauls.append(int(extraction.group(1)))
         next_feed.append(int(autonomy.group(1)))
         overlap.append(int(autonomy.group(3)))
@@ -526,7 +531,8 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
         f"feed=[hard:{hard_feed} bulk:{bulk_feed}] line-local:{local_lines}/{len(campaigns)} "
         f"autonomy=[next-feed:{_span(next_feed, unit='mg')} overlap:{_span(overlap)} idle:{_span(idle)}] "
         f"convergence:{converged}/{len(campaigns)} "
-        f"drop-modify=[first:{first_drop_modify} second:{second_drop_modify}]]"
+        f"drop-modify=[first:{first_drop_modify} second:{second_drop_modify}]] "
+        f"continuous-body={continuous_body}/{len(campaigns)}"
     )
 
 

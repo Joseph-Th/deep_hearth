@@ -217,14 +217,19 @@ fn reinforced_pick_mining_batch_limit(registries: &Registries) -> Mass {
     )
 }
 
+const PROGRESSION_CORRIDOR_Y: i64 = 1;
+
 fn progression_regional_bounds(zone: usize) -> VoxelBounds {
     assert!(zone < PROGRESSION_REGIONAL_ZONE_COUNT);
     let x = i64::try_from(zone)
         .unwrap_or_else(|_| unreachable!("bounded progression regional zone fits i64"))
         .checked_mul(4)
         .unwrap_or_else(|| unreachable!("bounded regional clue coordinate cannot overflow"));
-    VoxelBounds::new(VoxelCoord::new(x, -4, 0), VoxelCoord::new(x + 3, -3, 1))
-        .unwrap_or_else(|error| panic!("primitive progression regional bounds failed: {error}"))
+    VoxelBounds::new(
+        VoxelCoord::new(x, PROGRESSION_CORRIDOR_Y, 0),
+        VoxelCoord::new(x + 3, PROGRESSION_CORRIDOR_Y + 1, 1),
+    )
+    .unwrap_or_else(|error| panic!("primitive progression regional bounds failed: {error}"))
 }
 
 fn regional_zone_for_clue(region: VoxelBounds, zones: &[VoxelBounds]) -> usize {
@@ -323,8 +328,11 @@ fn progression_clue_bounds(slot: usize) -> VoxelBounds {
         .unwrap_or_else(|_| unreachable!("four-way clue slot fits i64"))
         .checked_mul(2)
         .unwrap_or_else(|| unreachable!("bounded clue coordinate cannot overflow"));
-    VoxelBounds::new(VoxelCoord::new(x, -4, 0), VoxelCoord::new(x + 1, -3, 1))
-        .unwrap_or_else(|error| panic!("primitive progression clue bounds failed: {error}"))
+    VoxelBounds::new(
+        VoxelCoord::new(x, PROGRESSION_CORRIDOR_Y, 0),
+        VoxelCoord::new(x + 1, PROGRESSION_CORRIDOR_Y + 1, 1),
+    )
+    .unwrap_or_else(|error| panic!("primitive progression clue bounds failed: {error}"))
 }
 
 /// Verifies only the runtime dependencies this episode actually intends to use.

@@ -162,6 +162,7 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "primitive-progression": (
         "generated-exact-local-campaign",
+        "continuous-body",
         "first-copper",
         "organic-first-copper",
         "sequencing-physical",

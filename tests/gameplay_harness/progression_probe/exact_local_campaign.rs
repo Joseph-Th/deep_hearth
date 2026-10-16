@@ -8,7 +8,7 @@
 
 use deep_hearth::content::gameplay_fixture::{locate_ground_stockpile, seed_traversable_edge};
 use deep_hearth::content::{
-    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
+    BLOCK_STATE_STONE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
     EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK, FORM_NATIVE_METAL, FORM_ORE,
     MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
 };
@@ -17,8 +17,9 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::logistics::{
-    assess_player_carrying, validate_drop_equipment, validate_drop_to_ground,
-    validate_pickup_equipment, validate_start_player_step,
+    CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
+    assess_player_carrying, project_player_adjacent_walk, validate_drop_equipment,
+    validate_drop_to_ground, validate_pickup_equipment,
 };
 use deep_hearth::mining::{
     MiningStartError, MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target,
@@ -28,15 +29,19 @@ use deep_hearth::persistence::validate_persistable_state;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::production::{ProductionJobId, validate_start_player_process};
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::advance_tick;
+use deep_hearth::simulation::{
+    advance_control_tick, advance_control_tick_with_input, advance_tick,
+};
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
+use deep_hearth::world::{BlockStateId, ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
 
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::episode::{ProgressionWorldSetup, build_progression_world_unadmitted};
 use super::*;
 
-const WORKSHOP: VoxelCoord = VoxelCoord::new(-1, -4, 0);
+const WORKSHOP: VoxelCoord = VoxelCoord::new(-1, PROGRESSION_CORRIDOR_Y, 0);
 const CORRIDOR_MAX_X: i64 = 6;
+const PROGRESSION_TERRAIN_SEED: WorldGenerationSeed = WorldGenerationSeed::new(26);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ExactLocalProgressionCampaignReview {
@@ -106,12 +111,55 @@ fn locate_workshop_stockpiles(
     }
 }
 
-fn seed_progression_corridor(state: &mut AppState) {
+fn seed_progression_corridor(registries: &Registries, state: &mut AppState) {
+    for chunk in [
+        ChunkCoord::containing(WORKSHOP),
+        ChunkCoord::containing(VoxelCoord::new(
+            CORRIDOR_MAX_X,
+            PROGRESSION_CORRIDOR_Y,
+            WORKSHOP.z(),
+        )),
+    ] {
+        validate_generate_chunk(
+            registries,
+            state,
+            PROGRESSION_TERRAIN_SEED,
+            chunk,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap_or_else(|error| {
+            panic!("exact-local progression terrain generation failed: {error}")
+        })
+        .commit(state)
+        .unwrap_or_else(|error| panic!("exact-local progression terrain commit failed: {error}"));
+    }
     for x in WORKSHOP.x()..CORRIDOR_MAX_X {
         seed_traversable_edge(
             state,
             VoxelCoord::new(x, WORKSHOP.y(), WORKSHOP.z()),
             VoxelCoord::new(x + 1, WORKSHOP.y(), WORKSHOP.z()),
+        );
+    }
+    for x in WORKSHOP.x()..=CORRIDOR_MAX_X {
+        assert_eq!(
+            state
+                .world()
+                .block_at(VoxelCoord::new(x, PROGRESSION_CORRIDOR_Y - 1, WORKSHOP.z(),)),
+            Some(BLOCK_STATE_STONE),
+            "exact-local progression terrain seed must support every corridor voxel"
+        );
+        assert_eq!(
+            state
+                .world()
+                .block_at(VoxelCoord::new(x, PROGRESSION_CORRIDOR_Y, WORKSHOP.z())),
+            Some(BlockStateId::AIR)
+        );
+        assert_eq!(
+            state
+                .world()
+                .block_at(VoxelCoord::new(x, PROGRESSION_CORRIDOR_Y + 1, WORKSHOP.z(),)),
+            Some(BlockStateId::AIR),
+            "exact-local progression corridor must retain standing clearance"
         );
     }
 }
@@ -122,28 +170,96 @@ fn walk_step_with_production(
     destination: VoxelCoord,
     concurrent_production: Option<ProductionJobId>,
 ) -> u64 {
-    let work = validate_start_player_step(registries, state, destination)
-        .unwrap_or_else(|error| panic!("exact-local progression step admission failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("exact-local progression step commit failed: {error}"));
+    assert!(
+        state.control_tick().is_simulation_boundary(),
+        "exact-local progression body leg must begin at a settled simulation boundary"
+    );
+    let origin = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("exact-local progression movement lost player"));
+    let projection = project_player_adjacent_walk(registries, state, destination)
+        .unwrap_or_else(|error| panic!("exact-local progression walk projection failed: {error}"));
+    let x = i32::try_from(destination.x() - origin.x())
+        .unwrap_or_else(|_| unreachable!("adjacent progression x delta fits i32"))
+        * CONTROL_INPUT_PARTS_PER_MILLION;
+    let z = i32::try_from(destination.z() - origin.z())
+        .unwrap_or_else(|_| unreachable!("adjacent progression z delta fits i32"))
+        * CONTROL_INPUT_PARTS_PER_MILLION;
+    let horizontal = HorizontalControlInput::new(x, z)
+        .unwrap_or_else(|error| panic!("exact-local progression movement input failed: {error}"));
+    let movement = PlayerControlInput::new(horizontal);
     let started_at = state.tick().value();
     let production_jobs = concurrent_production.as_slice();
-    let mut completed = false;
-    while state.tick() < work.completes_at() {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("exact-local progression step tick failed: {error}"));
-        assert_tick_events_within(
-            &outcome,
-            TickEventAllowance {
-                production_jobs,
-                player_step: true,
-                ..TickEventAllowance::default()
-            },
-            "exact-local primitive progression movement",
-        );
-        completed |= outcome.player_step().is_some();
+    let mut body_ticks = 0_u64;
+    while state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.position() != destination)
+    {
+        let control = advance_control_tick_with_input(registries, state, movement)
+            .unwrap_or_else(|error| panic!("exact-local progression movement failed: {error}"));
+        body_ticks += 1;
+        if let Some(outcome) = control.simulation() {
+            assert_tick_events_within(
+                outcome,
+                TickEventAllowance {
+                    production_jobs,
+                    ..TickEventAllowance::default()
+                },
+                "exact-local primitive progression movement",
+            );
+        }
     }
-    assert!(completed, "exact-local progression step never completed");
+    while state.logistics().player().is_some_and(|player| {
+        let velocity = player.body().horizontal_velocity();
+        velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
+    }) {
+        let control = advance_control_tick(registries, state)
+            .unwrap_or_else(|error| panic!("exact-local progression braking failed: {error}"));
+        body_ticks += 1;
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(destination),
+            "exact-local progression braking overshot its destination"
+        );
+        if let Some(outcome) = control.simulation() {
+            assert_tick_events_within(
+                outcome,
+                TickEventAllowance {
+                    production_jobs,
+                    ..TickEventAllowance::default()
+                },
+                "exact-local primitive progression braking",
+            );
+        }
+    }
+    assert_eq!(
+        body_ticks,
+        projection.control_ticks(),
+        "exact-local progression execution diverged from continuous-walk projection"
+    );
+    while !state.control_tick().is_simulation_boundary() {
+        let control = advance_control_tick(registries, state).unwrap_or_else(|error| {
+            panic!("exact-local progression movement settlement failed: {error}")
+        });
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(destination),
+            "exact-local progression settlement changed locality"
+        );
+        if let Some(outcome) = control.simulation() {
+            assert_tick_events_within(
+                outcome,
+                TickEventAllowance {
+                    production_jobs,
+                    ..TickEventAllowance::default()
+                },
+                "exact-local primitive progression movement settlement",
+            );
+        }
+    }
     state
         .tick()
         .value()
@@ -715,7 +831,7 @@ pub(super) fn run_exact_local_progression_campaign(
             separation_residue_storage,
         ],
     );
-    seed_progression_corridor(&mut state);
+    seed_progression_corridor(registries, &mut state);
     validate_admit_player(registries, &state, WORKSHOP)
         .unwrap_or_else(|error| panic!("exact-local progression player admission failed: {error}"))
         .commit(&mut state)
@@ -1248,7 +1364,7 @@ pub(super) fn run_exact_local_progression_campaign(
     assert_exact_local_progression_state(registries, &state, "completed campaign");
 
     reviewln!(
-        "PROGRESSION LOCAL CAMPAIGN seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:{}] information=[regional:{}..{}ppm surface:{} resolved:{} refinement:{} hard:{}..{}ppm bulk:{}..{}ppm direct:{}..{}ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:{}mg direct-first:{}mg direct-second:{}mg shortage:{} haul-trips:{}] decision=[selected:{} rule:hard-lower>owned-bulk bulk-grade:{}ppm] first-investment=[local:true handling:{}] mechanization=[line-local:true feed:{} grade:{}ppm prep:{}t charge:{}t crush:{}t separation:{}t recovered:{}mg] autonomy=[next-feed:{}mg mining:{}t overlap:{}t idle:{}t] second-investment=[local:true handling:{}] convergence=[both-upgrades:{} hard-sample-returned:{}mg] matter=conserved",
+        "PROGRESSION LOCAL CAMPAIGN seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=matched-progression-world corridor=[body:continuous-generated-terrain workshop:-1 clues:0,2,4,6 max-distance:7 edges:{}] information=[regional:{}..{}ppm surface:{} resolved:{} refinement:{} hard:{}..{}ppm bulk:{}..{}ppm direct:{}..{}ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:{}mg direct-first:{}mg direct-second:{}mg shortage:{} haul-trips:{}] decision=[selected:{} rule:hard-lower>owned-bulk bulk-grade:{}ppm] first-investment=[local:true handling:{}] mechanization=[line-local:true feed:{} grade:{}ppm prep:{}t charge:{}t crush:{}t separation:{}t recovered:{}mg] autonomy=[next-feed:{}mg mining:{}t overlap:{}t idle:{}t] second-investment=[local:true handling:{}] convergence=[both-upgrades:{} hard-sample-returned:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         movement_steps,
