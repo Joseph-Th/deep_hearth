@@ -410,6 +410,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
     hard_feed = 0
     bulk_feed = 0
     local_lines = 0
+    catalog_lines = 0
     converged = 0
     first_drop_modify = 0
     second_drop_modify = 0
@@ -434,7 +435,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
             line,
         )
         mechanization = re.search(
-            r"\bmechanization=\[line-local:(true|false) feed:([^\s\]]+) grade:(\d+)ppm prep:(\d+)t charge:(\d+)t crush:(\d+)t separation:(\d+)t recovered:(\d+)mg\]",
+            r"\bmechanization=\[line-local:(true|false) catalog:(true|false) feed:([^\s\]]+) grade:(\d+)ppm prep:(\d+)t charge:(\d+)t crush:(\d+)t separation:(\d+)t recovered:(\d+)mg\]",
             line,
         )
         autonomy = re.search(
@@ -490,12 +491,13 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
         crank_first += selected == "crank-first"
         if selected not in {"pick-first", "crank-first"}:
             raise ValueError(f"unknown exact-local progression decision {selected!r}")
-        feed = mechanization.group(2)
+        feed = mechanization.group(3)
         hard_feed += feed == "hard-sample"
         bulk_feed += feed == "owned-bulk"
         if feed not in {"hard-sample", "owned-bulk"}:
             raise ValueError(f"unknown exact-local progression processing feed {feed!r}")
         local_lines += mechanization.group(1) == "true"
+        catalog_lines += mechanization.group(2) == "true"
         converged += convergence.group(1) == "true" and int(convergence.group(2)) > 0
         first_drop_modify += first_investment.group(1).startswith("drop-modify-repickup")
         second_drop_modify += second_investment.group(1).startswith("drop-modify-repickup")
@@ -538,6 +540,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
         f"decision=[pick:{pick_first} crank:{crank_first}] refinement:{refinements} "
         f"steps:{_span(steps, unit='')} hauls:{_span(hauls, unit='')} "
         f"feed=[hard:{hard_feed} bulk:{bulk_feed}] line-local:{local_lines}/{len(campaigns)} "
+        f"line-catalog:{catalog_lines}/{len(campaigns)} "
         f"field-kit-catalog:{catalog_kits}/{len(campaigns)} "
         f"autonomy=[next-feed:{_span(next_feed, unit='mg')} overlap:{_span(overlap)} idle:{_span(idle)}] "
         f"convergence:{converged}/{len(campaigns)} "

@@ -1245,6 +1245,10 @@ pub(super) fn run_exact_local_progression_campaign(
             )
         }
     };
+    assert!(
+        machine.player_catalog_assembly,
+        "exact-local progression mechanization must assemble actor-visible equipment through the player catalog"
+    );
 
     let autonomy = run_exact_local_autonomous_replenishment(
         registries,
@@ -1380,7 +1384,7 @@ pub(super) fn run_exact_local_progression_campaign(
     assert_exact_local_progression_state(registries, &state, "completed campaign");
 
     reviewln!(
-        "PROGRESSION LOCAL CAMPAIGN seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=matched-progression-world corridor=[body:continuous-generated-terrain workshop:-1 clues:0,2,4,6 max-distance:7 edges:{}] information=[regional:{}..{}ppm surface:{} resolved:{} refinement:{} hard:{}..{}ppm bulk:{}..{}ppm direct:{}..{}ppm] field-kit=[assembled-after-admission:true catalog:true rediscovered:true carried:true] extraction=[bulk:{}mg direct-first:{}mg direct-second:{}mg shortage:{} haul-trips:{}] decision=[selected:{} rule:hard-lower>owned-bulk bulk-grade:{}ppm] first-investment=[local:true handling:{}] mechanization=[line-local:true feed:{} grade:{}ppm prep:{}t charge:{}t crush:{}t separation:{}t recovered:{}mg] autonomy=[next-feed:{}mg mining:{}t overlap:{}t idle:{}t] second-investment=[local:true handling:{}] convergence=[both-upgrades:{} hard-sample-returned:{}mg] matter=conserved",
+        "PROGRESSION LOCAL CAMPAIGN seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=matched-progression-world corridor=[body:continuous-generated-terrain workshop:-1 clues:0,2,4,6 max-distance:7 edges:{}] information=[regional:{}..{}ppm surface:{} resolved:{} refinement:{} hard:{}..{}ppm bulk:{}..{}ppm direct:{}..{}ppm] field-kit=[assembled-after-admission:true catalog:true rediscovered:true carried:true] extraction=[bulk:{}mg direct-first:{}mg direct-second:{}mg shortage:{} haul-trips:{}] decision=[selected:{} rule:hard-lower>owned-bulk bulk-grade:{}ppm] first-investment=[local:true handling:{}] mechanization=[line-local:true catalog:true feed:{} grade:{}ppm prep:{}t charge:{}t crush:{}t separation:{}t recovered:{}mg] autonomy=[next-feed:{}mg mining:{}t overlap:{}t idle:{}t] second-investment=[local:true handling:{}] convergence=[both-upgrades:{} hard-sample-returned:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         movement_steps,

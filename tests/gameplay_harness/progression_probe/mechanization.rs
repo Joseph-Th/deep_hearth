@@ -3,6 +3,10 @@
 use std::num::NonZeroU64;
 
 use deep_hearth::crafting::project_manual_craft_hand_work;
+use deep_hearth::equipment::{
+    EquipmentDefinitionId, player_equipment_assembly_options,
+    validate_assemble_player_equipment_option,
+};
 
 use super::*;
 
@@ -238,6 +242,7 @@ pub(super) struct PrimitiveMachine {
     pub(super) preparation_metabolic_cost_nj: u128,
     pub(super) preparation_hydration_cost_ul: u64,
     pub(super) crank_reinforced: bool,
+    pub(super) player_catalog_assembly: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -486,6 +491,44 @@ pub(super) fn build_primitive_machine(
     let preparation_started_at = state.tick().value();
     let survival_before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("primitive processing-line builder lost player survival state"));
+    let player_catalog_assembly = state.logistics().player().is_some();
+    let assemble_visible = |state: &mut AppState,
+                            definition: EquipmentDefinitionId,
+                            context: &'static str| {
+        if state.logistics().player().is_none() {
+            return validate_assemble_equipment(registries, state, definition, shaped)
+                .unwrap_or_else(|error| {
+                    panic!("primitive progression {context} capability assembly failed: {error}")
+                })
+                .commit(state)
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "primitive progression {context} capability assembly commit failed: {error}"
+                    )
+                });
+        }
+        let options =
+            player_equipment_assembly_options(registries, state, shaped).unwrap_or_else(|error| {
+                panic!("primitive progression {context} assembly catalog failed: {error}")
+            });
+        let matches = options
+            .into_iter()
+            .filter(|option| option.definition() == definition && option.is_ready())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "primitive progression {context} requires one ready actor-visible assembly option"
+        );
+        validate_assemble_player_equipment_option(registries, state, &matches[0])
+            .unwrap_or_else(|error| {
+                panic!("primitive progression {context} assembly failed: {error}")
+            })
+            .commit(state)
+            .unwrap_or_else(|error| {
+                panic!("primitive progression {context} assembly commit failed: {error}")
+            })
+    };
     craft_for_profile(
         registries,
         state,
@@ -494,12 +537,7 @@ pub(super) fn build_primitive_machine(
         shaped,
         equipment_assembly_profile(registries, EQUIPMENT_STONE_HAND_CRANK),
     );
-    let crank = validate_assemble_equipment(registries, state, EQUIPMENT_STONE_HAND_CRANK, shaped)
-        .unwrap_or_else(|error| panic!("primitive progression crank assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("primitive progression crank assembly commit failed: {error}")
-        });
+    let crank = assemble_visible(state, EQUIPMENT_STONE_HAND_CRANK, "hand-crank");
 
     let drive_profile = registries
         .energy()
@@ -540,14 +578,7 @@ pub(super) fn build_primitive_machine(
         shaped,
         equipment_assembly_profile(registries, EQUIPMENT_STONE_CRUSHER),
     );
-    let crusher = validate_assemble_equipment(registries, state, EQUIPMENT_STONE_CRUSHER, shaped)
-        .unwrap_or_else(|error| {
-            panic!("primitive progression crusher construction failed: {error}")
-        })
-        .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("primitive progression crusher construction commit failed: {error}")
-        });
+    let crusher = assemble_visible(state, EQUIPMENT_STONE_CRUSHER, "stone-crusher");
     let automation_hardware_ready_at = state.tick().value();
 
     craft_for_profile(
@@ -558,15 +589,7 @@ pub(super) fn build_primitive_machine(
         shaped,
         equipment_assembly_profile(registries, EQUIPMENT_STONE_SEPARATOR),
     );
-    let separator =
-        validate_assemble_equipment(registries, state, EQUIPMENT_STONE_SEPARATOR, shaped)
-            .unwrap_or_else(|error| {
-                panic!("primitive progression separator construction failed: {error}")
-            })
-            .commit(state)
-            .unwrap_or_else(|error| {
-                panic!("primitive progression separator construction commit failed: {error}")
-            });
+    let separator = assemble_visible(state, EQUIPMENT_STONE_SEPARATOR, "stone-separator");
     let separator_ready_at = state.tick().value();
     let separator_preparation_ticks = duration(automation_hardware_ready_at, separator_ready_at);
     let automation_preparation_ticks =
@@ -609,6 +632,7 @@ pub(super) fn build_primitive_machine(
         preparation_metabolic_cost_nj,
         preparation_hydration_cost_ul,
         crank_reinforced: false,
+        player_catalog_assembly,
     }
 }
 
