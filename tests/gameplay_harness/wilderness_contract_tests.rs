@@ -29,16 +29,16 @@ use deep_hearth::crafting::{
     ManualCraftInputMode, player_manual_craft_options, project_manual_craft_equipment,
     project_manual_craft_hand_work, validate_start_player_manual_craft,
 };
-use deep_hearth::energy::{validate_assemble_energy_store, validate_combust_fuel};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{
-    MaterialLotSelection, StockpileId, StorageDefinitionId, validate_mount_stockpile,
-    validate_place_player_storage,
+    MaterialLotSelection, StockpileId, StorageDefinitionId, project_material_stacks,
+    validate_mount_stockpile, validate_place_player_storage,
 };
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
-    HorizontalControlInput, PlayerControlInput, assess_player_carrying, project_player_walk_path,
-    project_player_walk_path_for_load, validate_drop_to_ground,
+    HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, assess_player_carrying,
+    project_player_walk_path, project_player_walk_path_for_load, validate_drop_to_ground,
+    validate_pickup_stack_from_ground, validate_set_active_selection,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -2276,22 +2276,83 @@ pub(super) fn evaluate_generated_wilderness_opening(
             total_steps += 1;
             campfire_logistics_steps += 1;
 
-            let campfire = validate_assemble_energy_store(
+            validate_set_active_selection(
                 &registries,
                 &state,
-                ENERGY_STONE_RING_CAMPFIRE,
-                carried,
+                Some(PlayerActiveSelection::material(stone_commodity)),
             )
-            .unwrap_or_else(|error| panic!("wilderness campfire assembly failed: {error}"))
+            .unwrap_or_else(|error| panic!("wilderness campfire stone selection failed: {error}"))
             .commit(&mut state)
-            .unwrap_or_else(|error| panic!("wilderness campfire assembly commit failed: {error}"));
-            let released = validate_combust_fuel(&registries, &state, campfire, storage)
-                .unwrap_or_else(|error| panic!("wilderness campfire fueling failed: {error}"))
-                .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness campfire stone selection commit failed: {error}")
+            });
+            let direct_use_direction = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
                 .unwrap_or_else(|error| {
-                    panic!("wilderness campfire fueling commit failed: {error}")
+                    panic!("wilderness campfire direct-use direction failed: {error}")
                 });
-            assert_eq!(released, CAMPFIRE_FUEL_THERMAL_ENERGY);
+            let assembly = advance_control_tick_with_direct_input(
+                &registries,
+                &mut state,
+                PlayerDirectControlInput::NEUTRAL
+                    .with_secondary(SecondaryControlIntent::use_active(direct_use_direction)),
+            )
+            .unwrap_or_else(|error| panic!("wilderness direct campfire assembly failed: {error}"));
+            let campfire = match assembly.secondary_action() {
+                Some(SecondaryActionOutcome::EnergyStoreAssembled { definition, store }) => {
+                    assert_eq!(*definition, ENERGY_STONE_RING_CAMPFIRE);
+                    *store
+                }
+                other => panic!("wilderness stone use did not assemble campfire: {other:?}"),
+            };
+
+            let timber_stacks = project_material_stacks(&registries, &state, storage)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness campfire fuel projection failed: {error}")
+                })
+                .into_iter()
+                .filter(|stack| stack.commodity() == timber_commodity)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                timber_stacks.len(),
+                1,
+                "wilderness staged timber should remain one visible physical stack before fueling"
+            );
+            validate_pickup_stack_from_ground(
+                &registries,
+                &state,
+                storage,
+                &timber_stacks[0],
+                CAMPFIRE_FUEL_MASS,
+            )
+            .unwrap_or_else(|error| panic!("wilderness campfire fuel pickup failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness campfire fuel pickup commit failed: {error}")
+            });
+            validate_set_active_selection(
+                &registries,
+                &state,
+                Some(PlayerActiveSelection::material(timber_commodity)),
+            )
+            .unwrap_or_else(|error| panic!("wilderness campfire timber selection failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness campfire timber selection commit failed: {error}")
+            });
+            let fueling = advance_control_tick_with_direct_input(
+                &registries,
+                &mut state,
+                PlayerDirectControlInput::NEUTRAL
+                    .with_secondary(SecondaryControlIntent::use_active(direct_use_direction)),
+            )
+            .unwrap_or_else(|error| panic!("wilderness direct campfire fueling failed: {error}"));
+            match fueling.secondary_action() {
+                Some(SecondaryActionOutcome::CombustionFuelAdded { store, released }) => {
+                    assert_eq!(*store, campfire);
+                    assert_eq!(*released, CAMPFIRE_FUEL_THERMAL_ENERGY);
+                }
+                other => panic!("wilderness timber use did not fuel campfire: {other:?}"),
+            }
             campfire_built = true;
             campfire_fuel_mg = CAMPFIRE_FUEL_MASS.milligrams();
 
@@ -2637,7 +2698,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
     );
     let warmth = if review.campfire_built {
         format!(
-            "[fire:true fuel:{}mg logistics-legs:{} recovery:{}t comfort:{}->{}ppm heat-remaining:{}nJ]",
+            "[fire:true direct-control:true fuel:{}mg logistics-legs:{} recovery:{}t comfort:{}->{}ppm heat-remaining:{}nJ]",
             review.campfire_fuel_mg,
             review.campfire_logistics_legs,
             review.campfire_recovery_ticks,

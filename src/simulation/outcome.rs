@@ -1,6 +1,9 @@
 //! Public observable result of one canonical simulation tick.
 
 use crate::core::time::{ControlTick, SimulationTick};
+use crate::energy::{
+    CombustionError, EnergyStoreAssemblyError, EnergyStoreDefinitionId, EnergyStoreId,
+};
 use crate::equipment::{EquipmentId, EquipmentMaintenanceOutcome};
 use crate::geology::FieldProspectingOutcome;
 use crate::inventory::{
@@ -63,6 +66,22 @@ pub enum QuickAccessSelectionOutcome {
 pub enum SecondaryActionOutcome {
     EatingStarted(EatOutcome),
     DrinkingStarted(DrinkOutcome),
+    EnergyStoreAssembled {
+        definition: EnergyStoreDefinitionId,
+        store: EnergyStoreId,
+    },
+    EnergyStoreAssemblyRejected {
+        definition: EnergyStoreDefinitionId,
+        error: EnergyStoreAssemblyError,
+    },
+    CombustionFuelAdded {
+        store: EnergyStoreId,
+        released: crate::core::quantity::Energy,
+    },
+    CombustionFuelRejected {
+        store: EnergyStoreId,
+        error: CombustionError,
+    },
     SurfaceGatheringStarted(SurfaceGatheringWork),
     StructuralConstructionStarted(StructuralConstructionWork),
     StoragePlaced {
@@ -124,6 +143,12 @@ pub enum SecondaryActionOutcome {
         count: usize,
     },
     AmbiguousStorageDefinitions {
+        count: usize,
+    },
+    AmbiguousLocalCombustionStores {
+        count: usize,
+    },
+    AmbiguousCombustionDefinitions {
         count: usize,
     },
     AmbiguousLocalDrinkSources {

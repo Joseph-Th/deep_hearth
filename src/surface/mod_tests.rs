@@ -2,18 +2,20 @@
 
 use super::*;
 use crate::content::{
-    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE, FLUID_WATER,
-    FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES,
-    MATERIAL_STONE, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
-    STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
-    SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE,
+    CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FLUID_WATER, FORM_CHIP, FORM_FOOD, FORM_LOG,
+    FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE,
+    SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS, SURFACE_GATHERING_HAND_FORAGE_BERRIES,
+    build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, SimulationTick, TickSpan};
+use crate::energy::validate_assemble_energy_store;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{StockpileStorageError, deposit_lot_for_test, project_material_stacks};
 use crate::labor::PlayerWorkValidationError;
@@ -48,6 +50,186 @@ const WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5355_5246_414
 fn positive_x_view() -> ViewDirection {
     ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
         .unwrap_or_else(|error| panic!("surface positive-X view failed: {error}"))
+}
+
+#[test]
+fn selected_stone_and_timber_assemble_and_fuel_a_local_campfire() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    for (commodity, mass) in [
+        (stone, Mass::from_milligrams(1_000_000)),
+        (timber, CAMPFIRE_FUEL_MASS),
+    ] {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("direct campfire material fixture failed: {error}"));
+    }
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("direct campfire matter audit failed: {error}"))
+        .total();
+
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(stone)),
+    )
+    .unwrap_or_else(|error| panic!("direct campfire stone selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("direct campfire stone selection commit failed: {error}"));
+    let assembled = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("direct campfire assembly control failed: {error}"));
+    let fire = match assembled.secondary_action() {
+        Some(SecondaryActionOutcome::EnergyStoreAssembled { definition, store }) => {
+            assert_eq!(*definition, ENERGY_STONE_RING_CAMPFIRE);
+            *store
+        }
+        other => panic!("selected stone did not assemble the local campfire: {other:?}"),
+    };
+    assert_eq!(
+        state.logistics().energy_store_position(fire),
+        Some(position)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.get_mass(stone)),
+        Some(Mass::ZERO)
+    );
+
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap_or_else(|error| panic!("direct campfire timber selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("direct campfire timber selection commit failed: {error}"));
+    let fueled = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("direct campfire fuel control failed: {error}"));
+    match fueled.secondary_action() {
+        Some(SecondaryActionOutcome::CombustionFuelAdded { store, released }) => {
+            assert_eq!(*store, fire);
+            assert!(!released.is_zero());
+            assert_eq!(
+                state.energy().get_store(fire).map(|record| record.stored()),
+                Some(*released)
+            );
+        }
+        other => panic!("selected timber did not fuel the local campfire: {other:?}"),
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.get_mass(timber)),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("direct campfire final matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn selected_fuel_rejects_ambiguous_local_combustion_stores_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        stone,
+        Mass::from_milligrams(2_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("ambiguous fire stone fixture failed: {error}"));
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        timber,
+        CAMPFIRE_FUEL_MASS,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("ambiguous fire timber fixture failed: {error}"));
+    let mut fires = Vec::new();
+    for _ in 0..2 {
+        let fire = validate_assemble_energy_store(
+            &registries,
+            &state,
+            ENERGY_STONE_RING_CAMPFIRE,
+            carried,
+        )
+        .unwrap_or_else(|error| panic!("ambiguous local fire setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("ambiguous local fire setup commit failed: {error}"));
+        fires.push(fire);
+    }
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap_or_else(|error| panic!("ambiguous fire timber selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("ambiguous fire timber selection commit failed: {error}"));
+    let before = state.clone();
+
+    let outcome = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("ambiguous fire control failed: {error}"));
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::AmbiguousLocalCombustionStores { count: 2 })
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.get_mass(timber)),
+        before
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.get_mass(timber))
+    );
+    for fire in fires {
+        assert_eq!(
+            state.energy().get_store(fire).map(|store| store.stored()),
+            Some(Energy::ZERO)
+        );
+    }
 }
 
 fn backward_shallow_down_view() -> ViewDirection {
@@ -1159,6 +1341,28 @@ fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
     set_generated_block_for_test(registries.world(), &mut state, target, BLOCK_STATE_STONE);
     set_generated_block_for_test(registries.world(), &mut state, placement, BlockStateId::AIR);
     let carried = admit_player(&registries, &mut state, player_position);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        stone,
+        Mass::from_milligrams(1_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("timber-post campfire stone fixture failed: {error}"));
+    let local_fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap_or_else(|error| panic!("timber-post local campfire setup failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("timber-post local campfire commit failed: {error}"));
+    assert_eq!(
+        state
+            .energy()
+            .get_store(local_fire)
+            .map(|store| store.stored()),
+        Some(Energy::ZERO)
+    );
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
     let post_mass = Mass::from_milligrams(3_250_000);
     let _ = deposit_lot_for_test(
@@ -1229,6 +1433,14 @@ fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
         Some(crate::labor::PlayerWork::StructuralConstruction { work: active })
             if active.element() == element
     ));
+    assert_eq!(
+        state
+            .energy()
+            .get_store(local_fire)
+            .map(|store| store.stored()),
+        Some(Energy::ZERO),
+        "pointed timber placement must not feed a colocated combustion store"
+    );
 
     let mut completions = 0_u32;
     while state.tick() < work.completes_at() {

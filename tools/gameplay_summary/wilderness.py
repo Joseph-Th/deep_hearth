@@ -131,6 +131,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
     campfire_after_comfort: list[int] = []
     campfire_heat_remaining: list[int] = []
     campfires_built = 0
+    direct_control_fires = 0
     camp_logistics_legs: list[int] = []
     selected_source_opportunity: list[int] = []
     selected_source_remaining: list[int] = []
@@ -161,7 +162,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         if project is None:
             raise ValueError("wilderness experience lost camp-project telemetry")
         warmth = re.search(
-            r"\bwarmth=\[fire:true fuel:(\d+)mg logistics-legs:(\d+) recovery:(\d+)t "
+            r"\bwarmth=\[fire:true(?: direct-control:(true))? fuel:(\d+)mg logistics-legs:(\d+) recovery:(\d+)t "
             r"comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ\]",
             experience,
         )
@@ -169,11 +170,12 @@ def wilderness_summary(lines: list[str]) -> str | None:
             if warmth is None:
                 raise ValueError("wilderness worksite experience lost campfire warmth telemetry")
             campfires_built += 1
-            campfire_fuel.append(int(warmth.group(1)))
-            campfire_recovery_ticks.append(int(warmth.group(3)))
-            campfire_before_comfort.append(int(warmth.group(4)))
-            campfire_after_comfort.append(int(warmth.group(5)))
-            campfire_heat_remaining.append(int(warmth.group(6)))
+            direct_control_fires += warmth.group(1) == "true"
+            campfire_fuel.append(int(warmth.group(2)))
+            campfire_recovery_ticks.append(int(warmth.group(4)))
+            campfire_before_comfort.append(int(warmth.group(5)))
+            campfire_after_comfort.append(int(warmth.group(6)))
+            campfire_heat_remaining.append(int(warmth.group(7)))
         work = int(project.group(1))
         meal = int(project.group(7))
         if meal > 0:
@@ -250,9 +252,20 @@ def wilderness_summary(lines: list[str]) -> str | None:
         )
     camp_warmth = ""
     if cache_projects:
+        has_direct_fire_telemetry = any(" direct-control:" in line for line in cache_projects)
+        if has_direct_fire_telemetry and direct_control_fires != len(cache_projects):
+            raise ValueError(
+                "wilderness worksite fires must assemble and fuel through direct control"
+            )
+        direct_fire = (
+            f"direct:{direct_control_fires}/{len(cache_projects)} "
+            if has_direct_fire_telemetry
+            else ""
+        )
         camp_warmth = (
             "camp-warmth=["
             f"fires:{campfires_built}/{len(cache_projects)} "
+            f"{direct_fire}"
             f"fuel:{scaled_span(campfire_fuel, 1_000_000, 'kg')} "
             f"recovery:{scaled_span(campfire_recovery_ticks, 1, 't')} "
             f"comfort:{scaled_span(campfire_before_comfort, 1_000, 'kppm')}->"
