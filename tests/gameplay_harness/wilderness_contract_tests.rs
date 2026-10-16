@@ -32,14 +32,14 @@ use deep_hearth::crafting::{
 use deep_hearth::energy::assess_local_illumination;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{
-    MaterialLotSelection, StockpileId, StorageDefinitionId, project_material_stacks,
-    validate_mount_stockpile, validate_place_player_storage,
+    MaterialLotSelection, MaterialStackProjection, StockpileId, StorageDefinitionId,
+    project_material_stacks, validate_mount_stockpile, validate_place_player_storage,
 };
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, assess_player_carrying,
-    project_player_walk_path, project_player_walk_path_for_load, validate_drop_to_ground,
-    validate_pickup_stack_from_ground, validate_set_active_selection,
+    project_player_walk_path, project_player_walk_path_for_load, validate_drop_stack_to_ground,
+    validate_drop_to_ground, validate_pickup_stack_from_ground, validate_set_active_selection,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -68,7 +68,7 @@ use deep_hearth::survival::{
     AdjacentDrinkSource, SurvivalExertion, SurvivalResourceBudget, ThermalComfortState,
     assess_survival, available_adjacent_drink_sources, available_local_drink_sources,
     project_survival_resource_budget, validate_drink_store_to_hydration_target,
-    validate_eat_lot_to_metabolic_target,
+    validate_eat_stack_to_metabolic_target,
 };
 use deep_hearth::world::{WorldGenerationSeed, validate_generate_player_neighborhood};
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
@@ -706,6 +706,31 @@ fn adjacent_surface_resource(state: &AppState, commodity: CommodityKey) -> Adjac
     matches[0]
 }
 
+fn carried_material_stack(
+    registries: &Registries,
+    state: &AppState,
+    commodity: CommodityKey,
+    context: &str,
+) -> MaterialStackProjection {
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| panic!("wilderness {context} lost carried custody"));
+    let matches = project_material_stacks(registries, state, carried)
+        .unwrap_or_else(|error| panic!("wilderness {context} stack projection failed: {error}"))
+        .into_iter()
+        .filter(|stack| stack.commodity() == commodity)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "wilderness {context} requires one visible carried stack for commodity {}",
+        commodity.value()
+    );
+    matches.into_iter().next().unwrap_or_else(|| unreachable!())
+}
+
 fn adjacent_drinkable_source(registries: &Registries, state: &AppState) -> AdjacentDrinkSource {
     let matches = available_adjacent_drink_sources(registries, state).collect::<Vec<_>>();
     assert_eq!(
@@ -1219,16 +1244,6 @@ pub(super) fn evaluate_generated_wilderness_opening(
         "a useful food reserve should be secured early instead of waiting behind fabrication or storage construction"
     );
 
-    let provisioned_berries = state
-        .inventory()
-        .lot_ids(carried)
-        .find(|lot| {
-            state
-                .inventory()
-                .get_lot(*lot)
-                .is_some_and(|record| record.commodity() == berry_commodity)
-        })
-        .unwrap_or_else(|| panic!("provisioned opening berries disappeared from carried custody"));
     let mut meal_consumed_mg = 0_u64;
     if start_profile == WildernessStartProfile::HungerPressure {
         let carrying = assess_player_carrying(&state)
@@ -1251,10 +1266,16 @@ pub(super) fn evaluate_generated_wilderness_opening(
             .checked_add(conservative_next_leg_budget.metabolic_energy())
             .and_then(|target| target.checked_add(Energy::from_nanojoules(1)))
             .unwrap_or_else(|| panic!("hunger-pressure opening metabolic target overflowed"));
-        let meal = validate_eat_lot_to_metabolic_target(
+        let berry_stack = carried_material_stack(
             &registries,
             &state,
-            provisioned_berries,
+            berry_commodity,
+            "hunger-pressure opening meal",
+        );
+        let meal = validate_eat_stack_to_metabolic_target(
+            &registries,
+            &state,
+            &berry_stack,
             metabolic_target,
         )
         .unwrap_or_else(|error| panic!("hunger-pressure opening meal projection failed: {error}"))
@@ -1561,11 +1582,14 @@ pub(super) fn evaluate_generated_wilderness_opening(
         "opening should not manufacture stationary storage before capacity or freshness requires it"
     );
     assert_eq!(
-        state
-            .inventory()
-            .get_lot(provisioned_berries)
-            .map(|record| record.mass()),
-        Some(retained_food_mass),
+        carried_material_stack(
+            &registries,
+            &state,
+            berry_commodity,
+            "retained opening provisions",
+        )
+        .mass(),
+        retained_food_mass,
         "opening should consume food only when current hunger makes the meal useful"
     );
 
@@ -1849,10 +1873,12 @@ pub(super) fn evaluate_generated_wilderness_opening(
             .and_then(|target| target.checked_add(Energy::from_nanojoules(1)))
             .unwrap_or_else(|| panic!("wilderness camp-project metabolic target overflowed"));
         if project_survival.metabolic_energy() < metabolic_target {
-            let meal = validate_eat_lot_to_metabolic_target(
+            let berry_stack =
+                carried_material_stack(&registries, &state, berry_commodity, "camp-project meal");
+            let meal = validate_eat_stack_to_metabolic_target(
                 &registries,
                 &state,
-                provisioned_berries,
+                &berry_stack,
                 metabolic_target,
             )
             .unwrap_or_else(|error| {
@@ -1993,14 +2019,14 @@ pub(super) fn evaluate_generated_wilderness_opening(
             worksite_construction_residue_mg = residue_mass.milligrams();
         }
         if !retained_food_mass.is_zero() {
-            validate_drop_to_ground(
+            let berry_stack =
+                carried_material_stack(&registries, &state, berry_commodity, "food-cache transfer");
+            validate_drop_stack_to_ground(
                 &registries,
                 &state,
                 storage,
-                &[MaterialLotSelection::new(
-                    provisioned_berries,
-                    retained_food_mass,
-                )],
+                &berry_stack,
+                retained_food_mass,
             )
             .unwrap_or_else(|error| panic!("wilderness food-cache drop failed: {error}"))
             .commit(&mut state)
