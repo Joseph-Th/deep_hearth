@@ -16,7 +16,7 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
-use super::assess_local_illumination;
+use super::{assess_local_illumination, project_local_light_sources};
 
 #[test]
 fn finite_campfire_light_appears_only_while_stored_heat_exists() {
@@ -51,6 +51,7 @@ fn finite_campfire_light_appears_only_while_stored_heat_exists() {
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("light fixture campfire commit failed: {error}"));
 
+    assert!(project_local_light_sources(&registries, &state).is_empty());
     assert_eq!(
         assess_local_illumination(&registries, &state, origin).level(),
         0
@@ -61,6 +62,11 @@ fn finite_campfire_light_appears_only_while_stored_heat_exists() {
         .unwrap_or_else(|error| panic!("light fixture combustion commit failed: {error}"));
 
     let at_fire = assess_local_illumination(&registries, &state, origin);
+    let sources = project_local_light_sources(&registries, &state);
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].store(), fire);
+    assert_eq!(sources[0].position(), origin);
+    assert_eq!(sources[0].level(), 7);
     assert_eq!(at_fire.level(), 7);
     assert_eq!(at_fire.strongest_source(), Some(fire));
     assert_eq!(
@@ -88,6 +94,7 @@ fn finite_campfire_light_appears_only_while_stored_heat_exists() {
         at_fire,
         "local illumination must derive identically from trusted loaded energy/location state"
     );
+    assert_eq!(project_local_light_sources(&registries, &loaded), sources);
 
     let stored = state
         .energy()
@@ -110,6 +117,7 @@ fn finite_campfire_light_appears_only_while_stored_heat_exists() {
             .get_store(fire)
             .is_some_and(|record| record.stored().is_zero())
     );
+    assert!(project_local_light_sources(&registries, &state).is_empty());
     assert_eq!(
         assess_local_illumination(&registries, &state, origin).level(),
         0

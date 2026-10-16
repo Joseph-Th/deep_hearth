@@ -6,6 +6,32 @@ use crate::spatial::VoxelCoord;
 
 use super::EnergyStoreId;
 
+/// One currently active located local-light emitter.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocalLightSourceProjection {
+    store: EnergyStoreId,
+    position: VoxelCoord,
+    level: u8,
+}
+
+impl LocalLightSourceProjection {
+    #[must_use]
+    pub const fn store(self) -> EnergyStoreId {
+        self.store
+    }
+
+    #[must_use]
+    pub const fn position(self) -> VoxelCoord {
+        self.position
+    }
+
+    #[must_use]
+    pub const fn level(self) -> u8 {
+        self.level
+    }
+}
+
 /// Current unoccluded local block-light assessment at one world voxel.
 ///
 /// This is a read model, not persisted lighting state. General propagation, occlusion, sky light,
@@ -35,6 +61,47 @@ impl LocalIlluminationAssessment {
     }
 }
 
+fn active_local_light_sources<'a>(
+    registries: &'a Registries,
+    state: &'a AppState,
+) -> impl Iterator<Item = LocalLightSourceProjection> + 'a {
+    state
+        .logistics()
+        .energy_store_locations()
+        .filter_map(move |(store, position)| {
+            let record = state.energy().get_store(store).unwrap_or_else(|| {
+                panic!("runtime invariant broken: located energy store disappeared")
+            });
+            if record.stored().is_zero() {
+                return None;
+            }
+            let definition = registries
+                .energy()
+                .get_store(record.definition())
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: energy definition disappeared")
+                });
+            let level = definition.local_light_level();
+            (level != 0).then_some(LocalLightSourceProjection {
+                store,
+                position,
+                level,
+            })
+        })
+}
+
+/// Projects every currently active located local-light emitter in stable store-ID order.
+///
+/// The projection is read-only and contains presentation facts only. It does not grant energy,
+/// logistics, interaction, or visibility authority.
+#[must_use]
+pub fn project_local_light_sources(
+    registries: &Registries,
+    state: &AppState,
+) -> Vec<LocalLightSourceProjection> {
+    active_local_light_sources(registries, state).collect()
+}
+
 /// Returns current unoccluded local illumination from nonempty located authored light sources.
 ///
 /// Source levels fall by one per Manhattan voxel. Overlapping sources use the strongest current
@@ -47,33 +114,20 @@ pub fn assess_local_illumination(
 ) -> LocalIlluminationAssessment {
     let mut level = 0_u8;
     let mut strongest_source = None;
-    for (store, source_position) in state.logistics().energy_store_locations() {
-        let record = state.energy().get_store(store).unwrap_or_else(|| {
-            panic!("runtime invariant broken: located energy store disappeared")
-        });
-        if record.stored().is_zero() {
+    for source in active_local_light_sources(registries, state) {
+        let distance = manhattan_distance(source.position(), position);
+        if distance >= u128::from(source.level()) {
             continue;
         }
-        let definition = registries
-            .energy()
-            .get_store(record.definition())
-            .unwrap_or_else(|| panic!("runtime invariant broken: energy definition disappeared"));
-        let source_level = definition.local_light_level();
-        if source_level == 0 {
-            continue;
-        }
-        let distance = manhattan_distance(source_position, position);
-        if distance >= u128::from(source_level) {
-            continue;
-        }
-        let contribution = source_level
+        let contribution = source
+            .level()
             .checked_sub(u8::try_from(distance).unwrap_or_else(|_| {
                 unreachable!("contributing light distance is bounded by a u8 source level")
             }))
             .unwrap_or_else(|| unreachable!("light contribution distance is below source level"));
         if contribution > level {
             level = contribution;
-            strongest_source = Some(store);
+            strongest_source = Some(source.store());
         }
     }
     LocalIlluminationAssessment {

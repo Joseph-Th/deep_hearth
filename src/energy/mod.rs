@@ -26,7 +26,10 @@ pub use construction_execution::{
     EnergyStoreAssemblyCommitError, EnergyStoreAssemblyError, ValidatedEnergyStoreAssembly,
     validate_assemble_energy_store,
 };
-pub use illumination::{LocalIlluminationAssessment, assess_local_illumination};
+pub use illumination::{
+    LocalIlluminationAssessment, LocalLightSourceProjection, assess_local_illumination,
+    project_local_light_sources,
+};
 
 pub use definitions::{
     CombustionProfile, EnergyCarrier, EnergyRegistry, EnergyStoreDefinition,
