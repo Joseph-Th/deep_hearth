@@ -27,6 +27,35 @@ pub enum AddStructuralElementError {
     RevisionExhausted,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultiSupportedStructuralElementPlan {
+    profile: StructuralProfileId,
+    material: MaterialId,
+    geometry: StructuralElementGeometry,
+    supports: Vec<StructuralElementId>,
+}
+
+impl MultiSupportedStructuralElementPlan {
+    #[must_use]
+    pub fn new(
+        profile: StructuralProfileId,
+        material: MaterialId,
+        geometry: StructuralElementGeometry,
+        supports: Vec<StructuralElementId>,
+    ) -> Self {
+        Self {
+            profile,
+            material,
+            geometry,
+            supports,
+        }
+    }
+
+    pub(crate) fn supports(&self) -> &[StructuralElementId] {
+        &self.supports
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SupportedStructuralElementPlan {
     profile: StructuralProfileId,
@@ -172,6 +201,8 @@ pub enum PlanPlayerStructuralElementError {
     TargetOverlapsPlayer { player: VoxelCoord },
     TargetNotSingleVoxel,
     TargetNotAdjacent { player: VoxelCoord },
+    SupportSetEmpty,
+    DuplicateSupport { support: StructuralElementId },
     UnknownSupport { support: StructuralElementId },
     SupportNotActive { support: StructuralElementId },
     SupportOutOfContact { support: StructuralElementId },
@@ -191,6 +222,14 @@ impl Display for PlanPlayerStructuralElementError {
                 player.x(),
                 player.y(),
                 player.z()
+            ),
+            Self::SupportSetEmpty => {
+                formatter.write_str("supported structural planning requires at least one support")
+            }
+            Self::DuplicateSupport { support } => write!(
+                formatter,
+                "structural support {} was supplied more than once",
+                support.value()
             ),
             Self::TargetNotSingleVoxel => formatter
                 .write_str("ordinary grounded structural target must occupy exactly one voxel"),
@@ -228,6 +267,8 @@ impl Error for PlanPlayerStructuralElementError {
             | Self::TargetOverlapsPlayer { .. }
             | Self::TargetNotSingleVoxel
             | Self::TargetNotAdjacent { .. }
+            | Self::SupportSetEmpty
+            | Self::DuplicateSupport { .. }
             | Self::UnknownSupport { .. }
             | Self::SupportNotActive { .. }
             | Self::SupportOutOfContact { .. } => None,
@@ -329,7 +370,7 @@ pub struct ValidatedPlayerStructuralElementPlan {
     expected_next_element_id: u32,
     next_element_id: u32,
     next_structure_revision: u64,
-    support: Option<StructuralElementId>,
+    supports: Vec<StructuralElementId>,
 }
 
 impl ValidatedPlayerStructuralElementPlan {
@@ -403,7 +444,7 @@ impl ValidatedPlayerStructuralElementPlan {
             self.next_element_id,
             self.next_structure_revision,
         );
-        if let Some(support) = self.support {
+        for support in self.supports {
             state.structure_state_mut().link_support(id, support);
         }
         id
@@ -456,7 +497,8 @@ fn validate_plan_player_structural_element(
     profile: StructuralProfileId,
     material: MaterialId,
     geometry: StructuralElementGeometry,
-    support: Option<StructuralElementId>,
+    supports: &[StructuralElementId],
+    requires_support: bool,
 ) -> Result<ValidatedPlayerStructuralElementPlan, PlanPlayerStructuralElementError> {
     let player_action = validate_player_action(state).map_err(|error| match error {
         PlayerActionValidationError::PlayerNotAdmitted => {
@@ -482,7 +524,18 @@ fn validate_plan_player_structural_element(
     }
     validate_definition(registries, profile, material, geometry)
         .map_err(PlanPlayerStructuralElementError::Element)?;
-    if let Some(support) = support {
+    if requires_support && supports.is_empty() {
+        return Err(PlanPlayerStructuralElementError::SupportSetEmpty);
+    }
+    let mut supports = supports.to_vec();
+    supports.sort_unstable();
+    if let Some(duplicate) = supports
+        .windows(2)
+        .find_map(|pair| (pair[0] == pair[1]).then_some(pair[0]))
+    {
+        return Err(PlanPlayerStructuralElementError::DuplicateSupport { support: duplicate });
+    }
+    for support in supports.iter().copied() {
         let support_record = state
             .structures()
             .get_element(support)
@@ -509,7 +562,7 @@ fn validate_plan_player_structural_element(
     )?;
     Ok(ValidatedPlayerStructuralElementPlan {
         player_action,
-        record: build_record(state, id, profile, material, geometry, support.is_none()),
+        record: build_record(state, id, profile, material, geometry, supports.is_empty()),
         expected_tick: state.tick(),
         expected_structure_revision: state.structures().revision(),
         expected_logistics_revision: state.logistics().revision(),
@@ -517,7 +570,7 @@ fn validate_plan_player_structural_element(
         expected_next_element_id,
         next_element_id,
         next_structure_revision,
-        support,
+        supports,
     })
 }
 
@@ -532,7 +585,8 @@ pub fn validate_plan_player_grounded_structural_element(
         plan.profile,
         plan.material,
         plan.geometry,
-        None,
+        &[],
+        false,
     )
 }
 
@@ -547,7 +601,24 @@ pub fn validate_plan_player_supported_structural_element(
         plan.profile,
         plan.material,
         plan.geometry,
-        Some(plan.support),
+        &[plan.support],
+        true,
+    )
+}
+
+pub fn validate_plan_player_multi_supported_structural_element(
+    registries: &Registries,
+    state: &AppState,
+    plan: MultiSupportedStructuralElementPlan,
+) -> Result<ValidatedPlayerStructuralElementPlan, PlanPlayerStructuralElementError> {
+    validate_plan_player_structural_element(
+        registries,
+        state,
+        plan.profile,
+        plan.material,
+        plan.geometry,
+        plan.supports(),
+        true,
     )
 }
 

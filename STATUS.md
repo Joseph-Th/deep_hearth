@@ -19,7 +19,7 @@ Progression:
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and first/settlement foundry routes. Compound-ore reduction is absent. |
 | Opening wilderness acquisition | Seeded forage/water/stone/timber graph with terrain-fit standable layout and full continuous-body route proof; finite fire heat. Pathfinding, remote discovery, hydrology, shelter, and weather absent. |
-| Structures | Grounded or single-support members consume carried stacks into timed work and activate on completion. |
+| Structures | Grounded or multi-support members consume carried stacks into timed work and activate on completion. |
 
 ## Current integration frontier
 
@@ -29,7 +29,7 @@ Current graph boundaries, not priorities:
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
 | Generated world + body + targeting | Adapter inventory/crafting UI, general placement, residency, richer contact, and remote discovery. |
-| Structural physics | Multi-support framing, joints/panels, cascade demolition, and terrain support. |
+| Structural physics | Joints/panels, cascade demolition, and terrain support. |
 | Player equipment service/recovery | Maintenance-tool requirements and service-site transport beyond exact-local carried stock. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
 | Finite fluid stores | Routed transport, pumping, mixing, and pressure networks. |
@@ -52,7 +52,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. |
 | Energy and fluids | Finite typed stores with power/loss limits. Combustion moves exact fuel matter to a terminal account and finite thermal storage; local heat affects warmth. Fluids support local exact withdrawal, finite opening water, and empty-hand drinking. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
-| Structures | Support/load/failure; grounded/supported stack-setting; primary-break recovery of isolated grounded members. |
+| Structures | Support/load/failure; grounded/multi-support stack-setting; primary-break recovery of isolated grounded members. |
 | Block world | Mass-backed chunks, demand, collision, 4.5 m targeting, 20 Hz excavation, conserved fragments, selected use/drop, storage/framing placement, and inventory/hotbar shell. Adapter UI, general placement, richer shapes, and residency remain absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 

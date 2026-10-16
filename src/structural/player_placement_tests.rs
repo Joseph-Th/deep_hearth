@@ -22,6 +22,8 @@ use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralConstructionCommitError, StructuralElementGeometry, StructuralLifecycle,
+    add_structural_element, materialize_structural_element_for_test,
+    validate_activate_structural_element,
 };
 
 const ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
@@ -43,6 +45,202 @@ fn local_member_plan() -> GroundedStructuralElementPlan {
         MATERIAL_WOOD,
         geometry,
     )
+}
+
+fn active_fixture_support(
+    registries: &crate::registry::Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+    context: &str,
+) -> StructuralElementId {
+    let support = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        member_geometry_at(position, context),
+        true,
+    )
+    .unwrap_or_else(|error| panic!("{context} allocation failed: {error}"));
+    materialize_structural_element_for_test(registries, state, support, FORM_LOG);
+    let _ = validate_activate_structural_element(registries, state, support)
+        .unwrap_or_else(|error| panic!("{context} activation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("{context} activation commit failed: {error}"));
+    support
+}
+
+#[test]
+fn atomic_multi_supported_construction_persists_all_supports_and_activates() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let left = active_fixture_support(
+        &registries,
+        &mut state,
+        VoxelCoord::new(1, 0, 0),
+        "multi-support left post",
+    );
+    let right = active_fixture_support(
+        &registries,
+        &mut state,
+        VoxelCoord::new(1, 0, 2),
+        "multi-support right post",
+    );
+    let player = VoxelCoord::new(0, 0, 1);
+    let carried = validate_admit_player(&registries, &state, player)
+        .unwrap_or_else(|error| panic!("multi-support admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("multi-support admission commit failed: {error}"))
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        MEMBER_MASS,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("multi-support carried timber failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("multi-support stack projection failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("multi-support stack disappeared"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("multi-support matter baseline failed: {error}"))
+        .total();
+    let plan = MultiSupportedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        member_geometry_at(VoxelCoord::new(1, 0, 1), "multi-support member"),
+        vec![right, left],
+    );
+    let validated = validate_start_player_multi_supported_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        plan,
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("multi-support validation failed: {error}"));
+    let element = validated.element();
+    let work = validated
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("multi-support commit failed: {error}"));
+    assert_eq!(
+        state
+            .structures()
+            .supports(element)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![left, right])
+    );
+    assert_eq!(
+        state
+            .structures()
+            .dependents(left)
+            .map(|dependents| dependents.collect::<Vec<_>>()),
+        Some(vec![element])
+    );
+    assert_eq!(
+        state
+            .structures()
+            .dependents(right)
+            .map(|dependents| dependents.collect::<Vec<_>>()),
+        Some(vec![element])
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("multi-support committed matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("multi-support save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("multi-support decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("multi-support trusted load failed: {error}"));
+    assert_eq!(
+        loaded
+            .structures()
+            .supports(element)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![left, right])
+    );
+    while loaded.tick() < work.completes_at() {
+        let _ = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("multi-support completion failed: {error}"));
+    }
+    assert_eq!(
+        loaded
+            .structures()
+            .get_element(element)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Active)
+    );
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+}
+
+#[test]
+fn multi_supported_construction_rejects_empty_and_duplicate_support_sets_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let support = active_fixture_support(
+        &registries,
+        &mut state,
+        VoxelCoord::new(1, 0, 0),
+        "support-set rejection post",
+    );
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 1))
+        .unwrap_or_else(|error| panic!("support-set rejection admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("support-set rejection admission commit failed: {error}"))
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        MEMBER_MASS,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("support-set rejection timber failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("support-set rejection stack failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("support-set rejection stack disappeared"));
+    let geometry = member_geometry_at(VoxelCoord::new(1, 0, 1), "support-set rejection member");
+
+    for (supports, expected) in [
+        (vec![], PlanPlayerStructuralElementError::SupportSetEmpty),
+        (
+            vec![support, support],
+            PlanPlayerStructuralElementError::DuplicateSupport { support },
+        ),
+    ] {
+        let before = state.clone();
+        let result = validate_start_player_multi_supported_structural_construction_from_stack(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            MultiSupportedStructuralElementPlan::new(
+                STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+                MATERIAL_WOOD,
+                geometry,
+                supports,
+            ),
+            &stack,
+        );
+        assert!(matches!(
+            result,
+            Err(PlayerGroundedStructuralConstructionError::Plan(error)) if error == expected
+        ));
+        assert_eq!(state, before);
+    }
 }
 
 fn member_geometry_at(position: VoxelCoord, context: &str) -> StructuralElementGeometry {

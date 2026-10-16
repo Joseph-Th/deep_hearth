@@ -309,7 +309,7 @@ fn validate_player_structural_construction_context(
     state: &AppState,
     method: StructuralConstructionMethodId,
     record: &StructuralElementRecord,
-    transient_support: Option<StructuralElementId>,
+    transient_supports: Option<&[StructuralElementId]>,
 ) -> Result<PlayerStructuralConstructionContext, PlayerStructuralConstructionError> {
     let definition = registries
         .labor()
@@ -325,7 +325,7 @@ fn validate_player_structural_construction_context(
     if record.lifecycle() != StructuralLifecycle::Planned {
         return Err(PlayerStructuralConstructionError::ElementNotPlanned { element });
     }
-    let has_active_support = transient_support.map_or_else(
+    let has_active_support = transient_supports.map_or_else(
         || {
             state
                 .structures()
@@ -339,13 +339,16 @@ fn validate_player_structural_construction_context(
                     })
                 })
         },
-        |support| {
-            state
-                .structures()
-                .get_element(support)
-                .is_some_and(|support_record| {
-                    support_record.lifecycle() == StructuralLifecycle::Active
-                        && record.bounds().has_face_contact(support_record.bounds())
+        |supports| {
+            !supports.is_empty()
+                && supports.iter().copied().all(|support| {
+                    state
+                        .structures()
+                        .get_element(support)
+                        .is_some_and(|support_record| {
+                            support_record.lifecycle() == StructuralLifecycle::Active
+                                && record.bounds().has_face_contact(support_record.bounds())
+                        })
                 })
         },
     );
@@ -461,6 +464,26 @@ pub(crate) fn validate_start_player_structural_construction_for_supported_planne
     selections: &[MaterialLotSelection],
     support: StructuralElementId,
 ) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
+    validate_start_player_structural_construction_for_multi_supported_planned_member(
+        registries,
+        state,
+        method,
+        record,
+        expected_structure_revision,
+        selections,
+        &[support],
+    )
+}
+
+pub(crate) fn validate_start_player_structural_construction_for_multi_supported_planned_member(
+    registries: &Registries,
+    state: &AppState,
+    method: StructuralConstructionMethodId,
+    record: &StructuralElementRecord,
+    expected_structure_revision: u64,
+    selections: &[MaterialLotSelection],
+    supports: &[StructuralElementId],
+) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
     validate_start_player_structural_construction_for_planned_member_with_support(
         registries,
         state,
@@ -468,7 +491,7 @@ pub(crate) fn validate_start_player_structural_construction_for_supported_planne
         record,
         expected_structure_revision,
         selections,
-        Some(support),
+        Some(supports),
     )
 }
 
@@ -479,14 +502,14 @@ fn validate_start_player_structural_construction_for_planned_member_with_support
     record: &StructuralElementRecord,
     expected_structure_revision: u64,
     selections: &[MaterialLotSelection],
-    transient_support: Option<StructuralElementId>,
+    transient_supports: Option<&[StructuralElementId]>,
 ) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
     let context = validate_player_structural_construction_context(
         registries,
         state,
         method,
         record,
-        transient_support,
+        transient_supports,
     )?;
     if !record.embodied_mass().is_zero() {
         return Err(PlayerStructuralConstructionError::MaterialStateChanged {

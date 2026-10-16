@@ -329,6 +329,7 @@ fn secondary_use_sets_supported_timber_member_on_pointed_active_post_face() {
     let member_mass = Mass::from_milligrams(3_250_000);
     let total_timber = member_mass
         .checked_add(member_mass)
+        .and_then(|mass| mass.checked_add(member_mass))
         .unwrap_or_else(|| panic!("supported timber fixture mass overflowed"));
     let _ = deposit_lot_for_test(
         &registries,
@@ -347,10 +348,6 @@ fn secondary_use_sets_supported_timber_member_on_pointed_active_post_face() {
     .unwrap_or_else(|error| panic!("supported timber selection failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("supported timber selection commit failed: {error}"));
-    let matter_before = calculate_matter_accounting(&state)
-        .unwrap_or_else(|error| panic!("supported timber matter baseline failed: {error}"))
-        .total();
-
     let support_bounds = VoxelBounds::new(
         support_position,
         VoxelCoord::new(
@@ -395,6 +392,68 @@ fn secondary_use_sets_supported_timber_member_on_pointed_active_post_face() {
         state
             .structures()
             .get_element(support)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Active)
+    );
+
+    let second_support_position = VoxelCoord::new(2, foot_y, 1);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(2, surface_y, 1),
+        BLOCK_STATE_STONE,
+    );
+    for y in foot_y..=foot_y + 1 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(2, y, 1),
+            BlockStateId::AIR,
+        );
+    }
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("supported timber matter baseline failed: {error}"))
+        .total();
+    let second_support_bounds =
+        VoxelBounds::new(second_support_position, VoxelCoord::new(3, foot_y + 1, 2))
+            .unwrap_or_else(|error| panic!("supported timber second-post bounds failed: {error}"));
+    let second_stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("supported timber second stack failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("supported timber second stack disappeared"));
+    let second_support_start = validate_start_player_grounded_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            StructuralElementGeometry::new(
+                second_support_bounds,
+                BASIC_TIMBER_POST_LENGTH,
+                BASIC_TIMBER_POST_CROSS_SECTION,
+            )
+            .unwrap_or_else(|error| {
+                panic!("supported timber second-post geometry failed: {error}")
+            }),
+        ),
+        &second_stack,
+    )
+    .unwrap_or_else(|error| panic!("supported timber second-post validation failed: {error}"));
+    let second_support = second_support_start.element();
+    let second_support_work = second_support_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("supported timber second-post commit failed: {error}"));
+    while state.tick() < second_support_work.completes_at() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("supported timber second-post completion failed: {error}")
+        });
+    }
+    assert_eq!(
+        state
+            .structures()
+            .get_element(second_support)
             .map(|record| record.lifecycle()),
         Some(StructuralLifecycle::Active)
     );
@@ -455,7 +514,7 @@ fn secondary_use_sets_supported_timber_member_on_pointed_active_post_face() {
             .structures()
             .supports(element)
             .map(|supports| supports.collect::<Vec<_>>()),
-        Some(vec![support])
+        Some(vec![support, second_support])
     );
     assert_eq!(
         state

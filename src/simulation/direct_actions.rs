@@ -19,11 +19,10 @@ use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{
-    GroundedStructuralElementPlan, StructuralElementGeometry, StructuralElementId,
-    SupportedStructuralElementPlan,
-    validate_start_player_grounded_structural_construction_from_stack,
+    GroundedStructuralElementPlan, MultiSupportedStructuralElementPlan, StructuralElementGeometry,
+    StructuralElementId, validate_start_player_grounded_structural_construction_from_stack,
+    validate_start_player_multi_supported_structural_construction_from_stack,
     validate_start_player_structural_dismantling,
-    validate_start_player_supported_structural_construction_from_stack,
 };
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
 use crate::surface::{SurfaceResourceKind, validate_start_player_surface_gathering};
@@ -721,14 +720,23 @@ fn attempt_supported_timber_placement(
         BASIC_TIMBER_POST_CROSS_SECTION,
     )
     .unwrap_or_else(|error| panic!("built-in supported timber geometry is invalid: {error}"));
-    let plan = SupportedStructuralElementPlan::new(
+    let supports = state
+        .structures()
+        .elements()
+        .filter(|record| {
+            record.lifecycle() == crate::structural::StructuralLifecycle::Active
+                && bounds.has_face_contact(record.bounds())
+        })
+        .map(|record| record.id())
+        .collect::<Vec<_>>();
+    let plan = MultiSupportedStructuralElementPlan::new(
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         geometry,
-        target.element,
+        supports,
     );
     Some(
-        match validate_start_player_supported_structural_construction_from_stack(
+        match validate_start_player_multi_supported_structural_construction_from_stack(
             registries,
             state,
             STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,

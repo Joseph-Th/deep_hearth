@@ -9,12 +9,15 @@ use crate::labor::{StructuralConstructionMethodId, StructuralConstructionWork};
 use crate::registry::Registries;
 
 use super::{
-    GroundedStructuralElementPlan, PlanPlayerStructuralElementCommitError,
-    PlanPlayerStructuralElementError, PlayerStructuralConstructionCommitError,
-    PlayerStructuralConstructionError, StructuralElementId, SupportedStructuralElementPlan,
+    GroundedStructuralElementPlan, MultiSupportedStructuralElementPlan,
+    PlanPlayerStructuralElementCommitError, PlanPlayerStructuralElementError,
+    PlayerStructuralConstructionCommitError, PlayerStructuralConstructionError,
+    StructuralElementId, SupportedStructuralElementPlan,
     ValidatedPlayerStructuralConstructionStart, ValidatedPlayerStructuralElementPlan,
     resolve_required_mass, validate_plan_player_grounded_structural_element,
+    validate_plan_player_multi_supported_structural_element,
     validate_plan_player_supported_structural_element,
+    validate_start_player_structural_construction_for_multi_supported_planned_member,
     validate_start_player_structural_construction_for_planned_member,
     validate_start_player_structural_construction_for_supported_planned_member,
 };
@@ -25,6 +28,53 @@ pub enum PlayerGroundedStructuralConstructionError {
     Plan(PlanPlayerStructuralElementError),
     Stack(MaterialStackProjectionError),
     Construction(PlayerStructuralConstructionError),
+}
+
+pub fn validate_start_player_multi_supported_structural_construction_from_stack(
+    registries: &Registries,
+    state: &AppState,
+    method: StructuralConstructionMethodId,
+    plan: MultiSupportedStructuralElementPlan,
+    stack: &MaterialStackProjection,
+) -> Result<
+    ValidatedPlayerSupportedStructuralConstructionStart,
+    PlayerSupportedStructuralConstructionError,
+> {
+    let supports = plan.supports().to_vec();
+    let validated_plan =
+        validate_plan_player_multi_supported_structural_element(registries, state, plan)
+            .map_err(PlayerGroundedStructuralConstructionError::Plan)?;
+    let record = validated_plan.record();
+    let required = resolve_required_mass(registries.materials(), record).map_err(|_| {
+        PlayerGroundedStructuralConstructionError::Construction(
+            PlayerStructuralConstructionError::MaterialStateChanged {
+                element: record.id(),
+            },
+        )
+    })?;
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| unreachable!("validated multi-support plan has admitted logistics"));
+    let selections = stack
+        .selections_for_mass(state, carried, required)
+        .map_err(PlayerGroundedStructuralConstructionError::Stack)?;
+    let construction =
+        validate_start_player_structural_construction_for_multi_supported_planned_member(
+            registries,
+            state,
+            method,
+            record,
+            validated_plan.next_structure_revision(),
+            &selections,
+            &supports,
+        )
+        .map_err(PlayerGroundedStructuralConstructionError::Construction)?;
+    Ok(ValidatedPlayerSupportedStructuralConstructionStart {
+        plan: validated_plan,
+        construction,
+    })
 }
 
 pub type PlayerSupportedStructuralConstructionError = PlayerGroundedStructuralConstructionError;
