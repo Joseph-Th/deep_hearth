@@ -60,9 +60,13 @@ pub(super) struct FieldworkLocalization {
 }
 
 pub(super) fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
+    horizontal_region_at(start_x, width, -1, 0)
+}
+
+pub(super) fn horizontal_region_at(start_x: i64, width: i64, y: i64, z: i64) -> VoxelBounds {
     VoxelBounds::new(
-        VoxelCoord::new(start_x, -1, 0),
-        VoxelCoord::new(start_x + width, 0, 1),
+        VoxelCoord::new(start_x, y, z),
+        VoxelCoord::new(start_x + width, y + 1, z + 1),
     )
     .unwrap_or_else(|error| panic!("fieldwork region failed: {error}"))
 }

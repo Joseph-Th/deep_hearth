@@ -20,7 +20,10 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::validate_assemble_energy_store;
-use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
+use deep_hearth::equipment::{
+    EquipmentDefinitionId, EquipmentId, player_equipment_upgrade_options,
+    validate_assemble_equipment, validate_upgrade_player_equipment_option,
+};
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::maintenance::Condition;
@@ -62,6 +65,35 @@ use super::first_foundry_planning::{
     foundry_bootstrap_route_plan, foundry_resource_opportunity, inherited_equipment_condition,
     settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
 };
+
+fn upgrade_visible_equipment(
+    registries: &Registries,
+    state: &mut AppState,
+    equipment: EquipmentId,
+    target: EquipmentDefinitionId,
+    source: StockpileId,
+    context: &str,
+) -> EquipmentId {
+    let options = player_equipment_upgrade_options(registries, state, source)
+        .unwrap_or_else(|error| panic!("{context} equipment upgrade catalog failed: {error}"));
+    let matches = options
+        .into_iter()
+        .filter(|option| {
+            option.equipment() == equipment
+                && option.target_definition() == target
+                && option.material_ready()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "{context} requires exactly one ready actor-visible equipment upgrade"
+    );
+    validate_upgrade_player_equipment_option(registries, state, &matches[0])
+        .unwrap_or_else(|error| panic!("{context} equipment upgrade failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("{context} equipment upgrade commit failed: {error}"))
+}
 
 #[derive(Clone, Copy)]
 struct PriorSettlementWorkshop {
@@ -719,16 +751,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             .unwrap_or_else(|error| panic!("first foundry equipment commit failed: {error}"))
     };
     let treadle_drive = assemble_equipment(&mut state, EQUIPMENT_TIMBER_TREADLE_DRIVE);
-    let dynamo = validate_upgrade_equipment(
+    let dynamo = upgrade_visible_equipment(
         registries,
-        &state,
+        &mut state,
         treadle_drive,
         EQUIPMENT_TIMBER_TREADLE_DYNAMO,
         parts,
-    )
-    .unwrap_or_else(|error| panic!("first foundry treadle-dynamo upgrade failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("first foundry treadle-dynamo upgrade commit failed: {error}"));
+        "first foundry treadle-dynamo",
+    );
     let furnace = assemble_equipment(&mut state, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE);
     let mold = assemble_equipment(&mut state, EQUIPMENT_STONE_INGOT_MOLD);
     let electrical = validate_assemble_energy_store(
@@ -922,16 +952,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         cast_ingots, settlement_ingots,
         "first foundry must cast the exact copper stock required by the settlement mold upgrade"
     );
-    let upgraded_mold = validate_upgrade_equipment(
+    let upgraded_mold = upgrade_visible_equipment(
         registries,
-        &state,
+        &mut state,
         mold,
         EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
         upgrade_source,
-    )
-    .unwrap_or_else(|error| panic!("settlement casting mold upgrade failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("settlement casting mold upgrade commit failed: {error}"));
+        "settlement casting mold",
+    );
     assert_eq!(
         upgraded_mold, mold,
         "settlement casting upgrade must preserve the existing mold identity"

@@ -492,11 +492,10 @@ pub(super) fn build_primitive_machine(
     let survival_before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("primitive processing-line builder lost player survival state"));
     let player_catalog_assembly = state.logistics().player().is_some();
-    let assemble_visible = |state: &mut AppState,
-                            definition: EquipmentDefinitionId,
-                            context: &'static str| {
-        if state.logistics().player().is_none() {
-            return validate_assemble_equipment(registries, state, definition, shaped)
+    let assemble_visible =
+        |state: &mut AppState, definition: EquipmentDefinitionId, context: &'static str| {
+            if state.logistics().player().is_none() {
+                return validate_assemble_equipment(registries, state, definition, shaped)
                 .unwrap_or_else(|error| {
                     panic!("primitive progression {context} capability assembly failed: {error}")
                 })
@@ -506,29 +505,29 @@ pub(super) fn build_primitive_machine(
                         "primitive progression {context} capability assembly commit failed: {error}"
                     )
                 });
-        }
-        let options =
-            player_equipment_assembly_options(registries, state, shaped).unwrap_or_else(|error| {
-                panic!("primitive progression {context} assembly catalog failed: {error}")
-            });
-        let matches = options
-            .into_iter()
-            .filter(|option| option.definition() == definition && option.is_ready())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            matches.len(),
-            1,
-            "primitive progression {context} requires one ready actor-visible assembly option"
-        );
-        validate_assemble_player_equipment_option(registries, state, &matches[0])
-            .unwrap_or_else(|error| {
-                panic!("primitive progression {context} assembly failed: {error}")
-            })
-            .commit(state)
-            .unwrap_or_else(|error| {
-                panic!("primitive progression {context} assembly commit failed: {error}")
-            })
-    };
+            }
+            let options = player_equipment_assembly_options(registries, state, shaped)
+                .unwrap_or_else(|error| {
+                    panic!("primitive progression {context} assembly catalog failed: {error}")
+                });
+            let matches = options
+                .into_iter()
+                .filter(|option| option.definition() == definition && option.is_ready())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                matches.len(),
+                1,
+                "primitive progression {context} requires one ready actor-visible assembly option"
+            );
+            validate_assemble_player_equipment_option(registries, state, &matches[0])
+                .unwrap_or_else(|error| {
+                    panic!("primitive progression {context} assembly failed: {error}")
+                })
+                .commit(state)
+                .unwrap_or_else(|error| {
+                    panic!("primitive progression {context} assembly commit failed: {error}")
+                })
+        };
     craft_for_profile(
         registries,
         state,

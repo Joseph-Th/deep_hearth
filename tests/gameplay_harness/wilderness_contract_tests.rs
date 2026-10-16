@@ -645,6 +645,14 @@ pub(super) struct WildernessOpeningReview {
     pub(super) bare_board_ticks: u64,
     pub(super) adze_board_ticks: u64,
     pub(super) adze_crossover_batches: u64,
+    pub(super) followup_tool_built: bool,
+    pub(super) followup_tool_workload_batches: u64,
+    pub(super) followup_attention_saved: u64,
+    pub(super) followup_cached_timber_reused_mg: u64,
+    pub(super) followup_world_stone_gathered_mg: u64,
+    pub(super) followup_world_timber_gathered_mg: u64,
+    pub(super) followup_logistics_legs: u64,
+    pub(super) followup_tool_worn: bool,
     pub(super) final_warning_safe: bool,
 }
 
@@ -1362,6 +1370,19 @@ pub(super) fn evaluate_generated_wilderness_opening(
     start_profile: WildernessStartProfile,
     camp_goal: WildernessCampGoal,
 ) -> WildernessOpeningReview {
+    evaluate_generated_wilderness_opening_internal(seed, start_profile, camp_goal, false)
+}
+
+fn evaluate_generated_wilderness_opening_internal(
+    seed: WorldGenerationSeed,
+    start_profile: WildernessStartProfile,
+    camp_goal: WildernessCampGoal,
+    followup_tool_reassessment: bool,
+) -> WildernessOpeningReview {
+    assert!(
+        !followup_tool_reassessment || camp_goal == WildernessCampGoal::WorksiteCache,
+        "wilderness tool reassessment requires the stabilized worksite-cache state"
+    );
     let registries = build_registries();
     let mut state = AppState::new();
     let spawn = generated_wilderness_surface_spawn(&registries, &mut state, seed);
@@ -2149,6 +2170,14 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let mut selected_storage_capacity_mg = 0_u64;
     let mut selected_storage_preservation_ppm = 0_u32;
     let mut project_meal_consumed_mg = 0_u64;
+    let mut followup_tool_built = false;
+    let mut followup_tool_workload_batches = 0_u64;
+    let mut followup_attention_saved = 0_u64;
+    let mut followup_cached_timber_reused_mg = 0_u64;
+    let mut followup_world_stone_gathered_mg = 0_u64;
+    let mut followup_world_timber_gathered_mg = 0_u64;
+    let mut followup_logistics_legs = 0_u64;
+    let mut followup_tool_worn = false;
 
     if camp_goal != WildernessCampGoal::StayMobile {
         const WORKSITE_STAGED_TIMBER_MG: u64 = 6_000_000;
@@ -2807,6 +2836,333 @@ pub(super) fn evaluate_generated_wilderness_opening(
                     .unwrap_or_else(|| panic!("wilderness post-fire cache accounting overflowed")),
                 "campfire should consume exactly one authored fuel charge from the staged worksite reserve"
             );
+
+            if followup_tool_reassessment {
+                let workload_batches = adze_crossover_batches
+                    .checked_add(1)
+                    .unwrap_or_else(|| panic!("wilderness follow-up workload overflowed"));
+                let batches = NonZeroU64::new(workload_batches)
+                    .unwrap_or_else(|| unreachable!("follow-up workload is nonzero"));
+                let (setup_ticks, bare_ticks, assisted_ticks, confirmed_crossover) =
+                    project_wilderness_adze_decision(&registries, workload_batches);
+                assert_eq!(confirmed_crossover, adze_crossover_batches);
+                let with_setup = setup_ticks
+                    .checked_add(assisted_ticks)
+                    .unwrap_or_else(|| panic!("wilderness follow-up attention overflowed"));
+                assert!(
+                    with_setup < bare_ticks,
+                    "later six-batch woodworking demand must cross the maintained adze payback threshold"
+                );
+
+                let stone_tool = CommodityKey::new(MATERIAL_STONE, FORM_TOOL);
+                let wood_handle = CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
+                let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+                let knapping = registries
+                    .crafting()
+                    .get_manual(PROCESS_KNAP_STONE_TOOL)
+                    .unwrap_or_else(|| {
+                        panic!("wilderness follow-up stone-tool recipe disappeared")
+                    });
+                let handle = registries
+                    .crafting()
+                    .get_manual(PROCESS_SHAPE_WOOD_HANDLE)
+                    .unwrap_or_else(|| panic!("wilderness follow-up handle recipe disappeared"));
+                let followup_timber_required = Mass::from_milligrams(
+                    handle
+                        .input_mass()
+                        .milligrams()
+                        .checked_add(
+                            board_craft
+                                .input_mass()
+                                .milligrams()
+                                .checked_mul(workload_batches)
+                                .unwrap_or_else(|| {
+                                    panic!("wilderness follow-up board input overflowed")
+                                }),
+                        )
+                        .unwrap_or_else(|| panic!("wilderness follow-up timber overflowed")),
+                );
+                let cached_timber = state
+                    .inventory()
+                    .get_stockpile(storage)
+                    .map(|record| record.get_mass(timber_commodity))
+                    .unwrap_or_else(|| panic!("wilderness follow-up cache disappeared"));
+                let reuse = cached_timber.min(followup_timber_required);
+                assert!(
+                    !reuse.is_zero(),
+                    "later woodworking demand should reuse the reserve staged by the earlier cache decision"
+                );
+                let cached_timber_stacks = project_material_stacks(&registries, &state, storage)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness follow-up cache projection failed: {error}")
+                    })
+                    .into_iter()
+                    .filter(|stack| stack.commodity() == timber_commodity)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    cached_timber_stacks.len(),
+                    1,
+                    "wilderness follow-up expects one visible cached timber stack"
+                );
+                validate_pickup_stack_from_ground(
+                    &registries,
+                    &state,
+                    storage,
+                    &cached_timber_stacks[0],
+                    reuse,
+                )
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up cached timber pickup failed: {error}")
+                })
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up cached timber pickup commit failed: {error}")
+                });
+                followup_cached_timber_reused_mg = reuse.milligrams();
+
+                let stone = adjacent_surface_resource(&state, stone_commodity);
+                walk_continuous_body_adjacent_and_settle(
+                    &registries,
+                    &mut state,
+                    stone.position(),
+                    "follow-up toolkit stone leaf",
+                );
+                total_steps += 1;
+                followup_logistics_legs += 1;
+                gather_in_batches(
+                    &registries,
+                    &mut state,
+                    stone.resource(),
+                    knapping.input_mass(),
+                    "follow-up toolkit stone input",
+                );
+                followup_world_stone_gathered_mg = knapping.input_mass().milligrams();
+                walk_continuous_body_adjacent_and_settle(
+                    &registries,
+                    &mut state,
+                    junction,
+                    "follow-up toolkit stone return",
+                );
+                total_steps += 1;
+                followup_logistics_legs += 1;
+
+                let timber_shortfall = followup_timber_required
+                    .checked_sub(reuse)
+                    .unwrap_or_else(|| unreachable!("cached timber reuse cannot exceed demand"));
+                if !timber_shortfall.is_zero() {
+                    walk_continuous_body_adjacent_and_settle(
+                        &registries,
+                        &mut state,
+                        selected.position(),
+                        "follow-up toolkit timber leaf",
+                    );
+                    total_steps += 1;
+                    followup_logistics_legs += 1;
+                    assert_eq!(
+                        local_surface_resource(&state, timber_commodity),
+                        resource,
+                        "wilderness follow-up must return to the originally selected timber source"
+                    );
+                    gather_in_batches(
+                        &registries,
+                        &mut state,
+                        resource,
+                        timber_shortfall,
+                        "follow-up toolkit timber shortfall",
+                    );
+                    followup_world_timber_gathered_mg = timber_shortfall.milligrams();
+                    selected_source_remaining_mg = state
+                        .available_surface_resources()
+                        .find(|record| record.id() == resource)
+                        .map(|record| record.remaining_mass().milligrams())
+                        .unwrap_or_else(|| {
+                            panic!("wilderness follow-up timber source disappeared")
+                        });
+                    walk_continuous_body_adjacent_and_settle(
+                        &registries,
+                        &mut state,
+                        junction,
+                        "follow-up toolkit timber return",
+                    );
+                    total_steps += 1;
+                    followup_logistics_legs += 1;
+                }
+
+                craft_in_place(
+                    &registries,
+                    &mut state,
+                    stone_commodity,
+                    stone_tool,
+                    1,
+                    "follow-up toolkit stone head",
+                );
+                craft_in_place(
+                    &registries,
+                    &mut state,
+                    timber_commodity,
+                    wood_handle,
+                    1,
+                    "follow-up toolkit handle",
+                );
+                let board_options = player_manual_craft_options(&registries, &state)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness follow-up board catalog failed: {error}")
+                    })
+                    .into_iter()
+                    .filter(|option| {
+                        let definition = registries
+                            .crafting()
+                            .get_manual(option.process())
+                            .unwrap_or_else(|| {
+                                panic!("wilderness follow-up catalog exposed unknown process")
+                            });
+                        matches!(
+                            option.input_mode(),
+                            ManualCraftInputMode::Automatic(availability)
+                                if availability.input() == timber_commodity
+                                    && availability.maximum_batches() >= workload_batches
+                        ) && definition
+                            .outputs()
+                            .iter()
+                            .any(|output| output.commodity() == boards)
+                            && option.equipment_role() != ProcessEquipmentRole::Required
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(board_options.len(), 1);
+                let board_option = board_options[0];
+                let candidates = player_equipment_assembly_options(&registries, &state, carried)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness follow-up equipment catalog failed: {error}")
+                    })
+                    .into_iter()
+                    .filter(|option| option.is_ready())
+                    .filter_map(|option| {
+                        project_manual_craft_equipment(
+                            &registries,
+                            board_option.process(),
+                            batches,
+                            option.definition(),
+                            Condition::PRISTINE,
+                        )
+                        .ok()
+                        .map(|projection| (option, projection))
+                    })
+                    .collect::<Vec<_>>();
+                let best_ticks = candidates
+                    .iter()
+                    .map(|(_, projection)| projection.duration().value())
+                    .min()
+                    .unwrap_or_else(|| {
+                        panic!("wilderness follow-up has no ready board-shaping tool")
+                    });
+                let mut best = candidates
+                    .into_iter()
+                    .filter(|(_, projection)| projection.duration().value() == best_ticks)
+                    .collect::<Vec<_>>();
+                assert_eq!(best.len(), 1);
+                let (assembly_option, projection) = best
+                    .pop()
+                    .unwrap_or_else(|| unreachable!("unique follow-up tool exists"));
+                assert_eq!(
+                    assembly_option.definition(),
+                    EQUIPMENT_STONE_WOODWORKING_ADZE
+                );
+                assert_eq!(projection.duration().value(), assisted_ticks);
+                let tool = validate_assemble_player_equipment_option(
+                    &registries,
+                    &state,
+                    &assembly_option,
+                )
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up adze assembly failed: {error}")
+                })
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up adze assembly commit failed: {error}")
+                });
+                validate_pickup_equipment(&registries, &state, tool)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness follow-up adze pickup failed: {error}")
+                    })
+                    .commit(&mut state)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness follow-up adze pickup commit failed: {error}")
+                    });
+                validate_set_active_selection(
+                    &registries,
+                    &state,
+                    Some(PlayerActiveSelection::equipment(tool)),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up adze hotbar binding failed: {error}")
+                })
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up adze hotbar commit failed: {error}")
+                });
+
+                let job = validate_start_player_manual_craft_option(
+                    &registries,
+                    &state,
+                    board_option,
+                    batches,
+                    Some(tool),
+                )
+                .unwrap_or_else(|error| panic!("wilderness follow-up board work failed: {error}"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up board work commit failed: {error}")
+                });
+                let completes_at = state
+                    .production()
+                    .get_job(job)
+                    .map(|record| record.completes_at())
+                    .unwrap_or_else(|| panic!("wilderness follow-up board job disappeared"));
+                advance_to(
+                    &registries,
+                    &mut state,
+                    completes_at,
+                    TickEventAllowance {
+                        production_jobs: &[job],
+                        ..TickEventAllowance::default()
+                    },
+                    "follow-up assisted boards",
+                );
+                let board_stack = carried_material_stack(
+                    &registries,
+                    &state,
+                    boards,
+                    "follow-up finished boards",
+                );
+                let finished_board_mass = board_stack.mass();
+                validate_drop_stack_to_ground(
+                    &registries,
+                    &state,
+                    storage,
+                    &board_stack,
+                    finished_board_mass,
+                )
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up board cache drop failed: {error}")
+                })
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("wilderness follow-up board cache commit failed: {error}")
+                });
+                cached_total_mass_mg = state
+                    .inventory()
+                    .get_stockpile(storage)
+                    .map(|record| record.stored_mass().milligrams())
+                    .unwrap_or_else(|| panic!("wilderness follow-up cache disappeared"));
+                followup_tool_built = true;
+                followup_tool_workload_batches = workload_batches;
+                followup_attention_saved = bare_ticks - with_setup;
+                followup_tool_worn = state
+                    .equipment()
+                    .get_equipment(tool)
+                    .is_some_and(|record| record.condition() < Condition::PRISTINE);
+                assert!(followup_tool_worn);
+            }
         }
     }
 
@@ -2816,7 +3172,8 @@ pub(super) fn evaluate_generated_wilderness_opening(
             WildernessCampGoal::StayMobile => 0,
             WildernessCampGoal::PreserveProvisions => 2,
             WildernessCampGoal::WorksiteCache => 6,
-        };
+        }
+        + followup_logistics_legs;
     assert_eq!(
         total_steps, expected_steps,
         "opening movement should reflect whether water is a current need instead of a mandatory waypoint"
@@ -2844,10 +3201,17 @@ pub(super) fn evaluate_generated_wilderness_opening(
             (3 * minute..=8 * minute).contains(&elapsed_microseconds),
             "mobile opening should end when immediate provisioning is stable instead of padding time with unneeded infrastructure"
         ),
-        WildernessCampGoal::WorksiteCache | WildernessCampGoal::PreserveProvisions => assert!(
-            (10 * minute..=30 * minute).contains(&elapsed_microseconds),
-            "an elected primitive camp project should be substantial but remain an opening-session investment"
-        ),
+        WildernessCampGoal::WorksiteCache | WildernessCampGoal::PreserveProvisions => {
+            let maximum = if followup_tool_reassessment {
+                50 * minute
+            } else {
+                30 * minute
+            };
+            assert!(
+                (10 * minute..=maximum).contains(&elapsed_microseconds),
+                "an elected primitive camp project should be substantial but remain an opening-session investment: elapsed={elapsed_microseconds}us maximum={maximum}us"
+            )
+        }
     }
     assert_eq!(
         calculate_matter_accounting(&state)
@@ -2941,6 +3305,14 @@ pub(super) fn evaluate_generated_wilderness_opening(
         bare_board_ticks,
         adze_board_ticks,
         adze_crossover_batches,
+        followup_tool_built,
+        followup_tool_workload_batches,
+        followup_attention_saved,
+        followup_cached_timber_reused_mg,
+        followup_world_stone_gathered_mg,
+        followup_world_timber_gathered_mg,
+        followup_logistics_legs,
+        followup_tool_worn,
         final_warning_safe,
     }
 }
@@ -2969,6 +3341,43 @@ fn physical_hours_tenths(registries: &Registries, ticks: u64) -> String {
         .unwrap_or_else(|| panic!("wilderness report duration rounding overflowed"))
         / 360_000_000;
     format!("{}.{:01}h", tenths / 10, tenths % 10)
+}
+
+fn assert_worksite_tool_reassessment_continuity(emit_report: bool) {
+    let review = evaluate_generated_wilderness_opening_internal(
+        WILDERNESS_WORLD_SEED,
+        WildernessStartProfile::Rested,
+        WildernessCampGoal::WorksiteCache,
+        true,
+    );
+    assert!(review.field_box_board_batches > 0);
+    assert!(review.field_box_board_batches < review.adze_crossover_batches);
+    assert!(review.followup_tool_built);
+    assert!(review.followup_tool_workload_batches > review.adze_crossover_batches);
+    assert!(review.followup_attention_saved > 0);
+    assert!(review.followup_cached_timber_reused_mg > 0);
+    assert!(review.followup_world_stone_gathered_mg > 0);
+    assert!(
+        review.followup_cached_timber_reused_mg > review.followup_world_timber_gathered_mg,
+        "the established worksite cache should supply most of the later woodworking timber demand"
+    );
+    let expected_followup_legs = 2 + u64::from(review.followup_world_timber_gathered_mg > 0) * 2;
+    assert_eq!(review.followup_logistics_legs, expected_followup_legs);
+    assert!(review.followup_tool_worn);
+    assert!(review.final_warning_safe);
+    if emit_report {
+        std::println!(
+            "WILDERNESS TOOL REASSESSMENT source=same-fresh-world early=[field-box:{}b adze:defer crossover:{}b] later=[workload:{}b adze:build saved:{}t wear:true] reuse=[cached-timber:{}mg new-stone:{}mg new-timber:{}mg logistics:{}legs] storage=reused warning-safe=true matter=conserved",
+            review.field_box_board_batches,
+            review.adze_crossover_batches,
+            review.followup_tool_workload_batches,
+            review.followup_attention_saved,
+            review.followup_cached_timber_reused_mg,
+            review.followup_world_stone_gathered_mg,
+            review.followup_world_timber_gathered_mg,
+            review.followup_logistics_legs,
+        );
+    }
 }
 
 pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sample: &str) {
@@ -3197,6 +3606,7 @@ fn organic_camp_goal(behavior_root: u64, index: usize) -> WildernessCampGoal {
 pub(super) fn run_wilderness_report() {
     assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
     assert_generated_wilderness_toolkit_is_player_visible(true);
+    assert_worksite_tool_reassessment_continuity(true);
     const ORGANIC_SAMPLES: usize = 4;
     let world_root = configured_root(
         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
@@ -3283,6 +3693,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
     } else {
         assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);
         assert_generated_wilderness_toolkit_is_player_visible(false);
+        assert_worksite_tool_reassessment_continuity(false);
         let _ = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,

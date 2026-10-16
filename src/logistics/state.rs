@@ -264,6 +264,7 @@ pub struct PlayerLogisticsRecord {
     body: PlayerBodyState,
     carried_stockpile: StockpileId,
     locomotion_exertion: LocomotionExertionAccumulator,
+    pending_fall_vitality_loss_ppm: u32,
 }
 
 impl PlayerLogisticsRecord {
@@ -272,6 +273,7 @@ impl PlayerLogisticsRecord {
             body,
             carried_stockpile,
             locomotion_exertion: LocomotionExertionAccumulator::ZERO,
+            pending_fall_vitality_loss_ppm: 0,
         }
     }
 
@@ -292,6 +294,11 @@ impl PlayerLogisticsRecord {
 
     pub(crate) const fn locomotion_exertion(self) -> LocomotionExertionAccumulator {
         self.locomotion_exertion
+    }
+
+    #[must_use]
+    pub const fn pending_fall_vitality_loss_ppm(self) -> u32 {
+        self.pending_fall_vitality_loss_ppm
     }
 }
 
@@ -684,6 +691,7 @@ impl LogisticsState {
         expected_body: PlayerBodyState,
         body: PlayerBodyState,
         locomotion_exertion: LocomotionExertionAccumulator,
+        pending_fall_vitality_loss_ppm: u32,
     ) {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
@@ -696,6 +704,7 @@ impl LogisticsState {
         );
         player.body = body;
         player.locomotion_exertion = locomotion_exertion;
+        player.pending_fall_vitality_loss_ppm = pending_fall_vitality_loss_ppm;
         self.revision = next_revision;
     }
 

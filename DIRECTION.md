@@ -114,8 +114,10 @@ Direct player movement is now on the target authority path for basic terrestrial
 position, horizontal/vertical velocity, persisted standing/crouching stance, walking, load-limited sprinting,
 grounded load-sensitive jumping, gravity, swept full-cube collision, crouched ledge protection, save/load
 continuation, and body/terrain race rejection are authoritative. Realized horizontal effort is speed- and
-load-sensitive and settles through the existing slow survival owner. Step-up, partial shapes, surface traction,
-fall injury, and adapter residency/unload remain open; deterministic player-neighborhood terrain demand now exists,
+load-sensitive and settles through the existing slow survival owner. Landing impact now derives from downward
+pre-collision speed: an authored safe threshold prevents ordinary jump injury, while harder impacts persist a
+bounded vitality loss that the next slow survival/death transaction settles atomically. Step-up, partial shapes,
+surface traction, general damage/protection, and adapter residency/unload remain open; deterministic player-neighborhood terrain demand now exists,
 and the timed one-voxel labor step is rejected once generated-world body
 physics is active. Deterministic player-eye targeting now feeds a conserved timed terrain-excavation owner path:
 authored mining physics binds portable tool throughput/hardness/wear, partial represented mass persists per cell,

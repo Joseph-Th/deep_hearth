@@ -1,8 +1,10 @@
 //! Renderer-neutral local illumination derived from finite located energy stores.
 
+use std::collections::{BTreeMap, VecDeque};
+
 use crate::core::state::AppState;
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{CubeFace, VoxelCoord};
 
 use super::EnergyStoreId;
 
@@ -32,10 +34,10 @@ impl LocalLightSourceProjection {
     }
 }
 
-/// Current unoccluded local block-light assessment at one world voxel.
+/// Current block-aware local-light assessment at one world voxel.
 ///
-/// This is a read model, not persisted lighting state. General propagation, occlusion, sky light,
-/// meshing, and visibility remain adapter/world concerns.
+/// This is a read model, not persisted lighting state. Sky light, richer attenuation, meshing, and
+/// visibility remain adapter/world concerns.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalIlluminationAssessment {
@@ -102,11 +104,12 @@ pub fn project_local_light_sources(
     active_local_light_sources(registries, state).collect()
 }
 
-/// Returns current unoccluded local illumination from nonempty located authored light sources.
+/// Returns current bounded local illumination from nonempty located authored light sources.
 ///
-/// Source levels fall by one per Manhattan voxel. Overlapping sources use the strongest current
-/// contribution; equal contributions retain the lowest stable store ID because logistics iterates
-/// locations in store-ID order.
+/// Source levels fall by one per face-adjacent generated non-opaque voxel. Opaque blocks and missing
+/// world truth stop propagation. Overlapping sources use the strongest current contribution; equal
+/// contributions retain the lowest stable store ID because logistics iterates locations in
+/// store-ID order.
 pub fn assess_local_illumination(
     registries: &Registries,
     state: &AppState,
@@ -115,16 +118,7 @@ pub fn assess_local_illumination(
     let mut level = 0_u8;
     let mut strongest_source = None;
     for source in active_local_light_sources(registries, state) {
-        let distance = manhattan_distance(source.position(), position);
-        if distance >= u128::from(source.level()) {
-            continue;
-        }
-        let contribution = source
-            .level()
-            .checked_sub(u8::try_from(distance).unwrap_or_else(|_| {
-                unreachable!("contributing light distance is bounded by a u8 source level")
-            }))
-            .unwrap_or_else(|| unreachable!("light contribution distance is below source level"));
+        let contribution = propagated_light_level(registries, state, source, position);
         if contribution > level {
             level = contribution;
             strongest_source = Some(source.store());
@@ -135,6 +129,69 @@ pub fn assess_local_illumination(
         level,
         strongest_source,
     }
+}
+
+const LIGHT_PROPAGATION_FACES: [CubeFace; 6] = [
+    CubeFace::Top,
+    CubeFace::Bottom,
+    CubeFace::North,
+    CubeFace::South,
+    CubeFace::East,
+    CubeFace::West,
+];
+
+fn propagated_light_level(
+    registries: &Registries,
+    state: &AppState,
+    source: LocalLightSourceProjection,
+    target: VoxelCoord,
+) -> u8 {
+    if source.position() == target {
+        return source.level();
+    }
+    if manhattan_distance(source.position(), target) >= u128::from(source.level()) {
+        return 0;
+    }
+
+    let mut reached = BTreeMap::from([(source.position(), source.level())]);
+    let mut frontier = VecDeque::from([(source.position(), source.level())]);
+    while let Some((position, level)) = frontier.pop_front() {
+        if level <= 1 {
+            continue;
+        }
+        let next_level = level - 1;
+        for face in LIGHT_PROPAGATION_FACES {
+            let Some(adjacent) = face.adjacent_voxel(position) else {
+                continue;
+            };
+            if reached
+                .get(&adjacent)
+                .is_some_and(|existing| *existing >= next_level)
+            {
+                continue;
+            }
+            if !voxel_transmits_light(registries, state, adjacent) {
+                continue;
+            }
+            if adjacent == target {
+                return next_level;
+            }
+            reached.insert(adjacent, next_level);
+            frontier.push_back((adjacent, next_level));
+        }
+    }
+    0
+}
+
+fn voxel_transmits_light(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
+    let Some(block_state) = state.world().block_at(position) else {
+        return false;
+    };
+    !registries
+        .world()
+        .block_for_state(block_state)
+        .unwrap_or_else(|| panic!("runtime invariant broken: world block state disappeared"))
+        .is_opaque()
 }
 
 fn manhattan_distance(a: VoxelCoord, b: VoxelCoord) -> u128 {

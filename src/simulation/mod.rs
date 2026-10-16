@@ -181,11 +181,15 @@ pub fn advance_control_tick_with_direct_input(
         .map_or(SurvivalExertion::REST, |plan| {
             plan.settled_locomotion_exertion()
         });
+    let fall_vitality_loss_ppm = settlement_plan
+        .as_ref()
+        .map_or(0, |plan| plan.settled_fall_vitality_loss_ppm());
     let simulation = advance_simulation_tick(
         registries,
         state,
         next_control.simulation_tick(),
         locomotion_exertion,
+        fall_vitality_loss_ppm,
     )?;
     let has_pending_primary = state.logistics().pending_primary_break().is_some();
     let has_pending_secondary = state.logistics().pending_secondary_use().is_some();
@@ -266,7 +270,8 @@ fn control_stepping_required(registries: &Registries, state: &AppState) -> bool 
         });
     let body = player.body();
     let horizontal = body.horizontal_velocity();
-    body.stance() != PlayerStance::Standing
+    player.pending_fall_vitality_loss_ppm() != 0
+        || body.stance() != PlayerStance::Standing
         || horizontal.x_nanometers_per_second() != 0
         || horizontal.z_nanometers_per_second() != 0
         || body.vertical_velocity().nanometers_per_second() != 0
@@ -279,8 +284,8 @@ fn control_stepping_required(registries: &Registries, state: &AppState) -> bool 
 ///
 /// Headless/process-only states, players outside generated body truth, and a standing grounded
 /// motionless generated-world player with settled locomotion may use this fast path. Buffered
-/// input, crouch/air/motion, control-rate excavation, and local automatic-pickup drops still require
-/// exact 50 ms stepping and return `TickError::ControlSteppingRequired`.
+/// input, unsettled fall injury, crouch/air/motion, control-rate excavation, and local automatic-
+/// pickup drops still require exact 50 ms stepping and return `TickError::ControlSteppingRequired`.
 pub fn advance_tick(
     registries: &Registries,
     state: &mut AppState,
@@ -301,7 +306,7 @@ pub fn advance_tick(
             current: state.control_tick(),
         });
     }
-    advance_simulation_tick(registries, state, next_tick, SurvivalExertion::REST)
+    advance_simulation_tick(registries, state, next_tick, SurvivalExertion::REST, 0)
 }
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
@@ -314,6 +319,7 @@ fn advance_simulation_tick(
     state: &mut AppState,
     next_tick: SimulationTick,
     locomotion_exertion: SurvivalExertion,
+    fall_vitality_loss_ppm: u32,
 ) -> Result<TickOutcome, TickError> {
     let world_revision_before = state.world().revision();
     debug_assert_eq!(next_tick.value(), state.tick().value() + 1);
@@ -419,8 +425,14 @@ fn advance_simulation_tick(
             .checked_add(locomotion_exertion.hydration_loss_per_tick())
             .ok_or(TickError::SurvivalHydrationCostOverflow)?,
     );
-    let survival_plan =
-        decide_survival_tick_with_local_heat(registries, state, exertion, next_tick, local_warmth)?;
+    let survival_plan = decide_survival_tick_with_local_heat(
+        registries,
+        state,
+        exertion,
+        next_tick,
+        local_warmth,
+        fall_vitality_loss_ppm,
+    )?;
     // Player attention uses the projected survival result so fatality, work release, and direct-
     // consumption cancellation become authoritative on the same tick without reading partially
     // mutated state.

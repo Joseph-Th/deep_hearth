@@ -387,6 +387,10 @@ impl ValidatedPlayerStructuralElementPlan {
         self.next_structure_revision
     }
 
+    pub(crate) fn supports(&self) -> &[StructuralElementId] {
+        &self.supports
+    }
+
     pub(crate) fn precheck(
         &self,
         state: &AppState,

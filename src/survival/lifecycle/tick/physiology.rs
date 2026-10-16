@@ -166,8 +166,9 @@ fn resolve_vitality(
     physiology: crate::survival::PhysiologyDefinition,
     before: PlayerSurvivalRecord,
     resources: TickResourceResolution,
+    fall_vitality_loss_ppm: u32,
 ) -> (Vitality, u32) {
-    let mut vitality_loss = 0_u32;
+    let mut vitality_loss = fall_vitality_loss_ppm;
     if resources.energy_deficit {
         vitality_loss =
             vitality_loss.saturating_add(physiology.starvation_vitality_loss_ppm_per_tick());
@@ -229,11 +230,13 @@ pub(super) fn resolve_live_player_tick(
     exertion: SurvivalExertion,
     next_tick: SimulationTick,
     local_heat: Energy,
+    fall_vitality_loss_ppm: u32,
 ) -> Result<LivePlayerTickResolution, SurvivalTickError> {
     let physiology = registries.survival().physiology();
     let installment = resolve_pending_installment(registries, state, next_tick);
     let resources = resolve_tick_resources(physiology, before, exertion, installment, local_heat)?;
-    let (vitality_after, recovery_remainder) = resolve_vitality(physiology, before, resources);
+    let (vitality_after, recovery_remainder) =
+        resolve_vitality(physiology, before, resources, fall_vitality_loss_ppm);
     let clear_pending_consumption = installment.completes() || vitality_after == Vitality::ZERO;
     let nutrition_after = resources
         .after_intake

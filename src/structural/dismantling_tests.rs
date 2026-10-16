@@ -17,16 +17,20 @@ use crate::logistics::{
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     GroundedStructuralElementPlan, StructuralElementGeometry, StructuralLifecycle,
+    SupportedStructuralElementPlan,
     validate_start_player_grounded_structural_construction_from_stack,
+    validate_start_player_supported_structural_construction_from_stack,
 };
 use crate::survival::{Vitality, player_record};
 
 const ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
+const FRAMING_POSITION: VoxelCoord = VoxelCoord::new(0, 0, 1);
 const MEMBER_MASS: Mass = Mass::from_milligrams(6_500_000);
 
 fn local_member_plan() -> GroundedStructuralElementPlan {
@@ -43,6 +47,20 @@ fn local_member_plan() -> GroundedStructuralElementPlan {
         MATERIAL_WOOD,
         geometry,
     )
+}
+
+fn geometry_at(position: VoxelCoord, context: &str) -> StructuralElementGeometry {
+    let bounds = VoxelBounds::new(
+        position,
+        VoxelCoord::new(position.x() + 1, position.y() + 1, position.z() + 1),
+    )
+    .unwrap_or_else(|error| panic!("{context} bounds failed: {error}"));
+    StructuralElementGeometry::new(
+        bounds,
+        Length::from_micrometers(2_000_000),
+        Area::from_square_millimeters(5_000),
+    )
+    .unwrap_or_else(|error| panic!("{context} geometry failed: {error}"))
 }
 
 fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut AppState) {
@@ -66,6 +84,197 @@ fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut Ap
             player.vitality_recovery_remainder(),
         ),
     );
+}
+
+fn active_supported_leaf() -> (
+    crate::registry::Registries,
+    AppState,
+    StructuralElementId,
+    StructuralElementId,
+    crate::inventory::StockpileId,
+) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, ORIGIN)
+        .unwrap_or_else(|error| panic!("supported dismantling admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("supported dismantling admission commit failed: {error}"))
+        .carried_stockpile();
+    let total_mass = MEMBER_MASS
+        .checked_add(MEMBER_MASS)
+        .unwrap_or_else(|| panic!("supported dismantling fixture mass overflowed"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        total_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("supported dismantling timber setup failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("supported dismantling support stack failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("supported dismantling support timber disappeared"));
+    let support_start = validate_start_player_grounded_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry_at(VoxelCoord::new(1, 0, 0), "supported dismantling support"),
+        ),
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("supported dismantling support start failed: {error}"));
+    let support = support_start.element();
+    let support_work = support_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("supported dismantling support commit failed: {error}"));
+    while state.tick() < support_work.completes_at() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("supported dismantling support tick failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Active)
+    );
+
+    add_traversable_edge_for_test(&mut state, ORIGIN, FRAMING_POSITION);
+    let step = validate_start_player_step(&registries, &state, FRAMING_POSITION)
+        .unwrap_or_else(|error| panic!("supported dismantling reposition failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("supported dismantling reposition commit failed: {error}"));
+    while state.tick() < step.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("supported dismantling reposition tick failed: {error}")
+        });
+    }
+
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("supported dismantling leaf stack failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("supported dismantling leaf timber disappeared"));
+    let leaf_start = validate_start_player_supported_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        SupportedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry_at(VoxelCoord::new(1, 0, 1), "supported dismantling leaf"),
+            support,
+        ),
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("supported dismantling leaf start failed: {error}"));
+    let leaf = leaf_start.element();
+    let leaf_work = leaf_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("supported dismantling leaf commit failed: {error}"));
+    while state.tick() < leaf_work.completes_at() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("supported dismantling leaf tick failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .structures()
+            .supports(leaf)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![support])
+    );
+    assert_eq!(
+        state
+            .structures()
+            .dependents(support)
+            .map(|dependents| dependents.collect::<Vec<_>>()),
+        Some(vec![leaf])
+    );
+    (registries, state, support, leaf, carried)
+}
+
+#[test]
+fn structural_dismantling_recovers_supported_leaf_and_cleans_support_edge() {
+    let (registries, mut state, support, leaf, carried) = active_supported_leaf();
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("supported dismantling matter baseline failed: {error}"))
+        .total();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG))),
+        Some(Mass::ZERO)
+    );
+
+    let start = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        leaf,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap_or_else(|error| panic!("supported dismantling validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("supported dismantling commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("supported dismantling save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("supported dismantling decode failed: {error}"));
+    let mut state = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("supported dismantling trusted load failed: {error}"));
+
+    let mut completion = None;
+    while state.tick() < start.completes_at() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("supported dismantling completion failed: {error}"));
+        if outcome.structural_dismantling().is_some() {
+            completion = outcome.structural_dismantling().cloned();
+        }
+    }
+    let completion =
+        completion.unwrap_or_else(|| panic!("supported dismantling produced no completion"));
+    assert_eq!(completion.element(), leaf);
+    assert_eq!(completion.recovered_lots().len(), 1);
+    assert!(state.structures().get_element(leaf).is_none());
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Active)
+    );
+    assert_eq!(
+        state
+            .structures()
+            .dependents(support)
+            .map(|dependents| dependents.collect::<Vec<_>>()),
+        Some(vec![])
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG))),
+        Some(MEMBER_MASS)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!(
+                "supported dismantling final matter audit failed: {error}"
+            ))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn active_grounded_member() -> (

@@ -129,6 +129,9 @@ pub enum LogisticsValidationError {
     },
     PlayerLocomotionExertionRemainderInvalid,
     PlayerPendingLocomotionExertionExceedsMaximum,
+    PlayerPendingFallVitalityLossInvalid {
+        loss_ppm: u32,
+    },
     MultiplePendingDirectActions,
     PendingSecondaryUseWithoutPlayer,
     PendingSecondaryUseRequestedInFuture,
@@ -355,6 +358,10 @@ impl Display for LogisticsValidationError {
             ),
             Self::PlayerPendingLocomotionExertionExceedsMaximum => formatter.write_str(
                 "player pending locomotion exertion exceeds one fully loaded simulation interval",
+            ),
+            Self::PlayerPendingFallVitalityLossInvalid { loss_ppm } => write!(
+                formatter,
+                "player pending fall vitality loss {loss_ppm} ppm exceeds the normalized vitality range"
             ),
             Self::MultiplePendingDirectActions => formatter.write_str(
                 "player logistics contains more than one buffered direct action",
@@ -773,6 +780,15 @@ pub(crate) fn validate_loaded_logistics(
             || pending.hydration_loss_per_tick() > maximum.hydration_loss_per_tick()
         {
             return Err(LogisticsValidationError::PlayerPendingLocomotionExertionExceedsMaximum);
+        }
+        if player.pending_fall_vitality_loss_ppm()
+            > crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION
+        {
+            return Err(
+                LogisticsValidationError::PlayerPendingFallVitalityLossInvalid {
+                    loss_ppm: player.pending_fall_vitality_loss_ppm(),
+                },
+            );
         }
         if let Some(voxel) =
             first_player_body_collision(registries.world(), app.world(), player.body(), locomotion)

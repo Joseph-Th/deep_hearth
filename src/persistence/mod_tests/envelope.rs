@@ -504,3 +504,30 @@ fn obsolete_player_voxel_payload_is_rejected_without_body_compatibility_defaults
         "current schema must not deserialize the removed voxel-only player representation"
     );
 }
+
+#[test]
+fn pending_fall_injury_must_remain_inside_normalized_vitality_range() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(2, 3, 4))
+        .unwrap_or_else(|error| panic!("fall-injury validation fixture admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fall-injury validation fixture commit failed: {error}"));
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("fall-injury validation fixture serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["logistics"]["player"]["pending_fall_vitality_loss_ppm"] =
+        serde_json::json!(1_000_001_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("fall-injury validation fixture decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            crate::logistics::LogisticsValidationError::PlayerPendingFallVitalityLossInvalid {
+                loss_ppm: 1_000_001,
+            },
+        )))
+    );
+}

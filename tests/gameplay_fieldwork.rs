@@ -22,6 +22,12 @@ mod environment;
 )]
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
+#[allow(
+    dead_code,
+    reason = "focused fieldwork target uses only the shared continuous-body movement helper"
+)]
+#[path = "gameplay_harness/exact_local_runtime.rs"]
+mod exact_local_runtime;
 #[path = "gameplay_harness/fieldwork_probe.rs"]
 mod fieldwork_probe;
 #[path = "gameplay_harness/focused_case.rs"]

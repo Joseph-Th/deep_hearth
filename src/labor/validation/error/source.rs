@@ -162,10 +162,8 @@ impl Error for PlayerWorkValidationError {
             | Self::StructuralConstructionRevisionExhausted
             | Self::StructuralDismantlingMethodMissing
             | Self::StructuralDismantlingElementMissing
-            | Self::StructuralDismantlingElementNotGrounded
             | Self::StructuralDismantlingElementNotRecoverable
             | Self::StructuralDismantlingElementNotLocal
-            | Self::StructuralDismantlingElementHasSupports
             | Self::StructuralDismantlingElementHasDependents
             | Self::StructuralDismantlingElementHasExternalLoad
             | Self::StructuralDismantlingElementSupportsResource

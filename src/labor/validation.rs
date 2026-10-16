@@ -237,9 +237,6 @@ fn validate_structural_dismantling_work(
         .structures()
         .get_element(work.element())
         .ok_or(PlayerWorkValidationError::StructuralDismantlingElementMissing)?;
-    if !record.is_grounded() {
-        return Err(PlayerWorkValidationError::StructuralDismantlingElementNotGrounded);
-    }
     if record.embodied_mass().is_zero()
         || !matches!(
             record.lifecycle(),
@@ -250,13 +247,6 @@ fn validate_structural_dismantling_work(
     }
     if !bounds_are_local(record.bounds(), player.position()) {
         return Err(PlayerWorkValidationError::StructuralDismantlingElementNotLocal);
-    }
-    if state
-        .structures()
-        .supports(work.element())
-        .is_some_and(|mut supports| supports.next().is_some())
-    {
-        return Err(PlayerWorkValidationError::StructuralDismantlingElementHasSupports);
     }
     if state.structures().elements().any(|candidate| {
         candidate.id() != work.element()

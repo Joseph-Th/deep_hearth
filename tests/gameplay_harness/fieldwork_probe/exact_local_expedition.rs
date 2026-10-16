@@ -6,8 +6,8 @@ use deep_hearth::content::gameplay_fixture::{
     seed_traversable_edge,
 };
 use deep_hearth::content::{
-    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_QUARRY_PICK, FORM_ORE, MATERIAL_COPPER,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROSPECTING_LOCAL_TRANSECT,
+    BLOCK_STATE_STONE, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_QUARRY_PICK, FORM_ORE,
+    MATERIAL_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER, PROSPECTING_LOCAL_TRANSECT,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -18,8 +18,8 @@ use deep_hearth::geology::{
 };
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId, StockpileStorageProfile};
 use deep_hearth::logistics::{
-    assess_player_carrying, validate_drop_equipment, validate_drop_to_ground,
-    validate_pickup_equipment, validate_start_player_step,
+    assess_player_carrying, project_player_adjacent_walk, validate_drop_equipment,
+    validate_drop_to_ground, validate_pickup_equipment, validate_start_player_step,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -31,8 +31,13 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::assess_survival;
+use deep_hearth::world::{
+    BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+    validate_generate_chunk,
+};
 
 use super::super::environment::ROOM_TEMPERATURE;
+use super::super::exact_local_runtime::walk_continuous_body_adjacent_and_settle;
 use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::focused_witnesses::FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED;
 use super::super::ore_fixture::copper_ore_composition;
@@ -46,7 +51,7 @@ use super::preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
 use super::retooling::{
     FieldworkOwnedOreRecovery, FieldworkSiteToolRequest, prepare_fieldwork_tool_for_site,
 };
-use super::survey::{CHANNEL_COUNT, horizontal_region, run_survey};
+use super::survey::{CHANNEL_COUNT, horizontal_region, horizontal_region_at, run_survey};
 use super::world::{
     generated_fieldwork_raw_opportunity, seed_generated_followup_fieldwork_site,
     seed_generated_primary_fieldwork_site,
@@ -58,6 +63,77 @@ const TARGET_SITE: VoxelCoord = VoxelCoord::new(2, -1, 0);
 const FOLLOWUP_LOCAL_START_X: i64 = 3;
 const EXPEDITION_DEPOSIT_MASS: Mass = Mass::from_milligrams(40_000_000);
 const EXPEDITION_ORDER_MASS: Mass = Mass::from_milligrams(30_000_000);
+const FIELD_EXPEDITION_TERRAIN_SEED: WorldGenerationSeed =
+    WorldGenerationSeed::new(0x4649_454C_445F_4558);
+
+fn generated_level_field_corridor(
+    registries: &Registries,
+    state: &mut AppState,
+) -> (VoxelCoord, VoxelCoord, VoxelCoord) {
+    let anchor = VoxelCoord::new(8, 0, 8);
+    let chunk = ChunkCoord::containing(anchor);
+    validate_generate_chunk(
+        registries,
+        state,
+        FIELD_EXPEDITION_TERRAIN_SEED,
+        chunk,
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("field expedition terrain generation failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("field expedition terrain commit failed: {error}"));
+    let min_x = chunk
+        .world_min_x()
+        .unwrap_or_else(|| panic!("field expedition chunk x coordinate overflowed"));
+    let min_z = chunk
+        .world_min_z()
+        .unwrap_or_else(|| panic!("field expedition chunk z coordinate overflowed"));
+    let side =
+        i64::try_from(CHUNK_SIDE).unwrap_or_else(|_| unreachable!("authored chunk side fits i64"));
+    let center = side / 2;
+    let mut candidates = (0..=side - 3)
+        .flat_map(|local_x| (0..side).map(move |local_z| (local_x, local_z)))
+        .collect::<Vec<_>>();
+    candidates.sort_unstable_by_key(|&(local_x, local_z)| {
+        (
+            (local_x + 1 - center).abs() + (local_z - center).abs(),
+            local_x,
+            local_z,
+        )
+    });
+    candidates
+        .into_iter()
+        .find_map(|(local_x, local_z)| {
+            let start_x = min_x.checked_add(local_x)?;
+            let z = min_z.checked_add(local_z)?;
+            let support_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).rev().find(|&y| {
+                state.world().block_at(VoxelCoord::new(start_x, y, z)) == Some(BLOCK_STATE_STONE)
+            })?;
+            let stand_y = support_y.checked_add(1)?;
+            let positions = [
+                VoxelCoord::new(start_x, stand_y, z),
+                VoxelCoord::new(start_x.checked_add(1)?, stand_y, z),
+                VoxelCoord::new(start_x.checked_add(2)?, stand_y, z),
+            ];
+            positions
+                .iter()
+                .all(|position| {
+                    state.world().block_at(VoxelCoord::new(
+                        position.x(),
+                        position.y() - 1,
+                        position.z(),
+                    )) == Some(BLOCK_STATE_STONE)
+                        && state.world().block_at(*position) == Some(BlockStateId::AIR)
+                        && state.world().block_at(VoxelCoord::new(
+                            position.x(),
+                            position.y() + 1,
+                            position.z(),
+                        )) == Some(BlockStateId::AIR)
+                })
+                .then_some((positions[0], positions[1], positions[2]))
+        })
+        .unwrap_or_else(|| panic!("generated field chunk has no level three-voxel corridor"))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct StepCost {
@@ -152,7 +228,11 @@ fn walk_linear_to(
     costs
 }
 
-fn seed_field_kit(registries: &Registries, state: &mut AppState) -> (EquipmentId, EquipmentId) {
+fn seed_field_kit(
+    registries: &Registries,
+    state: &mut AppState,
+    camp: VoxelCoord,
+) -> (EquipmentId, EquipmentId) {
     let definitions = [
         EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
         EQUIPMENT_STONE_QUARRY_PICK,
@@ -176,11 +256,11 @@ fn seed_field_kit(registries: &Registries, state: &mut AppState) -> (EquipmentId
         state,
         EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
         source,
-        CAMP,
+        camp,
     );
     let pick =
-        seed_assembled_equipment_at(registries, state, EQUIPMENT_STONE_QUARRY_PICK, source, CAMP);
-    locate_ground_stockpile(state, source, CAMP);
+        seed_assembled_equipment_at(registries, state, EQUIPMENT_STONE_QUARRY_PICK, source, camp);
+    locate_ground_stockpile(state, source, camp);
     assert_eq!(
         state
             .inventory()
@@ -203,6 +283,23 @@ fn equipment_mass(state: &AppState, equipment: EquipmentId) -> Mass {
 fn walk_step(registries: &Registries, state: &mut AppState, destination: VoxelCoord) -> StepCost {
     let carrying = assess_player_carrying(state)
         .unwrap_or_else(|| panic!("exact-local field step lost player carrying assessment"));
+    if state.world().block_at(carrying.position()).is_some() {
+        let projection = project_player_adjacent_walk(registries, state, destination)
+            .unwrap_or_else(|error| {
+                panic!("exact-local continuous movement projection failed: {error}")
+            });
+        let _ = walk_continuous_body_adjacent_and_settle(
+            registries,
+            state,
+            destination,
+            "field expedition movement",
+        );
+        return StepCost {
+            load: carrying.stored(),
+            energy: projection.resource_budget().metabolic_energy(),
+            hydration: projection.resource_budget().hydration(),
+        };
+    }
     let before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("exact-local field step lost player survival"));
     let work = validate_start_player_step(registries, state, destination)
@@ -258,7 +355,7 @@ fn survey_site(
     position: VoxelCoord,
     hammer: EquipmentId,
 ) -> Option<FieldProspectingOutcome> {
-    let region = horizontal_region(position.x(), 1);
+    let region = horizontal_region_at(position.x(), 1, position.y(), position.z());
     assert!(region.has_voxel(position));
     let inspection = run_survey(
         registries,
@@ -468,10 +565,11 @@ fn execute_exact_local_order(
     body_capacity: Mass,
     requested: Mass,
     batch_limit: Mass,
+    camp: VoxelCoord,
     target_site: VoxelCoord,
 ) -> ExactLocalOrderResult {
     assert!(!requested.is_zero());
-    let target_region = horizontal_region(target_site.x(), 1);
+    let target_region = horizontal_region_at(target_site.x(), 1, target_site.y(), target_site.z());
     let mut remaining_order = requested;
     let mut trip_count = 0_u64;
     let mut total_extraction_batches = 0_u64;
@@ -562,7 +660,7 @@ fn execute_exact_local_order(
                 .unwrap_or_else(|| panic!("exact-local loaded custody overflowed"))
         );
         assert_eq!(loaded.capacity(), body_capacity);
-        let return_steps = walk_linear_to(registries, state, CAMP);
+        let return_steps = walk_linear_to(registries, state, camp);
         movement_steps = movement_steps
             .checked_add(
                 u64::try_from(return_steps.len())
@@ -629,15 +727,16 @@ fn execute_exact_local_order(
 pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
     let mut state = AppState::new();
     let limits = fieldwork_mining_limits(registries);
-    let (hammer, pick) = seed_field_kit(registries, &mut state);
+    let (camp, barren_site, target_site) = generated_level_field_corridor(registries, &mut state);
+    let (hammer, pick) = seed_field_kit(registries, &mut state, camp);
     let hammer_mass = equipment_mass(&state, hammer);
     let pick_mass = equipment_mass(&state, pick);
-    let cache = seed_ground_stockpile(&mut state, CAMP, EXPEDITION_DEPOSIT_MASS);
+    let cache = seed_ground_stockpile(&mut state, camp, EXPEDITION_DEPOSIT_MASS);
     seed_geological_deposit(
         registries,
         &mut state,
         GeologicalDepositSeed::new(
-            horizontal_region(TARGET_SITE.x(), 1),
+            horizontal_region_at(target_site.x(), 1, target_site.y(), target_site.z()),
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             EXPEDITION_DEPOSIT_MASS,
             ROOM_TEMPERATURE,
@@ -645,9 +744,7 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
             copper_ore_composition(500_000, 250_000),
         ),
     );
-    seed_traversable_edge(&mut state, CAMP, BARREN_SITE);
-    seed_traversable_edge(&mut state, BARREN_SITE, TARGET_SITE);
-    validate_admit_player(registries, &state, CAMP)
+    validate_admit_player(registries, &state, camp)
         .unwrap_or_else(|error| panic!("exact-local field player admission failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| {
@@ -669,20 +766,20 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
         .unwrap_or_else(|| panic!("exact-local hammer carrying assessment disappeared"));
     assert_eq!(hammer_carry.capacity(), body_capacity);
     assert_eq!(hammer_carry.equipment(), hammer_mass);
-    assert_eq!(state.logistics().equipment_position(hammer), Some(CAMP));
+    assert_eq!(state.logistics().equipment_position(hammer), Some(camp));
 
-    let _ = walk_step(registries, &mut state, BARREN_SITE);
+    let _ = walk_step(registries, &mut state, barren_site);
     assert_eq!(
         state.logistics().equipment_position(hammer),
-        Some(BARREN_SITE)
+        Some(barren_site)
     );
-    assert!(survey_site(registries, &mut state, BARREN_SITE, hammer).is_none());
-    let _ = walk_step(registries, &mut state, TARGET_SITE);
+    assert!(survey_site(registries, &mut state, barren_site, hammer).is_none());
+    let _ = walk_step(registries, &mut state, target_site);
     assert_eq!(
         state.logistics().equipment_position(hammer),
-        Some(TARGET_SITE)
+        Some(target_site)
     );
-    let detailed = survey_site(registries, &mut state, TARGET_SITE, hammer)
+    let detailed = survey_site(registries, &mut state, target_site, hammer)
         .unwrap_or_else(|| panic!("maintained exact-local target site should be survey-positive"));
     let detailed_record = state
         .geological_knowledge()
@@ -692,8 +789,8 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
         .resource_mass()
         .unwrap_or_else(|| panic!("exact-local detailed survey did not reveal resource scale"));
 
-    let _ = walk_step(registries, &mut state, BARREN_SITE);
-    let _ = walk_step(registries, &mut state, CAMP);
+    let _ = walk_step(registries, &mut state, barren_site);
+    let _ = walk_step(registries, &mut state, camp);
     validate_drop_equipment(registries, &state, hammer)
         .unwrap_or_else(|error| panic!("exact-local hammer drop failed: {error}"))
         .commit(&mut state)
@@ -721,7 +818,8 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
         body_capacity,
         requested,
         limits.base_quarry_batch,
-        TARGET_SITE,
+        camp,
+        target_site,
     );
     assert_eq!(order.stop, FieldworkStop::OrderComplete);
     assert_eq!(order.returned, requested);
@@ -759,7 +857,7 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
     assert_exact_local_field_state(registries, &state, "completed expedition");
 
     reviewln!(
-        "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[steps:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:{}..{}mg] tools=[hammer:{}mg pick:{}mg custody:player-carried] extraction=[order:{}mg batches:{} ticks:{} complete:true] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm] locomotion=[outbound:{}nJ/{}uL loaded-max:{}nJ/{}uL] cache=[returned:{}mg tool-dropped:true] matter=conserved",
+        "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[body:continuous-generated-terrain edges:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:{}..{}mg] tools=[hammer:{}mg pick:{}mg custody:player-carried] extraction=[order:{}mg batches:{} ticks:{} complete:true] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm] locomotion=[outbound:{}nJ/{}uL loaded-max:{}nJ/{}uL] cache=[returned:{}mg tool-dropped:true] matter=conserved",
         4 + order.movement_steps,
         order.trips,
         observed_mass.lower().milligrams(),
@@ -874,6 +972,7 @@ fn run_exact_local_depletion_reroute(
         body_capacity,
         requested,
         batch_limit,
+        CAMP,
         TARGET_SITE,
     );
     assert!(
@@ -942,6 +1041,7 @@ fn run_exact_local_depletion_reroute(
         body_capacity,
         local_order,
         choice.batch,
+        CAMP,
         search.position,
     );
     validate_drop_equipment(registries, state, choice.equipment)
@@ -1152,6 +1252,7 @@ pub(super) fn run_generated_exact_local_field_order(
         body_capacity,
         requested,
         estimate.batch,
+        CAMP,
         TARGET_SITE,
     );
 

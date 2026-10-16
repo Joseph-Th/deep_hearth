@@ -498,17 +498,11 @@ impl Display for PlayerWorkValidationError {
                 .write_str("structural dismantling work references a missing authored method"),
             Self::StructuralDismantlingElementMissing => formatter
                 .write_str("structural dismantling work references a missing member"),
-            Self::StructuralDismantlingElementNotGrounded => formatter.write_str(
-                "ordinary structural dismantling currently requires a grounded member",
-            ),
             Self::StructuralDismantlingElementNotRecoverable => formatter.write_str(
                 "structural dismantling requires an embodied active or failed member",
             ),
             Self::StructuralDismantlingElementNotLocal => formatter.write_str(
                 "structural dismantling member is no longer local to the player",
-            ),
-            Self::StructuralDismantlingElementHasSupports => formatter.write_str(
-                "simple structural dismantling cannot remove a member attached to supports",
             ),
             Self::StructuralDismantlingElementHasDependents => formatter.write_str(
                 "simple structural dismantling cannot remove a member supporting other members",

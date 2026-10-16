@@ -106,6 +106,7 @@ pub struct LocomotionSpeedDefinition {
     sprinting_speed: Speed,
     unloaded_jump_speed: Speed,
     fully_loaded_jump_speed: Speed,
+    safe_landing_speed: Speed,
     maximum_fall_speed: Speed,
 }
 
@@ -117,6 +118,7 @@ impl LocomotionSpeedDefinition {
         sprinting_speed: Speed,
         unloaded_jump_speed: Speed,
         fully_loaded_jump_speed: Speed,
+        safe_landing_speed: Speed,
         maximum_fall_speed: Speed,
     ) -> Self {
         assert!(
@@ -144,8 +146,16 @@ impl LocomotionSpeedDefinition {
             "carried load cannot increase jump speed"
         );
         assert!(
+            !safe_landing_speed.is_zero(),
+            "player safe landing speed must be nonzero"
+        );
+        assert!(
             !maximum_fall_speed.is_zero(),
             "player maximum fall speed must be nonzero"
+        );
+        assert!(
+            safe_landing_speed < maximum_fall_speed,
+            "player safe landing speed must remain below maximum fall speed"
         );
         Self {
             crouching_speed,
@@ -153,6 +163,7 @@ impl LocomotionSpeedDefinition {
             sprinting_speed,
             unloaded_jump_speed,
             fully_loaded_jump_speed,
+            safe_landing_speed,
             maximum_fall_speed,
         }
     }
@@ -180,6 +191,11 @@ impl LocomotionSpeedDefinition {
     #[must_use]
     pub const fn fully_loaded_jump_speed(self) -> Speed {
         self.fully_loaded_jump_speed
+    }
+
+    #[must_use]
+    pub const fn safe_landing_speed(self) -> Speed {
+        self.safe_landing_speed
     }
 
     #[must_use]
@@ -282,6 +298,11 @@ impl BodyKinematicsDefinition {
     #[must_use]
     pub const fn fully_loaded_jump_speed(self) -> Speed {
         self.speeds.fully_loaded_jump_speed()
+    }
+
+    #[must_use]
+    pub const fn safe_landing_speed(self) -> Speed {
+        self.speeds.safe_landing_speed()
     }
 
     #[must_use]
@@ -394,6 +415,34 @@ impl LocomotionDefinition {
     #[must_use]
     pub const fn maximum_fall_speed(self) -> Speed {
         self.body_kinematics.maximum_fall_speed()
+    }
+
+    #[must_use]
+    pub const fn safe_landing_speed(self) -> Speed {
+        self.body_kinematics.safe_landing_speed()
+    }
+
+    /// Returns deterministic vitality loss for one downward landing impact.
+    ///
+    /// Impacts at or below the authored safe landing speed cause no injury. Above that threshold,
+    /// loss scales linearly to a lethal normalized loss at the authored terminal fall speed.
+    #[must_use]
+    pub fn fall_impact_vitality_loss_ppm(self, impact_speed: Speed) -> u32 {
+        let safe = self.safe_landing_speed().nanometers_per_second();
+        let maximum = self.maximum_fall_speed().nanometers_per_second();
+        let impact = impact_speed.nanometers_per_second().min(maximum);
+        if impact <= safe {
+            return 0;
+        }
+        let excess = u128::from(impact - safe);
+        let span = u128::from(maximum - safe);
+        let loss = excess
+            .checked_mul(u128::from(
+                crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION,
+            ))
+            .and_then(|value| value.checked_div(span))
+            .unwrap_or_else(|| unreachable!("bounded fall-impact injury arithmetic fits u128"));
+        u32::try_from(loss).unwrap_or_else(|_| unreachable!("normalized fall injury fits u32"))
     }
 
     #[must_use]

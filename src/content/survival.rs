@@ -44,6 +44,8 @@ const PLAYER_SPRINTING_SPEED_NM_PER_SECOND: u64 = 5_600_000_000;
 const PLAYER_HORIZONTAL_ACCELERATION_UM_PER_SECOND_SQUARED: u64 = 20_000_000;
 const PLAYER_UNLOADED_JUMP_SPEED_NM_PER_SECOND: u64 = 5_000_000_000;
 const PLAYER_FULLY_LOADED_JUMP_SPEED_NM_PER_SECOND: u64 = 4_600_000_000;
+const PLAYER_SAFE_LANDING_SPEED_NM_PER_SECOND: u64 = 8_000_000_000;
+const PLAYER_MAXIMUM_FALL_SPEED_NM_PER_SECOND: u64 = 55_000_000_000;
 
 fn direct_consumption_temperature() -> ConsumptionTemperatureRange {
     ConsumptionTemperatureRange::new(
@@ -100,7 +102,8 @@ fn physiology() -> PhysiologyDefinition {
                     Speed::from_nanometers_per_second(PLAYER_SPRINTING_SPEED_NM_PER_SECOND),
                     Speed::from_nanometers_per_second(PLAYER_UNLOADED_JUMP_SPEED_NM_PER_SECOND),
                     Speed::from_nanometers_per_second(PLAYER_FULLY_LOADED_JUMP_SPEED_NM_PER_SECOND),
-                    Speed::from_nanometers_per_second(55_000_000_000),
+                    Speed::from_nanometers_per_second(PLAYER_SAFE_LANDING_SPEED_NM_PER_SECOND),
+                    Speed::from_nanometers_per_second(PLAYER_MAXIMUM_FALL_SPEED_NM_PER_SECOND),
                 ),
                 Acceleration::from_micrometers_per_second_squared(
                     PLAYER_HORIZONTAL_ACCELERATION_UM_PER_SECOND_SQUARED,

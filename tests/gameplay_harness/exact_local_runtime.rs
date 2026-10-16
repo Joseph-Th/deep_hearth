@@ -28,6 +28,10 @@ pub(super) const STATIONARY_PLAYER_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0)
 
 /// Generates one deterministic terrain chunk and returns a center-first surface spawn accepted by
 /// the production terrain-aware wilderness layout validator.
+#[allow(
+    dead_code,
+    reason = "shared exact-local runtime is included by focused targets that do not generate wilderness terrain"
+)]
 pub(super) fn generated_wilderness_surface_spawn(
     registries: &Registries,
     state: &mut AppState,
@@ -77,6 +81,10 @@ pub(super) fn generated_wilderness_surface_spawn(
 }
 
 /// Executes one horizontal face-adjacent continuous-body leg and settles its exact locomotion cost.
+#[allow(
+    dead_code,
+    reason = "shared exact-local runtime is included by focused targets that do not exercise locomotion"
+)]
 pub(super) fn walk_continuous_body_adjacent_and_settle(
     registries: &Registries,
     state: &mut AppState,

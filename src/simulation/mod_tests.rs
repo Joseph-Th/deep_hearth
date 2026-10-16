@@ -570,7 +570,7 @@ fn grounded_jump_is_load_sensitive_and_does_not_retrigger_in_air() {
     );
 
     for _ in 0..40 {
-        let _ = advance_control_tick(&registries, &mut unloaded)
+        let outcome = advance_control_tick(&registries, &mut unloaded)
             .unwrap_or_else(|error| panic!("jump landing tick failed: {error}"));
         let body = unloaded
             .logistics()
@@ -581,6 +581,26 @@ fn grounded_jump_is_load_sensitive_and_does_not_retrigger_in_air() {
         if body.foot_position().y_nanometers() == floor_y * NANOMETERS_PER_VOXEL
             && body.vertical_velocity().nanometers_per_second() == 0
         {
+            let impact = outcome
+                .body_motion()
+                .and_then(|motion| motion.fall_impact())
+                .unwrap_or_else(|| panic!("ordinary jump landing produced no impact receipt"));
+            assert!(
+                impact.impact_speed()
+                    <= registries
+                        .survival()
+                        .physiology()
+                        .locomotion()
+                        .safe_landing_speed()
+            );
+            assert_eq!(impact.vitality_loss_ppm(), 0);
+            assert_eq!(
+                unloaded
+                    .logistics()
+                    .player()
+                    .map(|player| player.pending_fall_vitality_loss_ppm()),
+                Some(0)
+            );
             return;
         }
     }
@@ -1219,6 +1239,105 @@ fn generated_world_body_falls_on_control_ticks_and_lands_exactly_on_full_cube_fl
         .body();
     assert_eq!(body.foot_position().y_nanometers(), expected_floor);
     assert_eq!(body.vertical_velocity().nanometers_per_second(), 0);
+}
+
+#[test]
+fn hard_fall_queues_persists_and_settles_exact_vitality_loss() {
+    let (registries, mut state, floor_y) = generated_airborne_player(8);
+    let vitality_before = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fall-injury survival player disappeared"))
+        .vitality();
+    let mut impact = None;
+    for _ in 0..200 {
+        let outcome = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fall-injury control tick failed: {error}"));
+        if let Some(found) = outcome
+            .body_motion()
+            .and_then(|motion| motion.fall_impact())
+        {
+            impact = Some(found);
+            break;
+        }
+    }
+    let impact = impact.unwrap_or_else(|| panic!("hard fall produced no landing impact"));
+    assert!(
+        impact.impact_speed()
+            > registries
+                .survival()
+                .physiology()
+                .locomotion()
+                .safe_landing_speed(),
+        "hard-fall fixture must cross the authored safe landing threshold"
+    );
+    assert!(impact.vitality_loss_ppm() > 0);
+    assert!(impact.vitality_loss_ppm() < Vitality::MAXIMUM.parts_per_million());
+    assert_eq!(
+        state
+            .logistics()
+            .player()
+            .map(|player| player.pending_fall_vitality_loss_ppm()),
+        Some(impact.vitality_loss_ppm())
+    );
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(vitality_before),
+        "landing records the body consequence immediately but survival owns vitality settlement"
+    );
+    assert_eq!(
+        state
+            .logistics()
+            .player()
+            .map(|player| player.body().foot_position().y_nanometers()),
+        Some(floor_y * NANOMETERS_PER_VOXEL)
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("pending fall injury serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("pending fall injury decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("pending fall injury trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+    assert!(matches!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired { .. })
+    ));
+
+    let landed_at = state.control_tick();
+    let mut survival_outcome = None;
+    for _ in 0..=CONTROL_TICKS_PER_SIMULATION_TICK {
+        let outcome = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("pending fall injury settlement failed: {error}"));
+        if let Some(survival) = outcome.simulation().and_then(TickOutcome::survival) {
+            survival_outcome = Some(survival);
+            break;
+        }
+    }
+    let after = survival_outcome
+        .unwrap_or_else(|| panic!("pending fall injury did not settle at the next slow boundary"));
+    assert!(
+        state
+            .control_tick()
+            .checked_steps_since(landed_at)
+            .is_some_and(|ticks| ticks <= CONTROL_TICKS_PER_SIMULATION_TICK)
+    );
+    assert_eq!(
+        after.vitality().parts_per_million(),
+        vitality_before
+            .parts_per_million()
+            .saturating_sub(impact.vitality_loss_ppm())
+    );
+    assert_eq!(
+        state
+            .logistics()
+            .player()
+            .map(|player| player.pending_fall_vitality_loss_ppm()),
+        Some(0)
+    );
 }
 
 #[test]

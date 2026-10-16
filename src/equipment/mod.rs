@@ -14,6 +14,7 @@ mod mass_flow_schedule;
 mod player_assembly;
 mod player_maintenance;
 mod player_recovery;
+mod player_upgrade;
 mod state;
 mod upgrade_execution;
 
@@ -62,6 +63,10 @@ pub use player_maintenance::{
     validate_start_player_equipment_maintenance,
 };
 pub use player_recovery::{PlayerEquipmentRecoveryError, validate_player_disassemble_equipment};
+pub use player_upgrade::{
+    PlayerEquipmentUpgradeCatalogError, PlayerEquipmentUpgradeOption,
+    player_equipment_upgrade_options, validate_upgrade_player_equipment_option,
+};
 pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,
 };

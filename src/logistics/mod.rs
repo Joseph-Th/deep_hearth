@@ -76,7 +76,7 @@ pub use inventory_view::{
     PlayerLocalEquipmentProjection, PlayerStockpileProjection, project_player_inventory,
 };
 pub use kinematics::{
-    PlayerBodyMotionError, PlayerBodyMotionOutcome, PlayerWalkProjection,
+    PlayerBodyMotionError, PlayerBodyMotionOutcome, PlayerFallImpactOutcome, PlayerWalkProjection,
     PlayerWalkProjectionError, project_player_adjacent_walk, project_player_walk_path,
     project_player_walk_path_for_load,
 };

@@ -249,9 +249,9 @@ height.
 | Walking | Analog-ish continuous horizontal motion | 20 Hz normalized world-space input drives authored walking speed/acceleration; the bounded timed one-voxel step remains only outside generated-world body mode | `PARITY` foundation | Keep direct walking on body control time. Retain discrete route/haul cost only for logistics and AI planning. |
 | Sprinting | Faster movement with resource cost | Sprint input targets 5.6 m/s unloaded; carried mass continuously removes the sprint bonus until full load is capped at walking speed; realized speed raises settled locomotion exertion | `DIFFERENT+` | Keep physical encumbrance instead of Minecraft's weightless sprint. |
 | Crouching/sneaking | Slower stance, reduced height, edge behavior, interaction modifier | Persisted 1.5 m crouch, 1.3 m/s cap, ledge guard, and collision-checked stand-up under low ceilings | `PARITY` foundation | Add interaction modifier/camera presentation with the direct-action shell. |
-| Jumping | Vertical impulse | Grounded 20 Hz jump impulse; full carried load reduces authored launch speed from 5.0 to 4.6 m/s; held input cannot retrigger airborne | `DIFFERENT+` foundation | Add impact injury and any explicit jump-event physiological cost only through authored survival accounting. |
-| Gravity/falling | Continuous vertical acceleration and collision | 20 Hz authored gravity, capped fall speed, exact full-cube landing, persisted mid-fall continuation | `PARITY` foundation | Add fall injury and environmental modifiers without weakening deterministic integration. |
-| Fall damage | Distance/velocity-derived damage | No general damage system | `GAP-P1` | Derive impact injury from landing speed and protection rather than copying arbitrary block-count thresholds. |
+| Jumping | Vertical impulse | Grounded 20 Hz jump impulse; full carried load reduces authored launch speed from 5.0 to 4.6 m/s; held input cannot retrigger airborne; ordinary jump landings remain below the authored injury threshold | `DIFFERENT+` foundation | Keep jump and landing consequences on authored survival accounting; add protection only through the future general damage model. |
+| Gravity/falling | Continuous vertical acceleration and collision | 20 Hz authored gravity, 55 m/s fall-speed cap, exact full-cube landing, persisted mid-fall continuation, and observable pre-collision landing impact speed | `PARITY` foundation | Add environmental modifiers without weakening deterministic integration. |
+| Fall damage | Distance/velocity-derived damage | Landing at up to 8 m/s is safe; harder impact scales linearly to lethal vitality loss at terminal speed. Nonzero loss persists until the next slow survival boundary so save/load and death cleanup remain coherent | `DIFFERENT+` narrow | Fold protection/armor and other damage sources into one future damage model rather than copying arbitrary block-count thresholds. |
 | Step-up | Small obstacle auto-step | None | `GAP-P1` | Add bounded step height so ordinary terrain traversal feels familiar. |
 | Friction/slipperiness | Surface-dependent movement | None | `GAP-P1` | Material/block state should provide traction; ice/mud equivalents emerge from it. |
 | Fluids movement | Swimming, buoyancy/drag, current interaction | No world fluid field | `GAP-P1` | Add after spatial fluids. Use density/drag/current rather than special-case-only movement. |
@@ -562,7 +562,7 @@ This is a dependency order, not a promise that every row becomes a separate subs
 
 1. Basic weather, shelter/exposure coupling and environmental thermal effects.
 2. Spatial finite water and player swimming/drowning.
-3. General damage, fall/fire/suffocation, death/corpse/respawn/recovery.
+3. General damage beyond current fall impact: protection/armor, fire/suffocation, death/corpse/respawn/recovery.
 4. One coherent wildlife/threat slice with entity transforms, pathfinding, melee and drops.
 5. Fire as world light/heat/ignition plus existing exact fuel accounting.
 6. Terrain support, dependent/cascading deconstruction with salvage consequences, partial block shapes and common world controls.

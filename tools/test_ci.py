@@ -1604,7 +1604,14 @@ class TestTopologyContractTests(unittest.TestCase):
                     self.assertNotIn(spatial_proxy, sources)
                 elif spec.evidence_mode == gameplay_targets.EVIDENCE_ORDINARY_SPATIAL_PROXY:
                     self.assertIn(spatial_proxy, sources)
-                    self.assertNotIn(exact_local, sources)
+                    if scope == "fieldwork":
+                        # Fieldwork remains spatial-proxy at scope level because broad campaign
+                        # search is abstracted, but its maintained expedition/depletion episodes
+                        # are exact-local. Require both runtimes so the mixed evidence boundary is
+                        # explicit rather than forcing those episodes to duplicate locomotion.
+                        self.assertIn(exact_local, sources)
+                    else:
+                        self.assertNotIn(exact_local, sources)
                 else:
                     self.assertNotIn(exact_local, sources)
                     self.assertNotIn(spatial_proxy, sources)
@@ -3616,14 +3623,14 @@ class GameplayReportContractTests(unittest.TestCase):
 
     def test_fieldwork_exact_local_summary_exposes_independent_multi_trip_order(self) -> None:
         lines = [
-            "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[steps:12 barren-sites:1 target-distance:2 haul-trips:2] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:40000000..45000000mg] tools=[hammer:650000mg pick:2000000mg custody:player-carried] extraction=[order:30000000mg batches:60 ticks:292 complete:true] haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg utilization:360000..1000000ppm] locomotion=[outbound:981000000000nJ/287uL loaded-max:1533000000000nJ/425uL] cache=[returned:30000000mg tool-dropped:true] matter=conserved",
+            "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[body:continuous-generated-terrain edges:12 barren-sites:1 target-distance:2 haul-trips:2] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:40000000..45000000mg] tools=[hammer:650000mg pick:2000000mg custody:player-carried] extraction=[order:30000000mg batches:60 ticks:292 complete:true] haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg utilization:360000..1000000ppm] locomotion=[outbound:981000000000nJ/287uL loaded-max:1533000000000nJ/425uL] cache=[returned:30000000mg tool-dropped:true] matter=conserved",
         ]
         summary = gameplay_report_summary.fieldwork_summary(lines)
         self.assertIsNone(summary)
         exact = gameplay_fieldwork_summary._exact_local_expedition_summary(lines)
         self.assertEqual(
             exact,
-            "exact-local-expedition=[steps:12 barren:1 distance:2 trips:2 survey:2+1 order:30kg batches:60 work:292t load:2kg->9kg..25kg/25kg utilization:360000..1000000ppm step-cost:+56%energy/+48%hydration returned:30kg matter:conserved]",
+            "exact-local-expedition=[body:continuous-generated-terrain edges:12 barren:1 distance:2 trips:2 survey:2+1 order:30kg batches:60 work:292t load:2kg->9kg..25kg/25kg utilization:360000..1000000ppm move-cost:+56%energy/+48%hydration returned:30kg matter:conserved]",
         )
 
     def test_fieldwork_summary_exposes_generated_exact_local_parity(self) -> None:
@@ -3888,17 +3895,17 @@ class GameplayReportContractTests(unittest.TestCase):
     def test_progression_summary_exposes_generated_exact_local_campaign_parity(self) -> None:
         lines = [
             "PROGRESSION EXPERIENCE seed=0x1 sample=organic local-copper-sequence=pick-first selected-reinvestment=[completed]",
-            "PROGRESSION LOCAL CAMPAIGN seed=0x1 sample=organic evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:72] information=[regional:800000..1000000ppm surface:4 resolved:3 refinement:true hard:850000..900000ppm bulk:500000..550000ppm direct:975000..1000000ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:200000mg direct-first:20000mg direct-second:8000mg shortage:true haul-trips:6] decision=[selected:pick-first rule:hard-lower>owned-bulk bulk-grade:525000ppm] first-investment=[local:true handling:drop-modify-repickup-pick] mechanization=[line-local:true feed:hard-sample grade:875000ppm prep:482t charge:2t crush:21t separation:3t recovered:20000mg] autonomy=[next-feed:200000mg mining:2t overlap:4t idle:17t] second-investment=[local:true handling:stationary-local-machine-crank] convergence=[both-upgrades:true hard-sample-returned:200000mg] matter=conserved",
+            "PROGRESSION LOCAL CAMPAIGN seed=0x1 sample=organic evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:72] information=[regional:800000..1000000ppm surface:4 resolved:3 refinement:true hard:850000..900000ppm bulk:500000..550000ppm direct:975000..1000000ppm] field-kit=[assembled-after-admission:true catalog:true rediscovered:true carried:true] extraction=[bulk:200000mg direct-first:20000mg direct-second:8000mg shortage:true haul-trips:6] decision=[selected:pick-first rule:hard-lower>owned-bulk bulk-grade:525000ppm] first-investment=[local:true handling:drop-modify-repickup-pick] mechanization=[line-local:true catalog:true feed:hard-sample grade:875000ppm prep:482t charge:2t crush:21t separation:3t recovered:20000mg] autonomy=[next-feed:200000mg mining:2t overlap:4t idle:17t] second-investment=[local:true handling:stationary-local-machine-crank] convergence=[both-upgrades:true hard-sample-returned:200000mg] matter=conserved",
             "PROGRESSION LOCAL PARITY seed=0x1 sample=organic evidence=matched-generated-world exact-local=true proxy-campaign=true regional-evidence:matched clue-evidence:matched owned-sample:matched shortage:matched decision:matched feed-selection:matched recovered-copper:matched convergence:matched autonomy:exact-local steps:72 haul-trips:6 overlap:4t idle:17t proxy-scope=steady-stockpiling+maintenance+reinvestment",
             "PROGRESSION EXPERIENCE seed=0x2 sample=replay local-copper-sequence=crank-first selected-reinvestment=[completed]",
-            "PROGRESSION LOCAL CAMPAIGN seed=0x2 sample=replay evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:66] information=[regional:700000..1000000ppm surface:4 resolved:4 refinement:false hard:450000..500000ppm bulk:700000..750000ppm direct:975000..1000000ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:150000mg direct-first:20000mg direct-second:9000mg shortage:true haul-trips:5] decision=[selected:crank-first rule:hard-lower>owned-bulk bulk-grade:725000ppm] first-investment=[local:true handling:stationary-local-machine-crank] mechanization=[line-local:true feed:owned-bulk grade:725000ppm prep:481t charge:1t crush:21t separation:3t recovered:20000mg] autonomy=[next-feed:150000mg mining:3t overlap:8t idle:13t] second-investment=[local:true handling:drop-modify-repickup-pick] convergence=[both-upgrades:true hard-sample-returned:150000mg] matter=conserved",
+            "PROGRESSION LOCAL CAMPAIGN seed=0x2 sample=replay evidence=ordinary-exact-local generation=matched-progression-world corridor=[workshop:-1 clues:0,2,4,6 max-distance:7 steps:66] information=[regional:700000..1000000ppm surface:4 resolved:4 refinement:false hard:450000..500000ppm bulk:700000..750000ppm direct:975000..1000000ppm] field-kit=[assembled-after-admission:true catalog:true rediscovered:true carried:true] extraction=[bulk:150000mg direct-first:20000mg direct-second:9000mg shortage:true haul-trips:5] decision=[selected:crank-first rule:hard-lower>owned-bulk bulk-grade:725000ppm] first-investment=[local:true handling:stationary-local-machine-crank] mechanization=[line-local:true catalog:true feed:owned-bulk grade:725000ppm prep:481t charge:1t crush:21t separation:3t recovered:20000mg] autonomy=[next-feed:150000mg mining:3t overlap:8t idle:13t] second-investment=[local:true handling:drop-modify-repickup-pick] convergence=[both-upgrades:true hard-sample-returned:150000mg] matter=conserved",
             "PROGRESSION LOCAL PARITY seed=0x2 sample=replay evidence=matched-generated-world exact-local=true proxy-campaign=true regional-evidence:matched clue-evidence:matched owned-sample:matched shortage:matched decision:matched feed-selection:matched recovered-copper:matched convergence:matched autonomy:exact-local steps:66 haul-trips:5 overlap:8t idle:13t proxy-scope=steady-stockpiling+maintenance+reinvestment",
         ]
         summary = gameplay_report_summary.progression_summary(lines)
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertIn(
-            "generated-exact-local-campaign=[cases:2 parity:2/2 decision=[pick:1 crank:1] refinement:1 steps:66..72 hauls:5..6 feed=[hard:1 bulk:1] line-local:2/2 autonomy=[next-feed:150000..200000mg overlap:4..8t idle:13..17t] convergence:2/2 drop-modify=[first:1 second:1]]",
+            "generated-exact-local-campaign=[cases:2 parity:2/2 decision=[pick:1 crank:1] refinement:1 steps:66..72 hauls:5..6 feed=[hard:1 bulk:1] line-local:2/2 line-catalog:2/2 field-kit-catalog:2/2 autonomy=[next-feed:150000..200000mg overlap:4..8t idle:13..17t] convergence:2/2 drop-modify=[first:1 second:1]] continuous-body=0/2",
             summary,
         )
         digest = gameplay_report_summary._digest_summary(summary, scoped=True)

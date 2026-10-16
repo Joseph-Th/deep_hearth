@@ -1,8 +1,8 @@
 //! Contracts for finite renderer-neutral local illumination.
 
 use crate::content::{
-    CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG, FORM_LUMP, MATERIAL_STONE,
-    MATERIAL_WOOD, build_registries,
+    BLOCK_STATE_STONE, CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG, FORM_LUMP,
+    MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
@@ -15,6 +15,10 @@ use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
+use crate::world::{
+    BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+    set_generated_block_for_test, validate_generate_chunk,
+};
 
 use super::{assess_local_illumination, project_local_light_sources};
 
@@ -22,7 +26,43 @@ use super::{assess_local_illumination, project_local_light_sources};
 fn finite_campfire_light_appears_only_while_stored_heat_exists() {
     let registries = build_registries();
     let mut state = AppState::new();
-    let origin = VoxelCoord::new(0, 0, 0);
+    let horizontal = VoxelCoord::new(8, 0, 8);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x4C49_4748_545F_5445),
+        ChunkCoord::containing(horizontal),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("light fixture terrain generation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("light fixture terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| {
+            state
+                .world()
+                .block_at(VoxelCoord::new(horizontal.x(), y, horizontal.z()))
+                == Some(BLOCK_STATE_STONE)
+        })
+        .unwrap_or_else(|| panic!("light fixture generated column has no surface"));
+    let origin = VoxelCoord::new(horizontal.x(), surface_y + 1, horizontal.z());
+    for x in origin.x()..=origin.x() + 7 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, origin.y() - 1, origin.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in origin.y()..=origin.y() + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(x, y, origin.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
     validate_admit_player(&registries, &state, origin)
         .unwrap_or_else(|error| panic!("light fixture player admission failed: {error}"))
         .commit(&mut state)
@@ -69,18 +109,35 @@ fn finite_campfire_light_appears_only_while_stored_heat_exists() {
     assert_eq!(sources[0].level(), 7);
     assert_eq!(at_fire.level(), 7);
     assert_eq!(at_fire.strongest_source(), Some(fire));
+    let one_away = VoxelCoord::new(origin.x() + 1, origin.y(), origin.z());
+    let two_away = VoxelCoord::new(origin.x() + 2, origin.y(), origin.z());
+    let six_away = VoxelCoord::new(origin.x() + 6, origin.y(), origin.z());
+    let seven_away = VoxelCoord::new(origin.x() + 7, origin.y(), origin.z());
     assert_eq!(
-        assess_local_illumination(&registries, &state, VoxelCoord::new(1, 0, 0)).level(),
+        assess_local_illumination(&registries, &state, one_away).level(),
         6
     );
     assert_eq!(
-        assess_local_illumination(&registries, &state, VoxelCoord::new(6, 0, 0)).level(),
+        assess_local_illumination(&registries, &state, six_away).level(),
         1
     );
     assert_eq!(
-        assess_local_illumination(&registries, &state, VoxelCoord::new(7, 0, 0)).level(),
+        assess_local_illumination(&registries, &state, seven_away).level(),
         0
     );
+
+    set_generated_block_for_test(registries.world(), &mut state, one_away, BLOCK_STATE_STONE);
+    assert_eq!(
+        assess_local_illumination(&registries, &state, one_away).level(),
+        0,
+        "an opaque world cell must not carry local block light"
+    );
+    assert_eq!(
+        assess_local_illumination(&registries, &state, two_away).level(),
+        3,
+        "local block light should route around one opaque cell with the longer path cost"
+    );
+    set_generated_block_for_test(registries.world(), &mut state, one_away, BlockStateId::AIR);
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("lit campfire save failed: {error}"));

@@ -8,6 +8,7 @@ mod element_execution;
 mod geometry;
 mod load;
 mod member_projection;
+mod placement_projection;
 mod player_construction;
 mod player_placement;
 mod state;
@@ -45,6 +46,10 @@ pub use load::{calculate_aggregate_weight_force_ceiling, calculate_weight_force_
 pub use member_projection::{
     PrismaticMemberLoadProjection, PrismaticMemberLoadRequest, StructuralMemberLoadProjectionError,
     project_prismatic_member_load,
+};
+pub use placement_projection::{
+    PlayerStructuralPlacementProjection, PlayerStructuralPlacementProjectionError,
+    StructuralSupportPlacementProjection, project_player_multi_supported_structural_placement,
 };
 pub use player_construction::{
     PlayerStructuralConstructionCommitError, PlayerStructuralConstructionError,

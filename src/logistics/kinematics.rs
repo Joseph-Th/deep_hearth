@@ -5,7 +5,7 @@ mod horizontal;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Speed};
 use crate::core::state::AppState;
 use crate::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::registry::Registries;
@@ -519,7 +519,7 @@ fn project_player_walk_body_tick(
         before.vertical_velocity(),
         PlayerStance::Standing,
     );
-    let (after, _) = resolve_vertical_control(
+    let (after, _, _) = resolve_vertical_control(
         registries,
         state,
         horizontal_body,
@@ -567,6 +567,7 @@ pub struct PlayerBodyMotionOutcome {
     before: PlayerBodyState,
     after: PlayerBodyState,
     grounded: bool,
+    fall_impact: Option<PlayerFallImpactOutcome>,
 }
 
 impl PlayerBodyMotionOutcome {
@@ -584,6 +585,31 @@ impl PlayerBodyMotionOutcome {
     pub const fn grounded(self) -> bool {
         self.grounded
     }
+
+    #[must_use]
+    pub const fn fall_impact(self) -> Option<PlayerFallImpactOutcome> {
+        self.fall_impact
+    }
+}
+
+/// Observable downward landing consequence captured by the continuous body solver.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerFallImpactOutcome {
+    impact_speed: Speed,
+    vitality_loss_ppm: u32,
+}
+
+impl PlayerFallImpactOutcome {
+    #[must_use]
+    pub const fn impact_speed(self) -> Speed {
+        self.impact_speed
+    }
+
+    #[must_use]
+    pub const fn vitality_loss_ppm(self) -> u32 {
+        self.vitality_loss_ppm
+    }
 }
 
 pub(crate) struct PlayerBodyMotionPlan {
@@ -593,12 +619,18 @@ pub(crate) struct PlayerBodyMotionPlan {
     body: PlayerBodyState,
     locomotion_exertion: LocomotionExertionAccumulator,
     settled_locomotion_exertion: SurvivalExertion,
+    pending_fall_vitality_loss_ppm: u32,
+    settled_fall_vitality_loss_ppm: u32,
     outcome: Option<PlayerBodyMotionOutcome>,
 }
 
 impl PlayerBodyMotionPlan {
     pub(crate) const fn settled_locomotion_exertion(&self) -> SurvivalExertion {
         self.settled_locomotion_exertion
+    }
+
+    pub(crate) const fn settled_fall_vitality_loss_ppm(&self) -> u32 {
+        self.settled_fall_vitality_loss_ppm
     }
 }
 
@@ -764,7 +796,7 @@ pub(crate) fn decide_player_body_motion(
     };
     let horizontal_body =
         resolve_horizontal_control(registries, state, player, locomotion, availability, input)?;
-    let (after, grounded) = resolve_vertical_control(
+    let (after, grounded, fall_impact) = resolve_vertical_control(
         registries,
         state,
         horizontal_body,
@@ -773,6 +805,7 @@ pub(crate) fn decide_player_body_motion(
         input,
     )?;
     let exertion_before = player.locomotion_exertion();
+    let pending_fall_before = player.pending_fall_vitality_loss_ppm();
     let (locomotion_exertion, settled_locomotion_exertion) = resolve_control_exertion(
         state,
         before,
@@ -782,7 +815,23 @@ pub(crate) fn decide_player_body_motion(
         input,
         settle_pending_exertion,
     )?;
-    if after == before && locomotion_exertion == exertion_before {
+    let settled_fall_vitality_loss_ppm = if settle_pending_exertion {
+        pending_fall_before
+    } else {
+        0
+    };
+    let pending_fall_base = if settle_pending_exertion {
+        0
+    } else {
+        pending_fall_before
+    };
+    let pending_fall_vitality_loss_ppm = pending_fall_base
+        .saturating_add(fall_impact.map_or(0, PlayerFallImpactOutcome::vitality_loss_ppm))
+        .min(crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION);
+    if after == before
+        && locomotion_exertion == exertion_before
+        && pending_fall_vitality_loss_ppm == pending_fall_before
+    {
         return Ok(None);
     }
     if !state.can_spend_logistics_revisions(1) {
@@ -799,10 +848,13 @@ pub(crate) fn decide_player_body_motion(
         body: after,
         locomotion_exertion,
         settled_locomotion_exertion,
+        pending_fall_vitality_loss_ppm,
+        settled_fall_vitality_loss_ppm,
         outcome: (after != before).then_some(PlayerBodyMotionOutcome {
             before,
             after,
             grounded,
+            fall_impact,
         }),
     }))
 }
@@ -959,7 +1011,7 @@ fn resolve_vertical_control(
     locomotion: LocomotionDefinition,
     availability: PlayerControlAvailability,
     input: PlayerControlInput,
-) -> Result<(PlayerBodyState, bool), PlayerBodyMotionError> {
+) -> Result<(PlayerBodyState, bool, Option<PlayerFallImpactOutcome>), PlayerBodyMotionError> {
     let horizontal_bounds = horizontal_voxel_bounds(horizontal_body, locomotion)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
     let velocity_before = jump_or_existing_vertical_velocity(
@@ -991,6 +1043,13 @@ fn resolve_vertical_control(
         proposed_y,
         vertical_velocity,
     )?;
+    let fall_impact = (!availability.grounded && grounded && vertical_velocity < 0).then(|| {
+        let impact_speed = Speed::from_nanometers_per_second(vertical_velocity.unsigned_abs());
+        PlayerFallImpactOutcome {
+            impact_speed,
+            vitality_loss_ppm: locomotion.fall_impact_vitality_loss_ppm(impact_speed),
+        }
+    });
     let position = WorldPoint::new(
         horizontal_body.foot_position().x_nanometers(),
         resolved_y,
@@ -1004,6 +1063,7 @@ fn resolve_vertical_control(
             horizontal_body.stance(),
         ),
         grounded,
+        fall_impact,
     ))
 }
 
@@ -1086,6 +1146,7 @@ pub(crate) fn apply_player_body_motion(
         plan.expected_body,
         plan.body,
         plan.locomotion_exertion,
+        plan.pending_fall_vitality_loss_ppm,
     );
     plan.outcome
 }

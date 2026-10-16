@@ -55,6 +55,7 @@ fn physiology_with_carry(
                     Speed::from_nanometers_per_second(5_600_000_000),
                     Speed::from_nanometers_per_second(5_000_000_000),
                     Speed::from_nanometers_per_second(4_600_000_000),
+                    Speed::from_nanometers_per_second(8_000_000_000),
                     Speed::from_nanometers_per_second(55_000_000_000),
                 ),
                 Acceleration::from_micrometers_per_second_squared(20_000_000),
@@ -110,6 +111,10 @@ fn physiology_exposes_explicit_body_kinematics() {
         crate::core::quantity::Length::from_micrometers(4_500_000)
     );
     assert_eq!(
+        locomotion.safe_landing_speed(),
+        Speed::from_nanometers_per_second(8_000_000_000)
+    );
+    assert_eq!(
         locomotion.maximum_fall_speed(),
         Speed::from_nanometers_per_second(55_000_000_000)
     );
@@ -136,6 +141,27 @@ fn physiology_exposes_explicit_body_kinematics() {
     assert_eq!(
         locomotion.horizontal_acceleration(),
         Acceleration::from_micrometers_per_second_squared(20_000_000)
+    );
+}
+
+#[test]
+fn fall_impact_injury_is_safe_at_threshold_and_lethal_at_terminal_speed() {
+    let locomotion = physiology(1, 1).locomotion();
+    assert_eq!(
+        locomotion.fall_impact_vitality_loss_ppm(Speed::from_nanometers_per_second(7_999_999_999)),
+        0
+    );
+    assert_eq!(
+        locomotion.fall_impact_vitality_loss_ppm(locomotion.safe_landing_speed()),
+        0
+    );
+    assert_eq!(
+        locomotion.fall_impact_vitality_loss_ppm(Speed::from_nanometers_per_second(31_500_000_000)),
+        500_000
+    );
+    assert_eq!(
+        locomotion.fall_impact_vitality_loss_ppm(locomotion.maximum_fall_speed()),
+        1_000_000
     );
 }
 

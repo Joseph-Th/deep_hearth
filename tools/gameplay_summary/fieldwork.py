@@ -652,7 +652,7 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
         raise ValueError("fieldwork report requires at most one maintained exact-local expedition")
     line = expeditions[0]
     route = re.search(
-        r"\broute=\[steps:(\d+) barren-sites:(\d+) target-distance:(\d+) haul-trips:(\d+)\]",
+        r"\broute=\[body:([^\s\]]+) edges:(\d+) barren-sites:(\d+) target-distance:(\d+) haul-trips:(\d+)\]",
         line,
     )
     survey = re.search(r"\bsurvey=\[inspections:(\d+) detailed:(\d+) ", line)
@@ -689,7 +689,7 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
     ) // outbound_hydration
     return (
         "exact-local-expedition=["
-        f"steps:{route.group(1)} barren:{route.group(2)} distance:{route.group(3)} trips:{route.group(4)} "
+        f"body:{route.group(1)} edges:{route.group(2)} barren:{route.group(3)} distance:{route.group(4)} trips:{route.group(5)} "
         f"survey:{survey.group(1)}+{survey.group(2)} "
         f"order:{_scaled_value(int(extraction.group(1)), 1_000_000, 'kg')} "
         f"batches:{extraction.group(2)} work:{extraction.group(3)}t "
@@ -698,7 +698,7 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
         f"{_scaled_value(int(haul.group(3)), 1_000_000, 'kg')}"
         f"/{_scaled_value(int(haul.group(4)), 1_000_000, 'kg')} "
         f"utilization:{haul.group(5)}..{haul.group(6)}ppm "
-        f"step-cost:+{energy_delta_pct}%energy/+{hydration_delta_pct}%hydration "
+        f"move-cost:+{energy_delta_pct}%energy/+{hydration_delta_pct}%hydration "
         f"returned:{_scaled_value(int(returned.group(1)), 1_000_000, 'kg')} "
         "matter:conserved]"
     )

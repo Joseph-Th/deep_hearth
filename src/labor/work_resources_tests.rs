@@ -50,6 +50,7 @@ fn budget_includes_basal_and_incremental_work_costs() {
                     crate::core::quantity::Speed::from_nanometers_per_second(5_600_000_000),
                     crate::core::quantity::Speed::from_nanometers_per_second(5_000_000_000),
                     crate::core::quantity::Speed::from_nanometers_per_second(4_600_000_000),
+                    crate::core::quantity::Speed::from_nanometers_per_second(8_000_000_000),
                     crate::core::quantity::Speed::from_nanometers_per_second(55_000_000_000),
                 ),
                 crate::core::quantity::Acceleration::from_micrometers_per_second_squared(

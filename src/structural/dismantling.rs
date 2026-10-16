@@ -28,9 +28,6 @@ pub enum PlayerStructuralDismantlingError {
     UnknownElement {
         element: StructuralElementId,
     },
-    ElementNotGrounded {
-        element: StructuralElementId,
-    },
     ElementNotRecoverable {
         element: StructuralElementId,
     },
@@ -38,9 +35,6 @@ pub enum PlayerStructuralDismantlingError {
         element: StructuralElementId,
     },
     ElementHasDependents {
-        element: StructuralElementId,
-    },
-    ElementHasMemberSupports {
         element: StructuralElementId,
     },
     ElementHasExternalLoad {
@@ -206,9 +200,6 @@ fn target_record<'a>(
         .structures()
         .get_element(element)
         .ok_or(PlayerStructuralDismantlingError::UnknownElement { element })?;
-    if !record.is_grounded() {
-        return Err(PlayerStructuralDismantlingError::ElementNotGrounded { element });
-    }
     if record.embodied_mass().is_zero()
         || !matches!(
             record.lifecycle(),
@@ -216,13 +207,6 @@ fn target_record<'a>(
         )
     {
         return Err(PlayerStructuralDismantlingError::ElementNotRecoverable { element });
-    }
-    if state
-        .structures()
-        .supports(element)
-        .is_some_and(|mut supports| supports.next().is_some())
-    {
-        return Err(PlayerStructuralDismantlingError::ElementHasMemberSupports { element });
     }
     if state.structures().elements().any(|candidate| {
         candidate.id() != element
