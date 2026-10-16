@@ -42,6 +42,77 @@ fn passive_dissipation_registries() -> Registries {
 }
 
 #[test]
+fn grounded_stationary_generated_body_can_fast_forward_one_slow_tick() {
+    let (registries, mut state, _floor_y) = generated_grounded_player_at(0, 0);
+    let body_before = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("stationary fast-forward player disappeared"))
+        .body();
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stationary generated-body fast-forward failed: {error}"));
+
+    assert_eq!(outcome.tick(), SimulationTick::new(1));
+    assert_eq!(
+        state.control_tick(),
+        ControlTick::new(CONTROL_TICKS_PER_SIMULATION_TICK)
+    );
+    assert_eq!(
+        state
+            .logistics()
+            .player()
+            .copied()
+            .unwrap_or_else(|| panic!("stationary fast-forward player disappeared after tick"))
+            .body(),
+        body_before
+    );
+}
+
+#[test]
+fn generated_body_fast_forward_rejects_motion_and_crouch() {
+    let (registries, mut moving, _floor_y) = generated_grounded_player_at(0, 0);
+    let movement = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("fast-forward motion input failed: {error}")),
+    );
+    let _ = advance_control_tick_with_input(&registries, &mut moving, movement)
+        .unwrap_or_else(|error| panic!("fast-forward motion setup failed: {error}"));
+    let before_moving_fast_forward = moving.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut moving),
+        Err(TickError::ControlSteppingRequired {
+            current: ControlTick::new(1),
+        })
+    );
+    assert_eq!(moving, before_moving_fast_forward);
+
+    let (_, mut crouching, _floor_y) = generated_grounded_player_at(0, 0);
+    let _ = advance_control_tick_with_input(
+        &registries,
+        &mut crouching,
+        PlayerControlInput::NEUTRAL.with_crouch(true),
+    )
+    .unwrap_or_else(|error| panic!("fast-forward crouch setup failed: {error}"));
+    assert_eq!(
+        crouching
+            .logistics()
+            .player()
+            .map(|player| player.body().stance()),
+        Some(PlayerStance::Crouching)
+    );
+    let before_crouched_fast_forward = crouching.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut crouching),
+        Err(TickError::ControlSteppingRequired {
+            current: ControlTick::new(1),
+        })
+    );
+    assert_eq!(crouching, before_crouched_fast_forward);
+}
+
+#[test]
 fn generated_neighborhood_demand_removes_the_missing_chunk_movement_wall() {
     let (registries, mut state, floor_y) = generated_grounded_player_at(15, 0);
     let demand = validate_generate_player_neighborhood(&registries, &state)

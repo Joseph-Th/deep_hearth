@@ -30,11 +30,17 @@ def wilderness_summary(lines: list[str]) -> str | None:
         raise ValueError("wilderness report has multiple direct-use witnesses")
     direct_use = ""
     if direct_use_lines:
+        movement = re.search(
+            r"\bmovement=continuous-body route-voxels=(\d+) control-ticks=(\d+\+\d+)",
+            direct_use_lines[0],
+        )
+        if movement is None:
+            raise ValueError("wilderness direct-use witness lost continuous-body movement telemetry")
         direct_use = (
-            "direct-use=["
+            f"direct-use=[body-move={movement.group(1)}v/{movement.group(2)}ct "
             + compact_fields(
                 direct_use_lines[0],
-                ("route-steps", "input", "queue", "gather", "water", "hydration", "timed"),
+                ("input", "queue", "gather", "water", "hydration", "timed"),
             )
             + "]"
         )

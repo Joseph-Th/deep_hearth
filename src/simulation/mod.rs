@@ -27,8 +27,9 @@ use crate::labor::{
     decide_player_work_control_tick, decide_player_work_tick, player_work_exertion,
 };
 use crate::logistics::{
-    PlayerControlInput, apply_player_body_motion, apply_player_step_tick,
-    decide_player_body_motion, decide_player_step_tick, player_body_uses_generated_world,
+    PlayerControlInput, PlayerStance, apply_player_body_motion, apply_player_step_tick,
+    decide_player_body_motion, decide_player_step_tick, player_body_is_grounded,
+    player_body_uses_generated_world,
 };
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
@@ -36,7 +37,7 @@ use crate::registry::Registries;
 use crate::structural::{apply_structural_construction_tick, apply_structural_dismantling_tick};
 use crate::surface::{
     apply_automatic_surface_drop_pickup, apply_surface_gathering_tick,
-    decide_automatic_surface_drop_pickup,
+    available_player_world_drops, decide_automatic_surface_drop_pickup,
 };
 use crate::survival::{
     SurvivalExertion, apply_survival_tick, assess_survival, control_exertion_between,
@@ -244,17 +245,46 @@ fn map_block_excavation_tick_error(error: BlockExcavationTickError) -> TickError
     }
 }
 
-/// Advances atomically to the next slow-simulation boundary when no control-rate body physics
-/// needs intervening steps.
+fn control_stepping_required(registries: &Registries, state: &AppState) -> bool {
+    if state.logistics().has_pending_direct_action()
+        || matches!(
+            state.player_work().active(),
+            Some(PlayerWork::BlockExcavation { .. })
+        )
+        || available_player_world_drops(state).next().is_some()
+    {
+        return true;
+    }
+    let locomotion = registries.survival().physiology().locomotion();
+    if !player_body_uses_generated_world(state, locomotion) {
+        return false;
+    }
+    let player =
+        state.logistics().player().copied().unwrap_or_else(|| {
+            unreachable!("generated-world body requires admitted player logistics")
+        });
+    let body = player.body();
+    let horizontal = body.horizontal_velocity();
+    body.stance() != PlayerStance::Standing
+        || horizontal.x_nanometers_per_second() != 0
+        || horizontal.z_nanometers_per_second() != 0
+        || body.vertical_velocity().nanometers_per_second() != 0
+        || !player_body_is_grounded(registries, state)
+        || player.locomotion_exertion().pending() != SurvivalExertion::REST
+}
+
+/// Advances atomically to the next slow-simulation boundary when no control-rate consequence can
+/// occur during the skipped neutral-control interval.
 ///
-/// This helper remains valid for headless/process-only states and players outside generated body
-/// truth. It returns `TickError::ControlSteppingRequired` when generated-world body physics is
-/// active rather than skipping authoritative 50 ms gravity/collision effects.
+/// Headless/process-only states, players outside generated body truth, and a standing grounded
+/// motionless generated-world player with settled locomotion may use this fast path. Buffered
+/// input, crouch/air/motion, control-rate excavation, and local automatic-pickup drops still require
+/// exact 50 ms stepping and return `TickError::ControlSteppingRequired`.
 pub fn advance_tick(
     registries: &Registries,
     state: &mut AppState,
 ) -> Result<TickOutcome, TickError> {
-    if player_body_uses_generated_world(state, registries.survival().physiology().locomotion()) {
+    if control_stepping_required(registries, state) {
         return Err(TickError::ControlSteppingRequired {
             current: state.control_tick(),
         });

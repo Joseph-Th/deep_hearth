@@ -3,8 +3,9 @@
 //! Built-in fresh-world generation supplies a bounded traversable opening graph with forage,
 //! optional finite water, and a later stone/timber choice distributed before actor admission. Immediate
 //! observation, acquisition, movement, fabrication, storage, consumption, survival, and time
-//! consequences after admission use canonical runtime owners. General terrain geometry,
-//! pathfinding, and hydrology remain absent.
+//! consequences after admission use canonical runtime owners. The direct-use witness additionally
+//! composes deterministic generated terrain with 20 Hz continuous-body locomotion; general
+//! pathfinding, route generation, and hydrology remain absent.
 
 use std::{env, num::NonZeroU64};
 
@@ -12,9 +13,9 @@ use deep_hearth::content::gameplay_fixture::{
     admit_player_at_hunger_warning_boundary, admit_player_at_hydration_warning_boundary,
 };
 use deep_hearth::content::{
-    CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE,
-    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    BLOCK_STATE_STONE, CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY,
+    ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP,
+    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
     STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
@@ -36,7 +37,8 @@ use deep_hearth::inventory::{
 };
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
-    PlayerStepError, assess_player_carrying, validate_drop_to_ground, validate_start_player_step,
+    HorizontalControlInput, PlayerControlInput, PlayerStepError, assess_player_carrying,
+    validate_drop_to_ground, validate_start_player_step,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -45,7 +47,7 @@ use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, SecondaryControlIntent, advance_control_tick,
-    advance_control_tick_with_direct_input, advance_tick,
+    advance_control_tick_with_direct_input, advance_control_tick_with_input, advance_tick,
 };
 use deep_hearth::spatial::{
     VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelBounds, VoxelCoord,
@@ -66,7 +68,10 @@ use deep_hearth::survival::{
     project_survival_resource_budget, validate_drink_store_to_hydration_target,
     validate_eat_lot_to_metabolic_target,
 };
-use deep_hearth::world::WorldGenerationSeed;
+use deep_hearth::world::{
+    ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed, validate_generate_chunk,
+    validate_generate_player_neighborhood,
+};
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
 use super::exact_local_runtime::{
@@ -76,6 +81,89 @@ use super::seed;
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+
+fn generated_wilderness_surface_spawn(registries: &Registries, state: &mut AppState) -> VoxelCoord {
+    let horizontal = VoxelCoord::new(0, 0, 0);
+    validate_generate_chunk(
+        registries,
+        state,
+        WILDERNESS_WORLD_SEED,
+        ChunkCoord::containing(horizontal),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("wilderness terrain generation failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("wilderness terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| {
+            state
+                .world()
+                .block_at(VoxelCoord::new(horizontal.x(), y, horizontal.z()))
+                == Some(BLOCK_STATE_STONE)
+        })
+        .unwrap_or_else(|| panic!("wilderness generated spawn column has no solid surface"));
+    VoxelCoord::new(horizontal.x(), surface_y + 1, horizontal.z())
+}
+
+fn walk_body_to_adjacent(
+    registries: &Registries,
+    state: &mut AppState,
+    destination: VoxelCoord,
+    context: &str,
+) -> u64 {
+    let origin = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("wilderness {context} lost admitted player"));
+    assert!(
+        origin.is_face_adjacent_to(destination),
+        "wilderness {context} direct body route must be one face-adjacent voxel"
+    );
+    assert_eq!(origin.y(), destination.y());
+    let x = i32::try_from(destination.x() - origin.x())
+        .unwrap_or_else(|_| unreachable!("adjacent wilderness x delta fits i32"))
+        * VIEW_DIRECTION_PARTS_PER_MILLION;
+    let z = i32::try_from(destination.z() - origin.z())
+        .unwrap_or_else(|_| unreachable!("adjacent wilderness z delta fits i32"))
+        * VIEW_DIRECTION_PARTS_PER_MILLION;
+    let horizontal = HorizontalControlInput::new(x, z)
+        .unwrap_or_else(|error| panic!("wilderness {context} movement input failed: {error}"));
+    let movement = PlayerControlInput::new(horizontal);
+    let mut control_ticks = 0_u64;
+    while state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.position() != destination)
+    {
+        assert!(
+            control_ticks < 80,
+            "wilderness {context} body movement did not reach destination"
+        );
+        let _ = advance_control_tick_with_input(registries, state, movement)
+            .unwrap_or_else(|error| panic!("wilderness {context} movement failed: {error}"));
+        control_ticks += 1;
+    }
+    while state.logistics().player().is_some_and(|player| {
+        let velocity = player.body().horizontal_velocity();
+        velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
+    }) {
+        assert!(
+            control_ticks < 100,
+            "wilderness {context} body movement did not settle"
+        );
+        let _ = advance_control_tick(registries, state)
+            .unwrap_or_else(|error| panic!("wilderness {context} braking failed: {error}"));
+        control_ticks += 1;
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(destination),
+            "wilderness {context} braking overshot the intended local interaction voxel"
+        );
+    }
+    control_ticks
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WildernessStartProfile {
@@ -131,24 +219,25 @@ impl WildernessStartProfile {
 fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(emit_report: bool) {
     let registries = build_registries();
     let mut state = AppState::new();
-    validate_generate_initial_wilderness(
-        &registries,
-        &state,
-        WILDERNESS_WORLD_SEED,
-        STATIONARY_PLAYER_ORIGIN,
-    )
-    .unwrap_or_else(|error| panic!("direct-water wilderness generation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("direct-water wilderness generation commit failed: {error}"));
-    let _ = admit_player_at_hydration_warning_boundary(
-        &registries,
-        &mut state,
-        STATIONARY_PLAYER_ORIGIN,
-    );
+    let spawn = generated_wilderness_surface_spawn(&registries, &mut state);
+    validate_generate_initial_wilderness(&registries, &state, WILDERNESS_WORLD_SEED, spawn)
+        .unwrap_or_else(|error| panic!("direct-water wilderness generation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("direct-water wilderness generation commit failed: {error}")
+        });
+    let _ = admit_player_at_hydration_warning_boundary(&registries, &mut state, spawn);
+    if let Some(demand) = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap_or_else(|error| panic!("direct-use wilderness terrain demand failed: {error}"))
+    {
+        demand.commit(&mut state).unwrap_or_else(|error| {
+            panic!("direct-use wilderness terrain demand commit failed: {error}")
+        });
+    }
     assert_eq!(state.logistics().active_selection(), None);
 
     let forage = adjacent_surface_resource(&state, CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD));
-    step_to(
+    let forage_movement_ticks = walk_body_to_adjacent(
         &registries,
         &mut state,
         forage.position(),
@@ -208,7 +297,7 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
     );
 
     let water = adjacent_drinkable_source(&registries, &state);
-    step_to(
+    let water_movement_ticks = walk_body_to_adjacent(
         &registries,
         &mut state,
         water.position(),
@@ -282,8 +371,10 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
             .map(|store| store.stored_volume())
             .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
         std::println!(
-            "WILDERNESS DIRECT USE seed=0x{:016X} route-steps=2 input=one-shot-empty-hand-secondary queue=[gather:{}ct drink:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route-voxels=2 control-ticks={}+{} input=one-shot-empty-hand-secondary queue=[gather:{}ct drink:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
             WILDERNESS_WORLD_SEED.value(),
+            forage_movement_ticks,
+            water_movement_ticks,
             forage_queue_ticks,
             water_queue_ticks,
             forage_before.milligrams(),
