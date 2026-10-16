@@ -5,6 +5,7 @@ mod horizontal;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::registry::Registries;
@@ -60,6 +61,11 @@ impl Error for PlayerBodyMotionError {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWalkProjectionError {
     PathEmpty,
+    ProjectedCapacityZero,
+    ProjectedLoadExceedsCapacity {
+        carried: Mass,
+        capacity: Mass,
+    },
     PlayerNotAdmitted,
     RequiresSimulationBoundary,
     PlayerBusy,
@@ -87,6 +93,15 @@ impl Display for PlayerWalkProjectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PathEmpty => formatter.write_str("walk projection path is empty"),
+            Self::ProjectedCapacityZero => {
+                formatter.write_str("walk projection carrying capacity is zero")
+            }
+            Self::ProjectedLoadExceedsCapacity { carried, capacity } => write!(
+                formatter,
+                "walk projection carried mass {} mg exceeds capacity {} mg",
+                carried.milligrams(),
+                capacity.milligrams()
+            ),
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
             Self::RequiresSimulationBoundary => {
                 formatter.write_str("walk projection requires a settled simulation boundary")
@@ -195,12 +210,42 @@ pub fn project_player_walk_path(
     state: &AppState,
     destinations: &[VoxelCoord],
 ) -> Result<PlayerWalkProjection, PlayerWalkProjectionError> {
+    let carrying =
+        assess_player_carrying(state).ok_or(PlayerWalkProjectionError::PlayerNotAdmitted)?;
+    project_player_walk_path_for_load(
+        registries,
+        state,
+        destinations,
+        carrying.stored(),
+        carrying.capacity(),
+    )
+}
+
+/// Projects an explicit walk path using a hypothetical future carried load.
+///
+/// Ordinary walking speed is load-independent; only locomotion exertion is load-sensitive. This
+/// lets callers price a planned return haul without manufacturing future inventory custody. The
+/// requested load must fit the supplied body-carrying capacity. Route discovery remains caller-owned.
+pub fn project_player_walk_path_for_load(
+    registries: &Registries,
+    state: &AppState,
+    destinations: &[VoxelCoord],
+    carried: Mass,
+    capacity: Mass,
+) -> Result<PlayerWalkProjection, PlayerWalkProjectionError> {
+    if capacity.is_zero() {
+        return Err(PlayerWalkProjectionError::ProjectedCapacityZero);
+    }
+    if carried > capacity {
+        return Err(PlayerWalkProjectionError::ProjectedLoadExceedsCapacity { carried, capacity });
+    }
     let destination = *destinations
         .last()
         .ok_or(PlayerWalkProjectionError::PathEmpty)?;
     let player = validate_walk_projection_start(registries, state)?;
     let origin = player.position();
     let mut projected = state.clone();
+    let mut projected_exertion = player.locomotion_exertion();
     let mut control_ticks = 0_u64;
     let maximum_control_ticks = CONTROL_TICKS_PER_SIMULATION_TICK - 1;
 
@@ -211,16 +256,13 @@ pub fn project_player_walk_path(
             destination,
             &mut control_ticks,
             maximum_control_ticks,
+            carried,
+            capacity,
+            &mut projected_exertion,
         )?;
     }
 
-    let locomotion_exertion = projected
-        .logistics()
-        .player()
-        .copied()
-        .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"))
-        .locomotion_exertion()
-        .pending();
+    let locomotion_exertion = projected_exertion.pending();
     let resource_budget = project_survival_resource_budget(
         registries.survival().physiology(),
         locomotion_exertion,
@@ -277,6 +319,9 @@ fn project_walk_leg(
     destination: VoxelCoord,
     control_ticks: &mut u64,
     maximum_control_ticks: u64,
+    carried: Mass,
+    capacity: Mass,
+    projected_exertion: &mut LocomotionExertionAccumulator,
 ) -> Result<(), PlayerWalkProjectionError> {
     let leg_origin = projected
         .logistics()
@@ -303,6 +348,12 @@ fn project_walk_leg(
             leg_origin,
             destination,
         )?;
+        let before = projected
+            .logistics()
+            .player()
+            .copied()
+            .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"))
+            .body();
         let plan = decide_player_body_motion(registries, projected, movement, false)
             .map_err(PlayerWalkProjectionError::BodyMotion)?;
         if plan.is_none() {
@@ -314,6 +365,20 @@ fn project_walk_leg(
             );
         }
         let _ = apply_player_body_motion(projected, plan);
+        let after = projected
+            .logistics()
+            .player()
+            .copied()
+            .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"))
+            .body();
+        accrue_projected_walk_exertion(
+            registries,
+            before,
+            after,
+            carried,
+            capacity,
+            projected_exertion,
+        )?;
         *control_ticks += 1;
         let actual = projected
             .logistics()
@@ -335,6 +400,39 @@ fn project_walk_leg(
         control_ticks,
         maximum_control_ticks,
     )
+}
+
+fn accrue_projected_walk_exertion(
+    registries: &Registries,
+    before: PlayerBodyState,
+    after: PlayerBodyState,
+    carried: Mass,
+    capacity: Mass,
+    accumulator: &mut LocomotionExertionAccumulator,
+) -> Result<(), PlayerWalkProjectionError> {
+    if !horizontal_position_changed(before.foot_position(), after.foot_position()) {
+        return Ok(());
+    }
+    let realized_velocity =
+        realized_horizontal_velocity(before.foot_position(), after.foot_position())
+            .map_err(PlayerWalkProjectionError::BodyMotion)?;
+    let speed =
+        horizontal_speed(realized_velocity).map_err(PlayerWalkProjectionError::BodyMotion)?;
+    let exertion = registries
+        .survival()
+        .physiology()
+        .locomotion()
+        .exertion_for_horizontal_speed(carried, capacity, speed)
+        .ok_or(PlayerWalkProjectionError::BodyMotion(
+            PlayerBodyMotionError::ExertionOverflow,
+        ))?;
+    *accumulator =
+        accumulator
+            .checked_accrue(exertion)
+            .ok_or(PlayerWalkProjectionError::BodyMotion(
+                PlayerBodyMotionError::ExertionOverflow,
+            ))?;
+    Ok(())
 }
 
 fn settle_projected_walk_velocity(

@@ -15,7 +15,8 @@ use crate::energy::{
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::logistics::{
     HorizontalControlInput, PlayerControlInput, PlayerStance, PlayerWalkProjectionError,
-    project_player_adjacent_walk, project_player_walk_path,
+    assess_player_carrying, project_player_adjacent_walk, project_player_walk_path,
+    project_player_walk_path_for_load,
 };
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -42,6 +43,69 @@ fn passive_dissipation_registries() -> Registries {
         )
         .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
     )
+}
+
+#[test]
+fn walk_path_projection_prices_future_load_without_mutating_custody() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let destination = VoxelCoord::new(1, floor_y, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(1, floor_y - 1, 0),
+        BLOCK_STATE_STONE,
+    );
+    for y in floor_y..=floor_y + 1 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(1, y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let carrying = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("future-haul projection lost carrying assessment"));
+    assert_eq!(carrying.stored(), Mass::ZERO);
+    let unloaded = project_player_walk_path(&registries, &state, &[destination])
+        .unwrap_or_else(|error| panic!("unloaded walk projection failed: {error}"));
+    let future_load = Mass::from_milligrams(12_500_000);
+    let loaded = project_player_walk_path_for_load(
+        &registries,
+        &state,
+        &[destination],
+        future_load,
+        carrying.capacity(),
+    )
+    .unwrap_or_else(|error| panic!("future loaded walk projection failed: {error}"));
+    assert_eq!(unloaded.control_ticks(), loaded.control_ticks());
+    assert!(
+        loaded.resource_budget().metabolic_energy() > unloaded.resource_budget().metabolic_energy()
+    );
+    assert!(loaded.resource_budget().hydration() > unloaded.resource_budget().hydration());
+    assert_eq!(
+        assess_player_carrying(&state)
+            .unwrap_or_else(|| panic!("future-haul projection lost carrying after read"))
+            .stored(),
+        Mass::ZERO,
+        "future-haul projection must not fabricate carried custody"
+    );
+    let over_capacity = carrying
+        .capacity()
+        .checked_add(Mass::from_milligrams(1))
+        .unwrap_or_else(|| panic!("future-haul over-capacity fixture overflowed"));
+    assert_eq!(
+        project_player_walk_path_for_load(
+            &registries,
+            &state,
+            &[destination],
+            over_capacity,
+            carrying.capacity(),
+        ),
+        Err(PlayerWalkProjectionError::ProjectedLoadExceedsCapacity {
+            carried: over_capacity,
+            capacity: carrying.capacity(),
+        })
+    );
 }
 
 #[test]

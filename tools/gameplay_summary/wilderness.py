@@ -108,9 +108,11 @@ def wilderness_summary(lines: list[str]) -> str | None:
             "material-choice",
         ),
     )
-    pressure_steps = re.search(r"\bmovement=\[.*?\bsteps:(\d+)", pressure_coverage[0])
+    pressure_legs = re.search(
+        r"\bmovement=\[.*?\bbody:continuous legs:(\d+)", pressure_coverage[0]
+    )
     pressure_drink = re.search(r"\bwater=\[.*?\bconsumed:(\d+)uL", pressure_coverage[0])
-    if pressure_steps is None or pressure_drink is None:
+    if pressure_legs is None or pressure_drink is None:
         raise ValueError("wilderness pressure experience lost route or drink telemetry")
     forage_opportunities: list[int] = []
     forage_secured: list[int] = []
@@ -129,7 +131,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
     campfire_after_comfort: list[int] = []
     campfire_heat_remaining: list[int] = []
     campfires_built = 0
-    camp_logistics_steps: list[int] = []
+    camp_logistics_legs: list[int] = []
     selected_source_opportunity: list[int] = []
     selected_source_remaining: list[int] = []
     camp_metabolic_budget: list[int] = []
@@ -149,8 +151,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
         if water is not None:
             water_runway_tenths.append(int(water.group(1)) * 10 + int(water.group(2)))
         project = re.search(
-            r"\bcamp-project=\[.*?\bwork:(\d+)t logistics-steps:(\d+) "
-            r"source:(\d+)mg->(\d+)mg project-budget:(\d+)nJ/(\d+)uL "
+            r"\bcamp-project=\[.*?\bwork:(\d+)t logistics-legs:(\d+) "
+            r"source:(\d+)mg->(\d+)mg project-upper-budget:(\d+)nJ/(\d+)uL "
             r"project-meal:(\d+)mg cached-total:(\d+)mg staged-timber:(\d+)mg "
             r"retained-residue:(\d+)mg grounded-support:(true|false):(\d+)mg/(\d+)t\]",
             experience,
@@ -158,7 +160,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         if project is None:
             raise ValueError("wilderness experience lost camp-project telemetry")
         warmth = re.search(
-            r"\bwarmth=\[fire:true fuel:(\d+)mg logistics-steps:(\d+) recovery:(\d+)t "
+            r"\bwarmth=\[fire:true fuel:(\d+)mg logistics-legs:(\d+) recovery:(\d+)t "
             r"comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ\]",
             experience,
         )
@@ -177,7 +179,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             project_meals += 1
         if work > 0:
             camp_work_ticks.append(work)
-            camp_logistics_steps.append(int(project.group(2)))
+            camp_logistics_legs.append(int(project.group(2)))
             selected_source_opportunity.append(int(project.group(3)))
             selected_source_remaining.append(int(project.group(4)))
             camp_metabolic_budget.append(int(project.group(5)))
@@ -214,10 +216,10 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"project-meals:{project_meals}]"
     )
     cache_projects = [line for line in experiences if " goal=worksite-cache " in line]
-    camp_projects = "camp-projects=[none]"
+    camp_projects = "projects=[none]"
     if camp_work_ticks:
         camp_projects = (
-            "camp-projects=["
+            "projects=["
             f"work:{min(camp_work_ticks)}..{max(camp_work_ticks)}t "
             f"cached:{scaled_span(camp_cached_mass, 1_000_000, 'kg')} "
             f"staged-timber:{scaled_span(camp_staged_timber, 1_000_000, 'kg')} "
@@ -225,10 +227,10 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"mass:{scaled_span(worksite_support_mass, 1_000_000, 'kg')} "
             f"work:{scaled_span(worksite_support_ticks, 1, 't')} "
             f"retained-residue:{scaled_span(worksite_residue, 1_000, 'g')}] "
-            f"logistics-steps:{min(camp_logistics_steps)}..{max(camp_logistics_steps)} "
+            f"legs:{min(camp_logistics_legs)}..{max(camp_logistics_legs)} "
             f"source:{scaled_span(selected_source_opportunity, 1_000_000, 'kg')}->"
             f"{scaled_span(selected_source_remaining, 1_000_000, 'kg')} "
-            f"project-budget:{scaled_span(camp_metabolic_budget, 1_000_000_000_000, 'kJ')}/"
+            f"upper-budget:{scaled_span(camp_metabolic_budget, 1_000_000_000_000, 'kJ')}/"
             f"{scaled_span(camp_hydration_budget, 1_000, 'mL')}]"
         )
     camp_warmth = ""
@@ -280,7 +282,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"sample-shape=[{sample_shape}] "
         f"{baseline} "
         f"{direct_use + ' ' if direct_use else ''}"
-        f"pressure-route=[steps:{pressure_steps.group(1)} water:visited "
+        f"pressure=[legs:{pressure_legs.group(1)} water:visited "
         f"consumed:{pressure_drink.group(1)}uL] "
         f"{resource_runway} "
         f"{camp_goals} "

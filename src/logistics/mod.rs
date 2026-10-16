@@ -78,6 +78,7 @@ pub use inventory_view::{
 pub use kinematics::{
     PlayerBodyMotionError, PlayerBodyMotionOutcome, PlayerWalkProjection,
     PlayerWalkProjectionError, project_player_adjacent_walk, project_player_walk_path,
+    project_player_walk_path_for_load,
 };
 pub(crate) use kinematics::{
     apply_player_body_motion, decide_player_body_motion, first_player_body_collision,

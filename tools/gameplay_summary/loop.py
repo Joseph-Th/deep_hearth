@@ -335,16 +335,16 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
     camp_leverage = 0
     for line in camp_projects:
         project = re.search(
-            r"\bcamp-project=\[.*?\blogistics-steps:(\d+) "
+            r"\bcamp-project=\[.*?\blogistics-legs:(\d+) "
             r"source:(\d+)mg->(\d+)mg",
             line,
         )
         if project is None:
             continue
-        logistics_steps = int(project.group(1))
+        logistics_legs = int(project.group(1))
         source_before = int(project.group(2))
         source_after = int(project.group(3))
-        if logistics_steps > 0 and source_before > source_after:
+        if logistics_legs > 0 and source_before > source_after:
             camp_leverage += 1
     worksite_projects = [
         line for line in evidence.wilderness if " goal=worksite-cache " in line
