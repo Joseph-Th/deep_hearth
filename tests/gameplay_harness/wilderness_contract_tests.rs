@@ -14,13 +14,13 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE,
-    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
-    PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
-    STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE,
-    SURFACE_GATHERING_HAND_COLLECT_TIMBER, build_registries,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_BOARD, FORM_FOOD, FORM_HANDLE, FORM_LOG, FORM_LUMP,
+    FORM_TOOL, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_TIMBER, build_registries,
 };
 use deep_hearth::core::quantity::{Area, Energy, Force, Length, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -30,6 +30,9 @@ use deep_hearth::crafting::{
     project_manual_craft_hand_work, validate_start_player_manual_craft_option,
 };
 use deep_hearth::energy::assess_local_illumination;
+use deep_hearth::equipment::{
+    player_equipment_assembly_options, validate_assemble_player_equipment_option,
+};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{
     MaterialLotSelection, MaterialStackProjection, StockpileId, StorageDefinitionId,
@@ -1008,6 +1011,329 @@ fn craft_in_place(
         context,
     );
     assert_eq!(state.player_work().active(), None);
+}
+
+fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let spawn = generated_wilderness_surface_spawn(&registries, &mut state, WILDERNESS_WORLD_SEED);
+    validate_generate_initial_wilderness(&registries, &state, WILDERNESS_WORLD_SEED, spawn)
+        .unwrap_or_else(|error| panic!("toolkit wilderness generation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("toolkit wilderness generation commit failed: {error}"));
+    let carried = validate_admit_player(&registries, &state, spawn)
+        .unwrap_or_else(|error| panic!("toolkit player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("toolkit player admission commit failed: {error}"))
+        .carried_stockpile();
+    if let Some(demand) = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap_or_else(|error| panic!("toolkit terrain demand failed: {error}"))
+    {
+        demand
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("toolkit terrain demand commit failed: {error}"));
+    }
+    assert_ordinary_admitted_runtime_ready(&registries, &state, "fresh wilderness toolkit");
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("toolkit initial matter audit failed: {error}"))
+        .total();
+
+    let (_, _, _, crossover_batches) = project_wilderness_adze_decision(&registries, 1);
+    let workload_batches = crossover_batches
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("wilderness toolkit workload overflowed"));
+    let batches = NonZeroU64::new(workload_batches)
+        .unwrap_or_else(|| unreachable!("wilderness toolkit workload is nonzero"));
+    let (setup_ticks, bare_ticks, assisted_ticks, confirmed_crossover) =
+        project_wilderness_adze_decision(&registries, workload_batches);
+    assert_eq!(confirmed_crossover, crossover_batches);
+    let with_setup_ticks = setup_ticks
+        .checked_add(assisted_ticks)
+        .unwrap_or_else(|| panic!("toolkit attention comparison overflowed"));
+    assert!(
+        with_setup_ticks < bare_ticks,
+        "maintained toolkit workload must repay primitive tool acquisition"
+    );
+
+    let stone_tool = CommodityKey::new(MATERIAL_STONE, FORM_TOOL);
+    let wood_handle = CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let knapping = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("toolkit stone-tool recipe disappeared"));
+    let handle = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_HANDLE)
+        .unwrap_or_else(|| panic!("toolkit handle recipe disappeared"));
+    let board = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("toolkit board recipe disappeared"));
+    let stone_required = knapping.input_mass();
+    let timber_required = Mass::from_milligrams(
+        handle
+            .input_mass()
+            .milligrams()
+            .checked_add(
+                board
+                    .input_mass()
+                    .milligrams()
+                    .checked_mul(workload_batches)
+                    .unwrap_or_else(|| panic!("toolkit board timber requirement overflowed")),
+            )
+            .unwrap_or_else(|| panic!("toolkit timber requirement overflowed")),
+    );
+    assert!(
+        stone_required.checked_add(timber_required).is_some_and(
+            |total| total <= registries.survival().physiology().carried_mass_capacity()
+        ),
+        "maintained fresh-start toolkit must fit the ordinary body carrying envelope"
+    );
+
+    let forage = adjacent_surface_resource(&state, CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD));
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        forage.position(),
+        "toolkit forage waypoint",
+    );
+    let water = adjacent_drinkable_source(&registries, &state);
+    let junctions = state
+        .available_player_steps()
+        .filter(|position| *position != spawn && *position != water.position())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        junctions.len(),
+        1,
+        "toolkit route lost its material junction"
+    );
+    let junction = junctions[0];
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        junction,
+        "toolkit material junction",
+    );
+    let stone_source = adjacent_surface_resource(&state, stone);
+    let timber_source = adjacent_surface_resource(&state, timber);
+
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        stone_source.position(),
+        "toolkit stone leaf",
+    );
+    gather_in_batches(
+        &registries,
+        &mut state,
+        stone_source.resource(),
+        stone_required,
+        "toolkit stone input",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        junction,
+        "toolkit stone return",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        timber_source.position(),
+        "toolkit timber leaf",
+    );
+    gather_in_batches(
+        &registries,
+        &mut state,
+        timber_source.resource(),
+        timber_required,
+        "toolkit timber input",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        junction,
+        "toolkit timber return",
+    );
+
+    craft_in_place(
+        &registries,
+        &mut state,
+        stone,
+        stone_tool,
+        1,
+        "toolkit stone head",
+    );
+    craft_in_place(
+        &registries,
+        &mut state,
+        timber,
+        wood_handle,
+        1,
+        "toolkit handle",
+    );
+
+    let board_options = player_manual_craft_options(&registries, &state)
+        .unwrap_or_else(|error| panic!("toolkit board recipe catalog failed: {error}"))
+        .into_iter()
+        .filter(|option| {
+            let definition = registries
+                .crafting()
+                .get_manual(option.process())
+                .unwrap_or_else(|| panic!("toolkit recipe catalog exposed unknown process"));
+            matches!(
+                option.input_mode(),
+                ManualCraftInputMode::Automatic(availability)
+                    if availability.input() == timber
+                        && availability.maximum_batches() >= batches.get()
+            ) && definition
+                .outputs()
+                .iter()
+                .any(|output| output.commodity() == boards)
+                && option.equipment_role() != ProcessEquipmentRole::Required
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        board_options.len(),
+        1,
+        "toolkit requires one actor-visible optional-tool board recipe"
+    );
+    let board_option = board_options[0];
+    let candidates = player_equipment_assembly_options(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("toolkit equipment catalog failed: {error}"))
+        .into_iter()
+        .filter(|option| option.is_ready())
+        .filter_map(|option| {
+            project_manual_craft_equipment(
+                &registries,
+                board_option.process(),
+                batches,
+                option.definition(),
+                Condition::PRISTINE,
+            )
+            .ok()
+            .map(|projection| (option, projection))
+        })
+        .collect::<Vec<_>>();
+    let best_ticks = candidates
+        .iter()
+        .map(|(_, projection)| projection.duration().value())
+        .min()
+        .unwrap_or_else(|| panic!("toolkit catalog exposed no ready board-shaping tool"));
+    let mut best = candidates
+        .into_iter()
+        .filter(|(_, projection)| projection.duration().value() == best_ticks)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        best.len(),
+        1,
+        "toolkit workload must have one best ready actor-visible tool"
+    );
+    let (assembly_option, projection) = best
+        .pop()
+        .unwrap_or_else(|| unreachable!("unique best toolkit option exists"));
+    assert_eq!(
+        assembly_option.definition(),
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        "maintained primitive woodworking workload should still select the stone adze"
+    );
+    assert_eq!(projection.duration().value(), assisted_ticks);
+    let tool_name = assembly_option.name().to_owned();
+    let tool = validate_assemble_player_equipment_option(&registries, &state, &assembly_option)
+        .unwrap_or_else(|error| panic!("toolkit equipment assembly failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("toolkit equipment assembly commit failed: {error}"));
+    assert!(
+        state
+            .available_local_equipment()
+            .any(|record| record.id() == tool),
+        "assembled toolkit equipment must remain actor-visible at the worksite"
+    );
+
+    let started_at = state.tick();
+    let job = validate_start_player_manual_craft_option(
+        &registries,
+        &state,
+        board_option,
+        batches,
+        Some(tool),
+    )
+    .unwrap_or_else(|error| panic!("toolkit assisted board start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("toolkit assisted board commit failed: {error}"));
+    let completes_at = state
+        .production()
+        .get_job(job)
+        .map(|record| record.completes_at())
+        .unwrap_or_else(|| panic!("toolkit assisted board job disappeared"));
+    assert_eq!(
+        completes_at.value() - started_at.value(),
+        assisted_ticks,
+        "lived assisted board work must match the player-visible projection"
+    );
+    advance_to(
+        &registries,
+        &mut state,
+        completes_at,
+        TickEventAllowance {
+            production_jobs: &[job],
+            ..TickEventAllowance::default()
+        },
+        "toolkit assisted boards",
+    );
+
+    let board_output = board
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == boards)
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("toolkit board output disappeared"));
+    let expected_board_mass = Mass::from_milligrams(
+        board_output
+            .milligrams()
+            .checked_mul(workload_batches)
+            .unwrap_or_else(|| panic!("toolkit board output mass overflowed")),
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stockpile| stockpile.get_mass(boards)),
+        Some(expected_board_mass)
+    );
+    assert!(
+        state
+            .equipment()
+            .get_equipment(tool)
+            .is_some_and(|record| record.condition() < Condition::PRISTINE),
+        "toolkit workload should pay real tool wear"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("toolkit final matter audit failed: {error}"))
+            .total(),
+        matter_before,
+        "fresh-start toolkit episode must conserve represented matter"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    if emit_report {
+        std::println!(
+            "WILDERNESS TOOLKIT source=fresh-world selection=player-catalog tool=\"{tool_name}\" travel=continuous/6legs materials=[stone:{}mg timber:{}mg] workload={}b attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] output={}mg wear=true matter-conserved=true",
+            stone_required.milligrams(),
+            timber_required.milligrams(),
+            workload_batches,
+            setup_ticks,
+            bare_ticks,
+            assisted_ticks,
+            with_setup_ticks,
+            bare_ticks - with_setup_ticks,
+            expected_board_mass.milligrams(),
+        );
+    }
 }
 
 pub(super) fn evaluate_generated_wilderness_opening(
@@ -2849,6 +3175,7 @@ fn organic_camp_goal(behavior_root: u64, index: usize) -> WildernessCampGoal {
 
 pub(super) fn run_wilderness_report() {
     assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
+    assert_generated_wilderness_toolkit_is_player_visible(true);
     const ORGANIC_SAMPLES: usize = 4;
     let world_root = configured_root(
         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
@@ -2934,6 +3261,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         run_wilderness_report();
     } else {
         assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);
+        assert_generated_wilderness_toolkit_is_player_visible(false);
         let _ = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,

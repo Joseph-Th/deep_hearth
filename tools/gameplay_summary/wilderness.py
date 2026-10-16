@@ -80,6 +80,41 @@ def wilderness_summary(lines: list[str]) -> str | None:
             )
             + "]"
         )
+    toolkit_lines = [
+        line for line in lines if line.startswith("WILDERNESS TOOLKIT ")
+    ]
+    if len(toolkit_lines) > 1:
+        raise ValueError("wilderness report has multiple fresh-start toolkit witnesses")
+    toolkit_policy = ""
+    if toolkit_lines:
+        toolkit = re.search(
+            r'\bsource=fresh-world selection=player-catalog tool="([^"]+)" '
+            r'travel=continuous/(\d+)legs materials=\[stone:(\d+)mg timber:(\d+)mg\] '
+            r'workload=(\d+)b attention=\[setup:(\d+)t bare:(\d+)t assisted:(\d+)t '
+            r'with-setup:(\d+)t saved:(\d+)t\] output=(\d+)mg '
+            r'wear=(true|false) matter-conserved=(true|false)',
+            toolkit_lines[0],
+        )
+        if toolkit is None:
+            raise ValueError("wilderness toolkit witness lost fresh-world catalog/payback telemetry")
+        setup = int(toolkit.group(6))
+        bare = int(toolkit.group(7))
+        assisted = int(toolkit.group(8))
+        with_setup = int(toolkit.group(9))
+        saved = int(toolkit.group(10))
+        if (
+            with_setup != setup + assisted
+            or saved != bare - with_setup
+            or saved <= 0
+            or toolkit.group(12) != "true"
+            or toolkit.group(13) != "true"
+        ):
+            raise ValueError("wilderness toolkit witness no longer proves positive worn-tool payback")
+        tool = re.sub(r"\s+", "-", toolkit.group(1).strip())
+        toolkit_policy = (
+            f" earned=[tool:{tool} workload:{toolkit.group(5)}b "
+            f"saved:{saved}t wear:true]"
+        )
     maintained = [line for line in experiences if " sample=maintained " in line]
     coverage = [line for line in experiences if " sample=coverage " in line]
     organic = [line for line in experiences if " sample=organic " in line]
@@ -295,7 +330,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         "tool-policy=["
         f"cache-projects:{len(cache_projects)} "
         f"first-box-adze-deferred:{sum(' reason:first-box-below-adze-crossover]' in line for line in cache_projects)}/{len(cache_projects)} "
-        f"crossover:{adze_crossover}batches]"
+        f"crossover:{adze_crossover}batches{toolkit_policy}]"
     )
     organic_detail = ""
     if organic:
