@@ -225,8 +225,9 @@ atmospheric chemistry, light, or shelter semantics.
 The structural owner now has ordinary carried-stack construction below shelter semantics. An admitted player may
 hand-set a local grounded member or one non-grounded member with a single face-contacting active support; initial
 support linkage, exact material embodiment, attention and survival are prechecked before mutation, and in-progress
-work survives save/load before activating on completion. Direct pointed-face placement still authors grounded
-posts only. This is framing substrate, not shelter: multi-support framing, joints, panels, dependent demolition,
+work survives save/load before activating on completion. Selected timber secondary use now points at either a
+terrain top face for a grounded post or an active member face for one supported framing cell. This is framing
+substrate, not shelter: multi-support framing, joints, panels, dependent demolition,
 weather/exposure, sleep, enclosure, and shelter benefit remain open.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its

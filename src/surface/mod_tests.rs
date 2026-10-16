@@ -2,8 +2,10 @@
 
 use super::*;
 use crate::content::{
-    BLOCK_STATE_STONE, FLUID_WATER, FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY,
-    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE, FLUID_WATER,
+    FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES,
+    MATERIAL_STONE, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
     SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
     SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
@@ -13,11 +15,12 @@ use crate::core::state::{
 };
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, SimulationTick, TickSpan};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
-use crate::inventory::{StockpileStorageError, deposit_lot_for_test};
+use crate::inventory::{StockpileStorageError, deposit_lot_for_test, project_material_stacks};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    PlayerActiveSelection, PlayerQuickAccessSlot, add_traversable_edge_for_test,
-    validate_place_fluid_store, validate_set_active_selection, validate_start_player_step,
+    HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, PlayerQuickAccessSlot,
+    add_traversable_edge_for_test, validate_place_fluid_store, validate_set_active_selection,
+    validate_start_player_step,
 };
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::matter::calculate_matter_accounting;
@@ -26,9 +29,13 @@ use crate::player::validate_admit_player;
 use crate::simulation::{
     ActiveSelectionDropOutcome, PlayerDirectControlInput, PrimaryActionOutcome,
     PrimaryControlIntent, SecondaryActionOutcome, SecondaryControlIntent, advance_control_tick,
-    advance_control_tick_with_direct_input, advance_tick,
+    advance_control_tick_with_direct_input, advance_control_tick_with_input, advance_tick,
 };
-use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
+use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelBounds, VoxelCoord};
+use crate::structural::{
+    GroundedStructuralElementPlan, StructuralElementGeometry, StructuralLifecycle,
+    validate_start_player_grounded_structural_construction_from_stack,
+};
 use crate::survival::{FoodFreshness, Vitality, assess_food_freshness, player_record};
 use crate::world::{
     BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
@@ -41,6 +48,11 @@ const WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5355_5246_414
 fn positive_x_view() -> ViewDirection {
     ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
         .unwrap_or_else(|error| panic!("surface positive-X view failed: {error}"))
+}
+
+fn backward_shallow_down_view() -> ViewDirection {
+    ViewDirection::new(-866_025, -500_000, 0)
+        .unwrap_or_else(|error| panic!("surface backward-down view failed: {error}"))
 }
 
 #[test]
@@ -89,6 +101,214 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
     assert_eq!(drops[0].ambient_storage_age_parts(), 0);
     assert_eq!(drops[0].automatic_pickup_available_at(), None);
     assert!(drops[0].automatic_pickup_ready());
+}
+
+#[test]
+fn secondary_use_sets_supported_timber_member_on_pointed_active_post_face() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("supported timber terrain failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("supported timber terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("supported timber terrain has no solid surface"));
+    let foot_y = surface_y + 1;
+    for x in 1..=3 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, surface_y, 0),
+            BLOCK_STATE_STONE,
+        );
+        for y in foot_y..=foot_y + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(x, y, 0),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let initial_player = VoxelCoord::new(2, foot_y, 0);
+    let framing_player = VoxelCoord::new(3, foot_y, 0);
+    let support_position = VoxelCoord::new(1, foot_y, 0);
+    let framing_position = VoxelCoord::new(2, foot_y, 0);
+    let carried = admit_player(&registries, &mut state, initial_player);
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let member_mass = Mass::from_milligrams(3_250_000);
+    let total_timber = member_mass
+        .checked_add(member_mass)
+        .unwrap_or_else(|| panic!("supported timber fixture mass overflowed"));
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        total_timber,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("supported timber carried material failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("supported timber selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("supported timber selection commit failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("supported timber matter baseline failed: {error}"))
+        .total();
+
+    let support_bounds = VoxelBounds::new(
+        support_position,
+        VoxelCoord::new(
+            support_position.x() + 1,
+            support_position.y() + 1,
+            support_position.z() + 1,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("supported timber post bounds failed: {error}"));
+    let support_geometry = StructuralElementGeometry::new(
+        support_bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap_or_else(|error| panic!("supported timber post geometry failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("supported timber initial stack failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("supported timber initial stack disappeared"));
+    let support_start = validate_start_player_grounded_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            support_geometry,
+        ),
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("supported timber post validation failed: {error}"));
+    let support = support_start.element();
+    let support_work = support_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("supported timber post commit failed: {error}"));
+    while state.tick() < support_work.completes_at() {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("supported timber post completion failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Active)
+    );
+
+    let east = PlayerControlInput::new(
+        HorizontalControlInput::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0)
+            .unwrap_or_else(|error| panic!("supported timber movement input failed: {error}")),
+    );
+    while state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.position() != framing_player)
+    {
+        let _ = advance_control_tick_with_input(&registries, &mut state, east)
+            .unwrap_or_else(|error| panic!("supported timber movement failed: {error}"));
+    }
+    while state.logistics().player().is_some_and(|player| {
+        let velocity = player.body().horizontal_velocity();
+        velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
+    }) {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("supported timber braking failed: {error}"));
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(framing_player)
+        );
+    }
+
+    let input = PlayerDirectControlInput::NEUTRAL.with_secondary(
+        SecondaryControlIntent::use_active(backward_shallow_down_view()),
+    );
+    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("supported timber direct queue failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let work = loop {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("supported timber continuation failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) => break *work,
+            None => {}
+            other => panic!("supported timber returned unexpected outcome: {other:?}"),
+        }
+    };
+    let element = work.element();
+    let record = state
+        .structures()
+        .get_element(element)
+        .unwrap_or_else(|| panic!("supported timber framing member disappeared"));
+    assert!(record.bounds().has_voxel(framing_position));
+    assert!(!record.is_grounded());
+    assert_eq!(record.embodied_mass(), member_mass);
+    assert_eq!(record.lifecycle(), StructuralLifecycle::Planned);
+    assert_eq!(
+        state
+            .structures()
+            .supports(element)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![support])
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(Mass::ZERO)
+    );
+
+    let mut completions = 0_u32;
+    while state.tick() < work.completes_at() {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("supported timber hand-setting failed: {error}"));
+        if control
+            .simulation()
+            .is_some_and(|outcome| outcome.structural_construction() == Some(element))
+        {
+            completions += 1;
+        }
+    }
+    assert_eq!(completions, 1);
+    assert_eq!(
+        state
+            .structures()
+            .get_element(element)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Active)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("supported timber matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

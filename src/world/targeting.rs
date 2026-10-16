@@ -116,7 +116,7 @@ pub(crate) fn raycast_player_air_voxel<T>(
     registries: &Registries,
     state: &AppState,
     direction: ViewDirection,
-    mut select: impl FnMut(VoxelCoord) -> Option<T>,
+    mut select: impl FnMut(VoxelCoord, CubeFace) -> Option<T>,
 ) -> Result<Option<T>, PlayerBlockTargetError> {
     let (origin, reach_nanometers) = player_view_origin_and_reach(registries, state)?;
     trace_generated_voxels(
@@ -125,11 +125,11 @@ pub(crate) fn raycast_player_air_voxel<T>(
         origin,
         direction,
         reach_nanometers,
-        |voxel, block_state, _face| {
+        |voxel, block_state, face| {
             if targetable_full_cube(registries, block_state) {
                 return VoxelTraceStep::Blocked;
             }
-            select(voxel).map_or(VoxelTraceStep::Continue, VoxelTraceStep::Hit)
+            select(voxel, face).map_or(VoxelTraceStep::Continue, VoxelTraceStep::Hit)
         },
     )
 }

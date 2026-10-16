@@ -19,8 +19,10 @@ use crate::registry::Registries;
 use crate::spatial::{CubeFace, ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{
     GroundedStructuralElementPlan, StructuralElementGeometry, StructuralElementId,
+    SupportedStructuralElementPlan,
     validate_start_player_grounded_structural_construction_from_stack,
     validate_start_player_structural_dismantling,
+    validate_start_player_supported_structural_construction_from_stack,
 };
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
 use crate::surface::{SurfaceResourceKind, validate_start_player_surface_gathering};
@@ -436,7 +438,7 @@ fn resolve_direct_structural_target(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<StructuralElementId, DirectStructuralTargetError> {
-    let target = raycast_player_air_voxel(registries, state, direction, |voxel| {
+    let target = raycast_player_air_voxel(registries, state, direction, |voxel, _face| {
         let mut elements = state
             .structures()
             .elements()
@@ -449,6 +451,42 @@ fn resolve_direct_structural_target(
     .map_err(|_| DirectStructuralTargetError::TargetUnavailable)?
     .ok_or(DirectStructuralTargetError::NoTarget)?;
     target.map_err(|count| DirectStructuralTargetError::Ambiguous { count })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DirectStructuralFaceTarget {
+    element: StructuralElementId,
+    voxel: VoxelCoord,
+    face: CubeFace,
+}
+
+fn resolve_direct_structural_face_target(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+) -> Result<Option<DirectStructuralFaceTarget>, DirectStructuralTargetError> {
+    let target = raycast_player_air_voxel(registries, state, direction, |voxel, face| {
+        let mut elements = state
+            .structures()
+            .elements()
+            .filter(|record| record.bounds().has_voxel(voxel))
+            .map(|record| record.id());
+        let first = elements.next()?;
+        let count = 1 + elements.count();
+        Some(if count == 1 {
+            Ok(DirectStructuralFaceTarget {
+                element: first,
+                voxel,
+                face,
+            })
+        } else {
+            Err(count)
+        })
+    })
+    .map_err(|_| DirectStructuralTargetError::TargetUnavailable)?;
+    target
+        .transpose()
+        .map_err(|count| DirectStructuralTargetError::Ambiguous { count })
 }
 
 fn attempt_primary_break(
@@ -494,6 +532,113 @@ fn attempt_primary_break(
         }
         Err(error) => PrimaryActionOutcome::BlockExcavationRejected(error),
     }
+}
+
+fn validate_direct_structural_placement_position(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> Result<(), DirectPlacementTargetError> {
+    match state.world().block_at(position) {
+        None => return Err(DirectPlacementTargetError::WorldUnavailable { position }),
+        Some(BlockStateId::AIR) => {}
+        Some(block) => {
+            return Err(DirectPlacementTargetError::Occupied {
+                position,
+                state: block,
+            });
+        }
+    }
+    if player_body_occupies_voxel(registries, state, position) {
+        return Err(DirectPlacementTargetError::IntersectsPlayer { position });
+    }
+    if state.logistics().has_stationary_occupant_at(position)
+        || state
+            .structures()
+            .elements()
+            .any(|record| record.bounds().has_voxel(position))
+    {
+        return Err(DirectPlacementTargetError::LocationOccupied { position });
+    }
+    Ok(())
+}
+
+fn attempt_supported_timber_placement(
+    registries: &Registries,
+    state: &mut AppState,
+    stack: &crate::inventory::MaterialStackProjection,
+    direction: ViewDirection,
+) -> Option<SecondaryActionOutcome> {
+    let target = match resolve_direct_structural_face_target(registries, state, direction) {
+        Ok(Some(target)) => target,
+        Ok(None) | Err(DirectStructuralTargetError::TargetUnavailable) => return None,
+        Err(DirectStructuralTargetError::NoTarget) => return None,
+        Err(DirectStructuralTargetError::Ambiguous { count }) => {
+            return Some(SecondaryActionOutcome::AmbiguousStructuralPlacementTarget { count });
+        }
+    };
+    let Some(position) = target.face.adjacent_voxel(target.voxel) else {
+        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
+    };
+    if let Err(error) = validate_direct_structural_placement_position(registries, state, position) {
+        return Some(match error {
+            DirectPlacementTargetError::Target(error) => {
+                SecondaryActionOutcome::StructuralTargetRejected(error)
+            }
+            DirectPlacementTargetError::NoTarget => {
+                SecondaryActionOutcome::NoStructuralPlacementTarget
+            }
+            DirectPlacementTargetError::CoordinateOverflow => {
+                SecondaryActionOutcome::StructuralPlacementCoordinateOverflow
+            }
+            DirectPlacementTargetError::WorldUnavailable { position } => {
+                SecondaryActionOutcome::StructuralPlacementWorldUnavailable { position }
+            }
+            DirectPlacementTargetError::Occupied { position, state } => {
+                SecondaryActionOutcome::StructuralPlacementOccupied { position, state }
+            }
+            DirectPlacementTargetError::IntersectsPlayer { position } => {
+                SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }
+            }
+            DirectPlacementTargetError::LocationOccupied { position } => {
+                SecondaryActionOutcome::StructuralPlacementLocationOccupied { position }
+            }
+        });
+    }
+    let Some(bounds) = single_voxel_bounds(position) else {
+        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
+    };
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap_or_else(|error| panic!("built-in supported timber geometry is invalid: {error}"));
+    let plan = SupportedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        target.element,
+    );
+    Some(
+        match validate_start_player_supported_structural_construction_from_stack(
+            registries,
+            state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            plan,
+            stack,
+        ) {
+            Ok(validated) => {
+                let work = validated.commit(state).unwrap_or_else(|error| {
+                    panic!(
+                        "runtime invariant broken: synchronous supported timber placement became stale: {error}"
+                    )
+                });
+                SecondaryActionOutcome::StructuralConstructionStarted(work)
+            }
+            Err(error) => SecondaryActionOutcome::StructuralPlacementRejected(error),
+        },
+    )
 }
 
 fn attempt_structural_dismantling_now(
@@ -616,6 +761,9 @@ fn attempt_selected_timber_placement(
             });
         }
     };
+    if let Some(outcome) = attempt_supported_timber_placement(registries, state, stack, direction) {
+        return Some(outcome);
+    }
     let (face, position) = match resolve_direct_placement_target(registries, state, direction) {
         Ok(target) => target,
         Err(DirectPlacementTargetError::Target(error)) => {

@@ -108,6 +108,9 @@ pub enum SecondaryActionOutcome {
     StructuralPlacementLocationOccupied {
         position: VoxelCoord,
     },
+    AmbiguousStructuralPlacementTarget {
+        count: usize,
+    },
     StructuralPlacementRejected(PlayerGroundedStructuralConstructionError),
     AlreadySatisfied,
     QueuedUntilSimulationBoundary,
@@ -359,7 +362,7 @@ impl TickOutcome {
         self.storage_enclosure_dismantling.as_ref()
     }
 
-    /// Returns the grounded structural member that became load-bearing this tick, if any.
+    /// Returns the structural member that became load-bearing this tick, if any.
     #[must_use]
     pub const fn structural_construction(&self) -> Option<StructuralElementId> {
         self.structural_construction
