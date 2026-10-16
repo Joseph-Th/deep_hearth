@@ -36,7 +36,10 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
-use deep_hearth::surface::{SurfaceResourceId, validate_start_player_surface_gathering};
+use deep_hearth::surface::{
+    SurfaceResourceId, player_surface_gathering_options,
+    validate_start_player_surface_gathering_option,
+};
 use deep_hearth::survival::assess_survival;
 use deep_hearth::world::WorldGenerationSeed;
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
@@ -54,7 +57,7 @@ use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::super::manual_craft_selection::select_manual_craft_request;
 use super::super::primitive_liberation_kit_planning::{
-    RawKitMaterialPlan, add_profile_requirements, equipment_profile, gathering_method_for,
+    RawKitMaterialPlan, add_profile_requirements, equipment_profile,
     project_incremental_kit_acquisition_attention, raw_kit_material_plan, raw_requirement_mass,
 };
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
@@ -77,22 +80,34 @@ fn gather_surface_resource(
     requested: Mass,
     context: &'static str,
 ) -> u64 {
-    let commodity = state
-        .available_surface_resources()
-        .find(|candidate| candidate.id() == resource)
-        .map(|candidate| candidate.commodity())
-        .unwrap_or_else(|| panic!("liberation {context} local surface resource disappeared"));
-    let method_id = gathering_method_for(commodity);
-    let method = registries
-        .labor()
-        .get_surface_gathering(method_id)
-        .copied()
-        .unwrap_or_else(|| panic!("liberation {context} gathering method disappeared"));
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| panic!("liberation {context} lost admitted player custody"));
+    assert_eq!(
+        destination, carried,
+        "actor-visible gathering options must route liberation raw into carried custody"
+    );
     let started_at = state.tick().value();
     let mut remaining = requested;
     while !remaining.is_zero() {
-        let batch = remaining.min(method.maximum_batch_mass());
-        validate_start_player_surface_gathering(registries, state, method_id, resource, batch)
+        let matches = player_surface_gathering_options(registries, state)
+            .unwrap_or_else(|error| {
+                panic!("liberation {context} gathering catalog failed: {error}")
+            })
+            .into_iter()
+            .filter(|option| option.resource() == resource)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "liberation {context} requires one actor-visible gathering technique for resource {}",
+            resource.value()
+        );
+        let option = matches[0];
+        let batch = remaining.min(option.maximum_batch_mass());
+        validate_start_player_surface_gathering_option(registries, state, option, batch)
             .unwrap_or_else(|error| {
                 panic!("liberation {context} gathering admission failed: {error}")
             })
