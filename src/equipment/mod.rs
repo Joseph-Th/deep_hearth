@@ -11,6 +11,7 @@ mod fixture_execution;
 mod maintenance_execution;
 mod maintenance_resolution;
 mod mass_flow_schedule;
+mod player_assembly;
 mod player_maintenance;
 mod player_recovery;
 mod state;
@@ -49,6 +50,11 @@ pub use maintenance_execution::{
 pub use maintenance_resolution::{
     EquipmentMaintenanceRequest, EquipmentMaintenanceResolution,
     EquipmentMaintenanceResolutionError, resolve_equipment_maintenance,
+};
+pub use player_assembly::{
+    PlayerEquipmentAssemblyAvailability, PlayerEquipmentAssemblyCatalogError,
+    PlayerEquipmentAssemblyOption, player_equipment_assembly_options,
+    validate_assemble_player_equipment_option,
 };
 pub use player_maintenance::{
     PlayerEquipmentMaintenanceCatalogError, PlayerEquipmentMaintenanceOption,

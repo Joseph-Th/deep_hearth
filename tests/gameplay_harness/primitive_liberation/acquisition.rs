@@ -23,7 +23,10 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
+use deep_hearth::equipment::{
+    EquipmentDefinitionId, EquipmentId, player_equipment_assembly_options,
+    validate_assemble_player_equipment_option,
+};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{assess_player_carrying, validate_allocate_player_ground_stockpile};
@@ -313,6 +316,30 @@ fn craft_component(registries: &Registries, state: &mut AppState, plan: Componen
     .value()
 }
 
+fn assemble_visible_equipment(
+    registries: &Registries,
+    state: &mut AppState,
+    parts: StockpileId,
+    definition: EquipmentDefinitionId,
+    context: &str,
+) -> EquipmentId {
+    let options = player_equipment_assembly_options(registries, state, parts)
+        .unwrap_or_else(|error| panic!("liberation {context} assembly catalog failed: {error}"));
+    let matches = options
+        .into_iter()
+        .filter(|option| option.definition() == definition && option.is_ready())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "liberation {context} requires exactly one ready actor-visible assembly option"
+    );
+    validate_assemble_player_equipment_option(registries, state, &matches[0])
+        .unwrap_or_else(|error| panic!("liberation {context} assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("liberation {context} assembly commit failed: {error}"))
+}
+
 fn craft_riddle_panel(
     registries: &Registries,
     state: &mut AppState,
@@ -510,11 +537,13 @@ pub(super) fn acquire_raw_kit<T>(
             },
         );
     }
-    let assembled_adze =
-        validate_assemble_equipment(registries, &state, EQUIPMENT_STONE_WOODWORKING_ADZE, parts)
-            .unwrap_or_else(|error| panic!("liberation kit adze assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("liberation kit adze commit failed: {error}"));
+    let assembled_adze = assemble_visible_equipment(
+        registries,
+        &mut state,
+        parts,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        "kit adze",
+    );
     let adze = unique_local_equipment(&state, EQUIPMENT_STONE_WOODWORKING_ADZE, "woodworking adze");
     assert_eq!(
         adze, assembled_adze,
@@ -549,10 +578,8 @@ pub(super) fn acquire_raw_kit<T>(
     );
     let riddle_ready_at = state.tick().value();
     let assemble = |state: &mut AppState, definition| {
-        let assembled = validate_assemble_equipment(registries, state, definition, parts)
-            .unwrap_or_else(|error| panic!("liberation kit equipment assembly failed: {error}"))
-            .commit(state)
-            .unwrap_or_else(|error| panic!("liberation kit equipment commit failed: {error}"));
+        let assembled =
+            assemble_visible_equipment(registries, state, parts, definition, "extension equipment");
         let observed = unique_local_equipment(state, definition, "liberation extension equipment");
         assert_eq!(
             observed, assembled,
