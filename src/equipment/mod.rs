@@ -12,6 +12,7 @@ mod maintenance_execution;
 mod maintenance_resolution;
 mod mass_flow_schedule;
 mod player_maintenance;
+mod player_recovery;
 mod state;
 mod upgrade_execution;
 
@@ -54,6 +55,7 @@ pub use player_maintenance::{
     PlayerEquipmentMaintenanceStartError, player_equipment_maintenance_options,
     validate_start_player_equipment_maintenance,
 };
+pub use player_recovery::{PlayerEquipmentRecoveryError, validate_player_disassemble_equipment};
 pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,
 };
