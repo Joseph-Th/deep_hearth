@@ -207,7 +207,7 @@ pub enum PlayerWorkValidationError {
     StructuralConstructionMethodMissing,
     StructuralConstructionElementMissing,
     StructuralConstructionElementNotPlanned,
-    StructuralConstructionElementNotGrounded,
+    StructuralConstructionElementUnsupported,
     StructuralConstructionElementNotMaterialized,
     StructuralConstructionPlayerNotLocated,
     StructuralConstructionPlayerRemote,

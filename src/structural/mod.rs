@@ -54,11 +54,15 @@ pub(crate) use player_construction::{
     StructuralConstructionTickPlan, apply_structural_construction_tick, bounds_are_local,
     decide_structural_construction_tick,
     validate_start_player_structural_construction_for_planned_member,
+    validate_start_player_structural_construction_for_supported_planned_member,
 };
 pub use player_placement::{
     PlayerGroundedStructuralConstructionCommitError, PlayerGroundedStructuralConstructionError,
+    PlayerSupportedStructuralConstructionCommitError, PlayerSupportedStructuralConstructionError,
     ValidatedPlayerGroundedStructuralConstructionStart,
+    ValidatedPlayerSupportedStructuralConstructionStart,
     validate_start_player_grounded_structural_construction_from_stack,
+    validate_start_player_supported_structural_construction_from_stack,
 };
 pub use state::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
@@ -72,7 +76,9 @@ pub(crate) use element_execution::add_structural_element;
 pub use element_execution::{
     AddStructuralElementError, GroundedStructuralElementPlan,
     PlanPlayerStructuralElementCommitError, PlanPlayerStructuralElementError,
-    ValidatedPlayerStructuralElementPlan, validate_plan_player_grounded_structural_element,
+    SupportedStructuralElementPlan, ValidatedPlayerStructuralElementPlan,
+    validate_plan_player_grounded_structural_element,
+    validate_plan_player_supported_structural_element,
 };
 pub(crate) use structural_execution::ValidatedStructuralMutation;
 #[cfg(any(test, feature = "test-gameplay"))]

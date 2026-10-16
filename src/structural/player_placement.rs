@@ -11,10 +11,12 @@ use crate::registry::Registries;
 use super::{
     GroundedStructuralElementPlan, PlanPlayerStructuralElementCommitError,
     PlanPlayerStructuralElementError, PlayerStructuralConstructionCommitError,
-    PlayerStructuralConstructionError, StructuralElementId,
+    PlayerStructuralConstructionError, StructuralElementId, SupportedStructuralElementPlan,
     ValidatedPlayerStructuralConstructionStart, ValidatedPlayerStructuralElementPlan,
     resolve_required_mass, validate_plan_player_grounded_structural_element,
+    validate_plan_player_supported_structural_element,
     validate_start_player_structural_construction_for_planned_member,
+    validate_start_player_structural_construction_for_supported_planned_member,
 };
 
 /// Failure while composing one visible carried stack into a new grounded member and timed work.
@@ -25,20 +27,58 @@ pub enum PlayerGroundedStructuralConstructionError {
     Construction(PlayerStructuralConstructionError),
 }
 
+pub type PlayerSupportedStructuralConstructionError = PlayerGroundedStructuralConstructionError;
+pub type PlayerSupportedStructuralConstructionCommitError =
+    PlayerGroundedStructuralConstructionCommitError;
+
 impl Display for PlayerGroundedStructuralConstructionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Plan(error) => write!(formatter, "grounded member planning failed: {error}"),
+            Self::Plan(error) => write!(formatter, "structural member planning failed: {error}"),
             Self::Stack(error) => {
-                write!(formatter, "grounded member material stack failed: {error}")
+                write!(
+                    formatter,
+                    "structural member material stack failed: {error}"
+                )
             }
             Self::Construction(error) => {
                 write!(
                     formatter,
-                    "grounded member construction start failed: {error}"
+                    "structural member construction start failed: {error}"
                 )
             }
         }
+    }
+}
+
+#[must_use]
+pub struct ValidatedPlayerSupportedStructuralConstructionStart {
+    plan: ValidatedPlayerStructuralElementPlan,
+    construction: ValidatedPlayerStructuralConstructionStart,
+}
+
+impl ValidatedPlayerSupportedStructuralConstructionStart {
+    #[must_use]
+    pub const fn element(&self) -> StructuralElementId {
+        self.plan.element()
+    }
+
+    pub fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<StructuralConstructionWork, PlayerSupportedStructuralConstructionCommitError> {
+        self.plan
+            .precheck(state)
+            .map_err(PlayerGroundedStructuralConstructionCommitError::Plan)?;
+        self.construction
+            .precheck_before_planned_member(
+                state,
+                self.plan.record(),
+                self.plan.next_structure_revision(),
+            )
+            .map_err(PlayerGroundedStructuralConstructionCommitError::Construction)?;
+        let _ = self.plan.apply(state);
+        Ok(self.construction.apply(state))
     }
 }
 
@@ -52,6 +92,51 @@ impl Error for PlayerGroundedStructuralConstructionError {
     }
 }
 
+pub fn validate_start_player_supported_structural_construction_from_stack(
+    registries: &Registries,
+    state: &AppState,
+    method: StructuralConstructionMethodId,
+    plan: SupportedStructuralElementPlan,
+    stack: &MaterialStackProjection,
+) -> Result<
+    ValidatedPlayerSupportedStructuralConstructionStart,
+    PlayerSupportedStructuralConstructionError,
+> {
+    let support = plan.support();
+    let validated_plan = validate_plan_player_supported_structural_element(registries, state, plan)
+        .map_err(PlayerGroundedStructuralConstructionError::Plan)?;
+    let record = validated_plan.record();
+    let required = resolve_required_mass(registries.materials(), record).map_err(|_| {
+        PlayerGroundedStructuralConstructionError::Construction(
+            PlayerStructuralConstructionError::MaterialStateChanged {
+                element: record.id(),
+            },
+        )
+    })?;
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| unreachable!("validated supported player plan has admitted logistics"));
+    let selections = stack
+        .selections_for_mass(state, carried, required)
+        .map_err(PlayerGroundedStructuralConstructionError::Stack)?;
+    let construction = validate_start_player_structural_construction_for_supported_planned_member(
+        registries,
+        state,
+        method,
+        record,
+        validated_plan.next_structure_revision(),
+        &selections,
+        support,
+    )
+    .map_err(PlayerGroundedStructuralConstructionError::Construction)?;
+    Ok(ValidatedPlayerSupportedStructuralConstructionStart {
+        plan: validated_plan,
+        construction,
+    })
+}
+
 /// Failure when the atomic grounded-member action becomes stale before commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerGroundedStructuralConstructionCommitError {
@@ -62,7 +147,7 @@ pub enum PlayerGroundedStructuralConstructionCommitError {
 impl Display for PlayerGroundedStructuralConstructionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Plan(error) => write!(formatter, "grounded member plan became stale: {error}"),
+            Self::Plan(error) => write!(formatter, "structural member plan became stale: {error}"),
             Self::Construction(error) => {
                 write!(
                     formatter,

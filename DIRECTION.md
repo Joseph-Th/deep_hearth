@@ -222,12 +222,12 @@ co-located store restores player warmth, while remote heat does not. Fuel mass r
 combustion terminal account. This is a primitive local heat source, not weather, environmental heat transport,
 atmospheric chemistry, light, or shelter semantics.
 
-The structural owner now also has one ordinary direct-player construction path below shelter semantics. An
-admitted player may plan a grounded member only in one face-adjacent voxel that does not contain the player, commit exact carried
-rigid material into that planned member, and spend authored hand-setting work plus survival reserves before it
-becomes load-bearing. In-progress work survives save/load and production-owned same-tick structural loads are
-projected before activation. This is a construction substrate, not a shelter implementation: non-grounded
-framing, joints, panels, deconstruction, weather/exposure, sleep, enclosure, and shelter benefit remain open.
+The structural owner now has ordinary carried-stack construction below shelter semantics. An admitted player may
+hand-set a local grounded member or one non-grounded member with a single face-contacting active support; initial
+support linkage, exact material embodiment, attention and survival are prechecked before mutation, and in-progress
+work survives save/load before activating on completion. Direct pointed-face placement still authors grounded
+posts only. This is framing substrate, not shelter: multi-support framing, joints, panels, dependent demolition,
+weather/exposure, sleep, enclosure, and shelter benefit remain open.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a

@@ -474,8 +474,8 @@ impl Display for PlayerWorkValidationError {
             Self::StructuralConstructionElementNotPlanned => formatter.write_str(
                 "structural construction work requires a member that remains in planned state",
             ),
-            Self::StructuralConstructionElementNotGrounded => formatter.write_str(
-                "ordinary structural construction currently requires a grounded member",
+            Self::StructuralConstructionElementUnsupported => formatter.write_str(
+                "structural construction work requires a grounded member or an active structural support",
             ),
             Self::StructuralConstructionElementNotMaterialized => formatter.write_str(
                 "structural construction work requires exact materialized member matter",

@@ -153,7 +153,7 @@ impl Error for PlayerWorkValidationError {
             | Self::StructuralConstructionMethodMissing
             | Self::StructuralConstructionElementMissing
             | Self::StructuralConstructionElementNotPlanned
-            | Self::StructuralConstructionElementNotGrounded
+            | Self::StructuralConstructionElementUnsupported
             | Self::StructuralConstructionElementNotMaterialized
             | Self::StructuralConstructionPlayerNotLocated
             | Self::StructuralConstructionPlayerRemote

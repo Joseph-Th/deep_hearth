@@ -27,6 +27,36 @@ pub enum AddStructuralElementError {
     RevisionExhausted,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SupportedStructuralElementPlan {
+    profile: StructuralProfileId,
+    material: MaterialId,
+    geometry: StructuralElementGeometry,
+    support: StructuralElementId,
+}
+
+impl SupportedStructuralElementPlan {
+    #[must_use]
+    pub const fn new(
+        profile: StructuralProfileId,
+        material: MaterialId,
+        geometry: StructuralElementGeometry,
+        support: StructuralElementId,
+    ) -> Self {
+        Self {
+            profile,
+            material,
+            geometry,
+            support,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn support(self) -> StructuralElementId {
+        self.support
+    }
+}
+
 impl Display for AddStructuralElementError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -142,6 +172,9 @@ pub enum PlanPlayerStructuralElementError {
     TargetOverlapsPlayer { player: VoxelCoord },
     TargetNotSingleVoxel,
     TargetNotAdjacent { player: VoxelCoord },
+    UnknownSupport { support: StructuralElementId },
+    SupportNotActive { support: StructuralElementId },
+    SupportOutOfContact { support: StructuralElementId },
     Element(AddStructuralElementError),
 }
 
@@ -168,6 +201,19 @@ impl Display for PlanPlayerStructuralElementError {
                 player.y(),
                 player.z()
             ),
+            Self::UnknownSupport { support } => {
+                write!(formatter, "unknown structural support {}", support.value())
+            }
+            Self::SupportNotActive { support } => write!(
+                formatter,
+                "structural support {} is not active",
+                support.value()
+            ),
+            Self::SupportOutOfContact { support } => write!(
+                formatter,
+                "new structural member lacks positive-area face contact with support {}",
+                support.value()
+            ),
             Self::Element(error) => Display::fmt(error, formatter),
         }
     }
@@ -181,7 +227,10 @@ impl Error for PlanPlayerStructuralElementError {
             | Self::PlayerDead
             | Self::TargetOverlapsPlayer { .. }
             | Self::TargetNotSingleVoxel
-            | Self::TargetNotAdjacent { .. } => None,
+            | Self::TargetNotAdjacent { .. }
+            | Self::UnknownSupport { .. }
+            | Self::SupportNotActive { .. }
+            | Self::SupportOutOfContact { .. } => None,
         }
     }
 }
@@ -280,6 +329,7 @@ pub struct ValidatedPlayerStructuralElementPlan {
     expected_next_element_id: u32,
     next_element_id: u32,
     next_structure_revision: u64,
+    support: Option<StructuralElementId>,
 }
 
 impl ValidatedPlayerStructuralElementPlan {
@@ -353,6 +403,9 @@ impl ValidatedPlayerStructuralElementPlan {
             self.next_element_id,
             self.next_structure_revision,
         );
+        if let Some(support) = self.support {
+            state.structure_state_mut().link_support(id, support);
+        }
         id
     }
 
@@ -397,10 +450,13 @@ fn target_is_face_adjacent(bounds: crate::spatial::VoxelBounds, player: VoxelCoo
     .any(|neighbor| bounds.has_voxel(neighbor))
 }
 
-pub fn validate_plan_player_grounded_structural_element(
+fn validate_plan_player_structural_element(
     registries: &Registries,
     state: &AppState,
-    plan: GroundedStructuralElementPlan,
+    profile: StructuralProfileId,
+    material: MaterialId,
+    geometry: StructuralElementGeometry,
+    support: Option<StructuralElementId>,
 ) -> Result<ValidatedPlayerStructuralElementPlan, PlanPlayerStructuralElementError> {
     let player_action = validate_player_action(state).map_err(|error| match error {
         PlayerActionValidationError::PlayerNotAdmitted => {
@@ -414,7 +470,7 @@ pub fn validate_plan_player_grounded_structural_element(
         .copied()
         .ok_or(PlanPlayerStructuralElementError::PlayerNotAdmitted)?;
     let position = player.position();
-    let bounds = plan.geometry.bounds();
+    let bounds = geometry.bounds();
     if bounds.has_voxel(position) {
         return Err(PlanPlayerStructuralElementError::TargetOverlapsPlayer { player: position });
     }
@@ -424,8 +480,20 @@ pub fn validate_plan_player_grounded_structural_element(
     if !target_is_face_adjacent(bounds, position) {
         return Err(PlanPlayerStructuralElementError::TargetNotAdjacent { player: position });
     }
-    validate_definition(registries, plan.profile, plan.material, plan.geometry)
+    validate_definition(registries, profile, material, geometry)
         .map_err(PlanPlayerStructuralElementError::Element)?;
+    if let Some(support) = support {
+        let support_record = state
+            .structures()
+            .get_element(support)
+            .ok_or(PlanPlayerStructuralElementError::UnknownSupport { support })?;
+        if support_record.lifecycle() != StructuralLifecycle::Active {
+            return Err(PlanPlayerStructuralElementError::SupportNotActive { support });
+        }
+        if !bounds.has_face_contact(support_record.bounds()) {
+            return Err(PlanPlayerStructuralElementError::SupportOutOfContact { support });
+        }
+    }
     if !state.can_spend_structure_revisions(1) {
         return Err(PlanPlayerStructuralElementError::Element(
             AddStructuralElementError::RevisionExhausted,
@@ -441,7 +509,7 @@ pub fn validate_plan_player_grounded_structural_element(
     )?;
     Ok(ValidatedPlayerStructuralElementPlan {
         player_action,
-        record: build_record(state, id, plan.profile, plan.material, plan.geometry, true),
+        record: build_record(state, id, profile, material, geometry, support.is_none()),
         expected_tick: state.tick(),
         expected_structure_revision: state.structures().revision(),
         expected_logistics_revision: state.logistics().revision(),
@@ -449,7 +517,38 @@ pub fn validate_plan_player_grounded_structural_element(
         expected_next_element_id,
         next_element_id,
         next_structure_revision,
+        support,
     })
+}
+
+pub fn validate_plan_player_grounded_structural_element(
+    registries: &Registries,
+    state: &AppState,
+    plan: GroundedStructuralElementPlan,
+) -> Result<ValidatedPlayerStructuralElementPlan, PlanPlayerStructuralElementError> {
+    validate_plan_player_structural_element(
+        registries,
+        state,
+        plan.profile,
+        plan.material,
+        plan.geometry,
+        None,
+    )
+}
+
+pub fn validate_plan_player_supported_structural_element(
+    registries: &Registries,
+    state: &AppState,
+    plan: SupportedStructuralElementPlan,
+) -> Result<ValidatedPlayerStructuralElementPlan, PlanPlayerStructuralElementError> {
+    validate_plan_player_structural_element(
+        registries,
+        state,
+        plan.profile,
+        plan.material,
+        plan.geometry,
+        Some(plan.support),
+    )
 }
 
 #[cfg(any(test, feature = "test-gameplay"))]

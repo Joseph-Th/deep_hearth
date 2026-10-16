@@ -522,8 +522,20 @@ fn validate_structural_construction_work(
     if record.lifecycle() != StructuralLifecycle::Planned {
         return Err(PlayerWorkValidationError::StructuralConstructionElementNotPlanned);
     }
-    if !record.is_grounded() {
-        return Err(PlayerWorkValidationError::StructuralConstructionElementNotGrounded);
+    if !record.is_grounded()
+        && !state
+            .structures()
+            .supports(work.element())
+            .is_some_and(|supports| {
+                supports.into_iter().any(|support| {
+                    state
+                        .structures()
+                        .get_element(support)
+                        .is_some_and(|record| record.lifecycle() == StructuralLifecycle::Active)
+                })
+            })
+    {
+        return Err(PlayerWorkValidationError::StructuralConstructionElementUnsupported);
     }
     if !bounds_are_local(record.bounds(), player_position) {
         return Err(PlayerWorkValidationError::StructuralConstructionPlayerRemote);

@@ -36,7 +36,7 @@ pub enum PlayerStructuralConstructionError {
     ElementNotPlanned {
         element: StructuralElementId,
     },
-    ElementNotGrounded {
+    ElementUnsupported {
         element: StructuralElementId,
     },
     ElementNotLocal {
@@ -64,7 +64,7 @@ impl Display for PlayerStructuralConstructionError {
             Self::UnknownMethod { method } => write!(formatter, "unknown structural construction method {}", method.value()),
             Self::UnknownElement { element } => write!(formatter, "unknown structural element {}", element.value()),
             Self::ElementNotPlanned { element } => write!(formatter, "structural element {} is not awaiting construction", element.value()),
-            Self::ElementNotGrounded { element } => write!(formatter, "structural element {} is not grounded for direct player construction", element.value()),
+            Self::ElementUnsupported { element } => write!(formatter, "structural element {} is neither grounded nor attached to an active support", element.value()),
             Self::ElementNotLocal { element } => write!(formatter, "structural element {} is not in a face-adjacent construction voxel", element.value()),
             Self::MemberTooHeavy { required, maximum } => write!(
                 formatter,
@@ -92,7 +92,7 @@ impl Error for PlayerStructuralConstructionError {
             | Self::UnknownMethod { .. }
             | Self::UnknownElement { .. }
             | Self::ElementNotPlanned { .. }
-            | Self::ElementNotGrounded { .. }
+            | Self::ElementUnsupported { .. }
             | Self::ElementNotLocal { .. }
             | Self::MemberTooHeavy { .. }
             | Self::CompletionTickOverflow
@@ -309,6 +309,7 @@ fn validate_player_structural_construction_context(
     state: &AppState,
     method: StructuralConstructionMethodId,
     record: &StructuralElementRecord,
+    transient_support: Option<StructuralElementId>,
 ) -> Result<PlayerStructuralConstructionContext, PlayerStructuralConstructionError> {
     let definition = registries
         .labor()
@@ -324,8 +325,32 @@ fn validate_player_structural_construction_context(
     if record.lifecycle() != StructuralLifecycle::Planned {
         return Err(PlayerStructuralConstructionError::ElementNotPlanned { element });
     }
-    if !record.is_grounded() {
-        return Err(PlayerStructuralConstructionError::ElementNotGrounded { element });
+    let has_active_support = transient_support.map_or_else(
+        || {
+            state
+                .structures()
+                .supports(element)
+                .is_some_and(|supports| {
+                    supports.into_iter().any(|support| {
+                        state
+                            .structures()
+                            .get_element(support)
+                            .is_some_and(|record| record.lifecycle() == StructuralLifecycle::Active)
+                    })
+                })
+        },
+        |support| {
+            state
+                .structures()
+                .get_element(support)
+                .is_some_and(|support_record| {
+                    support_record.lifecycle() == StructuralLifecycle::Active
+                        && record.bounds().has_face_contact(support_record.bounds())
+                })
+        },
+    );
+    if !record.is_grounded() && !has_active_support {
+        return Err(PlayerStructuralConstructionError::ElementUnsupported { element });
     }
     if !bounds_are_local(record.bounds(), player.position()) {
         return Err(PlayerStructuralConstructionError::ElementNotLocal { element });
@@ -364,7 +389,7 @@ pub fn validate_start_player_structural_construction(
         .get_element(element)
         .ok_or(PlayerStructuralConstructionError::UnknownElement { element })?;
     let context =
-        validate_player_structural_construction_context(registries, state, method, record)?;
+        validate_player_structural_construction_context(registries, state, method, record, None)?;
 
     let material = if record.embodied_mass().is_zero() {
         if !state.can_spend_structure_revisions(2) {
@@ -416,8 +441,53 @@ pub(crate) fn validate_start_player_structural_construction_for_planned_member(
     expected_structure_revision: u64,
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
-    let context =
-        validate_player_structural_construction_context(registries, state, method, record)?;
+    validate_start_player_structural_construction_for_planned_member_with_support(
+        registries,
+        state,
+        method,
+        record,
+        expected_structure_revision,
+        selections,
+        None,
+    )
+}
+
+pub(crate) fn validate_start_player_structural_construction_for_supported_planned_member(
+    registries: &Registries,
+    state: &AppState,
+    method: StructuralConstructionMethodId,
+    record: &StructuralElementRecord,
+    expected_structure_revision: u64,
+    selections: &[MaterialLotSelection],
+    support: StructuralElementId,
+) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
+    validate_start_player_structural_construction_for_planned_member_with_support(
+        registries,
+        state,
+        method,
+        record,
+        expected_structure_revision,
+        selections,
+        Some(support),
+    )
+}
+
+fn validate_start_player_structural_construction_for_planned_member_with_support(
+    registries: &Registries,
+    state: &AppState,
+    method: StructuralConstructionMethodId,
+    record: &StructuralElementRecord,
+    expected_structure_revision: u64,
+    selections: &[MaterialLotSelection],
+    transient_support: Option<StructuralElementId>,
+) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
+    let context = validate_player_structural_construction_context(
+        registries,
+        state,
+        method,
+        record,
+        transient_support,
+    )?;
     if !record.embodied_mass().is_zero() {
         return Err(PlayerStructuralConstructionError::MaterialStateChanged {
             element: record.id(),

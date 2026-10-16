@@ -150,7 +150,6 @@ impl StructureState {
         self.revision = next_revision;
     }
 
-    #[cfg(test)]
     pub(super) fn link_support(
         &mut self,
         element: StructuralElementId,
