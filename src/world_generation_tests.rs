@@ -1,8 +1,8 @@
 //! Contracts for deterministic fresh-world wilderness opening generation.
 
 use crate::content::{
-    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
-    build_registries,
+    BLOCK_STATE_STONE, FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
+    MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};
@@ -18,6 +18,7 @@ use crate::surface::{
     SurfaceResourceSpec, available_adjacent_surface_resources, validate_create_surface_resources,
 };
 use crate::survival::{available_adjacent_drink_sources, available_local_drink_sources};
+use crate::world::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, validate_generate_chunk};
 
 use super::*;
 
@@ -33,6 +34,87 @@ fn generated_profile(state: &AppState) -> Vec<(CommodityKey, Mass, VoxelCoord)> 
             )
         })
         .collect()
+}
+
+#[test]
+fn terrain_backed_wilderness_generation_selects_only_standable_opening_layout() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let horizontal = VoxelCoord::new(8, 0, 8);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(horizontal),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("terrain-backed wilderness chunk validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("terrain-backed wilderness chunk commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| {
+            state
+                .world()
+                .block_at(VoxelCoord::new(horizontal.x(), y, horizontal.z()))
+                == Some(BLOCK_STATE_STONE)
+        })
+        .unwrap_or_else(|| panic!("terrain-backed wilderness spawn column has no solid surface"));
+    let spawn = VoxelCoord::new(horizontal.x(), surface_y + 1, horizontal.z());
+    let layout = generated_opening_layout_matching(seed, spawn, |position| {
+        terrain_opening_position_is_standable(&registries, &state, position)
+    })
+    .unwrap_or_else(|| panic!("terrain-backed wilderness fixture has no standable opening layout"));
+
+    validate_generate_initial_wilderness(&registries, &state, seed, spawn)
+        .unwrap_or_else(|error| panic!("terrain-backed wilderness validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("terrain-backed wilderness commit failed: {error}"));
+
+    assert!(
+        layout
+            .positions()
+            .into_iter()
+            .all(|position| terrain_opening_position_is_standable(&registries, &state, position)),
+        "every authored opening interaction voxel must remain physically standable in generated terrain"
+    );
+    assert!(
+        layout
+            .edge_pairs()
+            .into_iter()
+            .all(|(from, to)| state.logistics().is_step_authorized(from, to)),
+        "terrain-aware opening generation must persist exactly the selected traversable topology"
+    );
+}
+
+#[test]
+fn terrain_backed_wilderness_generation_rejects_spawn_without_standable_layout() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let horizontal = VoxelCoord::new(8, 0, 8);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(horizontal),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("terrain rejection chunk validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("terrain rejection chunk commit failed: {error}"));
+    let before = state.clone();
+    let unsupported_spawn = VoxelCoord::new(horizontal.x(), 100, horizontal.z());
+
+    assert_eq!(
+        validate_generate_initial_wilderness(&registries, &state, seed, unsupported_spawn).err(),
+        Some(InitialWildernessGenerationError::NoTraversableTerrainLayout)
+    );
+    assert_eq!(
+        state, before,
+        "failed terrain-aware opening admission must not mutate world state"
+    );
 }
 
 fn generate(state: &mut AppState, seed: WorldGenerationSeed, spawn: VoxelCoord) {

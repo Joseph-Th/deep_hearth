@@ -31,16 +31,21 @@ def wilderness_summary(lines: list[str]) -> str | None:
     direct_use = ""
     if direct_use_lines:
         movement = re.search(
-            r"\bmovement=continuous-body route-voxels=(\d+) control-ticks=(\d+\+\d+)",
+            r"\bmovement=continuous-body route=\[voxels:(\d+) unique-edges:(\d+)/(\d+) control-ticks:(\d+)\]",
             direct_use_lines[0],
         )
-        if movement is None:
-            raise ValueError("wilderness direct-use witness lost continuous-body movement telemetry")
+        material_choice = re.search(
+            r"\bmaterial-choice=\[stone\+timber:(\d+) visited:(\d+)\]",
+            direct_use_lines[0],
+        )
+        if movement is None or material_choice is None:
+            raise ValueError("wilderness direct-use witness lost continuous-body route/material telemetry")
         direct_use = (
-            f"direct-use=[body-move={movement.group(1)}v/{movement.group(2)}ct "
+            f"direct-use=[route={movement.group(2)}/{movement.group(3)}e/{movement.group(4)}ct "
+            f"materials={material_choice.group(2)}/{material_choice.group(1)} use=one-shot-secondary "
             + compact_fields(
                 direct_use_lines[0],
-                ("input", "queue", "gather", "water", "hydration", "timed"),
+                ("queue", "gather", "water", "hydration", "timed"),
             )
             + "]"
         )

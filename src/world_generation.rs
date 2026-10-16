@@ -29,11 +29,11 @@ use crate::surface::{
     SurfaceResourceSpec, SurfaceResourceSpecError, SurfaceResourceValidationError,
     ValidatedSurfaceResourceCreation, validate_create_surface_resources,
 };
-use crate::world::WorldGenerationSeed;
+use crate::world::{BlockCollisionShape, BlockStateId, WorldGenerationSeed};
 
 use opening::{
-    OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_layout, generated_volume,
-    local_entropy,
+    OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_layout,
+    generated_opening_layout_matching, generated_volume, local_entropy,
 };
 
 const WILDERNESS_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -82,6 +82,7 @@ pub enum InitialWildernessGenerationError {
     FluidStoreIdExhausted,
     FluidRevisionExhausted,
     LogisticsRevisionExhausted,
+    NoTraversableTerrainLayout,
     InvalidGeneratedResource(SurfaceResourceValidationError),
     InvalidGeneratedWater,
 }
@@ -128,6 +129,9 @@ impl Display for InitialWildernessGenerationError {
             Self::LogisticsRevisionExhausted => {
                 formatter.write_str("logistics revision space is exhausted")
             }
+            Self::NoTraversableTerrainLayout => formatter.write_str(
+                "generated terrain has no standing-clearance layout for the bounded wilderness opening",
+            ),
             Self::InvalidGeneratedResource(error) => {
                 write!(
                     formatter,
@@ -156,9 +160,34 @@ impl Error for InitialWildernessGenerationError {
             | Self::FluidStoreIdExhausted
             | Self::FluidRevisionExhausted
             | Self::LogisticsRevisionExhausted
+            | Self::NoTraversableTerrainLayout
             | Self::InvalidGeneratedWater => None,
         }
     }
+}
+
+fn terrain_opening_position_is_standable(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    let Some(floor_y) = position.y().checked_sub(1) else {
+        return false;
+    };
+    let Some(head_y) = position.y().checked_add(1) else {
+        return false;
+    };
+    let floor = VoxelCoord::new(position.x(), floor_y, position.z());
+    let head = VoxelCoord::new(position.x(), head_y, position.z());
+    let Some(floor_state) = state.world().block_at(floor) else {
+        return false;
+    };
+    registries
+        .world()
+        .block_for_state(floor_state)
+        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        && state.world().block_at(position) == Some(BlockStateId::AIR)
+        && state.world().block_at(head) == Some(BlockStateId::AIR)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -417,7 +446,14 @@ pub fn validate_generate_initial_wilderness(
     if !state.logistics().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::LogisticsAlreadyPopulated);
     }
-    let layout = generated_opening_layout(seed, spawn);
+    let layout = if state.world().generation_profile().is_some() {
+        generated_opening_layout_matching(seed, spawn, |position| {
+            terrain_opening_position_is_standable(registries, state, position)
+        })
+        .ok_or(InitialWildernessGenerationError::NoTraversableTerrainLayout)?
+    } else {
+        generated_opening_layout(seed, spawn)
+    };
     let stone_first = local_entropy(seed, spawn, OPENING_RESOURCE_ORDER_SALT).is_multiple_of(2);
     let stone_position = if stone_first {
         layout.material_forward

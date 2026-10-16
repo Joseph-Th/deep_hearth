@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual shaping, wear, service, primitive machines, copper upgrades, field instruments, wire drawing, and workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and first/settlement foundry routes. Compound-ore reduction is absent. |
-| Opening wilderness acquisition | Seeded forage/water/stone/timber graph, load-sensitive travel, and finite campfire heat. General terrain play, remote discovery, hydrology, shelter, and weather are absent. |
+| Opening wilderness acquisition | Seeded forage/water/stone/timber graph with terrain-fit standable layout and full continuous-body route proof; finite fire heat. Pathfinding, remote discovery, hydrology, shelter, and weather absent. |
 | Structures | Grounded adjacent members atomically consume carried stacks into timed work; load-bearing starts on completion. |
 
 ## Current integration frontier
@@ -44,7 +44,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 
 | Area | Implemented capability |
 | --- | --- |
-| Core | Deterministic simulation; persisted 20 Hz `ControlTick`; exact 72:1 slow `SimulationTick`; active body physics cannot be skipped by slow stepping. |
+| Core | Persisted 20 Hz `ControlTick` + exact 72:1 `SimulationTick`; slow-step only when no control-rate consequence can occur. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
 | Crafting | Carried recipe/batch crafting selects exact lots privately; meaningful stack choice stays explicit. |

@@ -30,7 +30,6 @@ impl GeneratedOpeningLayout {
         ]
     }
 
-    #[cfg(test)]
     pub(super) fn positions(self) -> [VoxelCoord; 6] {
         [
             self.spawn,
@@ -91,58 +90,67 @@ fn perpendicular_directions(direction: usize) -> [usize; 2] {
     }
 }
 
-fn branch_direction(
+fn ordered_branch_directions(
     seed: WorldGenerationSeed,
     spawn: VoxelCoord,
     main_direction: usize,
-    forage: VoxelCoord,
-    junction: VoxelCoord,
-) -> usize {
+) -> [usize; 2] {
     let candidates = perpendicular_directions(main_direction);
     let first = usize::try_from(local_entropy(seed, spawn, OPENING_BRANCH_DIRECTION_SALT) % 2)
         .unwrap_or_else(|_| unreachable!("bounded branch direction fits usize"));
-    (0..2)
-        .map(|offset| candidates[(first + offset) % 2])
-        .find(|direction| {
-            horizontal_step(forage, *direction).is_some()
-                && horizontal_step(junction, *direction).is_some()
-        })
-        .unwrap_or_else(|| {
-            unreachable!("a three-step horizontal spine always has one valid perpendicular side")
-        })
+    [candidates[first], candidates[(first + 1) % 2]]
 }
 
-pub(super) fn generated_opening_layout(
-    seed: WorldGenerationSeed,
+fn opening_layout_for_directions(
     spawn: VoxelCoord,
-) -> GeneratedOpeningLayout {
-    let first = usize::try_from(local_entropy(seed, spawn, OPENING_SPINE_DIRECTION_SALT) % 4)
-        .unwrap_or_else(|_| unreachable!("bounded spine direction fits usize"));
-    let main_direction = (0..4)
-        .map(|offset| (first + offset) % 4)
-        .find(|direction| direction_supports_opening_spine(spawn, *direction))
-        .unwrap_or_else(|| {
-            unreachable!("every finite voxel supports three horizontal steps in some direction")
-        });
-    let forage = horizontal_step(spawn, main_direction)
-        .unwrap_or_else(|| unreachable!("selected opening spine was prevalidated"));
-    let junction = horizontal_step(forage, main_direction)
-        .unwrap_or_else(|| unreachable!("selected opening spine was prevalidated"));
-    let material_forward = horizontal_step(junction, main_direction)
-        .unwrap_or_else(|| unreachable!("selected opening spine was prevalidated"));
-    let branch = branch_direction(seed, spawn, main_direction, forage, junction);
-    let water = horizontal_step(forage, branch)
-        .unwrap_or_else(|| unreachable!("selected opening branch was prevalidated"));
-    let material_branch = horizontal_step(junction, branch)
-        .unwrap_or_else(|| unreachable!("selected opening branch was prevalidated"));
-    GeneratedOpeningLayout {
+    main_direction: usize,
+    branch: usize,
+) -> Option<GeneratedOpeningLayout> {
+    let forage = horizontal_step(spawn, main_direction)?;
+    let junction = horizontal_step(forage, main_direction)?;
+    let material_forward = horizontal_step(junction, main_direction)?;
+    let water = horizontal_step(forage, branch)?;
+    let material_branch = horizontal_step(junction, branch)?;
+    Some(GeneratedOpeningLayout {
         spawn,
         forage,
         junction,
         water,
         material_forward,
         material_branch,
+    })
+}
+
+pub(super) fn generated_opening_layout_matching(
+    seed: WorldGenerationSeed,
+    spawn: VoxelCoord,
+    mut accepts_position: impl FnMut(VoxelCoord) -> bool,
+) -> Option<GeneratedOpeningLayout> {
+    let first = usize::try_from(local_entropy(seed, spawn, OPENING_SPINE_DIRECTION_SALT) % 4)
+        .unwrap_or_else(|_| unreachable!("bounded spine direction fits usize"));
+    for main_direction in (0..4).map(|offset| (first + offset) % 4) {
+        if !direction_supports_opening_spine(spawn, main_direction) {
+            continue;
+        }
+        for branch in ordered_branch_directions(seed, spawn, main_direction) {
+            let Some(layout) = opening_layout_for_directions(spawn, main_direction, branch) else {
+                continue;
+            };
+            if layout.positions().into_iter().all(&mut accepts_position) {
+                return Some(layout);
+            }
+        }
     }
+    None
+}
+
+pub(super) fn generated_opening_layout(
+    seed: WorldGenerationSeed,
+    spawn: VoxelCoord,
+) -> GeneratedOpeningLayout {
+    generated_opening_layout_matching(seed, spawn, |_| true).unwrap_or_else(|| {
+        unreachable!("every finite voxel supports a bounded horizontal opening layout")
+    })
 }
 
 pub(super) fn local_entropy(seed: WorldGenerationSeed, spawn: VoxelCoord, salt: u64) -> u64 {

@@ -83,7 +83,9 @@ use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
 
 fn generated_wilderness_surface_spawn(registries: &Registries, state: &mut AppState) -> VoxelCoord {
-    let horizontal = VoxelCoord::new(0, 0, 0);
+    // Keep the entire bounded opening inside the explicitly generated initial chunk so terrain-aware
+    // opening layout selection can prove standing clearance before player admission.
+    let horizontal = VoxelCoord::new(8, 0, 8);
     validate_generate_chunk(
         registries,
         state,
@@ -364,6 +366,88 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         hydration_after > hydration_before,
         "timed direct drinking should improve the actor's hydration"
     );
+    let return_to_forage_ticks = walk_body_to_adjacent(
+        &registries,
+        &mut state,
+        forage.position(),
+        "direct-use return from water",
+    );
+    let forage_choices = state.available_player_steps().collect::<Vec<_>>();
+    let junctions = forage_choices
+        .iter()
+        .copied()
+        .filter(|position| *position != spawn && *position != water.position())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        junctions.len(),
+        1,
+        "direct-use forage waypoint should expose exactly one work-path junction beside spawn and water"
+    );
+    let junction = junctions[0];
+    let junction_movement_ticks = walk_body_to_adjacent(
+        &registries,
+        &mut state,
+        junction,
+        "direct-use material junction",
+    );
+    let stone_commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let timber_commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let adjacent_materials = available_adjacent_surface_resources(&state)
+        .filter(|resource| {
+            resource.commodity() == stone_commodity || resource.commodity() == timber_commodity
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        adjacent_materials.len(),
+        2,
+        "continuous-body opening should present stone and timber together at the material junction"
+    );
+    let timber = adjacent_materials
+        .iter()
+        .copied()
+        .find(|resource| resource.commodity() == timber_commodity)
+        .unwrap_or_else(|| panic!("direct-use material junction lost timber"));
+    let stone = adjacent_materials
+        .iter()
+        .copied()
+        .find(|resource| resource.commodity() == stone_commodity)
+        .unwrap_or_else(|| panic!("direct-use material junction lost stone"));
+    let timber_movement_ticks = walk_body_to_adjacent(
+        &registries,
+        &mut state,
+        timber.position(),
+        "direct-use timber leaf",
+    );
+    assert_eq!(
+        local_surface_resource(&state, timber_commodity),
+        timber.resource(),
+        "continuous-body timber visit must recover the actor-visible adjacent timber source"
+    );
+    let return_to_junction_ticks = walk_body_to_adjacent(
+        &registries,
+        &mut state,
+        junction,
+        "direct-use timber return",
+    );
+    let stone_movement_ticks = walk_body_to_adjacent(
+        &registries,
+        &mut state,
+        stone.position(),
+        "direct-use stone leaf",
+    );
+    assert_eq!(
+        local_surface_resource(&state, stone_commodity),
+        stone.resource(),
+        "continuous-body stone visit must recover the actor-visible adjacent stone source"
+    );
+    let route_control_ticks = forage_movement_ticks
+        .checked_add(water_movement_ticks)
+        .and_then(|ticks| ticks.checked_add(return_to_forage_ticks))
+        .and_then(|ticks| ticks.checked_add(junction_movement_ticks))
+        .and_then(|ticks| ticks.checked_add(timber_movement_ticks))
+        .and_then(|ticks| ticks.checked_add(return_to_junction_ticks))
+        .and_then(|ticks| ticks.checked_add(stone_movement_ticks))
+        .unwrap_or_else(|| panic!("direct-use movement telemetry overflowed"));
     if emit_report {
         let water_after = state
             .fluid()
@@ -371,10 +455,9 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
             .map(|store| store.stored_volume())
             .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
         std::println!(
-            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route-voxels=2 control-ticks={}+{} input=one-shot-empty-hand-secondary queue=[gather:{}ct drink:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/5 control-ticks:{}] material-choice=[stone+timber:2 visited:2] input=one-shot-empty-hand-secondary queue=[gather:{}ct drink:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
             WILDERNESS_WORLD_SEED.value(),
-            forage_movement_ticks,
-            water_movement_ticks,
+            route_control_ticks,
             forage_queue_ticks,
             water_queue_ticks,
             forage_before.milligrams(),

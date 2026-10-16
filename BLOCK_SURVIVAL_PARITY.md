@@ -112,8 +112,8 @@ clock while retaining a slower exact accounting clock for its materially richer 
 
 The timing blocker is closed at the substrate level. `ControlTick` is authoritative at 20 Hz, persists through
 save/load, and is advanced only by `advance_control_tick`. Every 72nd control step executes the existing
-3.6-second `SimulationTick` transaction. Generated-world body gravity/collision now runs on those control steps;
-the headless `advance_tick` helper fails closed there instead of skipping active control-rate effects. Trusted
+3.6-second `SimulationTick` transaction. Generated-world body gravity/collision runs on those control steps;
+`advance_tick` fast-forwards only a standing grounded motionless body with no pending control-rate consequence and otherwise fails closed. Trusted
 load rejects incoherent clock pairs and unrepresentable terminal substeps.
 
 This deliberate multi-rate design is stronger for Deep Hearth than forcing all industrial and physiological
