@@ -39,7 +39,7 @@ use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, assess_player_carrying,
     project_player_walk_path, project_player_walk_path_for_load, validate_drop_stack_to_ground,
-    validate_drop_to_ground, validate_pickup_stack_from_ground, validate_set_active_selection,
+    validate_pickup_stack_from_ground, validate_set_active_selection,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -1990,32 +1990,33 @@ pub(super) fn evaluate_generated_wilderness_opening(
             });
         if camp_goal == WildernessCampGoal::WorksiteCache {
             let mut residue_mass = Mass::ZERO;
-            let residue_selections = state
-                .inventory()
-                .lot_ids(carried)
-                .filter_map(|lot| {
-                    let record = state.inventory().get_lot(lot)?;
-                    (record.commodity().material() == MATERIAL_WOOD).then(|| {
-                        residue_mass =
-                            residue_mass.checked_add(record.mass()).unwrap_or_else(|| {
-                                panic!("wilderness construction residue overflowed")
-                            });
-                        MaterialLotSelection::new(lot, record.mass())
+            loop {
+                let stack = project_material_stacks(&registries, &state, carried)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness construction-residue stack projection failed: {error}")
                     })
-                })
-                .collect::<Vec<_>>();
+                    .into_iter()
+                    .find(|stack| stack.commodity().material() == MATERIAL_WOOD);
+                let Some(stack) = stack else {
+                    break;
+                };
+                let mass = stack.mass();
+                residue_mass = residue_mass
+                    .checked_add(mass)
+                    .unwrap_or_else(|| panic!("wilderness construction residue overflowed"));
+                validate_drop_stack_to_ground(&registries, &state, storage, &stack, mass)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness construction-residue cache drop failed: {error}")
+                    })
+                    .commit(&mut state)
+                    .unwrap_or_else(|error| {
+                        panic!("wilderness construction-residue cache commit failed: {error}")
+                    });
+            }
             assert!(
                 !residue_mass.is_zero(),
                 "field-box fabrication should leave material-backed wood residue to retain at camp"
             );
-            validate_drop_to_ground(&registries, &state, storage, &residue_selections)
-                .unwrap_or_else(|error| {
-                    panic!("wilderness construction-residue cache drop failed: {error}")
-                })
-                .commit(&mut state)
-                .unwrap_or_else(|error| {
-                    panic!("wilderness construction-residue cache commit failed: {error}")
-                });
             worksite_construction_residue_mg = residue_mass.milligrams();
         }
         if !retained_food_mass.is_zero() {
@@ -2162,19 +2163,24 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 "worksite field box should be structurally supported before accepting staged material"
             );
 
-            let selections = select_stockpile_commodity_mass(
+            let staged_stack = carried_material_stack(
+                &registries,
                 &state,
-                carried,
                 timber_commodity,
-                staged_timber,
-                "wilderness worksite staged timber",
+                "worksite staged timber",
             );
-            validate_drop_to_ground(&registries, &state, storage, &selections)
-                .unwrap_or_else(|error| panic!("wilderness worksite-cache drop failed: {error}"))
-                .commit(&mut state)
-                .unwrap_or_else(|error| {
-                    panic!("wilderness worksite-cache drop commit failed: {error}")
-                });
+            validate_drop_stack_to_ground(
+                &registries,
+                &state,
+                storage,
+                &staged_stack,
+                staged_timber,
+            )
+            .unwrap_or_else(|error| panic!("wilderness worksite-cache drop failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("wilderness worksite-cache drop commit failed: {error}")
+            });
             assert!(
                 state
                     .structures()
