@@ -413,6 +413,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
     converged = 0
     first_drop_modify = 0
     second_drop_modify = 0
+    catalog_kits = 0
     for line in campaigns:
         seed = field(line, "seed")
         sample = field(line, "sample")
@@ -423,6 +424,11 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
         information = re.search(r"\binformation=\[[^]]* refinement:(true|false) ", line)
         extraction = re.search(r"\bextraction=\[[^]]* haul-trips:(\d+)\]", line)
         decision = re.search(r"\bdecision=\[selected:([^\s\]]+) ", line)
+        field_kit = re.search(
+            r"\bfield-kit=\[assembled-after-admission:true catalog:(true|false) "
+            r"rediscovered:true carried:true\]",
+            line,
+        )
         first_investment = re.search(
             r"\bfirst-investment=\[local:true handling:([^\s\]]+)\]",
             line,
@@ -450,6 +456,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
             information,
             extraction,
             decision,
+            field_kit,
             first_investment,
             mechanization,
             autonomy,
@@ -460,6 +467,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
         assert seed is not None and sample is not None
         assert corridor is not None and information is not None
         assert extraction is not None and decision is not None
+        assert field_kit is not None
         assert first_investment is not None and mechanization is not None
         assert autonomy is not None and second_investment is not None and convergence is not None
         if sample not in {"organic", "replay"}:
@@ -491,6 +499,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
         converged += convergence.group(1) == "true" and int(convergence.group(2)) > 0
         first_drop_modify += first_investment.group(1).startswith("drop-modify-repickup")
         second_drop_modify += second_investment.group(1).startswith("drop-modify-repickup")
+        catalog_kits += field_kit.group(1) == "true"
         if " matter=conserved" not in line:
             raise ValueError("exact-local progression campaign lost matter conservation evidence")
 
@@ -529,6 +538,7 @@ def _exact_local_campaign_evidence(lines: list[str]) -> str | None:
         f"decision=[pick:{pick_first} crank:{crank_first}] refinement:{refinements} "
         f"steps:{_span(steps, unit='')} hauls:{_span(hauls, unit='')} "
         f"feed=[hard:{hard_feed} bulk:{bulk_feed}] line-local:{local_lines}/{len(campaigns)} "
+        f"field-kit-catalog:{catalog_kits}/{len(campaigns)} "
         f"autonomy=[next-feed:{_span(next_feed, unit='mg')} overlap:{_span(overlap)} idle:{_span(idle)}] "
         f"convergence:{converged}/{len(campaigns)} "
         f"drop-modify=[first:{first_drop_modify} second:{second_drop_modify}]] "

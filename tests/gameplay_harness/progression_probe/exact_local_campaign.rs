@@ -14,7 +14,10 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
-use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
+use deep_hearth::equipment::{
+    EquipmentDefinitionId, EquipmentId, player_equipment_assembly_options,
+    validate_assemble_player_equipment_option,
+};
 use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::logistics::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
@@ -734,6 +737,30 @@ fn assemble_local_field_kit(
     native: deep_hearth::inventory::StockpileId,
     shaped: deep_hearth::inventory::StockpileId,
 ) -> (EquipmentId, EquipmentId) {
+    let assemble_visible =
+        |state: &mut AppState, definition: EquipmentDefinitionId, context: &'static str| {
+            let options = player_equipment_assembly_options(registries, state, shaped)
+                .unwrap_or_else(|error| {
+                    panic!("exact-local progression {context} assembly catalog failed: {error}")
+                });
+            let matches = options
+                .into_iter()
+                .filter(|option| option.definition() == definition && option.is_ready())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                matches.len(),
+                1,
+                "exact-local progression {context} requires one ready actor-visible assembly option"
+            );
+            validate_assemble_player_equipment_option(registries, state, &matches[0])
+                .unwrap_or_else(|error| {
+                    panic!("exact-local progression {context} assembly failed: {error}")
+                })
+                .commit(state)
+                .unwrap_or_else(|error| {
+                    panic!("exact-local progression {context} assembly commit failed: {error}")
+                })
+        };
     craft_for_profile(
         registries,
         state,
@@ -742,10 +769,7 @@ fn assemble_local_field_kit(
         shaped,
         equipment_assembly_profile(registries, EQUIPMENT_STONE_PICK),
     );
-    let pick = validate_assemble_equipment(registries, state, EQUIPMENT_STONE_PICK, shaped)
-        .unwrap_or_else(|error| panic!("exact-local progression pick assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("exact-local progression pick commit failed: {error}"));
+    let pick = assemble_visible(state, EQUIPMENT_STONE_PICK, "stone-pick");
     craft_for_profile(
         registries,
         state,
@@ -754,15 +778,7 @@ fn assemble_local_field_kit(
         shaped,
         equipment_assembly_profile(registries, EQUIPMENT_STONE_GEOLOGICAL_HAMMER),
     );
-    let hammer =
-        validate_assemble_equipment(registries, state, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, shaped)
-            .unwrap_or_else(|error| {
-                panic!("exact-local progression hammer assembly failed: {error}")
-            })
-            .commit(state)
-            .unwrap_or_else(|error| {
-                panic!("exact-local progression hammer commit failed: {error}")
-            });
+    let hammer = assemble_visible(state, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, "sampling-hammer");
     for equipment in [pick, hammer] {
         assert!(
             state
@@ -1364,7 +1380,7 @@ pub(super) fn run_exact_local_progression_campaign(
     assert_exact_local_progression_state(registries, &state, "completed campaign");
 
     reviewln!(
-        "PROGRESSION LOCAL CAMPAIGN seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=matched-progression-world corridor=[body:continuous-generated-terrain workshop:-1 clues:0,2,4,6 max-distance:7 edges:{}] information=[regional:{}..{}ppm surface:{} resolved:{} refinement:{} hard:{}..{}ppm bulk:{}..{}ppm direct:{}..{}ppm] field-kit=[assembled-after-admission:true rediscovered:true carried:true] extraction=[bulk:{}mg direct-first:{}mg direct-second:{}mg shortage:{} haul-trips:{}] decision=[selected:{} rule:hard-lower>owned-bulk bulk-grade:{}ppm] first-investment=[local:true handling:{}] mechanization=[line-local:true feed:{} grade:{}ppm prep:{}t charge:{}t crush:{}t separation:{}t recovered:{}mg] autonomy=[next-feed:{}mg mining:{}t overlap:{}t idle:{}t] second-investment=[local:true handling:{}] convergence=[both-upgrades:{} hard-sample-returned:{}mg] matter=conserved",
+        "PROGRESSION LOCAL CAMPAIGN seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=matched-progression-world corridor=[body:continuous-generated-terrain workshop:-1 clues:0,2,4,6 max-distance:7 edges:{}] information=[regional:{}..{}ppm surface:{} resolved:{} refinement:{} hard:{}..{}ppm bulk:{}..{}ppm direct:{}..{}ppm] field-kit=[assembled-after-admission:true catalog:true rediscovered:true carried:true] extraction=[bulk:{}mg direct-first:{}mg direct-second:{}mg shortage:{} haul-trips:{}] decision=[selected:{} rule:hard-lower>owned-bulk bulk-grade:{}ppm] first-investment=[local:true handling:{}] mechanization=[line-local:true feed:{} grade:{}ppm prep:{}t charge:{}t crush:{}t separation:{}t recovered:{}mg] autonomy=[next-feed:{}mg mining:{}t overlap:{}t idle:{}t] second-investment=[local:true handling:{}] convergence=[both-upgrades:{} hard-sample-returned:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         movement_steps,
