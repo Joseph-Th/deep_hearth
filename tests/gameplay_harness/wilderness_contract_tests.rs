@@ -13,9 +13,9 @@ use deep_hearth::content::gameplay_fixture::{
     admit_player_at_hunger_warning_boundary, admit_player_at_hydration_warning_boundary,
 };
 use deep_hearth::content::{
-    BLOCK_STATE_STONE, CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY,
-    ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP,
-    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
     STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
@@ -37,8 +37,8 @@ use deep_hearth::inventory::{
 };
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
-    HorizontalControlInput, PlayerControlInput, assess_player_carrying,
-    project_player_adjacent_walk, project_player_walk_path, validate_drop_to_ground,
+    HorizontalControlInput, PlayerControlInput, assess_player_carrying, project_player_walk_path,
+    validate_drop_to_ground,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -68,70 +68,17 @@ use deep_hearth::survival::{
     project_survival_resource_budget, validate_drink_store_to_hydration_target,
     validate_eat_lot_to_metabolic_target,
 };
-use deep_hearth::world::{
-    CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
-    validate_generate_chunk, validate_generate_player_neighborhood,
-};
+use deep_hearth::world::{WorldGenerationSeed, validate_generate_player_neighborhood};
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
-use super::exact_local_runtime::assert_ordinary_admitted_runtime_ready;
+use super::exact_local_runtime::{
+    assert_ordinary_admitted_runtime_ready, generated_wilderness_surface_spawn,
+    project_continuous_body_path_budget_for_load, walk_continuous_body_adjacent_and_settle,
+};
 use super::seed;
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
-
-fn generated_wilderness_surface_spawn(
-    registries: &Registries,
-    state: &mut AppState,
-    seed: WorldGenerationSeed,
-) -> VoxelCoord {
-    // Generate one deterministic initial terrain chunk, then choose the nearest center-first
-    // surface column whose full six-voxel opening is accepted by the production terrain-aware
-    // opening validator. The validator remains the authority for standing clearance and bounded
-    // topology fit; this bootstrap only chooses among already generated candidate columns.
-    let horizontal = VoxelCoord::new(8, 0, 8);
-    let chunk = ChunkCoord::containing(horizontal);
-    validate_generate_chunk(registries, state, seed, chunk, BLOCK_STATE_STONE)
-        .unwrap_or_else(|error| panic!("wilderness terrain generation failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("wilderness terrain commit failed: {error}"));
-    let min_x = chunk
-        .world_min_x()
-        .unwrap_or_else(|| panic!("wilderness initial chunk x coordinate overflowed"));
-    let min_z = chunk
-        .world_min_z()
-        .unwrap_or_else(|| panic!("wilderness initial chunk z coordinate overflowed"));
-    let side =
-        i64::try_from(CHUNK_SIDE).unwrap_or_else(|_| unreachable!("authored chunk side fits i64"));
-    let center = side / 2;
-    let mut candidates = (0..side)
-        .flat_map(|local_x| (0..side).map(move |local_z| (local_x, local_z)))
-        .collect::<Vec<_>>();
-    candidates.sort_unstable_by_key(|&(local_x, local_z)| {
-        (
-            (local_x - center).abs() + (local_z - center).abs(),
-            local_x,
-            local_z,
-        )
-    });
-
-    candidates
-        .into_iter()
-        .find_map(|(local_x, local_z)| {
-            let x = min_x.checked_add(local_x)?;
-            let z = min_z.checked_add(local_z)?;
-            let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).rev().find(|&y| {
-                state.world().block_at(VoxelCoord::new(x, y, z)) == Some(BLOCK_STATE_STONE)
-            })?;
-            let spawn = VoxelCoord::new(x, surface_y.checked_add(1)?, z);
-            validate_generate_initial_wilderness(registries, state, seed, spawn)
-                .is_ok()
-                .then_some(spawn)
-        })
-        .unwrap_or_else(|| {
-            panic!("generated initial chunk has no terrain-valid bounded wilderness spawn")
-        })
-}
 
 fn walk_body_to_adjacent(
     registries: &Registries,
@@ -752,59 +699,6 @@ fn adjacent_drinkable_source(registries: &Registries, state: &AppState) -> Adjac
     matches[0]
 }
 
-fn walk_body_to_adjacent_and_settle(
-    registries: &Registries,
-    state: &mut AppState,
-    destination: VoxelCoord,
-    context: &str,
-) {
-    assert!(
-        state.control_tick().is_simulation_boundary(),
-        "wilderness {context} continuous leg must begin at a settled slow boundary"
-    );
-    let survival_before = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("wilderness {context} lost survival state before movement"));
-    let projection = project_player_adjacent_walk(registries, state, destination)
-        .unwrap_or_else(|error| panic!("wilderness {context} walk projection failed: {error}"));
-    let movement_control_ticks = walk_body_to_adjacent(registries, state, destination, context);
-    assert_eq!(
-        movement_control_ticks,
-        projection.control_ticks(),
-        "wilderness {context} continuous leg must match its pre-action control-time projection"
-    );
-    while !state.control_tick().is_simulation_boundary() {
-        let _ = advance_control_tick(registries, state).unwrap_or_else(|error| {
-            panic!("wilderness {context} movement settlement failed: {error}")
-        });
-        assert_eq!(
-            state.logistics().player().map(|player| player.position()),
-            Some(destination),
-            "wilderness {context} settlement wait must not change reached locality"
-        );
-    }
-    let survival_after = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("wilderness {context} lost survival state after movement"));
-    assert_eq!(
-        survival_before
-            .metabolic_energy()
-            .checked_sub(survival_after.metabolic_energy()),
-        Some(projection.resource_budget().metabolic_energy()),
-        "wilderness {context} continuous leg must settle the projected energy charge"
-    );
-    assert_eq!(
-        survival_before
-            .hydration()
-            .checked_sub(survival_after.hydration()),
-        Some(projection.resource_budget().hydration()),
-        "wilderness {context} continuous leg must settle the projected hydration charge"
-    );
-    assert_eq!(
-        state.logistics().player().map(|player| player.position()),
-        Some(destination),
-        "completed wilderness {context} continuous leg must move authoritative locality"
-    );
-}
-
 fn project_wilderness_adze_decision(
     registries: &Registries,
     board_batches: u64,
@@ -1162,7 +1056,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
     // portable ration early rather than stripping the whole visible patch merely because it exists.
     // Reaching it must use actor-visible adjacent observation plus the canonical generated graph
     // instead of generation knowledge or a same-voxel bootstrap.
-    walk_body_to_adjacent_and_settle(
+    walk_continuous_body_adjacent_and_settle(
         &registries,
         &mut state,
         adjacent_berries.position(),
@@ -1637,16 +1531,25 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let water_decision = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("wilderness player disappeared before water decision"));
     let minimum_cup = physiology.direct_consumption().minimum_drink_volume();
-    let project_approach_steps = match camp_goal {
-        WildernessCampGoal::StayMobile => 1_u64,
-        WildernessCampGoal::WorksiteCache | WildernessCampGoal::PreserveProvisions => 2_u64,
+    let known_junction_budget = project_continuous_body_path_budget_for_load(
+        &registries,
+        &state,
+        &[junction],
+        retained_food_mass,
+        "known forage-to-junction project approach",
+    );
+    let hidden_material_leg_budget = match camp_goal {
+        WildernessCampGoal::StayMobile => SurvivalResourceBudget::ZERO,
+        WildernessCampGoal::WorksiteCache | WildernessCampGoal::PreserveProvisions => {
+            conservative_future_leg_budget(
+                retained_food_mass,
+                "still-hidden material-leaf approach upper bound",
+            )
+        }
     };
-    let approach_leg_upper_budget =
-        conservative_future_leg_budget(retained_food_mass, "camp-project approach leg upper bound");
-    let project_from_forage_budget = (0..project_approach_steps)
-        .try_fold(camp_project_budget, |budget, _| {
-            budget.checked_add(approach_leg_upper_budget)
-        })
+    let project_from_forage_budget = camp_project_budget
+        .checked_add(known_junction_budget)
+        .and_then(|budget| budget.checked_add(hidden_material_leg_budget))
         .unwrap_or_else(|| panic!("wilderness pre-project route budget overflowed"));
     let hydration_working_target = |budget: SurvivalResourceBudget| {
         physiology
@@ -1669,7 +1572,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let mut water_rest_runway_ticks = None;
     let mut water_consumed_ul = 0_u64;
     if water_needed {
-        walk_body_to_adjacent_and_settle(
+        walk_continuous_body_adjacent_and_settle(
             &registries,
             &mut state,
             adjacent_water.position(),
@@ -1692,8 +1595,15 @@ pub(super) fn evaluate_generated_wilderness_opening(
             "the exact-local water opportunity should buy more than one resting day before active-work costs"
         );
         water_rest_runway_ticks = Some(rest_runway);
+        let return_to_forage_budget = project_continuous_body_path_budget_for_load(
+            &registries,
+            &state,
+            &[forage_position],
+            retained_food_mass,
+            "known water-to-forage return",
+        );
         let project_after_drink_budget = project_from_forage_budget
-            .checked_add(approach_leg_upper_budget)
+            .checked_add(return_to_forage_budget)
             .unwrap_or_else(|| panic!("wilderness water-return project budget overflowed"));
         let hydration_target = hydration_working_target(project_after_drink_budget);
         let drink =
@@ -1730,7 +1640,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 .is_some_and(|survival| survival.hydration() >= hydration_target),
             "needed opening drink should establish the project-aware hydration buffer"
         );
-        walk_body_to_adjacent_and_settle(
+        walk_continuous_body_adjacent_and_settle(
             &registries,
             &mut state,
             forage_position,
@@ -1747,7 +1657,12 @@ pub(super) fn evaluate_generated_wilderness_opening(
     // The material junction is the first genuine world-choice moment in the default opening. The
     // actor can see both raw opportunities at once and need not visit either merely to satisfy a
     // harness checklist when there is no current workload worth paying for.
-    walk_body_to_adjacent_and_settle(&registries, &mut state, junction, "material junction");
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        junction,
+        "material junction",
+    );
     total_steps += 1;
     let junction_step_choices = u64::try_from(state.available_player_steps().count())
         .unwrap_or_else(|_| panic!("wilderness junction-step choice count exceeds u64"));
@@ -1855,7 +1770,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
             .unwrap_or_else(|| {
                 panic!("wilderness selected material is not adjacent at the junction")
             });
-        walk_body_to_adjacent_and_settle(
+        walk_continuous_body_adjacent_and_settle(
             &registries,
             &mut state,
             selected.position(),
@@ -1934,7 +1849,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
 
         // Construction material comes back to the material junction. Storage is camp
         // infrastructure, not a container spawned on top of the resource it is meant to organize.
-        walk_body_to_adjacent_and_settle(
+        walk_continuous_body_adjacent_and_settle(
             &registries,
             &mut state,
             junction,
@@ -2028,7 +1943,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
             let support_and_staging = staged_timber
                 .checked_add(worksite_support_mass)
                 .unwrap_or_else(|| panic!("wilderness worksite second-trip timber overflowed"));
-            walk_body_to_adjacent_and_settle(
+            walk_continuous_body_adjacent_and_settle(
                 &registries,
                 &mut state,
                 selected.position(),
@@ -2131,7 +2046,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 staged_timber,
                 "worksite support should consume exactly its timber before the return haul"
             );
-            walk_body_to_adjacent_and_settle(
+            walk_continuous_body_adjacent_and_settle(
                 &registries,
                 &mut state,
                 junction,
@@ -2272,7 +2187,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
             assert_eq!(campfire_stone.commodity(), stone_commodity);
 
             let stone = adjacent_surface_resource(&state, stone_commodity);
-            walk_body_to_adjacent_and_settle(
+            walk_continuous_body_adjacent_and_settle(
                 &registries,
                 &mut state,
                 stone.position(),
@@ -2298,7 +2213,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
                     .stored()
                     .milligrams(),
             );
-            walk_body_to_adjacent_and_settle(
+            walk_continuous_body_adjacent_and_settle(
                 &registries,
                 &mut state,
                 junction,

@@ -90,6 +90,7 @@ pub fn advance_control_tick_with_direct_input(
     state: &mut AppState,
     input: PlayerDirectControlInput,
 ) -> Result<ControlTickOutcome, TickError> {
+    let world_revision_before = state.world().revision();
     let current = state.control_tick();
     let next_control = current
         .checked_next()
@@ -161,7 +162,7 @@ pub fn advance_control_tick_with_direct_input(
             .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
         apply_control_clock_advance(state, next_control);
         let direct_actions = attempt_direct_actions(registries, state, input, None, None);
-        debug_assert_runtime_invariants(registries, state);
+        debug_assert_runtime_invariants(registries, state, world_revision_before);
         return Ok(ControlTickOutcome::new(
             next_control,
             None,
@@ -222,7 +223,7 @@ pub fn advance_control_tick_with_direct_input(
         pending_secondary,
     );
     let block_excavation = simulation.block_excavation();
-    debug_assert_runtime_invariants(registries, state);
+    debug_assert_runtime_invariants(registries, state, world_revision_before);
     debug_assert_eq!(state.control_tick(), next_control);
     Ok(ControlTickOutcome::new(
         next_control,
@@ -314,6 +315,7 @@ fn advance_simulation_tick(
     next_tick: SimulationTick,
     locomotion_exertion: SurvivalExertion,
 ) -> Result<TickOutcome, TickError> {
+    let world_revision_before = state.world().revision();
     debug_assert_eq!(next_tick.value(), state.tick().value() + 1);
 
     // Due jobs are indexed by exact authoritative tick. Downstream enclosure dismantling and
@@ -507,7 +509,7 @@ fn advance_simulation_tick(
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
     apply_clock_advance(state, next_tick);
 
-    debug_assert_runtime_invariants(registries, state);
+    debug_assert_runtime_invariants(registries, state, world_revision_before);
     Ok(TickOutcome {
         tick: next_tick,
         production_availability_changes,

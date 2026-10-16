@@ -2,18 +2,197 @@
 
 use std::collections::BTreeSet;
 
+use deep_hearth::content::BLOCK_STATE_STONE;
 use deep_hearth::content::gameplay_fixture::{locate_fluid_store, locate_ground_stockpile};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::logistics::assess_player_carrying;
+use deep_hearth::logistics::{
+    CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
+    assess_player_carrying, project_player_adjacent_walk, project_player_walk_path_for_load,
+};
 use deep_hearth::persistence::validate_persistable_state;
 use deep_hearth::registry::Registries;
+use deep_hearth::simulation::{advance_control_tick, advance_control_tick_with_input};
 use deep_hearth::spatial::VoxelCoord;
+use deep_hearth::survival::{SurvivalResourceBudget, assess_survival};
+use deep_hearth::world::{
+    CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+    validate_generate_chunk,
+};
+use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
 pub(super) const STATIONARY_PLAYER_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
+
+/// Generates one deterministic terrain chunk and returns a center-first surface spawn accepted by
+/// the production terrain-aware wilderness layout validator.
+pub(super) fn generated_wilderness_surface_spawn(
+    registries: &Registries,
+    state: &mut AppState,
+    seed: WorldGenerationSeed,
+) -> VoxelCoord {
+    let horizontal = VoxelCoord::new(8, 0, 8);
+    let chunk = ChunkCoord::containing(horizontal);
+    validate_generate_chunk(registries, state, seed, chunk, BLOCK_STATE_STONE)
+        .unwrap_or_else(|error| panic!("gameplay wilderness terrain generation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("gameplay wilderness terrain commit failed: {error}"));
+    let min_x = chunk
+        .world_min_x()
+        .unwrap_or_else(|| panic!("gameplay wilderness initial chunk x coordinate overflowed"));
+    let min_z = chunk
+        .world_min_z()
+        .unwrap_or_else(|| panic!("gameplay wilderness initial chunk z coordinate overflowed"));
+    let side =
+        i64::try_from(CHUNK_SIDE).unwrap_or_else(|_| unreachable!("authored chunk side fits i64"));
+    let center = side / 2;
+    let mut candidates = (0..side)
+        .flat_map(|local_x| (0..side).map(move |local_z| (local_x, local_z)))
+        .collect::<Vec<_>>();
+    candidates.sort_unstable_by_key(|&(local_x, local_z)| {
+        (
+            (local_x - center).abs() + (local_z - center).abs(),
+            local_x,
+            local_z,
+        )
+    });
+    candidates
+        .into_iter()
+        .find_map(|(local_x, local_z)| {
+            let x = min_x.checked_add(local_x)?;
+            let z = min_z.checked_add(local_z)?;
+            let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).rev().find(|&y| {
+                state.world().block_at(VoxelCoord::new(x, y, z)) == Some(BLOCK_STATE_STONE)
+            })?;
+            let spawn = VoxelCoord::new(x, surface_y.checked_add(1)?, z);
+            validate_generate_initial_wilderness(registries, state, seed, spawn)
+                .is_ok()
+                .then_some(spawn)
+        })
+        .unwrap_or_else(|| {
+            panic!("generated initial chunk has no terrain-valid bounded wilderness spawn")
+        })
+}
+
+/// Executes one horizontal face-adjacent continuous-body leg and settles its exact locomotion cost.
+pub(super) fn walk_continuous_body_adjacent_and_settle(
+    registries: &Registries,
+    state: &mut AppState,
+    destination: VoxelCoord,
+    context: &str,
+) -> u64 {
+    assert!(
+        state.control_tick().is_simulation_boundary(),
+        "ordinary gameplay {context} continuous leg must begin at a settled slow boundary"
+    );
+    let origin = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("ordinary gameplay {context} lost admitted player"));
+    let survival_before = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("ordinary gameplay {context} lost survival before movement"));
+    let projection =
+        project_player_adjacent_walk(registries, state, destination).unwrap_or_else(|error| {
+            panic!("ordinary gameplay {context} walk projection failed: {error}")
+        });
+    let x = i32::try_from(destination.x() - origin.x())
+        .unwrap_or_else(|_| unreachable!("adjacent gameplay x delta fits i32"))
+        * CONTROL_INPUT_PARTS_PER_MILLION;
+    let z = i32::try_from(destination.z() - origin.z())
+        .unwrap_or_else(|_| unreachable!("adjacent gameplay z delta fits i32"))
+        * CONTROL_INPUT_PARTS_PER_MILLION;
+    let horizontal = HorizontalControlInput::new(x, z).unwrap_or_else(|error| {
+        panic!("ordinary gameplay {context} movement input failed: {error}")
+    });
+    let movement = PlayerControlInput::new(horizontal);
+    let mut control_ticks = 0_u64;
+    while state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.position() != destination)
+    {
+        assert!(
+            control_ticks < 80,
+            "ordinary gameplay {context} did not reach destination"
+        );
+        let _ = advance_control_tick_with_input(registries, state, movement)
+            .unwrap_or_else(|error| panic!("ordinary gameplay {context} movement failed: {error}"));
+        control_ticks += 1;
+    }
+    while state.logistics().player().is_some_and(|player| {
+        let velocity = player.body().horizontal_velocity();
+        velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
+    }) {
+        assert!(
+            control_ticks < 100,
+            "ordinary gameplay {context} did not settle"
+        );
+        let _ = advance_control_tick(registries, state)
+            .unwrap_or_else(|error| panic!("ordinary gameplay {context} braking failed: {error}"));
+        control_ticks += 1;
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(destination),
+            "ordinary gameplay {context} braking overshot its destination"
+        );
+    }
+    assert_eq!(
+        control_ticks,
+        projection.control_ticks(),
+        "ordinary gameplay {context} control execution diverged from its projection"
+    );
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(registries, state).unwrap_or_else(|error| {
+            panic!("ordinary gameplay {context} settlement failed: {error}")
+        });
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(destination),
+            "ordinary gameplay {context} settlement wait changed locality"
+        );
+    }
+    let survival_after = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("ordinary gameplay {context} lost survival after movement"));
+    assert_eq!(
+        survival_before
+            .metabolic_energy()
+            .checked_sub(survival_after.metabolic_energy()),
+        Some(projection.resource_budget().metabolic_energy()),
+        "ordinary gameplay {context} did not settle projected energy"
+    );
+    assert_eq!(
+        survival_before
+            .hydration()
+            .checked_sub(survival_after.hydration()),
+        Some(projection.resource_budget().hydration()),
+        "ordinary gameplay {context} did not settle projected hydration"
+    );
+    control_ticks
+}
+
+/// Prices one already chosen local path at a disclosed future carried load without creating that
+/// custody. Route discovery remains caller-owned; this helper only keeps gameplay policy on the
+/// same production projection used by continuous-body execution.
+pub(super) fn project_continuous_body_path_budget_for_load(
+    registries: &Registries,
+    state: &AppState,
+    destinations: &[VoxelCoord],
+    carried: Mass,
+    context: &str,
+) -> SurvivalResourceBudget {
+    let capacity = assess_player_carrying(state)
+        .unwrap_or_else(|| panic!("ordinary gameplay {context} lost carrying assessment"))
+        .capacity();
+    project_player_walk_path_for_load(registries, state, destinations, carried, capacity)
+        .unwrap_or_else(|error| {
+            panic!("ordinary gameplay {context} walk projection failed: {error}")
+        })
+        .resource_budget()
+}
 
 fn assert_trusted_persistence_ready(
     registries: &Registries,

@@ -254,8 +254,17 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
     Ok(())
 }
 
-/// Debug-asserts every cheap runtime invariant after an authoritative simulation mutation.
-pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &AppState) {
+/// Debug-asserts runtime invariants after one authoritative simulation mutation.
+///
+/// Compact generated-world storage is comparatively expensive to replay. World ownership is
+/// revisioned, so callers provide the revision observed before the mutation and this audit replays
+/// full world validation only when that owner actually changed. Trusted-load validation remains
+/// exhaustive regardless of revision history.
+pub(crate) fn debug_assert_runtime_invariants(
+    registries: &Registries,
+    state: &AppState,
+    world_revision_before: u64,
+) {
     debug_assert!(
         state.control_tick() <= crate::core::time::ControlTick::MAX_COMPLETE
             && state.control_tick().simulation_tick() == state.tick(),
@@ -286,10 +295,12 @@ pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &A
         state.systems.structures.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): structural ID cursor must remain valid"
     );
-    debug_assert!(
-        validate_loaded_world(registries.world(), &state.systems.world).is_ok(),
-        "Runtime Invariants 6/8: generated world chunks must retain valid compact block-state storage"
-    );
+    if state.world().revision() != world_revision_before {
+        debug_assert!(
+            validate_loaded_world(registries.world(), &state.systems.world).is_ok(),
+            "Runtime Invariants 6/8: generated world chunks must retain valid compact block-state storage"
+        );
+    }
     debug_assert!(
         state.systems.surface.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): surface resource ID cursor must remain above every allocated resource"
