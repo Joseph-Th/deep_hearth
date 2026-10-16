@@ -6,15 +6,13 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::logistics::validate_start_player_step;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::surface::available_adjacent_surface_resources;
 use deep_hearth::survival::available_adjacent_drink_sources;
 
-use super::super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
+use super::super::super::exact_local_runtime::walk_continuous_body_adjacent_and_settle;
 use super::gather_surface_resource;
 
 #[derive(Clone, Copy)]
@@ -30,33 +28,27 @@ fn move_player(
     context: &'static str,
 ) -> u64 {
     let started_at = state.tick().value();
-    let work = validate_start_player_step(registries, state, destination)
-        .unwrap_or_else(|error| panic!("liberation {context} movement admission failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("liberation {context} movement commit failed: {error}"));
-    let expected_ticks = work
-        .completes_at()
-        .value()
-        .checked_sub(started_at)
-        .unwrap_or_else(|| panic!("liberation {context} movement completion precedes start"));
-    for elapsed in 1..=expected_ticks {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("liberation {context} movement tick failed: {error}"));
-        assert_tick_events_within(
-            &outcome,
-            TickEventAllowance {
-                player_step: elapsed == expected_ticks,
-                ..TickEventAllowance::default()
-            },
-            context,
-        );
-    }
+    let control_ticks =
+        walk_continuous_body_adjacent_and_settle(registries, state, destination, context);
     assert_eq!(
         state.logistics().player().map(|player| player.position()),
         Some(destination),
         "liberation {context} movement did not update authoritative player locality"
     );
-    expected_ticks
+    assert!(
+        control_ticks > 0,
+        "liberation {context} continuous-body travel must occupy control time"
+    );
+    let elapsed = state
+        .tick()
+        .value()
+        .checked_sub(started_at)
+        .unwrap_or_else(|| panic!("liberation {context} movement completion precedes start"));
+    assert_eq!(
+        elapsed, 1,
+        "one bounded opening edge should settle within one slow-tick attention interval"
+    );
+    elapsed
 }
 
 pub(super) fn acquire_generated_opening_raw(

@@ -4,7 +4,6 @@ use std::collections::BTreeSet;
 
 use deep_hearth::content::BLOCK_STATE_STONE;
 use deep_hearth::content::gameplay_fixture::{locate_fluid_store, locate_ground_stockpile};
-use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
@@ -12,13 +11,13 @@ use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::logistics::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
-    assess_player_carrying, project_player_adjacent_walk, project_player_walk_path_for_load,
+    assess_player_carrying, project_player_adjacent_walk,
 };
 use deep_hearth::persistence::validate_persistable_state;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::{advance_control_tick, advance_control_tick_with_input};
 use deep_hearth::spatial::VoxelCoord;
-use deep_hearth::survival::{SurvivalResourceBudget, assess_survival};
+use deep_hearth::survival::assess_survival;
 use deep_hearth::world::{
     CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
     validate_generate_chunk,
@@ -172,26 +171,6 @@ pub(super) fn walk_continuous_body_adjacent_and_settle(
         "ordinary gameplay {context} did not settle projected hydration"
     );
     control_ticks
-}
-
-/// Prices one already chosen local path at a disclosed future carried load without creating that
-/// custody. Route discovery remains caller-owned; this helper only keeps gameplay policy on the
-/// same production projection used by continuous-body execution.
-pub(super) fn project_continuous_body_path_budget_for_load(
-    registries: &Registries,
-    state: &AppState,
-    destinations: &[VoxelCoord],
-    carried: Mass,
-    context: &str,
-) -> SurvivalResourceBudget {
-    let capacity = assess_player_carrying(state)
-        .unwrap_or_else(|| panic!("ordinary gameplay {context} lost carrying assessment"))
-        .capacity();
-    project_player_walk_path_for_load(registries, state, destinations, carried, capacity)
-        .unwrap_or_else(|error| {
-            panic!("ordinary gameplay {context} walk projection failed: {error}")
-        })
-        .resource_budget()
 }
 
 fn assert_trusted_persistence_ready(

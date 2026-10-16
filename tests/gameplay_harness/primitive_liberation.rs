@@ -86,8 +86,6 @@ mod scavenging;
 #[path = "primitive_liberation/support.rs"]
 mod support;
 
-const PRIMITIVE_LIBERATION_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
-
 #[derive(Clone, Copy)]
 struct PrimitiveLiberationBootstrap {
     ore: StockpileId,
@@ -106,30 +104,35 @@ struct PrimitiveLiberationBootstrap {
     ore_lot: MaterialLotId,
 }
 
-fn allocate_liberation_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
-    seed_ground_stockpile(state, PRIMITIVE_LIBERATION_ORIGIN, capacity)
+fn allocate_liberation_stockpile(
+    state: &mut AppState,
+    position: VoxelCoord,
+    capacity: Mass,
+) -> StockpileId {
+    seed_ground_stockpile(state, position, capacity)
 }
 
 fn bootstrap_liberation_inventory(
     registries: &Registries,
     state: &mut AppState,
+    position: VoxelCoord,
     batch_mass: Mass,
     copper_ppm: u32,
     clay_share_ppm: u32,
 ) -> PrimitiveLiberationBootstrap {
-    let ore = allocate_liberation_stockpile(state, batch_mass);
-    let crushed = allocate_liberation_stockpile(state, batch_mass);
-    let ground = allocate_liberation_stockpile(state, batch_mass);
-    let undersize = allocate_liberation_stockpile(state, batch_mass);
-    let oversize = allocate_liberation_stockpile(state, batch_mass);
-    let concentrate = allocate_liberation_stockpile(state, batch_mass);
-    let tailings = allocate_liberation_stockpile(state, batch_mass);
-    let fine_tailings = allocate_liberation_stockpile(state, batch_mass);
-    let exhausted_tailings = allocate_liberation_stockpile(state, batch_mass);
-    let native_copper = allocate_liberation_stockpile(state, batch_mass);
-    let manual_crushed = allocate_liberation_stockpile(state, batch_mass);
-    let manual_native = allocate_liberation_stockpile(state, batch_mass);
-    let manual_residue = allocate_liberation_stockpile(state, batch_mass);
+    let ore = allocate_liberation_stockpile(state, position, batch_mass);
+    let crushed = allocate_liberation_stockpile(state, position, batch_mass);
+    let ground = allocate_liberation_stockpile(state, position, batch_mass);
+    let undersize = allocate_liberation_stockpile(state, position, batch_mass);
+    let oversize = allocate_liberation_stockpile(state, position, batch_mass);
+    let concentrate = allocate_liberation_stockpile(state, position, batch_mass);
+    let tailings = allocate_liberation_stockpile(state, position, batch_mass);
+    let fine_tailings = allocate_liberation_stockpile(state, position, batch_mass);
+    let exhausted_tailings = allocate_liberation_stockpile(state, position, batch_mass);
+    let native_copper = allocate_liberation_stockpile(state, position, batch_mass);
+    let manual_crushed = allocate_liberation_stockpile(state, position, batch_mass);
+    let manual_native = allocate_liberation_stockpile(state, position, batch_mass);
+    let manual_residue = allocate_liberation_stockpile(state, position, batch_mass);
     let ore_lot = seed_composed_lot(
         registries,
         state,
@@ -444,20 +447,26 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         extension_plan.minimum_attention_return,
         extension_plan.choice.label(),
     );
-    let (acquired, campaign_bootstraps) =
-        acquisition::acquire_raw_kit(registries, case, planned_batches, selected_build, |state| {
+    let (acquired, campaign_bootstraps) = acquisition::acquire_raw_kit(
+        registries,
+        case,
+        planned_batches,
+        selected_build,
+        |state, position| {
             (0..planned_batches)
                 .map(|_| {
                     bootstrap_liberation_inventory(
                         registries,
                         state,
+                        position,
                         batch_mass,
                         copper_ppm,
                         clay_share_ppm,
                     )
                 })
                 .collect::<Vec<_>>()
-        });
+        },
+    );
     let manual_campaign = run_manual_campaign_lifecycle(
         registries,
         acquired.decision_state.clone(),

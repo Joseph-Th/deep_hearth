@@ -38,7 +38,7 @@ use deep_hearth::inventory::{
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerControlInput, assess_player_carrying, project_player_walk_path,
-    validate_drop_to_ground,
+    project_player_walk_path_for_load, validate_drop_to_ground,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -73,12 +73,27 @@ use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
 use super::exact_local_runtime::{
     assert_ordinary_admitted_runtime_ready, generated_wilderness_surface_spawn,
-    project_continuous_body_path_budget_for_load, walk_continuous_body_adjacent_and_settle,
+    walk_continuous_body_adjacent_and_settle,
 };
 use super::seed;
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+
+fn project_continuous_body_path_budget_for_load(
+    registries: &Registries,
+    state: &AppState,
+    destinations: &[VoxelCoord],
+    carried: Mass,
+    context: &str,
+) -> SurvivalResourceBudget {
+    let capacity = assess_player_carrying(state)
+        .unwrap_or_else(|| panic!("wilderness {context} lost carrying assessment"))
+        .capacity();
+    project_player_walk_path_for_load(registries, state, destinations, carried, capacity)
+        .unwrap_or_else(|error| panic!("wilderness {context} walk projection failed: {error}"))
+        .resource_budget()
+}
 
 fn walk_body_to_adjacent(
     registries: &Registries,
