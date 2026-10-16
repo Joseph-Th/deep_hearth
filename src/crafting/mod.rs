@@ -42,7 +42,7 @@ pub use input_planning::{
 };
 pub use personal::{
     PlayerManualCraftError, player_manual_craft_options, validate_start_player_manual_craft,
-    validate_start_player_manual_craft_from_stack,
+    validate_start_player_manual_craft_from_stack, validate_start_player_manual_craft_option,
 };
 pub(crate) use physics::resolve_manual_craft_equipment_physics;
 pub use powered::{

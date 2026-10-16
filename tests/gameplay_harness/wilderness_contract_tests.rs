@@ -27,7 +27,7 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::{SimulationTick, TickSpan};
 use deep_hearth::crafting::{
     ManualCraftInputMode, player_manual_craft_options, project_manual_craft_equipment,
-    project_manual_craft_hand_work, validate_start_player_manual_craft,
+    project_manual_craft_hand_work, validate_start_player_manual_craft_option,
 };
 use deep_hearth::energy::assess_local_illumination;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
@@ -987,8 +987,8 @@ fn craft_in_place(
         desired_output.material().value(),
         desired_output.form().value(),
     );
-    let process = matches[0].process();
-    let job = validate_start_player_manual_craft(registries, state, process, batches, None)
+    let option = matches[0];
+    let job = validate_start_player_manual_craft_option(registries, state, option, batches, None)
         .unwrap_or_else(|error| panic!("wilderness {context} craft admission failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("wilderness {context} craft commit failed: {error}"));

@@ -85,16 +85,16 @@ fn personal_recipe_batch_crafts_in_place_without_player_lot_identity() {
         .unwrap_or_else(|error| panic!("personal craft initial matter audit failed: {error}"))
         .total();
 
-    let job = validate_start_player_manual_craft(
-        &registries,
-        &state,
-        PROCESS_KNAP_STONE_TOOL,
-        one_batch(),
-        None,
-    )
-    .unwrap_or_else(|error| panic!("personal recipe/batch start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("personal recipe/batch commit failed: {error}"));
+    let option = player_manual_craft_options(&registries, &state)
+        .unwrap_or_else(|error| panic!("personal craft option projection failed: {error}"))
+        .into_iter()
+        .find(|option| option.process() == PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("personal craft stone option disappeared"));
+    let job =
+        validate_start_player_manual_craft_option(&registries, &state, option, one_batch(), None)
+            .unwrap_or_else(|error| panic!("personal recipe/batch start failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("personal recipe/batch commit failed: {error}"));
     let completes_at = state
         .production()
         .get_job(job)
@@ -122,6 +122,18 @@ fn personal_recipe_batch_crafts_in_place_without_player_lot_identity() {
             .unwrap_or_else(|error| panic!("personal craft final matter audit failed: {error}"))
             .total(),
         matter_before
+    );
+    assert_eq!(
+        validate_start_player_manual_craft_option(&registries, &state, option, one_batch(), None,)
+            .err(),
+        Some(PlayerManualCraftError::InputPlan(
+            ManualCraftInputPlanError::InsufficientInput {
+                input: CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                available: Mass::ZERO,
+                required: Mass::from_milligrams(1_000_000),
+            }
+        )),
+        "a previously visible recipe row must re-read current carried input instead of authorizing stale work"
     );
 }
 

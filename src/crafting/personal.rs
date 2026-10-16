@@ -119,6 +119,22 @@ pub fn validate_start_player_manual_craft(
         .map_err(PlayerManualCraftError::Start)
 }
 
+/// Starts one actor-visible personal-crafting catalog row without exposing recipe identity at the
+/// action boundary.
+///
+/// The option is read-side evidence rather than an authorization token. Current carried matter,
+/// equipment, survival, attention, capacity, and owner revisions are re-read by the canonical
+/// personal-craft path when work is admitted.
+pub fn validate_start_player_manual_craft_option(
+    registries: &Registries,
+    state: &AppState,
+    option: ManualCraftStockpileOption,
+    batches: NonZeroU64,
+    equipment: Option<EquipmentId>,
+) -> Result<ValidatedManualCraftStart, PlayerManualCraftError> {
+    validate_start_player_manual_craft(registries, state, option.process(), batches, equipment)
+}
+
 /// Starts personal crafting from one explicitly chosen familiar stack.
 ///
 /// This is the player-facing path for freshness-sensitive or otherwise deliberately chosen
