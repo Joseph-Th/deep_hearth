@@ -26,8 +26,8 @@ use deep_hearth::core::quantity::{Area, Energy, Force, Length, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::{SimulationTick, TickSpan};
 use deep_hearth::crafting::{
-    ManualCraftStartRequest, plan_manual_craft_from_stockpile, project_manual_craft_equipment,
-    project_manual_craft_hand_work, validate_start_manual_craft,
+    ManualCraftInputMode, player_manual_craft_options, project_manual_craft_equipment,
+    project_manual_craft_hand_work, validate_start_player_manual_craft,
 };
 use deep_hearth::energy::{validate_assemble_energy_store, validate_combust_fuel};
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
@@ -44,7 +44,7 @@ use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::player::validate_admit_player;
-use deep_hearth::registry::Registries;
+use deep_hearth::registry::{ProcessEquipmentRole, Registries};
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, SecondaryControlIntent, advance_control_tick,
     advance_control_tick_with_direct_input, advance_control_tick_with_input, advance_tick,
@@ -903,20 +903,53 @@ fn gather_in_batches(
 fn craft_in_place(
     registries: &Registries,
     state: &mut AppState,
-    process: deep_hearth::production::ProcessId,
-    source: deep_hearth::inventory::StockpileId,
+    desired_input: CommodityKey,
+    desired_output: CommodityKey,
     batches: u64,
     context: &str,
 ) {
     let batches = NonZeroU64::new(batches)
         .unwrap_or_else(|| panic!("wilderness {context} requires a nonzero craft batch count"));
-    let craft = plan_manual_craft_from_stockpile(registries, state, process, source, batches)
-        .unwrap_or_else(|error| panic!("wilderness {context} craft planning failed: {error}"));
-    let job =
-        validate_start_manual_craft(registries, state, ManualCraftStartRequest::in_place(craft))
-            .unwrap_or_else(|error| panic!("wilderness {context} craft admission failed: {error}"))
-            .commit(state)
-            .unwrap_or_else(|error| panic!("wilderness {context} craft commit failed: {error}"));
+    let options = player_manual_craft_options(registries, state)
+        .unwrap_or_else(|error| panic!("wilderness {context} recipe catalog failed: {error}"));
+    let matches = options
+        .into_iter()
+        .filter(|option| {
+            let definition = registries
+                .crafting()
+                .get_manual(option.process())
+                .unwrap_or_else(|| panic!("wilderness recipe catalog exposed an unknown process"));
+            let produces_output = definition
+                .outputs()
+                .iter()
+                .any(|output| output.commodity() == desired_output);
+            let (input, enough_input) = match option.input_mode() {
+                ManualCraftInputMode::Automatic(availability) => (
+                    availability.input(),
+                    availability.maximum_batches() >= batches.get(),
+                ),
+                ManualCraftInputMode::ExplicitStackChoice { input, .. } => (input, false),
+            };
+            input == desired_input
+                && produces_output
+                && enough_input
+                && option.equipment_role() != ProcessEquipmentRole::Required
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "wilderness {context} requires one actor-visible craft option from {}:{} to {}:{}",
+        desired_input.material().value(),
+        desired_input.form().value(),
+        desired_output.material().value(),
+        desired_output.form().value(),
+    );
+    let process = matches[0].process();
+    let job = validate_start_player_manual_craft(registries, state, process, batches, None)
+        .unwrap_or_else(|error| panic!("wilderness {context} craft admission failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("wilderness {context} craft commit failed: {error}"));
     let completes_at = state
         .production()
         .get_job(job)
@@ -1872,6 +1905,12 @@ pub(super) fn evaluate_generated_wilderness_opening(
         );
         total_steps += 1;
         camp_logistics_steps += 1;
+        let storage_body_commodity = registries
+            .storage()
+            .get(storage_definition)
+            .and_then(|definition| definition.assembly_profile().inputs().first())
+            .map(|input| input.commodity())
+            .unwrap_or_else(|| panic!("wilderness selected storage body input disappeared"));
         match camp_goal {
             WildernessCampGoal::StayMobile => {
                 unreachable!("mobile goal does not craft storage")
@@ -1880,16 +1919,16 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 craft_in_place(
                     &registries,
                     &mut state,
-                    PROCESS_SHAPE_WOOD_BOARDS,
-                    carried,
+                    timber_commodity,
+                    board_commodity,
                     board_batches,
                     "field-box boards",
                 );
                 craft_in_place(
                     &registries,
                     &mut state,
-                    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
-                    carried,
+                    board_commodity,
+                    storage_body_commodity,
                     1,
                     "field-box body",
                 );
@@ -1897,8 +1936,8 @@ pub(super) fn evaluate_generated_wilderness_opening(
             WildernessCampGoal::PreserveProvisions => craft_in_place(
                 &registries,
                 &mut state,
-                PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
-                carried,
+                stone_commodity,
+                storage_body_commodity,
                 1,
                 "stone-crock body",
             ),
@@ -2610,7 +2649,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         "[fire:false]".to_owned()
     };
     std::println!(
-        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges body:continuous legs:{} choices:{}-{} graph-unadvertised:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] warmth={} camp-project={} storage-choice={} tool-choice={} material-choice={}",
+        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges body:continuous legs:{} choices:{}-{} graph-unadvertised:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] warmth={} camp-project={} crafting=[storage-via-player-catalog:{}] storage-choice={} tool-choice={} material-choice={}",
         sample,
         review.seed,
         review.start_profile.label(),
@@ -2653,6 +2692,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         water_decision,
         warmth,
         camp_project,
+        review.camp_goal != WildernessCampGoal::StayMobile,
         storage_choice,
         tool_choice,
         material_choice,

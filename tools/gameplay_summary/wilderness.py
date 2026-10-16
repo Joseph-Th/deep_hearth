@@ -137,6 +137,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
     camp_metabolic_budget: list[int] = []
     camp_hydration_budget: list[int] = []
     project_meals = 0
+    storage_catalog_projects = 0
     for experience in experiences:
         forage = re.search(
             r"\bforage=\[opportunity:(\d+)mg secured:(\d+)mg .*?rest-runway:(\d+)\.(\d)h\]",
@@ -177,6 +178,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
         meal = int(project.group(7))
         if meal > 0:
             project_meals += 1
+        if " crafting=[storage-via-player-catalog:true] " in experience:
+            storage_catalog_projects += 1
         if work > 0:
             camp_work_ticks.append(work)
             camp_logistics_legs.append(int(project.group(2)))
@@ -214,6 +217,18 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"timber:{sum(' material:timber ' in line for line in experiences)} "
         f"stone:{sum(' material:stone ' in line for line in experiences)}] "
         f"project-meals:{project_meals}]"
+    )
+    expected_storage_projects = sum(" goal=stay-mobile " not in line for line in experiences)
+    has_crafting_telemetry = any(" crafting=[" in line for line in experiences)
+    if has_crafting_telemetry and storage_catalog_projects != expected_storage_projects:
+        raise ValueError(
+            "wilderness storage projects must execute through the player recipe catalog"
+        )
+    crafting = (
+        "crafting=[storage-via-player-catalog:"
+        f"{storage_catalog_projects}/{expected_storage_projects}]"
+        if has_crafting_telemetry
+        else ""
     )
     cache_projects = [line for line in experiences if " goal=worksite-cache " in line]
     camp_projects = "projects=[none]"
@@ -286,6 +301,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"consumed:{pressure_drink.group(1)}uL] "
         f"{resource_runway} "
         f"{camp_goals} "
+        f"{crafting + ' ' if crafting else ''}"
         f"{camp_projects} "
         f"{camp_warmth + ' ' if camp_warmth else ''}"
         f"{tool_policy} "
