@@ -42,7 +42,7 @@ use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, assess_player_carrying,
     project_player_walk_path, project_player_walk_path_for_load, validate_drop_stack_to_ground,
-    validate_pickup_stack_from_ground, validate_set_active_selection,
+    validate_pickup_equipment, validate_pickup_stack_from_ground, validate_set_active_selection,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -1252,6 +1252,27 @@ fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
             .any(|record| record.id() == tool),
         "assembled toolkit equipment must remain actor-visible at the worksite"
     );
+    validate_pickup_equipment(&registries, &state, tool)
+        .unwrap_or_else(|error| panic!("toolkit equipment pickup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("toolkit equipment pickup commit failed: {error}"));
+    assert!(
+        state.logistics().is_equipment_carried(tool),
+        "fresh-start toolkit must enter ordinary carried equipment custody"
+    );
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(tool)),
+    )
+    .unwrap_or_else(|error| panic!("toolkit hotbar binding failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("toolkit hotbar binding commit failed: {error}"));
+    assert_eq!(
+        state.logistics().active_selection(),
+        Some(PlayerActiveSelection::equipment(tool)),
+        "fresh-start toolkit must remain selected through the ordinary hotbar context"
+    );
 
     let started_at = state.tick();
     let job = validate_start_player_manual_craft_option(
@@ -1322,7 +1343,7 @@ fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
 
     if emit_report {
         std::println!(
-            "WILDERNESS TOOLKIT source=fresh-world selection=player-catalog tool=\"{tool_name}\" travel=continuous/6legs materials=[stone:{}mg timber:{}mg] workload={}b attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] output={}mg wear=true matter-conserved=true",
+            "WILDERNESS TOOLKIT source=fresh-world selection=player-catalog tool=\"{tool_name}\" travel=continuous/6legs materials=[stone:{}mg timber:{}mg] workload={}b attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] output={}mg carried=true hotbar=true wear=true matter-conserved=true",
             stone_required.milligrams(),
             timber_required.milligrams(),
             workload_batches,

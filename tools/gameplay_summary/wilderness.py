@@ -92,7 +92,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
             r'travel=continuous/(\d+)legs materials=\[stone:(\d+)mg timber:(\d+)mg\] '
             r'workload=(\d+)b attention=\[setup:(\d+)t bare:(\d+)t assisted:(\d+)t '
             r'with-setup:(\d+)t saved:(\d+)t\] output=(\d+)mg '
-            r'wear=(true|false) matter-conserved=(true|false)',
+            r'carried=(true|false) hotbar=(true|false) wear=(true|false) '
+            r'matter-conserved=(true|false)',
             toolkit_lines[0],
         )
         if toolkit is None:
@@ -108,12 +109,16 @@ def wilderness_summary(lines: list[str]) -> str | None:
             or saved <= 0
             or toolkit.group(12) != "true"
             or toolkit.group(13) != "true"
+            or toolkit.group(14) != "true"
+            or toolkit.group(15) != "true"
         ):
-            raise ValueError("wilderness toolkit witness no longer proves positive worn-tool payback")
+            raise ValueError(
+                "wilderness toolkit witness no longer proves carried hotbar tool payback"
+            )
         tool = re.sub(r"\s+", "-", toolkit.group(1).strip())
         toolkit_policy = (
             f" earned=[tool:{tool} workload:{toolkit.group(5)}b "
-            f"saved:{saved}t wear:true]"
+            f"saved:{saved}t carried:true hotbar:true wear:true]"
         )
     maintained = [line for line in experiences if " sample=maintained " in line]
     coverage = [line for line in experiences if " sample=coverage " in line]
