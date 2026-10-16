@@ -658,6 +658,92 @@ fn seed_surface(
 }
 
 #[test]
+fn player_surface_gathering_options_are_local_natural_and_revision_bound() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let remote_position = VoxelCoord::new(1, 0, 0);
+    let stone_commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let stone = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        stone_commodity,
+        Mass::from_milligrams(2_000_000),
+    );
+    let _remote = seed_surface(
+        &registries,
+        &mut state,
+        remote_position,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(500_000),
+    );
+    let drop_spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(100_000),
+        TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("gathering-option drop specification failed: {error}"));
+    let _drop = insert_surface_resource_for_test(&registries, &mut state, drop_spec)
+        .unwrap_or_else(|error| panic!("gathering-option drop creation failed: {error}"));
+    let _carried = admit_player(&registries, &mut state, position);
+
+    let options = player_surface_gathering_options(&registries, &state)
+        .unwrap_or_else(|error| panic!("player gathering option projection failed: {error}"));
+    assert_eq!(options.len(), 1);
+    let option = options[0];
+    assert_eq!(option.resource(), stone);
+    assert_eq!(option.commodity(), stone_commodity);
+    assert_eq!(option.source_mass(), Mass::from_milligrams(2_000_000));
+    assert_eq!(option.direct_batch_mass(), Mass::from_milligrams(1_000_000));
+    assert_eq!(
+        option.maximum_batch_mass(),
+        Mass::from_milligrams(5_000_000)
+    );
+    assert_eq!(
+        option.duration_for_mass(Mass::from_milligrams(1_000_000)),
+        Some(TickSpan::new(12))
+    );
+    assert!(option.exertion().energy_cost_per_tick() > Energy::ZERO);
+
+    validate_start_player_surface_gathering_option(
+        &registries,
+        &state,
+        option,
+        Mass::from_milligrams(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("player gathering option start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("player gathering option commit failed: {error}"));
+    let completes_at = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work.completes_at(),
+        other => panic!("player gathering option did not start gathering work: {other:?}"),
+    };
+    while state.tick() < completes_at {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("player gathering option completion failed: {error}"));
+    }
+
+    let before_stale = state.clone();
+    assert!(matches!(
+        validate_start_player_surface_gathering_option(
+            &registries,
+            &state,
+            option,
+            Mass::from_milligrams(1),
+        ),
+        Err(SurfaceGatheringError::StalePlayerOption {
+            expected_surface_revision,
+            actual_surface_revision,
+        }) if expected_surface_revision != actual_surface_revision
+    ));
+    assert_eq!(state, before_stale);
+}
+
+#[test]
 fn one_shot_secondary_use_composes_selected_food_without_exposing_lot_identity() {
     let registries = build_registries();
     let mut state = AppState::new();

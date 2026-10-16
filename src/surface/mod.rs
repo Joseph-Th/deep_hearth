@@ -16,15 +16,16 @@ pub(crate) use creation::{
     validate_create_surface_resources_at,
 };
 pub use drop_projection::{PlayerWorldDropProjection, available_player_world_drops};
+pub use gathering::{
+    PlayerSurfaceGatheringOption, SurfaceGatheringCommitError, SurfaceGatheringError,
+    SurfaceGatheringOutcome, SurfaceGatheringRequest, ValidatedSurfaceGatheringStart,
+    player_surface_gathering_options, validate_start_player_surface_gathering,
+    validate_start_player_surface_gathering_option, validate_start_surface_gathering,
+};
 pub(crate) use gathering::{
     SurfaceGatheringCancellationPlan, SurfaceGatheringTickError, SurfaceGatheringTickPlan,
     apply_surface_gathering_cancellation, apply_surface_gathering_tick,
     decide_surface_gathering_cancellation, decide_surface_gathering_tick,
-};
-pub use gathering::{
-    SurfaceGatheringCommitError, SurfaceGatheringError, SurfaceGatheringOutcome,
-    SurfaceGatheringRequest, ValidatedSurfaceGatheringStart,
-    validate_start_player_surface_gathering, validate_start_surface_gathering,
 };
 pub use material_drop::{
     PlayerMaterialDropCommitError, PlayerMaterialDropError, PlayerMaterialDropOutcome,

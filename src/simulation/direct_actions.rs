@@ -25,7 +25,10 @@ use crate::structural::{
     validate_start_player_structural_dismantling,
 };
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
-use crate::surface::{SurfaceResourceKind, validate_start_player_surface_gathering};
+use crate::surface::{
+    PlayerSurfaceGatheringOption, player_surface_gathering_options,
+    validate_start_player_surface_gathering_option,
+};
 use crate::survival::{
     available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
 };
@@ -200,17 +203,9 @@ pub(super) fn attempt_pending_primary_break(
     }
 }
 
-#[derive(Clone, Copy)]
-struct DirectSurfaceGatheringTarget {
-    resource: crate::surface::SurfaceResourceId,
-    source_mass: crate::core::quantity::Mass,
-    method: crate::labor::SurfaceGatheringMethodId,
-    direct_batch_mass: crate::core::quantity::Mass,
-}
-
 enum DirectSurfaceGatheringResolution {
     None,
-    One(DirectSurfaceGatheringTarget),
+    One(PlayerSurfaceGatheringOption),
     AmbiguousResources { count: usize },
     AmbiguousMethods { count: usize },
 }
@@ -219,36 +214,23 @@ fn resolve_direct_surface_gathering(
     registries: &Registries,
     state: &AppState,
 ) -> DirectSurfaceGatheringResolution {
-    let mut targets = Vec::new();
-    for resource in state
-        .available_surface_resources()
-        .filter(|resource| resource.kind() == SurfaceResourceKind::Opportunity)
-    {
-        let mut methods = registries
-            .labor()
-            .surface_gathering_definitions()
-            .filter(|method| method.commodity() == resource.commodity());
-        let Some(method) = methods.next() else {
-            continue;
-        };
-        let Some(second) = methods.next() else {
-            targets.push(DirectSurfaceGatheringTarget {
-                resource: resource.id(),
-                source_mass: resource.remaining_mass(),
-                method: method.id(),
-                direct_batch_mass: method.direct_batch_mass(),
-            });
-            continue;
-        };
-        let count = 2 + methods.count();
-        debug_assert_eq!(second.commodity(), resource.commodity());
-        return DirectSurfaceGatheringResolution::AmbiguousMethods { count };
+    let options = player_surface_gathering_options(registries, state).unwrap_or_else(|error| {
+        panic!("runtime invariant broken: direct gathering option projection failed: {error}")
+    });
+    for option in &options {
+        let count = options
+            .iter()
+            .filter(|candidate| candidate.resource() == option.resource())
+            .count();
+        if count > 1 {
+            return DirectSurfaceGatheringResolution::AmbiguousMethods { count };
+        }
     }
-    match targets.as_slice() {
+    match options.as_slice() {
         [] => DirectSurfaceGatheringResolution::None,
-        [target] => DirectSurfaceGatheringResolution::One(*target),
-        targets => DirectSurfaceGatheringResolution::AmbiguousResources {
-            count: targets.len(),
+        [option] => DirectSurfaceGatheringResolution::One(*option),
+        options => DirectSurfaceGatheringResolution::AmbiguousResources {
+            count: options.len(),
         },
     }
 }
@@ -289,7 +271,7 @@ fn attempt_empty_hand_secondary_action(
 fn attempt_direct_surface_gathering(
     registries: &Registries,
     state: &mut AppState,
-    target: DirectSurfaceGatheringTarget,
+    option: PlayerSurfaceGatheringOption,
 ) -> SecondaryActionOutcome {
     if !state.control_tick().is_simulation_boundary() {
         return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
@@ -308,20 +290,14 @@ fn attempt_direct_surface_gathering(
         .unwrap_or_else(|| {
             panic!("runtime invariant broken: admitted player lost carried stockpile")
         });
-    let desired = target.source_mass.min(target.direct_batch_mass);
+    let desired = option.source_mass().min(option.direct_batch_mass());
     let gathered_mass = desired.min(available_capacity);
     let request_mass = if gathered_mass.is_zero() {
         desired
     } else {
         gathered_mass
     };
-    match validate_start_player_surface_gathering(
-        registries,
-        state,
-        target.method,
-        target.resource,
-        request_mass,
-    ) {
+    match validate_start_player_surface_gathering_option(registries, state, option, request_mass) {
         Ok(validated) => {
             validated.commit(state).unwrap_or_else(|error| {
                 panic!(

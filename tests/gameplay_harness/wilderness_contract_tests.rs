@@ -20,7 +20,7 @@ use deep_hearth::content::{
     PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
     STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE,
-    SURFACE_GATHERING_HAND_COLLECT_TIMBER, SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
+    SURFACE_GATHERING_HAND_COLLECT_TIMBER, build_registries,
 };
 use deep_hearth::core::quantity::{Area, Energy, Force, Length, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -35,7 +35,7 @@ use deep_hearth::inventory::{
     MaterialLotSelection, StockpileId, StorageDefinitionId, project_material_stacks,
     validate_mount_stockpile, validate_place_player_storage,
 };
-use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
+use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, assess_player_carrying,
     project_player_walk_path, project_player_walk_path_for_load, validate_drop_to_ground,
@@ -60,8 +60,9 @@ use deep_hearth::structural::{
     validate_start_player_structural_construction,
 };
 use deep_hearth::surface::{
-    AdjacentSurfaceResource, SurfaceResourceId, available_adjacent_surface_resources,
-    validate_start_player_surface_gathering,
+    AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceResourceId,
+    available_adjacent_surface_resources, player_surface_gathering_options,
+    validate_start_player_surface_gathering_option,
 };
 use deep_hearth::survival::{
     AdjacentDrinkSource, SurvivalExertion, SurvivalResourceBudget, ThermalComfortState,
@@ -468,7 +469,6 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         gather(
             &registries,
             &mut state,
-            SURFACE_GATHERING_HAND_COLLECT_TIMBER,
             timber.resource(),
             bulk_remainder,
             "direct-use timber haul remainder",
@@ -853,12 +853,12 @@ fn local_drinkable_store(
 fn gather(
     registries: &Registries,
     state: &mut AppState,
-    method: SurfaceGatheringMethodId,
     resource: SurfaceResourceId,
     mass: Mass,
     context: &str,
 ) {
-    validate_start_player_surface_gathering(registries, state, method, resource, mass)
+    let option = local_gathering_option(registries, state, resource, context);
+    validate_start_player_surface_gathering_option(registries, state, option, mass)
         .unwrap_or_else(|error| panic!("wilderness {context} gathering admission failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("wilderness {context} gathering commit failed: {error}"));
@@ -879,23 +879,38 @@ fn gather(
     assert_eq!(state.player_work().active(), None);
 }
 
+fn local_gathering_option(
+    registries: &Registries,
+    state: &AppState,
+    resource: SurfaceResourceId,
+    context: &str,
+) -> PlayerSurfaceGatheringOption {
+    let matches = player_surface_gathering_options(registries, state)
+        .unwrap_or_else(|error| panic!("wilderness {context} gathering catalog failed: {error}"))
+        .into_iter()
+        .filter(|option| option.resource() == resource)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "wilderness {context} requires one actor-visible gathering technique for resource {}",
+        resource.value()
+    );
+    matches[0]
+}
+
 fn gather_in_batches(
     registries: &Registries,
     state: &mut AppState,
-    method: SurfaceGatheringMethodId,
     resource: SurfaceResourceId,
     requested: Mass,
     context: &str,
 ) {
-    let definition = registries
-        .labor()
-        .get_surface_gathering(method)
-        .copied()
-        .unwrap_or_else(|| panic!("wilderness {context} gathering method disappeared"));
     let mut remaining = requested;
     while !remaining.is_zero() {
-        let batch = remaining.min(definition.maximum_batch_mass());
-        gather(registries, state, method, resource, batch, context);
+        let option = local_gathering_option(registries, state, resource, context);
+        let batch = remaining.min(option.maximum_batch_mass());
+        gather(registries, state, resource, batch, context);
         remaining = remaining.checked_sub(batch).unwrap_or_else(|| {
             unreachable!("bounded wilderness gathering batch cannot exceed remainder")
         });
@@ -1145,7 +1160,6 @@ pub(super) fn evaluate_generated_wilderness_opening(
     gather(
         &registries,
         &mut state,
-        SURFACE_GATHERING_HAND_FORAGE_BERRIES,
         berries,
         forage_mass,
         "early berry forage",
@@ -1797,20 +1811,18 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 );
             }
         }
-        let (storage_definition, material, gathering_method, gathering_mass) = match camp_goal {
+        let (storage_definition, material, gathering_mass) = match camp_goal {
             WildernessCampGoal::StayMobile => {
                 unreachable!("mobile goal does not build storage")
             }
             WildernessCampGoal::WorksiteCache => (
                 STORAGE_ROUGH_TIMBER_FIELD_BOX,
                 timber_commodity,
-                SURFACE_GATHERING_HAND_COLLECT_TIMBER,
                 field_box_raw_timber,
             ),
             WildernessCampGoal::PreserveProvisions => (
                 STORAGE_CARVED_STONE_PROVISIONS_CROCK,
                 stone_commodity,
-                SURFACE_GATHERING_HAND_COLLECT_STONE,
                 stone_crock_raw_stone,
             ),
         };
@@ -1882,7 +1894,6 @@ pub(super) fn evaluate_generated_wilderness_opening(
         gather(
             &registries,
             &mut state,
-            gathering_method,
             resource,
             gathering_mass,
             "selected camp material",
@@ -2027,7 +2038,6 @@ pub(super) fn evaluate_generated_wilderness_opening(
             gather_in_batches(
                 &registries,
                 &mut state,
-                SURFACE_GATHERING_HAND_COLLECT_TIMBER,
                 resource,
                 support_and_staging,
                 "worksite-cache support and timber staging",
@@ -2257,7 +2267,6 @@ pub(super) fn evaluate_generated_wilderness_opening(
             gather(
                 &registries,
                 &mut state,
-                SURFACE_GATHERING_HAND_COLLECT_STONE,
                 stone_resource,
                 campfire_stone.mass(),
                 "campfire stone",

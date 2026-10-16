@@ -14,20 +14,74 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::TickSpan;
 use crate::inventory::{
     InboundReservationError, MaterialIngressEntry, MaterialIngressError, StockpileId,
     StockpileStorageError, ValidatedInboundReservation, validate_inbound_reservation,
     validate_material_ingress,
 };
 use crate::labor::{
-    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, SurfaceGatheringMethodId,
-    SurfaceGatheringWork, ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, SurfaceGatheringDefinition,
+    SurfaceGatheringMethodId, SurfaceGatheringWork, ValidatedPlayerWorkStart,
+    validate_player_work_start,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::material::CommodityKey;
 use crate::registry::Registries;
+use crate::survival::SurvivalExertion;
 
-use super::{SurfaceResourceId, SurfaceResourceLifecycle};
+use super::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
+
+/// Actor-facing option for gathering one currently visible loose natural opportunity.
+///
+/// The authored method identity remains private. Callers can compare the physical commitment and
+/// choose a resource/amount without depending on internal method IDs; canonical gathering
+/// validation still owns admission, capacity, survival, reservations, and completion.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerSurfaceGatheringOption {
+    expected_surface_revision: u64,
+    resource: SurfaceResourceId,
+    source_mass: Mass,
+    definition: SurfaceGatheringDefinition,
+}
+
+impl PlayerSurfaceGatheringOption {
+    #[must_use]
+    pub const fn resource(self) -> SurfaceResourceId {
+        self.resource
+    }
+
+    #[must_use]
+    pub const fn commodity(self) -> CommodityKey {
+        self.definition.commodity()
+    }
+
+    #[must_use]
+    pub const fn source_mass(self) -> Mass {
+        self.source_mass
+    }
+
+    #[must_use]
+    pub const fn maximum_batch_mass(self) -> Mass {
+        self.definition.maximum_batch_mass()
+    }
+
+    #[must_use]
+    pub const fn direct_batch_mass(self) -> Mass {
+        self.definition.direct_batch_mass()
+    }
+
+    #[must_use]
+    pub const fn exertion(self) -> SurvivalExertion {
+        self.definition.exertion()
+    }
+
+    #[must_use]
+    pub fn duration_for_mass(self, mass: Mass) -> Option<TickSpan> {
+        self.definition.duration_for_mass(mass)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SurfaceGatheringRequest {
@@ -57,6 +111,10 @@ impl SurfaceGatheringRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SurfaceGatheringError {
     PlayerNotLocated,
+    StalePlayerOption {
+        expected_surface_revision: u64,
+        actual_surface_revision: u64,
+    },
     UnknownMethod {
         method: SurfaceGatheringMethodId,
     },
@@ -107,6 +165,13 @@ impl Display for SurfaceGatheringError {
             Self::PlayerNotLocated => {
                 formatter.write_str("surface gathering requires an admitted player location")
             }
+            Self::StalePlayerOption {
+                expected_surface_revision,
+                actual_surface_revision,
+            } => write!(
+                formatter,
+                "player surface-gathering option was projected at surface revision {expected_surface_revision} but current revision is {actual_surface_revision}"
+            ),
             Self::UnknownMethod { method } => write!(
                 formatter,
                 "unknown surface gathering method {}",
@@ -206,6 +271,7 @@ impl Error for SurfaceGatheringError {
             Self::DestinationStorage(error) => Some(error),
             Self::PlayerWork(error) => Some(error),
             Self::PlayerNotLocated
+            | Self::StalePlayerOption { .. }
             | Self::UnknownMethod { .. }
             | Self::ResourceUnavailableAtPlayer { .. }
             | Self::CommodityMismatch { .. }
@@ -222,6 +288,41 @@ impl Error for SurfaceGatheringError {
             | Self::CompletionTickOverflow => None,
         }
     }
+}
+
+/// Projects current exact-local natural gathering choices for the admitted player.
+///
+/// Player-created drops are excluded because their ordinary path is automatic pickup. A resource
+/// with multiple authored gathering methods yields one option per method so callers can surface a
+/// real technique choice or reject ambiguity rather than silently selecting an implementation ID.
+pub fn player_surface_gathering_options(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<Vec<PlayerSurfaceGatheringOption>, SurfaceGatheringError> {
+    if state.logistics().player().is_none() {
+        return Err(SurfaceGatheringError::PlayerNotLocated);
+    }
+    let expected_surface_revision = state.surface().revision();
+    let mut options = Vec::new();
+    for resource in state
+        .available_surface_resources()
+        .filter(|resource| resource.kind() == SurfaceResourceKind::Opportunity)
+    {
+        for definition in registries
+            .labor()
+            .surface_gathering_definitions()
+            .filter(|definition| definition.commodity() == resource.commodity())
+            .copied()
+        {
+            options.push(PlayerSurfaceGatheringOption {
+                expected_surface_revision,
+                resource: resource.id(),
+                source_mass: resource.remaining_mass(),
+                definition,
+            });
+        }
+    }
+    Ok(options)
 }
 
 fn map_ingress_error(error: MaterialIngressError) -> SurfaceGatheringError {
@@ -260,6 +361,32 @@ fn map_ingress_error(error: MaterialIngressError) -> SurfaceGatheringError {
             unreachable!("trusted surface-resource material must remain valid inventory ingress")
         }
     }
+}
+
+/// Starts one current actor-visible gathering option for a deliberate physical amount.
+///
+/// The projection is revision-bound so a caller cannot silently retarget an option after surface
+/// custody changes. Exact method identity remains private to this owner boundary.
+pub fn validate_start_player_surface_gathering_option(
+    registries: &Registries,
+    state: &AppState,
+    option: PlayerSurfaceGatheringOption,
+    mass: Mass,
+) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
+    let actual_surface_revision = state.surface().revision();
+    if actual_surface_revision != option.expected_surface_revision {
+        return Err(SurfaceGatheringError::StalePlayerOption {
+            expected_surface_revision: option.expected_surface_revision,
+            actual_surface_revision,
+        });
+    }
+    validate_start_player_surface_gathering(
+        registries,
+        state,
+        option.definition.id(),
+        option.resource,
+        mass,
+    )
 }
 
 fn map_reservation_error(error: InboundReservationError) -> SurfaceGatheringError {
@@ -503,12 +630,12 @@ pub fn validate_start_surface_gathering(
     })
 }
 
-/// Begins ordinary hand gathering into the admitted player's carried inventory.
+/// Begins hand gathering into the admitted player's carried inventory from an explicit method ID.
 ///
-/// Player-facing callers choose the gathering method, visible local resource, and physical amount;
-/// carried custody is derived from authoritative logistics instead of becoming a stockpile-routing
-/// decision. Explicit-destination gathering remains available for deliberate automation and
-/// subsystem tests.
+/// Ordinary player-facing callers should prefer [`player_surface_gathering_options`] plus
+/// [`validate_start_player_surface_gathering_option`] so authored method identity remains private.
+/// This lower-level wrapper remains available to subsystem composition and controlled tests; carried
+/// custody is still derived from authoritative logistics rather than becoming a routing decision.
 pub fn validate_start_player_surface_gathering(
     registries: &Registries,
     state: &AppState,
