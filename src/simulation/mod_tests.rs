@@ -13,7 +13,10 @@ use crate::energy::{
     add_energy_store_with_initial_for_fixture,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-use crate::logistics::{HorizontalControlInput, PlayerControlInput, PlayerStance};
+use crate::logistics::{
+    HorizontalControlInput, PlayerControlInput, PlayerStance, PlayerWalkProjectionError,
+    project_player_adjacent_walk, project_player_walk_path,
+};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -39,6 +42,121 @@ fn passive_dissipation_registries() -> Registries {
         )
         .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
     )
+}
+
+#[test]
+fn adjacent_walk_projection_matches_control_execution_and_boundary_cost() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let path = [
+        VoxelCoord::new(1, floor_y, 0),
+        VoxelCoord::new(2, floor_y, 0),
+    ];
+    for destination in path {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(destination.x(), floor_y - 1, destination.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in floor_y..=floor_y + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(destination.x(), y, destination.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let carried = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("walk projection player disappeared"))
+        .carried_stockpile();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(5_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("walk projection load fixture failed: {error}"));
+    let projection = project_player_walk_path(&registries, &state, &path)
+        .unwrap_or_else(|error| panic!("walk path projection failed: {error}"));
+    assert_eq!(projection.origin(), VoxelCoord::new(0, floor_y, 0));
+    assert_eq!(projection.destination(), path[1]);
+    assert!(projection.control_ticks() > 0);
+    assert!(projection.control_ticks() < CONTROL_TICKS_PER_SIMULATION_TICK);
+    assert!(projection.locomotion_exertion().energy_cost_per_tick() > Energy::ZERO);
+    let survival_before = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("walk projection survival player disappeared"));
+    let mut actual_control_ticks = 0_u64;
+    for destination in path {
+        let movement = PlayerControlInput::new(
+            HorizontalControlInput::new(1_000_000, 0)
+                .unwrap_or_else(|error| panic!("walk projection execution input failed: {error}")),
+        );
+        while state
+            .logistics()
+            .player()
+            .is_some_and(|player| player.position() != destination)
+        {
+            let _ = advance_control_tick_with_input(&registries, &mut state, movement)
+                .unwrap_or_else(|error| panic!("walk projection execution failed: {error}"));
+            actual_control_ticks += 1;
+        }
+        while state.logistics().player().is_some_and(|player| {
+            let velocity = player.body().horizontal_velocity();
+            velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
+        }) {
+            let _ = advance_control_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("walk projection braking failed: {error}"));
+            actual_control_ticks += 1;
+            assert_eq!(
+                state.logistics().player().map(|player| player.position()),
+                Some(destination)
+            );
+        }
+    }
+    assert_eq!(actual_control_ticks, projection.control_ticks());
+    while state.tick() == SimulationTick::new(0) {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("walk projection boundary settlement failed: {error}"));
+    }
+    let survival_after = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("walk projection survival result disappeared"));
+    assert_eq!(
+        survival_before
+            .metabolic_energy()
+            .checked_sub(survival_after.metabolic_energy()),
+        Some(projection.resource_budget().metabolic_energy())
+    );
+    assert_eq!(
+        survival_before
+            .hydration()
+            .checked_sub(survival_after.hydration()),
+        Some(projection.resource_budget().hydration())
+    );
+}
+
+#[test]
+fn adjacent_walk_projection_rejects_a_horizontal_request_that_would_drop() {
+    let (registries, state, floor_y) = generated_grounded_player_at(0, 0);
+    let destination = VoxelCoord::new(1, floor_y, 0);
+    assert!(matches!(
+        project_player_adjacent_walk(&registries, &state, destination),
+        Err(PlayerWalkProjectionError::DestinationOvershot {
+            destination: rejected,
+            actual,
+        }) if rejected == destination && actual.y() < floor_y
+    ));
 }
 
 #[test]

@@ -38,7 +38,7 @@ use deep_hearth::inventory::{
 use deep_hearth::labor::{PlayerWork, SurfaceGatheringMethodId};
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerControlInput, PlayerStepError, assess_player_carrying,
-    validate_drop_to_ground, validate_start_player_step,
+    project_player_walk_path, validate_drop_to_ground, validate_start_player_step,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -299,6 +299,18 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
     );
 
     let water = adjacent_drinkable_source(&registries, &state);
+    let forage_choices = state.available_player_steps().collect::<Vec<_>>();
+    let junctions = forage_choices
+        .iter()
+        .copied()
+        .filter(|position| *position != spawn && *position != water.position())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        junctions.len(),
+        1,
+        "direct-use forage waypoint should expose exactly one work-path junction beside spawn and water"
+    );
+    let junction = junctions[0];
     let water_movement_ticks = walk_body_to_adjacent(
         &registries,
         &mut state,
@@ -366,29 +378,29 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         hydration_after > hydration_before,
         "timed direct drinking should improve the actor's hydration"
     );
+    let return_projection =
+        project_player_walk_path(&registries, &state, &[forage.position(), junction])
+            .unwrap_or_else(|error| {
+                panic!("direct-use known return path projection failed: {error}")
+            });
     let return_to_forage_ticks = walk_body_to_adjacent(
         &registries,
         &mut state,
         forage.position(),
         "direct-use return from water",
     );
-    let forage_choices = state.available_player_steps().collect::<Vec<_>>();
-    let junctions = forage_choices
-        .iter()
-        .copied()
-        .filter(|position| *position != spawn && *position != water.position())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        junctions.len(),
-        1,
-        "direct-use forage waypoint should expose exactly one work-path junction beside spawn and water"
-    );
-    let junction = junctions[0];
     let junction_movement_ticks = walk_body_to_adjacent(
         &registries,
         &mut state,
         junction,
         "direct-use material junction",
+    );
+    assert_eq!(
+        return_to_forage_ticks
+            .checked_add(junction_movement_ticks)
+            .unwrap_or_else(|| panic!("direct-use return path movement telemetry overflowed")),
+        return_projection.control_ticks(),
+        "continuous execution should match the pre-action projection for the already-observed two-edge return path"
     );
     let stone_commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
     let timber_commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -531,9 +543,10 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
             .map(|store| store.stored_volume())
             .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
         std::println!(
-            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/5 control-ticks:{}] material-choice=[stone+timber:2 visited:2] haul=[timber:{}mg carried:{}mg/{}mg return:{}ct] input=one-shot-empty-hand-secondary queue=[forage:{}ct drink:{}ct timber:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/5 control-ticks:{}] known-path-projection=[edges:2 control-ticks:{} matched:true] material-choice=[stone+timber:2 visited:2] haul=[timber:{}mg carried:{}mg/{}mg return:{}ct] input=one-shot-empty-hand-secondary queue=[forage:{}ct drink:{}ct timber:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
             WILDERNESS_WORLD_SEED.value(),
             route_control_ticks,
+            return_projection.control_ticks(),
             timber_haul_mass.milligrams(),
             hauling.stored().milligrams(),
             hauling.capacity().milligrams(),

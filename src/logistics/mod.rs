@@ -75,7 +75,10 @@ pub use inventory_view::{
     PlayerCarriedEquipmentProjection, PlayerInventoryProjection, PlayerInventoryProjectionError,
     PlayerLocalEquipmentProjection, PlayerStockpileProjection, project_player_inventory,
 };
-pub use kinematics::{PlayerBodyMotionError, PlayerBodyMotionOutcome};
+pub use kinematics::{
+    PlayerBodyMotionError, PlayerBodyMotionOutcome, PlayerWalkProjection,
+    PlayerWalkProjectionError, project_player_adjacent_walk, project_player_walk_path,
+};
 pub(crate) use kinematics::{
     apply_player_body_motion, decide_player_body_motion, first_player_body_collision,
     first_player_body_collision_in_chunk, player_body_fits_continuous_world,

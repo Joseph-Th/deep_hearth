@@ -42,6 +42,10 @@ def wilderness_summary(lines: list[str]) -> str | None:
             r"\bmovement=continuous-body route=\[voxels:(\d+) unique-edges:(\d+)/(\d+) control-ticks:(\d+)\]",
             direct_use_lines[0],
         )
+        known_path = re.search(
+            r"\bknown-path-projection=\[edges:(\d+) control-ticks:(\d+) matched:true\]",
+            direct_use_lines[0],
+        )
         material_choice = re.search(
             r"\bmaterial-choice=\[stone\+timber:(\d+) visited:(\d+)\]",
             direct_use_lines[0],
@@ -54,12 +58,19 @@ def wilderness_summary(lines: list[str]) -> str | None:
             r"\bqueue=\[forage:(\d+)ct drink:(\d+)ct timber:(\d+)ct\]",
             direct_use_lines[0],
         )
-        if movement is None or material_choice is None or haul is None or queue is None:
+        if (
+            movement is None
+            or known_path is None
+            or material_choice is None
+            or haul is None
+            or queue is None
+        ):
             raise ValueError(
-                "wilderness direct-use witness lost continuous-body route/material/haul/queue telemetry"
+                "wilderness direct-use witness lost continuous-body route/projection/material/haul/queue telemetry"
             )
         direct_use = (
             f"direct-use=[route={movement.group(2)}/{movement.group(3)}e/{movement.group(4)}ct "
+            f"plan={known_path.group(1)}e/{known_path.group(2)}ct "
             f"mats={material_choice.group(2)}/{material_choice.group(1)} "
             f"haul={_mass_kg(int(haul.group(1)))}/{_mass_kg(int(haul.group(2)))}/{_mass_kg(int(haul.group(3)))}kg@{haul.group(4)}ct "
             f"q[f/d/t]={queue.group(1)}/{queue.group(2)}/{queue.group(3)}ct use=one-shot "
