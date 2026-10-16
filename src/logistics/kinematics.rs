@@ -244,7 +244,7 @@ pub fn project_player_walk_path_for_load(
         .ok_or(PlayerWalkProjectionError::PathEmpty)?;
     let player = validate_walk_projection_start(registries, state)?;
     let origin = player.position();
-    let mut projected = state.clone();
+    let mut projected_body = player.body();
     let mut projected_exertion = player.locomotion_exertion();
     let mut control_ticks = 0_u64;
     let maximum_control_ticks = CONTROL_TICKS_PER_SIMULATION_TICK - 1;
@@ -252,7 +252,9 @@ pub fn project_player_walk_path_for_load(
     for &destination in destinations {
         project_walk_leg(
             registries,
-            &mut projected,
+            state,
+            player,
+            &mut projected_body,
             destination,
             &mut control_ticks,
             maximum_control_ticks,
@@ -315,7 +317,9 @@ fn validate_walk_projection_start(
 
 fn project_walk_leg(
     registries: &Registries,
-    projected: &mut AppState,
+    state: &AppState,
+    player: PlayerLogisticsRecord,
+    projected_body: &mut PlayerBodyState,
     destination: VoxelCoord,
     control_ticks: &mut u64,
     maximum_control_ticks: u64,
@@ -323,11 +327,7 @@ fn project_walk_leg(
     capacity: Mass,
     projected_exertion: &mut LocomotionExertionAccumulator,
 ) -> Result<(), PlayerWalkProjectionError> {
-    let leg_origin = projected
-        .logistics()
-        .player()
-        .map(|record| record.position())
-        .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"));
+    let leg_origin = projected_body.voxel_position();
     if !leg_origin.is_face_adjacent_to(destination) || leg_origin.y() != destination.y() {
         return Err(
             PlayerWalkProjectionError::DestinationNotHorizontalAdjacent {
@@ -337,26 +337,17 @@ fn project_walk_leg(
         );
     }
     let movement = adjacent_walk_input(leg_origin, destination);
-    while projected
-        .logistics()
-        .player()
-        .is_some_and(|record| record.position() != destination)
-    {
+    while projected_body.voxel_position() != destination {
         ensure_walk_tick_available(
             *control_ticks,
             maximum_control_ticks,
             leg_origin,
             destination,
         )?;
-        let before = projected
-            .logistics()
-            .player()
-            .copied()
-            .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"))
-            .body();
-        let plan = decide_player_body_motion(registries, projected, movement, false)
+        let before = *projected_body;
+        let after = project_player_walk_body_tick(registries, state, player, before, movement)
             .map_err(PlayerWalkProjectionError::BodyMotion)?;
-        if plan.is_none() {
+        if after == before {
             return Err(
                 PlayerWalkProjectionError::DestinationUnreachableBeforeBoundary {
                     origin: leg_origin,
@@ -364,13 +355,7 @@ fn project_walk_leg(
                 },
             );
         }
-        let _ = apply_player_body_motion(projected, plan);
-        let after = projected
-            .logistics()
-            .player()
-            .copied()
-            .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"))
-            .body();
+        *projected_body = after;
         accrue_projected_walk_exertion(
             registries,
             before,
@@ -380,11 +365,7 @@ fn project_walk_leg(
             projected_exertion,
         )?;
         *control_ticks += 1;
-        let actual = projected
-            .logistics()
-            .player()
-            .map(|record| record.position())
-            .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"));
+        let actual = projected_body.voxel_position();
         if actual != leg_origin && actual != destination {
             return Err(PlayerWalkProjectionError::DestinationOvershot {
                 destination,
@@ -394,7 +375,9 @@ fn project_walk_leg(
     }
     settle_projected_walk_velocity(
         registries,
-        projected,
+        state,
+        player,
+        projected_body,
         leg_origin,
         destination,
         control_ticks,
@@ -437,19 +420,16 @@ fn accrue_projected_walk_exertion(
 
 fn settle_projected_walk_velocity(
     registries: &Registries,
-    projected: &mut AppState,
+    state: &AppState,
+    player: PlayerLogisticsRecord,
+    projected_body: &mut PlayerBodyState,
     leg_origin: VoxelCoord,
     destination: VoxelCoord,
     control_ticks: &mut u64,
     maximum_control_ticks: u64,
 ) -> Result<(), PlayerWalkProjectionError> {
     loop {
-        let body = projected
-            .logistics()
-            .player()
-            .copied()
-            .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"))
-            .body();
+        let body = *projected_body;
         let horizontal = body.horizontal_velocity();
         if horizontal.x_nanometers_per_second() == 0 && horizontal.z_nanometers_per_second() == 0 {
             return Ok(());
@@ -460,16 +440,17 @@ fn settle_projected_walk_velocity(
             leg_origin,
             destination,
         )?;
-        let plan =
-            decide_player_body_motion(registries, projected, PlayerControlInput::NEUTRAL, false)
-                .map_err(PlayerWalkProjectionError::BodyMotion)?;
-        let _ = apply_player_body_motion(projected, plan);
+        let after = project_player_walk_body_tick(
+            registries,
+            state,
+            player,
+            body,
+            PlayerControlInput::NEUTRAL,
+        )
+        .map_err(PlayerWalkProjectionError::BodyMotion)?;
+        *projected_body = after;
         *control_ticks += 1;
-        let actual = projected
-            .logistics()
-            .player()
-            .map(|record| record.position())
-            .unwrap_or_else(|| unreachable!("walk projection cannot remove the player"));
+        let actual = projected_body.voxel_position();
         if actual != destination {
             return Err(PlayerWalkProjectionError::DestinationOvershot {
                 destination,
@@ -477,6 +458,76 @@ fn settle_projected_walk_velocity(
             });
         }
     }
+}
+
+fn project_player_walk_body_tick(
+    registries: &Registries,
+    state: &AppState,
+    player: PlayerLogisticsRecord,
+    before: PlayerBodyState,
+    input: PlayerControlInput,
+) -> Result<PlayerBodyState, PlayerBodyMotionError> {
+    let locomotion = registries.survival().physiology().locomotion();
+    let bounds = horizontal_voxel_bounds(before, locomotion)
+        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
+    if !horizontal_chunks_generated(state.world(), bounds) {
+        return Ok(before);
+    }
+    let availability = PlayerControlAvailability {
+        alive: state
+            .survival()
+            .player()
+            .is_some_and(|survival| survival.vitality() != Vitality::ZERO),
+        busy: false,
+        grounded: supporting_floor_y(registries.world(), state.world(), before, bounds)
+            == Some(before.foot_position().y_nanometers()),
+    };
+    let desired_velocity = if availability.grounded {
+        desired_horizontal_velocity(
+            locomotion.walking_speed().nanometers_per_second(),
+            input.horizontal(),
+        )?
+    } else {
+        before.horizontal_velocity()
+    };
+    let mut velocity = accelerate_horizontal_velocity(
+        before.horizontal_velocity(),
+        if availability.alive {
+            desired_velocity
+        } else {
+            HorizontalVelocity::ZERO
+        },
+        locomotion,
+    )?;
+    let (mut position, collided_x, collided_z) = resolve_horizontal_motion(
+        registries.world(),
+        state.world(),
+        before,
+        locomotion,
+        velocity,
+    )?;
+    velocity = collision_clipped_horizontal_velocity(velocity, collided_x, collided_z);
+    if position.containing_voxel() != before.voxel_position()
+        && !player_voxel_change_allowed(state, player, position.containing_voxel())
+    {
+        position = before.foot_position();
+        velocity = HorizontalVelocity::ZERO;
+    }
+    let horizontal_body = before.with_motion(
+        position,
+        velocity,
+        before.vertical_velocity(),
+        PlayerStance::Standing,
+    );
+    let (after, _) = resolve_vertical_control(
+        registries,
+        state,
+        horizontal_body,
+        locomotion,
+        availability,
+        input,
+    )?;
+    Ok(after)
 }
 
 fn ensure_walk_tick_available(
