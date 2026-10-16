@@ -214,13 +214,15 @@ Exact water quantity remains unknown unless the actor visits its branch. This cl
 distributed opening slice without claiming terrain geometry, general route generation/pathfinding, ecology,
 hydrology/flow/recharge, or broader world discovery.
 
-The worksite path also closes the first bounded fire/warmth edge. Ordinary unsheltered time drains a persisted
+The worksite path also closes the first bounded fire/warmth/light edge. Ordinary unsheltered time drains a persisted
 thermal-comfort reserve; the existing long cache project naturally enters the chilly band. The actor prices the
 known fire response before committing, gathers exact local stone, assembles a stone-ring campfire, and burns one
 material-backed charge from staged timber into finite thermal storage. The same passive heat that leaves that
-co-located store restores player warmth, while remote heat does not. Fuel mass remains conserved in an explicit
-combustion terminal account. This is a primitive local heat source, not weather, environmental heat transport,
-atmospheric chemistry, light, or shelter semantics.
+co-located store restores player warmth, while remote heat does not. While stored heat remains, the located fire
+also exposes a renderer-neutral local light level with deterministic unoccluded falloff; extinguishing follows the
+same finite passive-energy loss rather than separate light state. Fuel mass remains conserved in an explicit
+combustion terminal account. This is a primitive local heat/light source, not weather, environmental heat
+transport, atmospheric chemistry, sky/block-light propagation or occlusion, meshing, or shelter semantics.
 
 The structural owner now has ordinary carried-stack construction below shelter semantics. An admitted player may
 hand-set a local grounded member or one non-grounded member on a non-empty set of face-contacting active supports;

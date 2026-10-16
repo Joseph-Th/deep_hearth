@@ -571,7 +571,7 @@ continuation does not depend on tick partitioning.
 Energy stores own carrier, capacity, directional power limits, stored energy, revision, optional embodied traces,
 and optional passive dissipation; logistics owns their world location. Consumers/producers use validated owner
 operations. Passive dissipation is an environmental sink and applies from the pre-tick store snapshot after
-same-tick ingress. Generic store-to-store transfer/carrier conversion is absent.
+same-tick ingress. A definition may also mark nonempty finite storage as a renderer-neutral local light source; `assess_local_illumination` derives deterministic Manhattan falloff from current store energy and location without persisted light state. This is unoccluded local emission, not sky/block propagation, visibility, or meshing. Generic store-to-store transfer/carrier conversion is absent.
 
 Material-backed energy-store upgrades are additive: registry validation requires carrier compatibility, non-
 regressing capacity/transfer semantics, non-increasing passive loss, and exact base-plus-additions embodiment.

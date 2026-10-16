@@ -29,6 +29,7 @@ use deep_hearth::crafting::{
     ManualCraftInputMode, player_manual_craft_options, project_manual_craft_equipment,
     project_manual_craft_hand_work, validate_start_player_manual_craft,
 };
+use deep_hearth::energy::assess_local_illumination;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{
     MaterialLotSelection, StockpileId, StorageDefinitionId, project_material_stacks,
@@ -620,6 +621,7 @@ pub(super) struct WildernessOpeningReview {
     pub(super) thermal_before_fire_ppm: u32,
     pub(super) thermal_after_fire_ppm: u32,
     pub(super) campfire_heat_remaining_nj: u128,
+    pub(super) campfire_light_level: u8,
     pub(super) selected_source_opportunity_mg: u64,
     pub(super) selected_source_remaining_mg: u64,
     pub(super) camp_logistics_legs: u64,
@@ -1755,6 +1757,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
     let mut thermal_before_fire_ppm = 0_u32;
     let mut thermal_after_fire_ppm = 0_u32;
     let mut campfire_heat_remaining_nj = 0_u128;
+    let mut campfire_light_level = 0_u8;
     let mut selected_source_opportunity_mg = 0_u64;
     let mut selected_source_remaining_mg = 0_u64;
     let mut camp_logistics_steps = 0_u64;
@@ -2353,6 +2356,17 @@ pub(super) fn evaluate_generated_wilderness_opening(
                 }
                 other => panic!("wilderness timber use did not fuel campfire: {other:?}"),
             }
+            let illumination = assess_local_illumination(&registries, &state, junction);
+            assert_eq!(
+                illumination.strongest_source(),
+                Some(campfire),
+                "the fueled worksite campfire should become the actor's local light source"
+            );
+            campfire_light_level = illumination.level();
+            assert!(
+                campfire_light_level > 0,
+                "a fueled authored campfire must provide nonzero local illumination"
+            );
             campfire_built = true;
             campfire_fuel_mg = CAMPFIRE_FUEL_MASS.milligrams();
 
@@ -2516,6 +2530,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
         thermal_before_fire_ppm,
         thermal_after_fire_ppm,
         campfire_heat_remaining_nj,
+        campfire_light_level,
         selected_source_opportunity_mg,
         selected_source_remaining_mg,
         camp_logistics_legs: camp_logistics_steps,
@@ -2698,13 +2713,14 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
     );
     let warmth = if review.campfire_built {
         format!(
-            "[fire:true direct-control:true fuel:{}mg logistics-legs:{} recovery:{}t comfort:{}->{}ppm heat-remaining:{}nJ]",
+            "[fire:true direct-control:true fuel:{}mg logistics-legs:{} recovery:{}t comfort:{}->{}ppm heat-remaining:{}nJ light:{}]",
             review.campfire_fuel_mg,
             review.campfire_logistics_legs,
             review.campfire_recovery_ticks,
             review.thermal_before_fire_ppm,
             review.thermal_after_fire_ppm,
             review.campfire_heat_remaining_nj,
+            review.campfire_light_level,
         )
     } else {
         "[fire:false]".to_owned()
@@ -2915,6 +2931,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         assert!(cache.thermal_before_fire_ppm < cache.thermal_after_fire_ppm);
         assert!(cache.thermal_after_fire_ppm >= 800_000);
         assert!(cache.campfire_heat_remaining_nj > 0);
+        assert!(cache.campfire_light_level > 0);
         assert!(
             cache.selected_source_opportunity_mg > cache.carried_capacity_mg,
             "the lived worksite timber reserve should exceed one unaided carrying load"

@@ -8,6 +8,7 @@ mod definitions;
 mod disassembly_execution;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture_execution;
+mod illumination;
 mod integration;
 mod passive_dissipation;
 mod state;
@@ -25,6 +26,7 @@ pub use construction_execution::{
     EnergyStoreAssemblyCommitError, EnergyStoreAssemblyError, ValidatedEnergyStoreAssembly,
     validate_assemble_energy_store,
 };
+pub use illumination::{LocalIlluminationAssessment, assess_local_illumination};
 
 pub use definitions::{
     CombustionProfile, EnergyCarrier, EnergyRegistry, EnergyStoreDefinition,

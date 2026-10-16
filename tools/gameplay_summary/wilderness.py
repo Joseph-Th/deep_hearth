@@ -130,6 +130,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
     campfire_before_comfort: list[int] = []
     campfire_after_comfort: list[int] = []
     campfire_heat_remaining: list[int] = []
+    campfire_light_levels: list[int] = []
     campfires_built = 0
     direct_control_fires = 0
     camp_logistics_legs: list[int] = []
@@ -163,7 +164,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             raise ValueError("wilderness experience lost camp-project telemetry")
         warmth = re.search(
             r"\bwarmth=\[fire:true(?: direct-control:(true))? fuel:(\d+)mg logistics-legs:(\d+) recovery:(\d+)t "
-            r"comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ\]",
+            r"comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ(?: light:(\d+))?\]",
             experience,
         )
         if " goal=worksite-cache " in experience:
@@ -176,6 +177,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
             campfire_before_comfort.append(int(warmth.group(5)))
             campfire_after_comfort.append(int(warmth.group(6)))
             campfire_heat_remaining.append(int(warmth.group(7)))
+            if warmth.group(8) is not None:
+                campfire_light_levels.append(int(warmth.group(8)))
         work = int(project.group(1))
         meal = int(project.group(7))
         if meal > 0:
@@ -262,6 +265,11 @@ def wilderness_summary(lines: list[str]) -> str | None:
             if has_direct_fire_telemetry
             else ""
         )
+        light = (
+            f"light:{min(campfire_light_levels)}..{max(campfire_light_levels)} "
+            if campfire_light_levels
+            else ""
+        )
         camp_warmth = (
             "camp-warmth=["
             f"fires:{campfires_built}/{len(cache_projects)} "
@@ -270,6 +278,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"recovery:{scaled_span(campfire_recovery_ticks, 1, 't')} "
             f"comfort:{scaled_span(campfire_before_comfort, 1_000, 'kppm')}->"
             f"{scaled_span(campfire_after_comfort, 1_000, 'kppm')} "
+            f"{light}"
             f"heat-left:{scaled_span(campfire_heat_remaining, 1_000_000_000_000_000, 'MJ')}]"
         )
     adze_crossover = next(

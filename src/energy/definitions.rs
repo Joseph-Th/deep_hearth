@@ -109,6 +109,7 @@ pub struct EnergyStoreDefinition {
     max_output_power: Power,
     passive_dissipation_power: Power,
     local_warmth_source: bool,
+    local_light_level: u8,
     combustion_profile: Option<CombustionProfile>,
     assembly_profile: Option<MaterialAssemblyProfile>,
     upgrade_profile: Option<EnergyStoreUpgradeProfile>,
@@ -138,6 +139,7 @@ impl EnergyStoreDefinition {
             max_output_power: Power::ZERO,
             passive_dissipation_power,
             local_warmth_source: false,
+            local_light_level: 0,
             combustion_profile: Some(profile),
             assembly_profile: None,
             upgrade_profile: None,
@@ -176,6 +178,7 @@ impl EnergyStoreDefinition {
             max_output_power,
             passive_dissipation_power: Power::ZERO,
             local_warmth_source: false,
+            local_light_level: 0,
             combustion_profile: None,
             assembly_profile: None,
             upgrade_profile: None,
@@ -197,6 +200,20 @@ impl EnergyStoreDefinition {
             self.id.value()
         );
         self.passive_dissipation_power = power;
+        self
+    }
+
+    /// Marks stored energy as an active renderer-neutral local light source.
+    ///
+    /// Light emission must consume finite stored energy through an authored passive loss. The
+    /// level is the source value before one-level-per-voxel unoccluded falloff and is intentionally
+    /// bounded to the familiar 0..=15 block-light presentation range.
+    #[must_use]
+    pub fn with_local_light_source(mut self, level: u8) -> Self {
+        assert!((1..=15).contains(&level));
+        assert!(!self.passive_dissipation_power.is_zero());
+        assert_eq!(self.local_light_level, 0);
+        self.local_light_level = level;
         self
     }
 
@@ -289,6 +306,12 @@ impl EnergyStoreDefinition {
     #[must_use]
     pub const fn is_local_warmth_source(&self) -> bool {
         self.local_warmth_source
+    }
+
+    /// Returns the authored source light level, or zero when this store is not luminous.
+    #[must_use]
+    pub const fn local_light_level(&self) -> u8 {
+        self.local_light_level
     }
 
     #[must_use]

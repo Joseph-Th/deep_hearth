@@ -372,6 +372,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             ),
         )
         .with_local_warmth_source()
+        .with_local_light_source(7)
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(1_000_000),
