@@ -11,6 +11,7 @@ mod fixture_execution;
 mod maintenance_execution;
 mod maintenance_resolution;
 mod mass_flow_schedule;
+mod player_maintenance;
 mod state;
 mod upgrade_execution;
 
@@ -47,6 +48,11 @@ pub use maintenance_execution::{
 pub use maintenance_resolution::{
     EquipmentMaintenanceRequest, EquipmentMaintenanceResolution,
     EquipmentMaintenanceResolutionError, resolve_equipment_maintenance,
+};
+pub use player_maintenance::{
+    PlayerEquipmentMaintenanceCatalogError, PlayerEquipmentMaintenanceOption,
+    PlayerEquipmentMaintenanceStartError, player_equipment_maintenance_options,
+    validate_start_player_equipment_maintenance,
 };
 pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,

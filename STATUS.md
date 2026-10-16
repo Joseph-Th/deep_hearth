@@ -28,9 +28,9 @@ Current graph boundaries, not priorities:
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Generated world + body + targeting + excavation | Inventory/container/crafting UI gestures, plus general placement, residency, richer contact, and remote discovery. |
-| Structural physics | Multi-support framing, joints/panels, dependent/cascading demolition, and terrain support. |
-| Equipment maintenance | Maintenance tools and service-site transport. |
+| Generated world + body + targeting | Adapter inventory/crafting UI, general placement, residency, richer contact, and remote discovery. |
+| Structural physics | Multi-support framing, joints/panels, cascade demolition, and terrain support. |
+| Player equipment service | Maintenance-tool requirements and service-site transport beyond exact-local carried stock. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
 | Finite fluid stores | Routed transport, pumping, mixing, and pressure networks. |
 | Industrial workshop/ore/foundry execution | Ordinary industrial infrastructure acquisition/construction. |
