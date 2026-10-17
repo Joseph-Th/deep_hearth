@@ -70,6 +70,20 @@ fn physiology_with_carry(
     )
 }
 
+#[test]
+fn thermal_comfort_local_heat_scaling_remains_exact_at_full_width() {
+    let threshold = Energy::from_nanojoules(u128::MAX - 17);
+    let thermal = ThermalComfortDefinition::new(500_000, 2, 1, 1_000_000, threshold, 4);
+    let just_below_threshold = Energy::from_nanojoules(threshold.nanojoules() - 1);
+
+    assert_eq!(thermal.local_heat_gain_ppm(just_below_threshold), 999_999);
+    assert_eq!(thermal.local_heat_gain_ppm(threshold), 1_000_000);
+    assert_eq!(
+        thermal.local_heat_gain_ppm(Energy::from_nanojoules(u128::MAX)),
+        1_000_000
+    );
+}
+
 fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
     physiology_with_carry(Mass::from_milligrams(1), starvation_loss, dehydration_loss)
 }

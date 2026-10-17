@@ -150,9 +150,10 @@ impl BlockExcavationWork {
             .checked_steps_since(self.started_at)
             .unwrap_or(0)
             .min(duration);
-        let progress = u128::from(elapsed).saturating_mul(u128::from(
-            crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION,
-        )) / u128::from(duration);
-        u32::try_from(progress).unwrap_or(crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION)
+        let progress = u128::from(elapsed)
+            * u128::from(crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION)
+            / u128::from(duration);
+        u32::try_from(progress)
+            .unwrap_or_else(|_| unreachable!("bounded excavation progress fits normalized ppm"))
     }
 }

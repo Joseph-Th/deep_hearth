@@ -1,6 +1,6 @@
 //! Immutable player physiology and direct-consumption timing definitions.
 
-use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
+use crate::core::arithmetic::{NORMALIZED_PARTS_PER_MILLION, checked_mul_div_with_remainder};
 use crate::core::quantity::{Acceleration, Energy, Length, Mass, Speed, Volume};
 use crate::core::time::TickSpan;
 use crate::survival::resource_cost::SurvivalExertion;
@@ -958,15 +958,28 @@ impl ThermalComfortDefinition {
     }
 
     #[must_use]
+    pub const fn local_heat_for_maximum_gain(self) -> Energy {
+        self.local_heat_for_maximum_gain
+    }
+
+    #[must_use]
     pub fn local_heat_gain_ppm(self, local_heat: Energy) -> u32 {
         if local_heat.is_zero() {
             return 0;
         }
-        let numerator = local_heat
-            .nanojoules()
-            .saturating_mul(u128::from(self.maximum_local_heat_gain_ppm_per_tick));
-        let gain = numerator / self.local_heat_for_maximum_gain.nanojoules();
-        u32::try_from(gain.min(u128::from(self.maximum_local_heat_gain_ppm_per_tick)))
+        if local_heat >= self.local_heat_for_maximum_gain {
+            return self.maximum_local_heat_gain_ppm_per_tick;
+        }
+        let (gain, _remainder) = checked_mul_div_with_remainder(
+            local_heat.nanojoules(),
+            u128::from(self.maximum_local_heat_gain_ppm_per_tick),
+            self.local_heat_for_maximum_gain.nanojoules(),
+            0,
+        )
+        .unwrap_or_else(|| {
+            unreachable!("sub-threshold thermal-comfort gain is bounded by authored maximum")
+        });
+        u32::try_from(gain)
             .unwrap_or_else(|_| unreachable!("bounded thermal-comfort gain fits u32"))
     }
 }

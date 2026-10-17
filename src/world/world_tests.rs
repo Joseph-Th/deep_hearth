@@ -33,6 +33,57 @@ use super::*;
 
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xD33F_4845_4152_5448);
 
+#[test]
+fn world_registry_rejects_cell_mass_that_can_overflow_a_section_summary() {
+    let heavy_block = BlockDefinitionId::new(99);
+    let heavy_state = BlockStateId::new(99);
+    let excessive_mass = Mass::from_milligrams(
+        u64::MAX
+            / u64::try_from(SECTION_CELL_COUNT)
+                .unwrap_or_else(|_| unreachable!("section cell count fits u64"))
+            + 1,
+    );
+
+    assert!(
+        std::panic::catch_unwind(|| {
+            WorldRegistry::new(
+                [
+                    BlockDefinition::new(
+                        BlockDefinitionId::AIR,
+                        "air",
+                        BlockStateId::AIR,
+                        BlockPhysicalDefinition::new(
+                            None,
+                            Mass::ZERO,
+                            BlockCollisionShape::Empty,
+                            false,
+                        ),
+                        None,
+                    ),
+                    BlockDefinition::new(
+                        heavy_block,
+                        "unrepresentably heavy cell",
+                        heavy_state,
+                        BlockPhysicalDefinition::new(
+                            Some(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)),
+                            excessive_mass,
+                            BlockCollisionShape::Empty,
+                            false,
+                        ),
+                        None,
+                    ),
+                ],
+                [
+                    BlockStateDefinition::new(BlockStateId::AIR, BlockDefinitionId::AIR),
+                    BlockStateDefinition::new(heavy_state, heavy_block),
+                ],
+            )
+        })
+        .is_err(),
+        "authored cell mass must fit the section-level exact mass summary at maximum occupancy"
+    );
+}
+
 fn generate(state: &mut AppState, coord: ChunkCoord) {
     let registries = build_registries();
     validate_generate_chunk(&registries, state, SEED, coord, BLOCK_STATE_STONE)

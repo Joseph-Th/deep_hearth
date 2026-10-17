@@ -402,18 +402,27 @@ fn advance_simulation_tick(
         ],
         TickError::EnergyRevisionExhausted,
     )?;
-    let local_warmth = state
-        .available_local_energy_stores()
-        .filter(|store| {
-            registries
-                .energy()
-                .get_store(store.definition())
-                .is_some_and(|definition| definition.is_local_warmth_source())
-        })
-        .try_fold(crate::core::quantity::Energy::ZERO, |total, store| {
-            total.checked_add(passive_energy_plan.dissipated_for_store(store.id()))
-        })
-        .unwrap_or_else(|| panic!("local passive warmth overflowed energy range"));
+    let maximum_relevant_warmth = registries
+        .survival()
+        .physiology()
+        .thermal_comfort()
+        .local_heat_for_maximum_gain();
+    let mut local_warmth = crate::core::quantity::Energy::ZERO;
+    for store in state.available_local_energy_stores().filter(|store| {
+        registries
+            .energy()
+            .get_store(store.definition())
+            .is_some_and(|definition| definition.is_local_warmth_source())
+    }) {
+        if local_warmth == maximum_relevant_warmth {
+            break;
+        }
+        local_warmth = accumulate_relevant_local_warmth(
+            local_warmth,
+            passive_energy_plan.dissipated_for_store(store.id()),
+            maximum_relevant_warmth,
+        );
+    }
     let work_exertion =
         player_work_exertion(registries, state, completion_plan.availability_changes());
     let exertion = SurvivalExertion::new(
@@ -547,6 +556,22 @@ fn advance_simulation_tick(
         field_prospecting,
         survival,
     })
+}
+
+fn accumulate_relevant_local_warmth(
+    total: crate::core::quantity::Energy,
+    contribution: crate::core::quantity::Energy,
+    maximum_relevant: crate::core::quantity::Energy,
+) -> crate::core::quantity::Energy {
+    if total >= maximum_relevant {
+        return maximum_relevant;
+    }
+    let remaining = maximum_relevant
+        .checked_sub(total)
+        .unwrap_or_else(|| unreachable!("sub-maximum local warmth leaves positive headroom"));
+    total
+        .checked_add(contribution.min(remaining))
+        .unwrap_or_else(|| unreachable!("local warmth capped to represented energy range"))
 }
 
 #[cfg(test)]

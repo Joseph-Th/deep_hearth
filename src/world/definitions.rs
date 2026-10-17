@@ -8,6 +8,8 @@ use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::material::{CommodityKey, MaterialFormCohesion, MaterialPhase, MaterialRegistry};
 use crate::texture::{BlockAppearanceId, TextureRegistry};
 
+use super::state::SECTION_CELL_COUNT;
+
 /// Stable authored identifier for one block behavior/material definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BlockDefinitionId(u16);
@@ -454,7 +456,15 @@ impl WorldRegistry {
         assert!(air_block.appearance().is_none());
         assert!(air_block.excavation().is_none());
 
+        let maximum_cell_mass = u64::MAX
+            / u64::try_from(SECTION_CELL_COUNT)
+                .unwrap_or_else(|_| unreachable!("section cell count fits u64"));
         for block in self.blocks.values() {
+            assert!(
+                block.represented_mass().milligrams() <= maximum_cell_mass,
+                "block {} represented mass exceeds compact-section aggregate mass capacity",
+                block.id().value()
+            );
             let state = self.states.get(&block.default_state()).unwrap_or_else(|| {
                 panic!(
                     "block {} references missing default state {}",
