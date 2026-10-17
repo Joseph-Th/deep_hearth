@@ -17,7 +17,7 @@ use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
-use deep_hearth::world_generation::INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_STEPS;
+use deep_hearth::world_generation::INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_LEGS;
 
 use super::manual_craft_equipment_topology_planning::manual_craft_topology_plan_with_equipment;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
@@ -237,15 +237,10 @@ pub(super) fn project_incremental_kit_acquisition_attention(
     // The extension is assembled beside the inherited processing line at spawn. Production owns
     // the bounded opening topology, including the minimum route that visits both material leaves
     // and returns without detouring through optional water.
-    let round_trip_steps = INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_STEPS;
-    let travel_ticks = registries
-        .survival()
-        .physiology()
-        .locomotion()
-        .step_duration()
-        .value()
-        .checked_mul(round_trip_steps)
-        .unwrap_or_else(|| panic!("liberation opening-graph travel projection overflowed"));
+    // Maintained execution requires every adjacent continuous-body leg to settle within one slow
+    // interval, so pre-action attention equals the minimum route's leg count. This is evaluator
+    // accounting, not a second movement-duration definition.
+    let travel_ticks = INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_LEGS;
     let mut gathering_ticks = 0_u64;
     for (commodity, mass) in &plan.raw_requirements {
         let method_id = gathering_method_for(*commodity);

@@ -167,7 +167,7 @@ fn seed_progression_corridor(registries: &Registries, state: &mut AppState) {
     }
 }
 
-fn walk_step_with_production(
+fn walk_adjacent_leg_with_production(
     registries: &Registries,
     state: &mut AppState,
     destination: VoxelCoord,
@@ -267,11 +267,11 @@ fn walk_step_with_production(
         .tick()
         .value()
         .checked_sub(started_at)
-        .unwrap_or_else(|| unreachable!("player step cannot complete before it starts"))
+        .unwrap_or_else(|| unreachable!("continuous body leg cannot complete before it starts"))
 }
 
-fn walk_step(registries: &Registries, state: &mut AppState, destination: VoxelCoord) {
-    let _ = walk_step_with_production(registries, state, destination, None);
+fn walk_adjacent_leg(registries: &Registries, state: &mut AppState, destination: VoxelCoord) {
+    let _ = walk_adjacent_leg_with_production(registries, state, destination, None);
 }
 
 fn walk_to_x(registries: &Registries, state: &mut AppState, x: i64, steps: &mut u64) {
@@ -289,7 +289,7 @@ fn walk_to_x(registries: &Registries, state: &mut AppState, x: i64, steps: &mut 
         } else {
             current.x() - 1
         };
-        walk_step(
+        walk_adjacent_leg(
             registries,
             state,
             VoxelCoord::new(next_x, current.y(), current.z()),
@@ -331,7 +331,7 @@ fn walk_to_x_during_production(
             current.x() - 1
         };
         let before = state.tick().value();
-        let elapsed = walk_step_with_production(
+        let elapsed = walk_adjacent_leg_with_production(
             registries,
             state,
             VoxelCoord::new(next_x, current.y(), current.z()),

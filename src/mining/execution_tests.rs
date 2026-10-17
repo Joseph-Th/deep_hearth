@@ -1361,14 +1361,8 @@ fn obsolete_player_step_save_shape_is_rejected_at_schema_boundary() {
         .unwrap_or_else(|| panic!("carried-settlement load fixture lost player"));
     let started_at = state.tick();
     let completes_at = started_at
-        .checked_add_span(
-            registries
-                .survival()
-                .physiology()
-                .locomotion()
-                .step_duration(),
-        )
-        .unwrap_or_else(|| panic!("carried-settlement load step schedule overflowed"));
+        .checked_add_span(TickSpan::new(1))
+        .unwrap_or_else(|| panic!("obsolete-step payload schedule overflowed"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("carried-settlement load serialization failed: {error}"));
     encoded["state"]["systems"]["player_work"]["active"] = serde_json::json!({

@@ -319,7 +319,6 @@ impl BodyKinematicsDefinition {
 /// Authored unaided locomotion/body facts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocomotionDefinition {
-    step_duration: TickSpan,
     unloaded_exertion: SurvivalExertion,
     fully_loaded_exertion: SurvivalExertion,
     body_kinematics: BodyKinematicsDefinition,
@@ -328,15 +327,10 @@ pub struct LocomotionDefinition {
 impl LocomotionDefinition {
     #[must_use]
     pub fn new(
-        step_duration: TickSpan,
         unloaded_exertion: SurvivalExertion,
         fully_loaded_exertion: SurvivalExertion,
         body_kinematics: BodyKinematicsDefinition,
     ) -> Self {
-        assert!(
-            !step_duration.is_zero(),
-            "player step duration must be nonzero"
-        );
         unloaded_exertion.assert_active_player_work();
         fully_loaded_exertion.assert_active_player_work();
         assert!(
@@ -350,7 +344,6 @@ impl LocomotionDefinition {
             "fully loaded locomotion cannot lose less hydration than unloaded locomotion"
         );
         let definition = Self {
-            step_duration,
             unloaded_exertion,
             fully_loaded_exertion,
             body_kinematics,
@@ -360,11 +353,6 @@ impl LocomotionDefinition {
             "locomotion exertion must fit the persisted control-interval accumulation envelope"
         );
         definition
-    }
-
-    #[must_use]
-    pub const fn step_duration(self) -> TickSpan {
-        self.step_duration
     }
 
     #[must_use]

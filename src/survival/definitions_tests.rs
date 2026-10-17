@@ -35,7 +35,6 @@ fn physiology_with_carry(
             TickSpan::new(1),
         ),
         LocomotionDefinition::new(
-            TickSpan::new(1),
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
             SurvivalExertion::new(Energy::from_nanojoules(2), Volume::from_microliters(1)),
             BodyKinematicsDefinition::new(

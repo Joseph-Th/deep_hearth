@@ -76,7 +76,6 @@ fn physiology() -> PhysiologyDefinition {
             TickSpan::new(MAXIMUM_DRINK_DURATION_TICKS),
         ),
         LocomotionDefinition::new(
-            TickSpan::new(1),
             SurvivalExertion::new(
                 Energy::from_nanojoules(600_000_000_000),
                 Volume::from_microliters(150),

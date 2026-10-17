@@ -28,7 +28,6 @@ fn physiology(
             TickSpan::new(1),
         ),
         LocomotionDefinition::new(
-            TickSpan::new(1),
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
             BodyKinematicsDefinition::new(

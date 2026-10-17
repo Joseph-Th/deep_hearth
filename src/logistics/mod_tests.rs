@@ -434,7 +434,7 @@ fn ground_transfer_fixture() -> (
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("ground transfer player admission commit failed: {error}"));
     let ground = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000_000))
-        .unwrap_or_else(|error| panic!("active-step transfer ground stockpile failed: {error}"));
+        .unwrap_or_else(|error| panic!("ground-transfer fixture stockpile failed: {error}"));
     let lot = deposit_lot_for_test(
         &registries,
         &mut state,
@@ -443,13 +443,11 @@ fn ground_transfer_fixture() -> (
         Mass::from_milligrams(12_500_000),
         Temperature::from_millikelvin(293_150),
     )
-    .unwrap_or_else(|error| panic!("active-step transfer ground lot failed: {error}"));
+    .unwrap_or_else(|error| panic!("ground-transfer fixture lot failed: {error}"));
     validate_place_ground_stockpile(&state, ground, origin)
-        .unwrap_or_else(|error| panic!("active-step transfer ground placement failed: {error}"))
+        .unwrap_or_else(|error| panic!("ground-transfer fixture placement failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| {
-            panic!("active-step transfer ground placement commit failed: {error}")
-        });
+        .unwrap_or_else(|error| panic!("ground-transfer fixture placement commit failed: {error}"));
     (registries, state, ground, lot)
 }
 

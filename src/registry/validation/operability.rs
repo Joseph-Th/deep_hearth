@@ -2,7 +2,7 @@
 
 use crate::core::time::TickSpan;
 use crate::labor::calculate_player_work_resource_budget;
-use crate::survival::{PhysiologyDefinition, SurvivalExertion};
+use crate::survival::{PhysiologyDefinition, SurvivalExertion, project_survival_resource_budget};
 
 use super::super::{CoreDefinitions, RegistryDomains};
 
@@ -41,19 +41,32 @@ fn assert_player_work_fits_reserves(
     );
 }
 
+fn assert_locomotion_interval_fits_reserves(physiology: PhysiologyDefinition) {
+    let locomotion = physiology.locomotion();
+    let capacity = physiology.carried_mass_capacity();
+    let budget = project_survival_resource_budget(
+        physiology,
+        locomotion.exertion_for_load(capacity, capacity),
+        TickSpan::new(1),
+    )
+    .unwrap_or_else(|error| panic!("fully loaded walking interval budget overflows: {error:?}"));
+    assert!(
+        budget.metabolic_energy() <= physiology.maximum_metabolic_energy(),
+        "one fully loaded walking settlement requires {} nJ but full metabolic reserves hold only {} nJ",
+        budget.metabolic_energy().nanojoules(),
+        physiology.maximum_metabolic_energy().nanojoules(),
+    );
+    assert!(
+        budget.hydration() <= physiology.maximum_hydration(),
+        "one fully loaded walking settlement requires {} uL hydration but full hydration reserves hold only {} uL",
+        budget.hydration().microliters(),
+        physiology.maximum_hydration().microliters(),
+    );
+}
+
 pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: &RegistryDomains) {
     let physiology = domains.survival.physiology();
-    let locomotion = physiology.locomotion();
-    assert_player_work_fits_reserves(
-        physiology,
-        locomotion.exertion_for_load(
-            physiology.carried_mass_capacity(),
-            physiology.carried_mass_capacity(),
-        ),
-        locomotion.step_duration(),
-        "player locomotion",
-        1,
-    );
+    assert_locomotion_interval_fits_reserves(physiology);
     validate_manual_power_operability(core, domains, physiology);
     validate_mining_operability(core, domains, physiology);
     validate_manual_craft_operability(core, domains, physiology);

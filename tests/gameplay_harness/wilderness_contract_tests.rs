@@ -93,6 +93,7 @@ use super::seed;
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+const SETTLED_ADJACENT_LEG_SLOW_TICKS: u64 = 1;
 
 fn project_continuous_body_path_budget_for_load(
     registries: &Registries,
@@ -1957,13 +1958,13 @@ fn evaluate_generated_wilderness_opening_internal(
             .unwrap_or_else(|| panic!("hunger-pressure opening lost carrying state before meal"));
         let locomotion = physiology.locomotion();
         // The next branch has not been selected yet, so no exact continuous path exists to project.
-        // Price one full authored movement interval at the current load as a conservative upper
+        // Price one full slow settlement interval at the current load as a conservative upper
         // bound. Every leg actually chosen later is exact-projected and checked against control-rate
         // execution by `walk_body_to_adjacent_and_settle`.
         let conservative_next_leg_budget = project_survival_resource_budget(
             physiology,
             locomotion.exertion_for_load(carrying.stored(), carrying.capacity()),
-            locomotion.step_duration(),
+            TickSpan::new(SETTLED_ADJACENT_LEG_SLOW_TICKS),
         )
         .unwrap_or_else(|error| {
             panic!("hunger-pressure conservative next-leg projection failed: {error:?}")
@@ -2112,7 +2113,7 @@ fn evaluate_generated_wilderness_opening_internal(
         })
     };
     // Future project logistics below include legs whose exact source voxel or post-work carried load
-    // has not been reached yet. Use one full authored movement interval as a conservative survival
+    // has not been reached yet. Use one full slow settlement interval as a conservative survival
     // upper bound for each such leg. Lived legs are never executed from this estimate: they are
     // exact-projected from the reached body state immediately before control-rate movement.
     let conservative_future_leg_budget = |load: Mass, context: &str| {
@@ -2120,7 +2121,7 @@ fn evaluate_generated_wilderness_opening_internal(
             physiology
                 .locomotion()
                 .exertion_for_load(load, physiology.carried_mass_capacity()),
-            physiology.locomotion().step_duration(),
+            TickSpan::new(SETTLED_ADJACENT_LEG_SLOW_TICKS),
             context,
         )
     };
@@ -3113,20 +3114,14 @@ fn evaluate_generated_wilderness_opening_internal(
                     .checked_add(worksite_second_trip_gather_ticks)
                     .and_then(|ticks| ticks.checked_add(worksite_support_duration.value()))
                     .and_then(|ticks| {
-                        ticks.checked_add(
-                            physiology
-                                .locomotion()
-                                .step_duration()
-                                .value()
-                                .checked_mul(3)?,
-                        )
+                        ticks.checked_add(SETTLED_ADJACENT_LEG_SLOW_TICKS.checked_mul(3)?)
                     })
                     .unwrap_or_else(|| {
                         panic!("wilderness worksite-cache project duration overflowed")
                     })
             }
             WildernessCampGoal::PreserveProvisions => stone_crock_build_ticks
-                .checked_add(physiology.locomotion().step_duration().value())
+                .checked_add(SETTLED_ADJACENT_LEG_SLOW_TICKS)
                 .unwrap_or_else(|| panic!("wilderness preservation project duration overflowed")),
         };
         assert_eq!(

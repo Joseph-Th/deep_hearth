@@ -171,7 +171,6 @@ fn minimum_drink_projection_reports_canonical_resource_budget_overflow() {
             TickSpan::new(2),
         ),
         LocomotionDefinition::new(
-            TickSpan::new(1),
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
             crate::survival::BodyKinematicsDefinition::new(

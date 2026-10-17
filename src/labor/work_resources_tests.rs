@@ -30,7 +30,6 @@ fn budget_includes_basal_and_incremental_work_costs() {
             TickSpan::new(1),
         ),
         LocomotionDefinition::new(
-            TickSpan::new(1),
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
             SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
             BodyKinematicsDefinition::new(

@@ -57,10 +57,10 @@ const OPENING_WATER_VOLUME_SALT: u64 = 0x5741_5445_525F_5350;
 
 /// Number of persisted traversal edges in the built-in opening opportunity graph.
 pub const INITIAL_WILDERNESS_ACCESS_EDGES: usize = 5;
-/// Minimum movement steps to visit both opening material leaves from spawn and return to spawn.
+/// Minimum opening-graph legs to visit both material leaves from spawn and return to spawn.
 ///
 /// The optional water branch is not part of this material-acquisition route.
-pub const INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_STEPS: u64 = 8;
+pub const INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_LEGS: u64 = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InitialWildernessGenerationError {
