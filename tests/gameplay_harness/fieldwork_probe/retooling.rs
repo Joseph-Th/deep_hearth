@@ -13,7 +13,7 @@ use deep_hearth::equipment::{
     EquipmentDefinitionId, EquipmentId, project_equipment_capability,
     validate_disassemble_equipment,
 };
-use deep_hearth::inventory::StockpileId;
+use deep_hearth::inventory::{StockpileId, project_material_stacks};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::mining::{MiningOrderRequest, resolve_mining_order};
 use deep_hearth::registry::Registries;
@@ -618,32 +618,36 @@ fn native_copper_shortage_for_feasible_tool(
         .min_by_key(|mass| mass.milligrams())
 }
 
-fn homogeneous_owned_ore(state: &AppState, source: StockpileId) -> Option<(u32, Mass)> {
+fn homogeneous_owned_ore(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+) -> Option<(u32, Mass)> {
     let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
     let mut assay = None;
     let mut composition = None;
     let mut temperature = None;
     let mut total = Mass::ZERO;
     let mut found = false;
-    for lot_id in state.inventory().lot_ids(source) {
-        let lot = state.inventory().get_lot(lot_id)?;
-        if lot.commodity() != ore {
+    let stacks = project_material_stacks(registries, state, source).ok()?;
+    for stack in stacks {
+        if stack.commodity() != ore {
             return None;
         }
-        let lot_assay = lot.composition().parts_per_million(MATERIAL_COPPER);
-        if lot_assay == 0
-            || assay.is_some_and(|value| value != lot_assay)
+        let stack_assay = stack.composition().parts_per_million(MATERIAL_COPPER);
+        if stack_assay == 0
+            || assay.is_some_and(|value| value != stack_assay)
             || composition
                 .as_ref()
-                .is_some_and(|value| value != lot.composition())
-            || temperature.is_some_and(|value| value != lot.temperature())
+                .is_some_and(|value| value != stack.composition())
+            || temperature.is_some_and(|value| value != stack.temperature())
         {
             return None;
         }
-        assay.get_or_insert(lot_assay);
-        composition.get_or_insert_with(|| lot.composition().clone());
-        temperature.get_or_insert(lot.temperature());
-        total = total.checked_add(lot.mass())?;
+        assay.get_or_insert(stack_assay);
+        composition.get_or_insert_with(|| stack.composition().clone());
+        temperature.get_or_insert(stack.temperature());
+        total = total.checked_add(stack.mass())?;
         found = true;
     }
     found.then_some((assay?, total))
@@ -666,7 +670,8 @@ fn recover_native_copper_from_owned_ore(
         observed_hardness_upper,
         order,
     )?;
-    let (copper_ppm, available_ore) = homogeneous_owned_ore(state, recovery.ore_source)?;
+    let (copper_ppm, available_ore) =
+        homogeneous_owned_ore(registries, state, recovery.ore_source)?;
     let sorting = registries
         .ore_processing()
         .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
