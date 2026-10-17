@@ -12,7 +12,7 @@ use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 97;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 98;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 ///

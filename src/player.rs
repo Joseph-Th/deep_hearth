@@ -1,4 +1,4 @@
-//! Atomic ordinary-player admission across survival, logistics, and carried inventory custody.
+//! Atomic ordinary-player admission and respawn across survival, logistics, and carried custody.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -6,17 +6,22 @@ use std::fmt::{Display, Formatter};
 #[cfg(feature = "test-gameplay")]
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
+use crate::equipment::EquipmentId;
+use crate::inventory::StockpileId;
 use crate::logistics::{
     InitializePlayerLogisticsCommitError, InitializePlayerLogisticsError, PlayerLogisticsRecord,
-    ValidatedPlayerLogisticsInitialization, validate_player_logistics_initialization,
+    PlayerLogisticsRespawnCommitError, PlayerLogisticsRespawnError,
+    ValidatedPlayerLogisticsInitialization, ValidatedPlayerLogisticsRespawn,
+    validate_player_logistics_initialization, validate_player_logistics_respawn,
 };
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 #[cfg(feature = "test-gameplay")]
 use crate::survival::validate_player_survival_initialization_with_reserves;
 use crate::survival::{
-    InitializeSurvivalError, PlayerSurvivalInitializationCommitError,
-    ValidatedPlayerSurvivalInitialization, Vitality, validate_player_survival_initialization,
+    InitializeSurvivalError, PlayerSurvivalInitializationCommitError, RespawnSurvivalError,
+    ValidatedPlayerSurvivalInitialization, ValidatedPlayerSurvivalRespawn, Vitality,
+    validate_player_survival_initialization, validate_player_survival_respawn,
 };
 
 /// Failure while validating ordinary player admission.
@@ -163,6 +168,51 @@ impl Display for PlayerAdmissionError {
 
 impl Error for PlayerAdmissionError {}
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlayerRespawnError {
+    PlayerNotAdmitted,
+    PlayerAlive,
+    ActivePlayerWork,
+    PendingDirectAction,
+    PendingDirectConsumption,
+    SurvivalRevisionExhausted,
+    StockpileIdExhausted,
+    InventoryRevisionExhausted,
+    LogisticsRevisionExhausted,
+}
+
+impl Display for PlayerRespawnError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerAlive => formatter.write_str("living player cannot respawn"),
+            Self::ActivePlayerWork => {
+                formatter.write_str("player cannot respawn while work is active")
+            }
+            Self::PendingDirectAction => {
+                formatter.write_str("player cannot respawn with buffered direct input")
+            }
+            Self::PendingDirectConsumption => {
+                formatter.write_str("player cannot respawn with pending direct consumption")
+            }
+            Self::SurvivalRevisionExhausted => {
+                formatter.write_str("survival revision space is exhausted")
+            }
+            Self::StockpileIdExhausted => {
+                formatter.write_str("stockpile identifier space is exhausted")
+            }
+            Self::InventoryRevisionExhausted => {
+                formatter.write_str("inventory revision space is exhausted")
+            }
+            Self::LogisticsRevisionExhausted => {
+                formatter.write_str("logistics revision space is exhausted")
+            }
+        }
+    }
+}
+
+impl Error for PlayerRespawnError {}
+
 /// Failure when validated player admission is committed after one of its owners changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerAdmissionCommitError {
@@ -197,12 +247,130 @@ impl Display for PlayerAdmissionCommitError {
 
 impl Error for PlayerAdmissionCommitError {}
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlayerRespawnCommitError {
+    StaleSurvivalRevision { expected: u64, actual: u64 },
+    StaleLogisticsRevision { expected: u64, actual: u64 },
+    StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleWorldRevision { expected: u64, actual: u64 },
+}
+
+impl Display for PlayerRespawnCommitError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "validated respawn expected survival revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "validated respawn expected logistics revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleInventoryRevision { expected, actual } => write!(
+                formatter,
+                "validated respawn expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "validated respawn expected world revision {expected} but current revision is {actual}"
+            ),
+        }
+    }
+}
+
+impl Error for PlayerRespawnCommitError {}
+
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlayerRespawnOutcome {
+    position: VoxelCoord,
+    used_spawn_anchor: bool,
+    death_position: VoxelCoord,
+    death_cache: StockpileId,
+    carried_stockpile: StockpileId,
+    dropped_equipment: Vec<EquipmentId>,
+}
+
+impl PlayerRespawnOutcome {
+    #[must_use]
+    pub const fn position(&self) -> VoxelCoord {
+        self.position
+    }
+
+    #[must_use]
+    pub const fn used_spawn_anchor(&self) -> bool {
+        self.used_spawn_anchor
+    }
+
+    #[must_use]
+    pub const fn death_position(&self) -> VoxelCoord {
+        self.death_position
+    }
+
+    #[must_use]
+    pub const fn death_cache(&self) -> StockpileId {
+        self.death_cache
+    }
+
+    #[must_use]
+    pub const fn carried_stockpile(&self) -> StockpileId {
+        self.carried_stockpile
+    }
+
+    pub fn dropped_equipment(&self) -> &[EquipmentId] {
+        &self.dropped_equipment
+    }
+}
+
 /// Revision-bound authorization to establish all ordinary player-owned runtime state together.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedPlayerAdmission {
     survival: ValidatedPlayerSurvivalInitialization,
     logistics: ValidatedPlayerLogisticsInitialization,
+}
+
+#[must_use]
+#[derive(Debug, PartialEq, Eq)]
+pub struct ValidatedPlayerRespawn {
+    survival: ValidatedPlayerSurvivalRespawn,
+    logistics: ValidatedPlayerLogisticsRespawn,
+}
+
+impl ValidatedPlayerRespawn {
+    pub fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<PlayerRespawnOutcome, PlayerRespawnCommitError> {
+        self.survival.precheck(state).map_err(
+            |PlayerSurvivalInitializationCommitError { expected, actual }| {
+                PlayerRespawnCommitError::StaleSurvivalRevision { expected, actual }
+            },
+        )?;
+        self.logistics
+            .precheck(state)
+            .map_err(|error| match error {
+                PlayerLogisticsRespawnCommitError::StaleLogisticsRevision { expected, actual } => {
+                    PlayerRespawnCommitError::StaleLogisticsRevision { expected, actual }
+                }
+                PlayerLogisticsRespawnCommitError::StaleInventoryRevision { expected, actual } => {
+                    PlayerRespawnCommitError::StaleInventoryRevision { expected, actual }
+                }
+                PlayerLogisticsRespawnCommitError::StaleWorldRevision { expected, actual } => {
+                    PlayerRespawnCommitError::StaleWorldRevision { expected, actual }
+                }
+            })?;
+        self.survival.apply(state);
+        let logistics = self.logistics.apply(state);
+        Ok(PlayerRespawnOutcome {
+            position: logistics.position,
+            used_spawn_anchor: logistics.used_spawn_anchor,
+            death_position: logistics.death_position,
+            death_cache: logistics.death_cache,
+            carried_stockpile: logistics.carried_stockpile,
+            dropped_equipment: logistics.dropped_equipment,
+        })
+    }
 }
 
 impl ValidatedPlayerAdmission {
@@ -222,6 +390,34 @@ impl ValidatedPlayerAdmission {
 
         self.survival.apply(state);
         Ok(self.logistics.apply(state))
+    }
+}
+
+fn map_respawn_survival_error(error: RespawnSurvivalError) -> PlayerRespawnError {
+    match error {
+        RespawnSurvivalError::PlayerNotInitialized => PlayerRespawnError::PlayerNotAdmitted,
+        RespawnSurvivalError::PlayerAlive => PlayerRespawnError::PlayerAlive,
+        RespawnSurvivalError::PendingDirectConsumption => {
+            PlayerRespawnError::PendingDirectConsumption
+        }
+        RespawnSurvivalError::RevisionExhausted => PlayerRespawnError::SurvivalRevisionExhausted,
+    }
+}
+
+fn map_respawn_logistics_error(error: PlayerLogisticsRespawnError) -> PlayerRespawnError {
+    match error {
+        PlayerLogisticsRespawnError::PlayerNotInitialized => PlayerRespawnError::PlayerNotAdmitted,
+        PlayerLogisticsRespawnError::ActivePlayerWork => PlayerRespawnError::ActivePlayerWork,
+        PlayerLogisticsRespawnError::PendingDirectAction => PlayerRespawnError::PendingDirectAction,
+        PlayerLogisticsRespawnError::StockpileIdExhausted => {
+            PlayerRespawnError::StockpileIdExhausted
+        }
+        PlayerLogisticsRespawnError::InventoryRevisionExhausted => {
+            PlayerRespawnError::InventoryRevisionExhausted
+        }
+        PlayerLogisticsRespawnError::LogisticsRevisionExhausted => {
+            PlayerRespawnError::LogisticsRevisionExhausted
+        }
     }
 }
 
@@ -251,6 +447,30 @@ fn map_logistics_error(error: InitializePlayerLogisticsError) -> PlayerAdmission
             PlayerAdmissionError::LogisticsRevisionExhausted
         }
     }
+}
+
+/// Validates explicit recovery from terminal player survival state.
+///
+/// Exact carried matter remains in the old inventory stockpile, which becomes a local death cache;
+/// carried equipment becomes stationary at the death voxel. The player receives a fresh empty
+/// body-sized carried stockpile and returns to the original admitted spawn when it remains clear.
+/// If that anchor is obstructed, respawn falls back to the valid death-body location rather than
+/// soft-locking the dead player.
+pub fn validate_respawn_player(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<ValidatedPlayerRespawn, PlayerRespawnError> {
+    if player_admission_state(state) != PlayerAdmissionState::Admitted {
+        return Err(PlayerRespawnError::PlayerNotAdmitted);
+    }
+    let survival =
+        validate_player_survival_respawn(registries, state).map_err(map_respawn_survival_error)?;
+    let logistics = validate_player_logistics_respawn(registries, state)
+        .map_err(map_respawn_logistics_error)?;
+    Ok(ValidatedPlayerRespawn {
+        survival,
+        logistics,
+    })
 }
 
 fn map_survival_error(error: InitializeSurvivalError) -> PlayerAdmissionError {

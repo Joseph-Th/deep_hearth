@@ -263,6 +263,7 @@ impl LocomotionExertionAccumulator {
 pub struct PlayerLogisticsRecord {
     body: PlayerBodyState,
     carried_stockpile: StockpileId,
+    respawn_position: VoxelCoord,
     locomotion_exertion: LocomotionExertionAccumulator,
     pending_fall_vitality_loss_ppm: u32,
 }
@@ -272,6 +273,7 @@ impl PlayerLogisticsRecord {
         Self {
             body,
             carried_stockpile,
+            respawn_position: body.voxel_position(),
             locomotion_exertion: LocomotionExertionAccumulator::ZERO,
             pending_fall_vitality_loss_ppm: 0,
         }
@@ -290,6 +292,11 @@ impl PlayerLogisticsRecord {
     #[must_use]
     pub const fn carried_stockpile(self) -> StockpileId {
         self.carried_stockpile
+    }
+
+    #[must_use]
+    pub const fn respawn_position(self) -> VoxelCoord {
+        self.respawn_position
     }
 
     pub(crate) const fn locomotion_exertion(self) -> LocomotionExertionAccumulator {
@@ -591,6 +598,64 @@ impl LogisticsState {
             "player logistics initialization cannot replace an existing player record"
         );
         self.player = Some(player);
+        self.revision = next_revision;
+    }
+
+    pub(crate) fn apply_player_respawn(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        expected_player: PlayerLogisticsRecord,
+        respawn_body: PlayerBodyState,
+        carried_stockpile: StockpileId,
+        death_position: VoxelCoord,
+        dropped_equipment: &[EquipmentId],
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert_eq!(self.player, Some(expected_player));
+        assert_eq!(
+            self.carried_equipment.as_slice(),
+            dropped_equipment,
+            "respawn equipment custody changed after validation"
+        );
+        assert!(
+            !self
+                .stockpile_locations
+                .contains_key(&expected_player.carried_stockpile()),
+            "player carried stockpile cannot already have a ground location"
+        );
+        assert!(
+            !self.stockpile_locations.contains_key(&carried_stockpile),
+            "new carried stockpile cannot already have a ground location"
+        );
+        let previous = self
+            .stockpile_locations
+            .insert(expected_player.carried_stockpile(), death_position);
+        assert!(previous.is_none());
+        for equipment in dropped_equipment {
+            assert!(
+                !self.equipment_locations.contains_key(equipment),
+                "carried equipment cannot already have a stationary location"
+            );
+            let previous = self.equipment_locations.insert(*equipment, death_position);
+            assert!(previous.is_none());
+        }
+        self.carried_equipment.clear();
+        for selection in &mut self.quick_access_slots {
+            if matches!(selection, Some(PlayerActiveSelection::Equipment(_))) {
+                *selection = None;
+            }
+        }
+        self.pending_secondary_use = None;
+        self.pending_primary_break = None;
+        self.player = Some(PlayerLogisticsRecord {
+            body: respawn_body,
+            carried_stockpile,
+            respawn_position: expected_player.respawn_position(),
+            locomotion_exertion: LocomotionExertionAccumulator::ZERO,
+            pending_fall_vitality_loss_ppm: 0,
+        });
         self.revision = next_revision;
     }
 

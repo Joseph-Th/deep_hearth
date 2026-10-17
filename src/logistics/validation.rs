@@ -14,7 +14,7 @@ use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralElementId, StructureState};
 
 use super::{
-    LogisticsState, PlayerActiveSelection, PlayerQuickAccessSlot, TraversalEdge,
+    LogisticsState, PlayerActiveSelection, PlayerBodyState, PlayerQuickAccessSlot, TraversalEdge,
     first_player_body_collision, player_body_fits_continuous_world,
 };
 
@@ -118,6 +118,9 @@ pub enum LogisticsValidationError {
         voxel: VoxelCoord,
     },
     PlayerBodyOutsideContinuousWorld,
+    PlayerRespawnPositionOutsideContinuousWorld {
+        position: VoxelCoord,
+    },
     PlayerHorizontalVelocityExceedsMaximumSpeed {
         x_nanometers_per_second: i64,
         z_nanometers_per_second: i64,
@@ -338,6 +341,13 @@ impl Display for LogisticsValidationError {
             ),
             Self::PlayerBodyOutsideContinuousWorld => formatter
                 .write_str("player body extent exceeds representable continuous world coordinates"),
+            Self::PlayerRespawnPositionOutsideContinuousWorld { position } => write!(
+                formatter,
+                "player respawn position ({},{},{}) exceeds representable continuous world coordinates",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::PlayerHorizontalVelocityExceedsMaximumSpeed {
                 x_nanometers_per_second,
                 z_nanometers_per_second,
@@ -745,6 +755,15 @@ pub(crate) fn validate_loaded_logistics(
         let locomotion = registries.survival().physiology().locomotion();
         if !player_body_fits_continuous_world(player.body(), locomotion) {
             return Err(LogisticsValidationError::PlayerBodyOutsideContinuousWorld);
+        }
+        let respawn_body = PlayerBodyState::centered_on_voxel_floor(player.respawn_position())
+            .filter(|body| player_body_fits_continuous_world(*body, locomotion));
+        if respawn_body.is_none() {
+            return Err(
+                LogisticsValidationError::PlayerRespawnPositionOutsideContinuousWorld {
+                    position: player.respawn_position(),
+                },
+            );
         }
         let horizontal = player.body().horizontal_velocity();
         let x = u128::from(horizontal.x_nanometers_per_second().unsigned_abs());

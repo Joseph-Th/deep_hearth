@@ -26,6 +26,29 @@ pub(crate) enum InitializeSurvivalError {
     RevisionExhausted,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RespawnSurvivalError {
+    PlayerNotInitialized,
+    PlayerAlive,
+    PendingDirectConsumption,
+    RevisionExhausted,
+}
+
+impl Display for RespawnSurvivalError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PlayerNotInitialized => formatter.write_str("player survival is not initialized"),
+            Self::PlayerAlive => formatter.write_str("living player cannot respawn"),
+            Self::PendingDirectConsumption => {
+                formatter.write_str("player cannot respawn with pending direct consumption")
+            }
+            Self::RevisionExhausted => formatter.write_str("survival revision space is exhausted"),
+        }
+    }
+}
+
+impl Error for RespawnSurvivalError {}
+
 impl Display for InitializeSurvivalError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -37,6 +60,38 @@ impl Display for InitializeSurvivalError {
     }
 }
 
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ValidatedPlayerSurvivalRespawn {
+    expected_revision: u64,
+    next_revision: u64,
+    player: PlayerSurvivalRecord,
+}
+
+impl ValidatedPlayerSurvivalRespawn {
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
+    ) -> Result<(), PlayerSurvivalInitializationCommitError> {
+        let actual = state.survival().revision();
+        if actual != self.expected_revision {
+            return Err(PlayerSurvivalInitializationCommitError {
+                expected: self.expected_revision,
+                actual,
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) {
+        state.survival_state_mut().apply_player(
+            self.expected_revision,
+            self.next_revision,
+            self.player,
+        );
+    }
+}
+
 impl Error for InitializeSurvivalError {}
 
 #[must_use]
@@ -45,6 +100,39 @@ pub(crate) struct ValidatedPlayerSurvivalInitialization {
     expected_revision: u64,
     next_revision: u64,
     player: PlayerSurvivalRecord,
+}
+
+pub(crate) fn validate_player_survival_respawn(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<ValidatedPlayerSurvivalRespawn, RespawnSurvivalError> {
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .ok_or(RespawnSurvivalError::PlayerNotInitialized)?;
+    if player.vitality() != Vitality::ZERO {
+        return Err(RespawnSurvivalError::PlayerAlive);
+    }
+    if state.survival().pending_direct_consumption().is_some() {
+        return Err(RespawnSurvivalError::PendingDirectConsumption);
+    }
+    let expected_revision = state.survival().revision();
+    let next_revision = expected_revision
+        .checked_add(1)
+        .ok_or(RespawnSurvivalError::RevisionExhausted)?;
+    let physiology = registries.survival().physiology();
+    Ok(ValidatedPlayerSurvivalRespawn {
+        expected_revision,
+        next_revision,
+        player: player_record(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            Vitality::MAXIMUM,
+            NutritionReserves::FULL,
+            0,
+        ),
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

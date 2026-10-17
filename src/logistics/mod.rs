@@ -21,6 +21,7 @@ mod movement;
 mod pending_primary;
 mod pending_secondary;
 mod quick_move;
+mod respawn;
 mod selection;
 mod state;
 mod traversal;
@@ -102,6 +103,10 @@ pub(crate) use pending_secondary::{
 pub use quick_move::{
     PlayerQuickMoveError, PlayerQuickMoveOutcome, ValidatedPlayerQuickMove,
     validate_quick_move_player_stack,
+};
+pub(crate) use respawn::{
+    PlayerLogisticsRespawnCommitError, PlayerLogisticsRespawnError,
+    ValidatedPlayerLogisticsRespawn, validate_player_logistics_respawn,
 };
 pub use selection::{
     PlayerActiveSelectionCommitError, PlayerActiveSelectionError,
