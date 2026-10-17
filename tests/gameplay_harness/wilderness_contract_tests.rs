@@ -31,7 +31,7 @@ use deep_hearth::crafting::{
     ManualCraftInputMode, player_manual_craft_options, project_manual_craft_equipment,
     project_manual_craft_hand_work, validate_start_player_manual_craft_option,
 };
-use deep_hearth::energy::assess_local_illumination;
+use deep_hearth::energy::{assess_local_illumination, passive_dissipation_ticks_until_empty};
 use deep_hearth::equipment::{
     player_equipment_assembly_options, validate_assemble_player_equipment_option,
 };
@@ -660,6 +660,7 @@ pub(super) struct WildernessOpeningReview {
     pub(super) campfire_fuel_mg: u64,
     pub(super) campfire_logistics_legs: u64,
     pub(super) campfire_recovery_ticks: u64,
+    pub(super) campfire_single_charge_runway_ticks: u64,
     pub(super) thermal_before_fire_ppm: u32,
     pub(super) thermal_after_fire_ppm: u32,
     pub(super) campfire_heat_remaining_nj: u128,
@@ -2471,6 +2472,7 @@ fn evaluate_generated_wilderness_opening_internal(
     let mut campfire_fuel_mg = 0_u64;
     let mut campfire_logistics_steps = 0_u64;
     let mut campfire_recovery_ticks = 0_u64;
+    let mut campfire_single_charge_runway_ticks = 0_u64;
     let mut thermal_before_fire_ppm = 0_u32;
     let mut thermal_after_fire_ppm = 0_u32;
     let mut campfire_heat_remaining_nj = 0_u128;
@@ -3078,6 +3080,19 @@ fn evaluate_generated_wilderness_opening_internal(
             );
             campfire_built = true;
             campfire_fuel_mg = CAMPFIRE_FUEL_MASS.milligrams();
+            campfire_single_charge_runway_ticks = passive_dissipation_ticks_until_empty(
+                &registries,
+                ENERGY_STONE_RING_CAMPFIRE,
+                CAMPFIRE_FUEL_THERMAL_ENERGY,
+            )
+            .unwrap_or_else(|error| panic!("wilderness campfire runway projection failed: {error}"))
+            .unwrap_or_else(|| panic!("wilderness campfire must have finite passive dissipation"))
+            .value();
+            assert!(
+                campfire_single_charge_runway_ticks
+                    >= registries.core().calendar().ticks_per_day() / 24,
+                "one kilogram campfire charge should provide at least one authored physical hour of usable fire"
+            );
 
             loop {
                 let warmth = assess_survival(&registries, &state)
@@ -3239,6 +3254,7 @@ fn evaluate_generated_wilderness_opening_internal(
         campfire_fuel_mg,
         campfire_logistics_legs: campfire_logistics_steps,
         campfire_recovery_ticks,
+        campfire_single_charge_runway_ticks,
         thermal_before_fire_ppm,
         thermal_after_fire_ppm,
         campfire_heat_remaining_nj,
@@ -3425,10 +3441,12 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
     );
     let warmth = if review.campfire_built {
         format!(
-            "[fire:true direct-control:true fuel:{}mg logistics-legs:{} recovery:{}t comfort:{}->{}ppm heat-remaining:{}nJ light:{}]",
+            "[fire:true direct-control:true fuel:{}mg logistics-legs:{} recovery:{}t burn-runway:{}t/{} comfort:{}->{}ppm heat-remaining:{}nJ light:{}]",
             review.campfire_fuel_mg,
             review.campfire_logistics_legs,
             review.campfire_recovery_ticks,
+            review.campfire_single_charge_runway_ticks,
+            physical_minutes_tenths(&registries, review.campfire_single_charge_runway_ticks),
             review.thermal_before_fire_ppm,
             review.thermal_after_fire_ppm,
             review.campfire_heat_remaining_nj,

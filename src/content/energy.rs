@@ -38,7 +38,11 @@ pub const ENERGY_COPPER_BANDED_STONE_THERMAL_SINK: EnergyStoreDefinitionId =
 pub const ENERGY_STONE_RING_CAMPFIRE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(14);
 
 pub const CAMPFIRE_FUEL_MASS: Mass = Mass::from_milligrams(1_000_000);
-pub const CAMPFIRE_FUEL_THERMAL_ENERGY: Energy = Energy::from_nanojoules(3_200_000_000_000_000);
+/// Usable thermal energy from one kilogram-scale primitive wood charge.
+///
+/// Keep this below dry-wood gross heat while leaving enough real burn runway that a campfire is
+/// sustained camp infrastructure rather than a sub-twenty-minute recovery consumable.
+pub const CAMPFIRE_FUEL_THERMAL_ENERGY: Energy = Energy::from_nanojoules(12_000_000_000_000_000);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -363,7 +367,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
         EnergyStoreDefinition::new_combustion_store(
             ENERGY_STONE_RING_CAMPFIRE,
             "stone-ring campfire",
-            Energy::from_nanojoules(6_400_000_000_000_000),
+            Energy::from_nanojoules(24_000_000_000_000_000),
             Power::from_microwatts(3_000_000_000),
             CombustionProfile::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_LOG),

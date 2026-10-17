@@ -223,7 +223,9 @@ material-backed charge from staged timber into finite thermal storage. The same 
 co-located store restores player warmth, while remote heat does not. While stored heat remains, the located fire
 also exposes a renderer-neutral local light level with deterministic unoccluded falloff; extinguishing follows the
 same finite passive-energy loss rather than separate light state. Fuel mass remains conserved in an explicit
-combustion terminal account. This is a primitive local heat/light source, not weather, environmental heat
+combustion terminal account. One 1 kg charge now has an owner-derived 66.7-minute burn runway at the unchanged
+3 kW local warmth rate, so the fire is sustained camp infrastructure rather than a short recovery pulse; the
+wilderness harness reports that runway separately from the 14-15 tick comfort recovery. This is a primitive local heat/light source, not weather, environmental heat
 transport, atmospheric chemistry, sky/block-light propagation or occlusion, meshing, or shelter semantics.
 
 The structural owner now has an ordinary fresh-start overhead-refuge path below complete shelter semantics. An admitted

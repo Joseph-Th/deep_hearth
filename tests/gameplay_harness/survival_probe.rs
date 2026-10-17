@@ -221,6 +221,7 @@ pub(super) struct DietRecoveryReview {
     pub(super) balanced_drink_actions: u64,
     pub(super) fire_warmup_ticks: u64,
     pub(super) fire_fuel_mass_mg: u64,
+    pub(super) initial_fire_charges: u64,
     pub(super) compact_fire_refuels: u64,
     pub(super) balanced_fire_refuels: u64,
     pub(super) compact_min_thermal_comfort_ppm: u32,
@@ -722,6 +723,7 @@ pub(super) fn evaluate_diet_recovery_consequence(
             .unwrap_or_else(|error| {
                 panic!("diet-recovery campfire assembly commit failed: {error}")
             });
+    let initial_fire_charges = 2_u64;
     assert!(try_refuel_diet_recovery_fire(
         registries, &mut state, campfire, food_store,
     ));
@@ -859,6 +861,7 @@ pub(super) fn evaluate_diet_recovery_consequence(
         balanced_drink_actions,
         fire_warmup_ticks,
         fire_fuel_mass_mg: fire_fuel_mass.milligrams(),
+        initial_fire_charges,
         compact_fire_refuels: compact_observation.fire_refuels,
         balanced_fire_refuels: balanced_observation.fire_refuels,
         compact_min_thermal_comfort_ppm: compact_observation.minimum_thermal_comfort_ppm,

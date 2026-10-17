@@ -73,7 +73,7 @@ fn constrained_food_worlds_execute_real_diet_recovery_instead_of_collapsing_evid
     assert!(available_category_count > 0);
     assert!(recovery.fire_warmup_ticks > 0);
     assert!(recovery.fire_fuel_mass_mg > 0);
-    assert!(recovery.compact_fire_refuels > 0);
+    assert!(recovery.initial_fire_charges > 0);
     assert_eq!(
         recovery.compact_fire_refuels, recovery.balanced_fire_refuels,
         "matched diet branches must pay the same finite warmth-management cost"

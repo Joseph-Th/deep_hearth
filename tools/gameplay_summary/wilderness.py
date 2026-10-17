@@ -182,6 +182,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
     worksite_support_built = 0
     campfire_fuel: list[int] = []
     campfire_recovery_ticks: list[int] = []
+    campfire_runway_minutes_tenths: list[int] = []
     campfire_before_comfort: list[int] = []
     campfire_after_comfort: list[int] = []
     campfire_heat_remaining: list[int] = []
@@ -219,7 +220,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             raise ValueError("wilderness experience lost camp-project telemetry")
         warmth = re.search(
             r"\bwarmth=\[fire:true(?: direct-control:(true))? fuel:(\d+)mg logistics-legs:(\d+) recovery:(\d+)t "
-            r"comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ(?: light:(\d+))?\]",
+            r"burn-runway:(\d+)t/(\d+)\.(\d)m comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ(?: light:(\d+))?\]",
             experience,
         )
         if " goal=worksite-cache " in experience:
@@ -229,11 +230,14 @@ def wilderness_summary(lines: list[str]) -> str | None:
             direct_control_fires += warmth.group(1) == "true"
             campfire_fuel.append(int(warmth.group(2)))
             campfire_recovery_ticks.append(int(warmth.group(4)))
-            campfire_before_comfort.append(int(warmth.group(5)))
-            campfire_after_comfort.append(int(warmth.group(6)))
-            campfire_heat_remaining.append(int(warmth.group(7)))
-            if warmth.group(8) is not None:
-                campfire_light_levels.append(int(warmth.group(8)))
+            campfire_runway_minutes_tenths.append(
+                int(warmth.group(6)) * 10 + int(warmth.group(7))
+            )
+            campfire_before_comfort.append(int(warmth.group(8)))
+            campfire_after_comfort.append(int(warmth.group(9)))
+            campfire_heat_remaining.append(int(warmth.group(10)))
+            if warmth.group(11) is not None:
+                campfire_light_levels.append(int(warmth.group(11)))
         work = int(project.group(1))
         meal = int(project.group(7))
         if meal > 0:
@@ -330,6 +334,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"fires:{campfires_built}/{len(cache_projects)} "
             f"{direct_fire}"
             f"fuel:{scaled_span(campfire_fuel, 1_000_000, 'kg')} "
+            f"runway:{_tenths_span(campfire_runway_minutes_tenths, 'm')} "
             f"recovery:{scaled_span(campfire_recovery_ticks, 1, 't')} "
             f"comfort:{scaled_span(campfire_before_comfort, 1_000, 'kppm')}->"
             f"{scaled_span(campfire_after_comfort, 1_000, 'kppm')} "
