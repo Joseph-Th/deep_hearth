@@ -20,7 +20,6 @@ impl Error for StartProcessError {
             | Self::UnknownOutputCompositionMaterial { .. }
             | Self::UnknownStockpile { .. }
             | Self::OutputDestinationBusyStorageDismantling { .. }
-            | Self::OutputDestinationInTransit { .. }
             | Self::OutputRouteCountMismatch { .. }
             | Self::DuplicateOutputRoute { .. }
             | Self::UnknownOutputRoute { .. }

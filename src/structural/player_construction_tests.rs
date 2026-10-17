@@ -9,7 +9,7 @@ use crate::content::{
 use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::inventory::{MaterialLotSelection, deposit_lot_for_test};
-use crate::logistics::{add_traversable_edge_for_test, validate_start_player_step};
+use crate::logistics::relocate_player_for_test;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -462,9 +462,7 @@ fn ordinary_grounded_member_planning_and_hand_setting_stay_within_interaction_re
 #[test]
 fn validated_construction_start_rejects_player_movement_without_partial_commit() {
     let (registries, mut state, element, lot) = admitted_player_with_planned_member();
-    let origin = VoxelCoord::new(0, 0, 0);
     let destination = VoxelCoord::new(-1, 0, 0);
-    add_traversable_edge_for_test(&mut state, origin, destination);
     let validated = validate_start_player_structural_construction(
         &registries,
         &state,
@@ -476,14 +474,7 @@ fn validated_construction_start_rejects_player_movement_without_partial_commit()
         )],
     )
     .unwrap_or_else(|error| panic!("construction race validation failed: {error}"));
-    let step = validate_start_player_step(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("construction race movement failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("construction race movement commit failed: {error}"));
-    while state.tick() < step.completes_at() {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("construction race movement tick failed: {error}"));
-    }
+    relocate_player_for_test(&mut state, destination);
     assert_eq!(
         state.logistics().player().map(|player| player.position()),
         Some(destination)

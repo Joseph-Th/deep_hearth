@@ -7,7 +7,7 @@ use crate::content::{
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::inventory::deposit_bulk_for_test;
-use crate::logistics::{add_traversable_edge_for_test, validate_start_player_step};
+use crate::logistics::relocate_player_for_test;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::player::validate_admit_player;
@@ -125,21 +125,8 @@ fn passive_campfire_heat_warms_only_a_colocated_player() {
         "one local fire tick should gain 20,000 ppm and pay 1,000 ppm unsheltered loss"
     );
 
-    let origin = VoxelCoord::new(0, 0, 0);
     let remote = VoxelCoord::new(1, 0, 0);
-    add_traversable_edge_for_test(&mut state, origin, remote);
-    validate_start_player_step(&registries, &state, remote)
-        .unwrap_or_else(|error| panic!("campfire departure failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("campfire departure commit failed: {error}"));
-    while state
-        .logistics()
-        .player()
-        .is_some_and(|player| player.position() != remote)
-    {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("campfire departure tick failed: {error}"));
-    }
+    relocate_player_for_test(&mut state, remote);
     let remote_before = state
         .survival()
         .player()

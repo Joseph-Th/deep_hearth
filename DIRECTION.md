@@ -175,13 +175,13 @@ Logistics still owns placement, carrying/haulage, delivery, access, path cost, a
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and
 movement capability rather than requiring hand-authored traversal edges.
 
-The current timed face-adjacent step fails closed behind persisted logistics-owned traversal edges. Fresh world
-generation now authors a short five-edge opening opportunity graph, while `AppState::available_player_steps` exposes only
-choices from the actor's current voxel and immediate source observation is gated by those same edges. This
-remains useful bounded evidence that locality, physiology and carried load affect decisions. It is not the target
-ordinary movement architecture and should not be extended into a hand-authored world graph. Once continuous
-world motion owns direct locomotion, retain or replace the step abstraction only where logistics/AI planning still
-needs a discrete route-cost representation.
+Fresh world generation authors a short five-edge opening opportunity graph used for bounded local orientation and
+planning. `AppState::available_adjacent_traversal_destinations` exposes only graph neighbors from the actor's current
+voxel, and immediate opening-source observation is gated by those same persisted logistics edges. Continuous 20 Hz
+body motion remains the sole ordinary player locomotion authority and derives legality from generated world geometry,
+collision, current work/custody constraints, physiology, and carried load rather than requiring traversal edges. AI and
+haulage may later derive discrete route cost from world geometry and movement capability instead of extending the
+opening observation graph into a hand-authored world network.
 
 The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
 secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,

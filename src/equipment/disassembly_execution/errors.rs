@@ -60,9 +60,6 @@ pub enum EquipmentDisassemblyError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
-    DestinationWouldIncreaseActiveStepLoad {
-        stockpile: StockpileId,
-    },
     UnknownDestination {
         stockpile: StockpileId,
     },
@@ -164,11 +161,6 @@ impl Display for EquipmentDisassemblyError {
                 equipment.value(),
                 completes_at.value()
             ),
-            Self::DestinationWouldIncreaseActiveStepLoad { stockpile } => write!(
-                formatter,
-                "equipment disassembly cannot recover matter into carried stockpile {} while a player step is in progress",
-                stockpile.value()
-            ),
             Self::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
@@ -249,7 +241,6 @@ impl Error for EquipmentDisassemblyError {
             | Self::EquipmentBusyProspecting { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. }
-            | Self::DestinationWouldIncreaseActiveStepLoad { .. }
             | Self::UnknownDestination { .. }
             | Self::InvalidEmbodiedMatter { .. }
             | Self::DestinationMassOverflow { .. }
@@ -312,9 +303,6 @@ pub enum EquipmentDisassemblyCommitError {
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
-    },
-    DestinationWouldIncreaseActiveStepLoad {
-        stockpile: StockpileId,
     },
     Structure(StructuralCommitError),
 }
@@ -389,11 +377,6 @@ impl Display for EquipmentDisassemblyCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
-            Self::DestinationWouldIncreaseActiveStepLoad { stockpile } => write!(
-                formatter,
-                "equipment disassembly cannot recover matter into carried stockpile {} after a player step has started",
-                stockpile.value()
-            ),
             Self::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
@@ -426,8 +409,7 @@ impl Error for EquipmentDisassemblyCommitError {
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
-            | Self::EquipmentUnderMaintenance { .. }
-            | Self::DestinationWouldIncreaseActiveStepLoad { .. } => None,
+            | Self::EquipmentUnderMaintenance { .. } => None,
         }
     }
 }

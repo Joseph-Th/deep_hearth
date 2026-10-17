@@ -385,11 +385,14 @@ impl AppState {
         &self.systems.logistics
     }
 
-    /// Iterates immediate player destinations authorized by persisted world-access state.
+    /// Iterates actor-visible adjacent destinations from the persisted opening-access graph.
     ///
-    /// Callers cannot query an arbitrary origin, so this exposes only movement choices available
-    /// from the admitted player's current voxel rather than the complete traversal graph.
-    pub fn available_player_steps(&self) -> impl Iterator<Item = crate::spatial::VoxelCoord> + '_ {
+    /// Callers cannot query an arbitrary origin, so this exposes only persisted traversal
+    /// destinations adjacent to the admitted player's current voxel rather than the complete
+    /// opening-access graph. Continuous body locomotion does not require these edges.
+    pub fn available_adjacent_traversal_destinations(
+        &self,
+    ) -> impl Iterator<Item = crate::spatial::VoxelCoord> + '_ {
         self.systems
             .logistics
             .player()

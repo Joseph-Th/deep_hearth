@@ -6,7 +6,6 @@ use std::fmt::{Display, Formatter};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
-use crate::inventory::StockpileId;
 use crate::mining::MiningJobId;
 use crate::structural::StructuralCommitError;
 
@@ -48,9 +47,6 @@ pub enum StartProcessCommitError {
     StaleStructureRevision {
         expected: u64,
         actual: u64,
-    },
-    OutputDestinationInTransit {
-        stockpile: StockpileId,
     },
     EnergyStoreBusyManualPower {
         store: EnergyStoreId,
@@ -99,11 +95,6 @@ impl Display for StartProcessCommitError {
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "player-authorized process start expected survival revision {expected} but current revision is {actual}"
-            ),
-            Self::OutputDestinationInTransit { stockpile } => write!(
-                formatter,
-                "validated process output destination {} entered an active player step before commit",
-                stockpile.value()
             ),
             Self::StaleProductionRevision { expected, actual } => write!(
                 formatter,
@@ -189,7 +180,6 @@ impl Error for StartProcessCommitError {
             | Self::StaleEnergyRevision { .. }
             | Self::StaleEquipmentRevision { .. }
             | Self::StaleStructureRevision { .. }
-            | Self::OutputDestinationInTransit { .. }
             | Self::EnergyStoreBusyManualPower { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }

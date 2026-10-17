@@ -32,16 +32,6 @@ pub(crate) fn player_work_exertion(
         return exertion;
     };
     match work {
-        PlayerWork::Step { .. } => {
-            let carrying = crate::logistics::assess_player_carrying(state).unwrap_or_else(|| {
-                panic!("runtime invariant broken: player step has no carrying assessment")
-            });
-            registries
-                .survival()
-                .physiology()
-                .locomotion()
-                .exertion_for_load(carrying.stored(), carrying.capacity())
-        }
         PlayerWork::SurfaceGathering { work } => registries
             .labor()
             .get_surface_gathering(work.method())

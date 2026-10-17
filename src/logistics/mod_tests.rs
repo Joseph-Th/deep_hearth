@@ -420,24 +420,19 @@ fn pickup_rejects_remote_ground_stockpile_without_mutation() {
     assert_eq!(state, before);
 }
 
-fn active_step_ground_transfer_fixture() -> (
+fn ground_transfer_fixture() -> (
     crate::registry::Registries,
     AppState,
     StockpileId,
     crate::inventory::MaterialLotId,
-    VoxelCoord,
 ) {
     let registries = build_registries();
     let mut state = AppState::new();
     let origin = VoxelCoord::new(0, 0, 0);
-    let destination = VoxelCoord::new(1, 0, 0);
-    add_traversable_edge_for_test(&mut state, origin, destination);
     validate_admit_player(&registries, &state, origin)
-        .unwrap_or_else(|error| panic!("active-step transfer player admission failed: {error}"))
+        .unwrap_or_else(|error| panic!("ground transfer player admission failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| {
-            panic!("active-step transfer player admission commit failed: {error}")
-        });
+        .unwrap_or_else(|error| panic!("ground transfer player admission commit failed: {error}"));
     let ground = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000_000))
         .unwrap_or_else(|error| panic!("active-step transfer ground stockpile failed: {error}"));
     let lot = deposit_lot_for_test(
@@ -455,12 +450,12 @@ fn active_step_ground_transfer_fixture() -> (
         .unwrap_or_else(|error| {
             panic!("active-step transfer ground placement commit failed: {error}")
         });
-    (registries, state, ground, lot, destination)
+    (registries, state, ground, lot)
 }
 
 #[test]
 fn dead_admitted_player_cannot_pick_up_ground_material() {
-    let (registries, state, ground, lot, _) = active_step_ground_transfer_fixture();
+    let (registries, state, ground, lot) = ground_transfer_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("dead pickup serialization failed: {error}"));
     encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
@@ -485,98 +480,6 @@ fn dead_admitted_player_cannot_pick_up_ground_material() {
         Some(GroundMaterialTransferError::PlayerDead)
     );
     assert_eq!(dead, before);
-}
-
-#[test]
-fn ground_pickup_rejects_carried_load_increase_during_active_step() {
-    let (registries, mut state, ground, lot, destination) = active_step_ground_transfer_fixture();
-    validate_start_player_step(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("active-step pickup movement start failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("active-step pickup movement commit failed: {error}"));
-    let before = state.clone();
-
-    assert_eq!(
-        validate_pickup_from_ground(
-            &registries,
-            &state,
-            ground,
-            &[MaterialLotSelection::new(
-                lot,
-                Mass::from_milligrams(12_500_000)
-            )],
-        )
-        .err(),
-        Some(GroundMaterialTransferError::PickupDuringPlayerStep)
-    );
-    assert_eq!(state, before);
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-}
-
-#[test]
-fn validated_ground_pickup_rechecks_player_step_before_commit() {
-    let (registries, mut state, ground, lot, destination) = active_step_ground_transfer_fixture();
-    let pickup = validate_pickup_from_ground(
-        &registries,
-        &state,
-        ground,
-        &[MaterialLotSelection::new(
-            lot,
-            Mass::from_milligrams(12_500_000),
-        )],
-    )
-    .unwrap_or_else(|error| panic!("pickup race validation failed: {error}"));
-    validate_start_player_step(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("pickup race movement start failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("pickup race movement commit failed: {error}"));
-    let before = state.clone();
-
-    assert_eq!(
-        pickup.commit(&mut state),
-        Err(GroundMaterialTransferCommitError::PickupDuringPlayerStep)
-    );
-    assert_eq!(state, before);
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-}
-
-#[test]
-fn ground_drop_can_reduce_carried_load_during_active_step() {
-    let (registries, mut state, ground, lot, destination) = active_step_ground_transfer_fixture();
-    validate_pickup_from_ground(
-        &registries,
-        &state,
-        ground,
-        &[MaterialLotSelection::new(
-            lot,
-            Mass::from_milligrams(12_500_000),
-        )],
-    )
-    .unwrap_or_else(|error| panic!("active-step drop setup pickup failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("active-step drop setup pickup commit failed: {error}"));
-    validate_start_player_step(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("active-step drop movement start failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("active-step drop movement commit failed: {error}"));
-
-    validate_drop_to_ground(
-        &registries,
-        &state,
-        ground,
-        &[MaterialLotSelection::new(
-            lot,
-            Mass::from_milligrams(12_500_000),
-        )],
-    )
-    .unwrap_or_else(|error| panic!("active-step load-reducing drop failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("active-step load-reducing drop commit failed: {error}"));
-    assert_eq!(
-        assess_player_carrying(&state).map(|carrying| carrying.stored()),
-        Some(Mass::ZERO)
-    );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

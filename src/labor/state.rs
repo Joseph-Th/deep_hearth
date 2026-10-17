@@ -82,16 +82,6 @@ impl PlayerWorkState {
     }
 
     #[must_use]
-    pub(crate) fn player_step_due_at(
-        &self,
-        tick: SimulationTick,
-    ) -> Option<crate::labor::PlayerStepWork> {
-        self.active
-            .and_then(PlayerWork::step)
-            .filter(|work| work.completes_at() == tick)
-    }
-
-    #[must_use]
     pub(crate) fn get_prospecting_equipment_occupant(
         &self,
         equipment: EquipmentId,

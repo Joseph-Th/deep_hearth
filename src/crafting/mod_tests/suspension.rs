@@ -127,9 +127,7 @@ fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered(
 #[test]
 fn suspended_manual_craft_does_not_resume_after_player_leaves_retained_site() {
     let (registries, mut state, source, lot, destination) = make_fixture();
-    let origin = VoxelCoord::new(0, 0, 0);
     let remote = VoxelCoord::new(1, 0, 0);
-    add_traversable_edge_for_test(&mut state, origin, remote);
     let support = active_stockpile_support(&registries, &mut state);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("remote-resume destination mount failed: {error}"))
@@ -177,10 +175,7 @@ fn suspended_manual_craft_does_not_resume_after_player_leaves_retained_site() {
         .unwrap_or_else(|error| {
             panic!("remote-resume destination recovery commit failed: {error}")
         });
-    validate_start_player_step(&registries, &state, remote)
-        .unwrap_or_else(|error| panic!("remote-resume player step failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("remote-resume player step commit failed: {error}"));
+    relocate_player_for_test(&mut state, remote);
     let moved = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("remote-resume movement tick failed: {error}"));
     assert!(matches!(

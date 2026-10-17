@@ -83,7 +83,7 @@ fn terrain_backed_wilderness_generation_selects_only_standable_opening_layout() 
         layout
             .edge_pairs()
             .into_iter()
-            .all(|(from, to)| state.logistics().is_step_authorized(from, to)),
+            .all(|(from, to)| state.logistics().has_traversal_edge(from, to)),
         "terrain-aware opening generation must persist exactly the selected traversable topology"
     );
 }
@@ -150,7 +150,7 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         layout
             .edge_pairs()
             .into_iter()
-            .all(|(from, to)| first.logistics().is_step_authorized(from, to))
+            .all(|(from, to)| first.logistics().has_traversal_edge(from, to))
     );
     assert!(
         layout
@@ -637,8 +637,10 @@ fn generated_wilderness_persists_with_distributed_opening_and_access_after_load(
         .map(|source| (source.store(), source.fluid(), source.position()))
         .collect::<Vec<_>>();
     assert!(adjacent_before.is_empty());
-    let steps_before = state.available_player_steps().collect::<Vec<_>>();
-    assert_eq!(steps_before, vec![layout.forage]);
+    let destinations_before = state
+        .available_adjacent_traversal_destinations()
+        .collect::<Vec<_>>();
+    assert_eq!(destinations_before, vec![layout.forage]);
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("wilderness generation save failed: {error}"));
@@ -667,8 +669,10 @@ fn generated_wilderness_persists_with_distributed_opening_and_access_after_load(
         .collect::<Vec<_>>();
     assert_eq!(adjacent_after, adjacent_before);
     assert_eq!(
-        loaded.available_player_steps().collect::<Vec<_>>(),
-        steps_before
+        loaded
+            .available_adjacent_traversal_destinations()
+            .collect::<Vec<_>>(),
+        destinations_before
     );
     assert_eq!(
         available_local_drink_sources(&registries, &loaded).count(),

@@ -539,7 +539,7 @@ impl LogisticsState {
     }
 
     #[must_use]
-    pub(crate) fn is_step_authorized(&self, origin: VoxelCoord, destination: VoxelCoord) -> bool {
+    pub(crate) fn has_traversal_edge(&self, origin: VoxelCoord, destination: VoxelCoord) -> bool {
         TraversalEdge::new(origin, destination)
             .is_some_and(|edge| self.traversable_edges.binary_search(&edge).is_ok())
     }
@@ -743,26 +743,16 @@ impl LogisticsState {
         self.revision = next_revision;
     }
 
-    pub(super) fn apply_player_step(
-        &mut self,
-        expected_revision: u64,
-        next_revision: u64,
-        origin: VoxelCoord,
-        destination: VoxelCoord,
-    ) {
-        assert_eq!(
-            self.revision, expected_revision,
-            "player step requires its validated logistics revision"
-        );
-        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
-        let player = self.player.as_mut().unwrap_or_else(|| {
-            unreachable!("validated player step requires initialized logistics")
-        });
-        assert_eq!(
-            player.position(),
-            origin,
-            "validated player step origin changed before completion"
-        );
+    #[cfg(test)]
+    pub(super) fn relocate_player_for_test(&mut self, destination: VoxelCoord) {
+        let next_revision = self
+            .revision
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("player relocation fixture exhausted logistics revisions"));
+        let player = self
+            .player
+            .as_mut()
+            .unwrap_or_else(|| panic!("player relocation fixture requires admitted logistics"));
         player.body = player.body.snap_to_voxel_floor(destination);
         self.revision = next_revision;
     }

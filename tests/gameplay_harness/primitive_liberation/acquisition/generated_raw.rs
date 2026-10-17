@@ -92,7 +92,7 @@ pub(super) fn acquire_generated_opening_raw(
     );
     let water_position = water[0].position();
     let junction = state
-        .available_player_steps()
+        .available_adjacent_traversal_destinations()
         .filter(|position| *position != spawn && *position != water_position)
         .collect::<Vec<_>>();
     assert_eq!(

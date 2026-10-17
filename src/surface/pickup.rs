@@ -7,7 +7,6 @@ use crate::inventory::{
     MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
 };
-use crate::labor::PlayerWork;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
@@ -65,9 +64,6 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
         .player()
         .is_some_and(|survival| survival.vitality() != Vitality::ZERO)
     {
-        return None;
-    }
-    if matches!(state.player_work().active(), Some(PlayerWork::Step { .. })) {
         return None;
     }
     if !state.can_spend_inventory_revisions(1) || !state.can_spend_surface_revisions(1) {

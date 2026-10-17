@@ -26,9 +26,7 @@ use crate::labor::{
     PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError,
     calculate_player_work_resource_budget,
 };
-use crate::logistics::{
-    add_traversable_edge_for_test, validate_place_ground_stockpile, validate_start_player_step,
-};
+use crate::logistics::{relocate_player_for_test, validate_place_ground_stockpile};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;

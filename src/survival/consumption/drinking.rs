@@ -93,7 +93,7 @@ pub fn available_adjacent_drink_sources<'a>(
         .fluid_store_locations()
         .filter(move |(_, position)| {
             player_position
-                .is_some_and(|player| state.logistics().is_step_authorized(player, *position))
+                .is_some_and(|player| state.logistics().has_traversal_edge(player, *position))
         })
         .filter_map(move |(store, position)| {
             let contents = state.fluid().get_store(store)?.contents()?;

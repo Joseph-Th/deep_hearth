@@ -79,9 +79,10 @@ impl PlayerBodyState {
         Self { stance, ..self }
     }
 
+    #[cfg(test)]
     pub(crate) fn snap_to_voxel_floor(self, position: VoxelCoord) -> Self {
         Self::centered_on_voxel_floor(position).unwrap_or_else(|| {
-            panic!("validated voxel step destination must fit continuous world space")
+            panic!("test player relocation destination must fit continuous world space")
         })
     }
 }

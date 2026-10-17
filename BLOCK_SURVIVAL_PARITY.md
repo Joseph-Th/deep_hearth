@@ -246,7 +246,7 @@ height.
 | Velocity | 3D delta/velocity affected by input and environment | Persisted signed horizontal and vertical velocity; horizontal control is normalized fixed-point input | `PARITY` foundation | Extend only with live stance/environmental effects rather than speculative components. |
 | Collision box | Player AABB | Authored 0.6 m width with persisted 1.8 m standing / 1.5 m crouching height | `PARITY` foundation | Add richer block/body shapes only when required. |
 | Swept collision | Movement vector clipped against block shapes | Deterministic X-then-Z horizontal sweep plus vertical sweep against `FullCube` terrain; exact wall/floor/ceiling contact; missing chunks fail closed as walls | `PARITY` foundation | Add partial shapes, bounded step-up, and swept contact effects without changing world authority. |
-| Walking | Analog-ish continuous horizontal motion | 20 Hz normalized world-space input drives authored walking speed/acceleration; the bounded timed one-voxel step remains only outside generated-world body mode | `PARITY` foundation | Keep direct walking on body control time. Retain discrete route/haul cost only for logistics and AI planning. |
+| Walking | Analog-ish continuous horizontal motion | 20 Hz normalized world-space input drives authored walking speed/acceleration through the persisted body in generated terrain | `PARITY` foundation | Keep direct walking on body control time. Retain discrete route/haul cost only for logistics and AI planning. |
 | Sprinting | Faster movement with resource cost | Sprint input targets 5.6 m/s unloaded; carried mass continuously removes the sprint bonus until full load is capped at walking speed; realized speed raises settled locomotion exertion | `DIFFERENT+` | Keep physical encumbrance instead of Minecraft's weightless sprint. |
 | Crouching/sneaking | Slower stance, reduced height, edge behavior, interaction modifier | Persisted 1.5 m crouch, 1.3 m/s cap, ledge guard, and collision-checked stand-up under low ceilings | `PARITY` foundation | Add interaction modifier/camera presentation with the direct-action shell. |
 | Jumping | Vertical impulse | Grounded 20 Hz jump impulse; full carried load reduces authored launch speed from 5.0 to 4.6 m/s; held input cannot retrigger airborne; ordinary jump landings remain below the authored injury threshold | `DIFFERENT+` foundation | Keep jump and landing consequences on authored survival accounting; add protection only through the future general damage model. |
@@ -258,12 +258,12 @@ height.
 | Climbing | Ladders/vines/scaffolding special movement | None | `GAP-P1` | Add climbable support surfaces/components. |
 | Edge/contact effects | Movement path encounters blocks, fire, fluids, etc. | Voxel destination only | `GAP-P1` | Track swept contact so environmental effects cannot be bypassed by fast movement. |
 | Encumbrance | Vanilla inventory has no weight | Exact carried/equipment mass scales locomotion energy/hydration, sprint ceiling, and jump impulse; fractional 20 Hz cost settles through the slow survival owner | `DIFFERENT+` | Keep and extend to climb/swim where physically justified. |
-| Multi-step routing | Mob/path systems route through blocks | Explicit traversal edges only | `GAP-P1` | Player needs no click-to-route for WASD, but AI/logistics need pathfinding over world collision/access data. |
+| Multi-step routing | Mob/path systems route through blocks | No general pathfinder; a bounded persisted opening-access graph exposes only adjacent local orientation/planning choices | `GAP-P1` | Player needs no click-to-route for WASD, but AI/logistics need pathfinding over world collision/access data. |
 
-`validate_start_player_step` is rejected once the player's footprint is backed by generated chunks. It remains a
-bounded logistics/planning surface for the opening graph and older evidence, not a first-person locomotion
-primitive. Walking, sprinting, crouching, jumping, gravity, and falling already share the persisted body path;
-future terrain/contact mechanics must stay on that authority rather than reopening timed voxel movement.
+The persisted opening-access graph is observation/planning topology only. `AppState::available_adjacent_traversal_destinations`
+exposes actor-visible graph neighbors, while walking, sprinting, crouching, jumping, gravity, and falling all share
+the persisted continuous body path. Future terrain/contact mechanics must stay on that authority rather than
+reintroducing a discrete player-movement work owner.
 
 ## 6. Raycasting, breaking, placing, using, and direct manipulation
 

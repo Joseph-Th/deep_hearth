@@ -34,9 +34,6 @@ pub enum EnergyStoreDisassemblyError {
     StoreBusyManualPower {
         store: EnergyStoreId,
     },
-    DestinationWouldIncreaseActiveStepLoad {
-        stockpile: StockpileId,
-    },
     UnknownDestination {
         stockpile: StockpileId,
     },
@@ -78,11 +75,6 @@ impl Display for EnergyStoreDisassemblyError {
                 formatter,
                 "energy store {} has no embodied matter to disassemble",
                 store.value()
-            ),
-            Self::DestinationWouldIncreaseActiveStepLoad { stockpile } => write!(
-                formatter,
-                "energy-store disassembly cannot recover matter into carried stockpile {} while a player step is in progress",
-                stockpile.value()
             ),
             Self::StoreNotEmpty { store, stored } => write!(
                 formatter,
@@ -167,7 +159,6 @@ impl Error for EnergyStoreDisassemblyError {
             | Self::StoreNotEmpty { .. }
             | Self::StoreBusyProduction { .. }
             | Self::StoreBusyManualPower { .. }
-            | Self::DestinationWouldIncreaseActiveStepLoad { .. }
             | Self::UnknownDestination { .. }
             | Self::InvalidEmbodiedMatter { .. }
             | Self::DestinationMassOverflow { .. }
@@ -211,9 +202,6 @@ pub enum EnergyStoreDisassemblyCommitError {
     StoreBusyManualPower {
         store: EnergyStoreId,
     },
-    DestinationWouldIncreaseActiveStepLoad {
-        stockpile: StockpileId,
-    },
     Structure(StructuralCommitError),
 }
 
@@ -240,11 +228,6 @@ impl Display for EnergyStoreDisassemblyCommitError {
                 formatter,
                 "energy store {} disappeared before disassembly commit",
                 store.value()
-            ),
-            Self::DestinationWouldIncreaseActiveStepLoad { stockpile } => write!(
-                formatter,
-                "energy-store disassembly cannot recover matter into carried stockpile {} after a player step has started",
-                stockpile.value()
             ),
             Self::StoreChanged { store } => write!(
                 formatter,
@@ -281,8 +264,7 @@ impl Error for EnergyStoreDisassemblyCommitError {
             | Self::UnknownStore { .. }
             | Self::StoreChanged { .. }
             | Self::StoreBusyProduction { .. }
-            | Self::StoreBusyManualPower { .. }
-            | Self::DestinationWouldIncreaseActiveStepLoad { .. } => None,
+            | Self::StoreBusyManualPower { .. } => None,
         }
     }
 }

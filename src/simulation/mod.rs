@@ -28,8 +28,8 @@ use crate::labor::{
 };
 use crate::logistics::{
     PlayerControlInput, PlayerOverheadCoverAssessment, PlayerStance, apply_player_body_motion,
-    apply_player_step_tick, assess_player_overhead_cover, decide_player_body_motion,
-    decide_player_step_tick, player_body_is_grounded, player_body_uses_generated_world,
+    assess_player_overhead_cover, decide_player_body_motion, player_body_is_grounded,
+    player_body_uses_generated_world,
 };
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
@@ -364,8 +364,6 @@ fn advance_simulation_tick(
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);
     let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)?;
     let manual_power_plan = decide_manual_power_tick(state, next_tick);
-    let player_step_plan = decide_player_step_tick(state, next_tick)
-        .map_err(|_| TickError::LogisticsRevisionExhausted)?;
     let mining_plan = decide_mining_tick(state, next_tick);
     require_revision_capacity(
         state.mining().revision(),
@@ -526,7 +524,6 @@ fn advance_simulation_tick(
     let mining_output =
         automatic_mining_output.map(|settlement| settlement.apply_prechecked(state));
     let surface_gathering = apply_surface_gathering_tick(state, surface_gathering_plan);
-    let player_step = apply_player_step_tick(state, player_step_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
     let equipment_maintenance = apply_equipment_maintenance_tick(state, equipment_maintenance_plan);
     apply_passive_energy_dissipation(state, passive_energy_plan);
@@ -545,7 +542,6 @@ fn advance_simulation_tick(
         production_availability_changes,
         production_completions,
         mining_output,
-        player_step,
         surface_gathering,
         block_excavation,
         manual_power,

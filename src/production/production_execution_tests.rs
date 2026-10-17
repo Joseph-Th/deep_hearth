@@ -23,10 +23,7 @@ use crate::inventory::{
     add_solid_stockpile_for_test, add_stockpile, deposit_bulk_for_test, deposit_lot_for_test,
     deposit_lot_spec_for_test, validate_material_relocation_for_test, validate_mount_stockpile,
 };
-use crate::logistics::{
-    PlayerStepCommitError, PlayerStepError, PlayerStockpileAccessError,
-    add_traversable_edge_for_test, validate_place_ground_stockpile, validate_start_player_step,
-};
+use crate::logistics::{PlayerStockpileAccessError, validate_place_ground_stockpile};
 use crate::maintenance::Condition;
 use crate::material::{
     CommodityKey, MaterialComposition, MaterialLotSpec, ParticleSizeClass,
@@ -84,8 +81,7 @@ fn player_process_start_requires_complete_player_admission() {
 
 #[test]
 fn player_process_start_rejects_dead_admitted_player_without_mutation() {
-    let (registries, state, source, carried, resolved, _step_destination) =
-        carried_output_process_fixture();
+    let (registries, state, source, carried, resolved) = carried_output_process_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("dead player production serialization failed: {error}"));
     encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
@@ -105,8 +101,7 @@ fn player_process_start_rejects_dead_admitted_player_without_mutation() {
 
 #[test]
 fn validated_player_process_rejects_survival_change_before_commit() {
-    let (registries, mut state, source, carried, resolved, _step_destination) =
-        carried_output_process_fixture();
+    let (registries, mut state, source, carried, resolved) = carried_output_process_fixture();
     let validated = validate_start_player_process(&registries, &state, &resolved, source, carried)
         .unwrap_or_else(|error| panic!("player production validation failed: {error}"));
     let player = state
@@ -392,13 +387,10 @@ fn carried_output_process_fixture() -> (
     StockpileId,
     StockpileId,
     TestHeatingResolution,
-    VoxelCoord,
 ) {
     let registries = make_test_registries();
     let mut state = AppState::new();
     let origin = VoxelCoord::new(0, 0, 0);
-    let step_destination = VoxelCoord::new(1, 0, 0);
-    add_traversable_edge_for_test(&mut state, origin, step_destination);
     validate_admit_player(&registries, &state, origin)
         .unwrap_or_else(|error| {
             panic!("carried-output production player admission failed: {error}")
@@ -445,95 +437,7 @@ fn carried_output_process_fixture() -> (
         resources,
         TEST_TARGET_TEMPERATURE,
     );
-    (
-        registries,
-        state,
-        source,
-        carried,
-        resolved,
-        step_destination,
-    )
-}
-
-#[test]
-fn player_step_rejects_moving_a_retained_production_output_destination() {
-    let (registries, mut state, source, carried, resolved, step_destination) =
-        carried_output_process_fixture();
-    let job = validate_start_player_process(&registries, &state, &resolved, source, carried)
-        .unwrap_or_else(|error| panic!("carried-output production start failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("carried-output production commit failed: {error}"));
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-    let before = state.clone();
-
-    assert_eq!(
-        validate_start_player_step(&registries, &state, step_destination).err(),
-        Some(PlayerStepError::ProductionSiteConflict {
-            stockpile: carried,
-            job,
-        })
-    );
-    assert_eq!(state, before);
-}
-
-#[test]
-fn validated_player_step_rechecks_production_site_before_commit() {
-    let (registries, mut state, source, carried, resolved, step_destination) =
-        carried_output_process_fixture();
-    let step = validate_start_player_step(&registries, &state, step_destination)
-        .unwrap_or_else(|error| panic!("production-site race step validation failed: {error}"));
-    let job = validate_start_player_process(&registries, &state, &resolved, source, carried)
-        .unwrap_or_else(|error| panic!("production-site race process validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("production-site race process commit failed: {error}"));
-    let before = state.clone();
-
-    assert_eq!(
-        step.commit(&mut state),
-        Err(PlayerStepCommitError::ProductionSiteConflict {
-            stockpile: carried,
-            job,
-        })
-    );
-    assert_eq!(state, before);
-}
-
-#[test]
-fn process_start_rejects_carried_output_destination_during_player_step() {
-    let (registries, mut state, source, carried, resolved, step_destination) =
-        carried_output_process_fixture();
-    validate_start_player_step(&registries, &state, step_destination)
-        .unwrap_or_else(|error| panic!("in-transit output step validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("in-transit output step commit failed: {error}"));
-    let before = state.clone();
-
-    assert_eq!(
-        validate_start_player_process(&registries, &state, &resolved, source, carried).err(),
-        Some(StartPlayerProcessError::Process(
-            StartProcessError::OutputDestinationInTransit { stockpile: carried }
-        ))
-    );
-    assert_eq!(state, before);
-}
-
-#[test]
-fn validated_process_start_rechecks_carried_output_transit_before_commit() {
-    let (registries, mut state, source, carried, resolved, step_destination) =
-        carried_output_process_fixture();
-    let process = validate_start_player_process(&registries, &state, &resolved, source, carried)
-        .unwrap_or_else(|error| panic!("in-transit commit process validation failed: {error}"));
-    validate_start_player_step(&registries, &state, step_destination)
-        .unwrap_or_else(|error| panic!("in-transit commit step validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("in-transit commit step commit failed: {error}"));
-    let before = state.clone();
-
-    assert_eq!(
-        process.commit(&mut state),
-        Err(StartProcessCommitError::OutputDestinationInTransit { stockpile: carried })
-    );
-    assert_eq!(state, before);
+    (registries, state, source, carried, resolved)
 }
 
 #[test]

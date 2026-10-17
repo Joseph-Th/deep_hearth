@@ -13,7 +13,7 @@ use crate::inventory::{
     project_material_stacks,
 };
 use crate::labor::PlayerWork;
-use crate::logistics::{add_traversable_edge_for_test, validate_start_player_step};
+use crate::logistics::relocate_player_for_test;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -313,15 +313,7 @@ fn active_support_with_remaining_timber() -> (
             .map(|record| record.lifecycle()),
         Some(StructuralLifecycle::Active)
     );
-    add_traversable_edge_for_test(&mut state, FRAMING_ORIGIN, FRAMING_POSITION);
-    let step = validate_start_player_step(&registries, &state, FRAMING_POSITION)
-        .unwrap_or_else(|error| panic!("supported framing reposition failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("supported framing reposition commit failed: {error}"));
-    while state.tick() < step.completes_at() {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("supported framing reposition tick failed: {error}"));
-    }
+    relocate_player_for_test(&mut state, FRAMING_POSITION);
     let stack = project_material_stacks(&registries, &state, carried)
         .unwrap_or_else(|error| panic!("supported framing remaining stack failed: {error}"))
         .into_iter()
@@ -478,15 +470,7 @@ fn atomic_supported_construction_rejects_inactive_support_before_allocating_memb
     .unwrap_or_else(|error| panic!("inactive support planning failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("inactive support planning commit failed: {error}"));
-    add_traversable_edge_for_test(&mut state, FRAMING_ORIGIN, FRAMING_POSITION);
-    let step = validate_start_player_step(&registries, &state, FRAMING_POSITION)
-        .unwrap_or_else(|error| panic!("inactive-support reposition failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("inactive-support reposition commit failed: {error}"));
-    while state.tick() < step.completes_at() {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("inactive-support reposition tick failed: {error}"));
-    }
+    relocate_player_for_test(&mut state, FRAMING_POSITION);
     let stack = project_material_stacks(&registries, &state, carried)
         .unwrap_or_else(|error| panic!("inactive-support stack failed: {error}"))
         .into_iter()

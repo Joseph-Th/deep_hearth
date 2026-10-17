@@ -5,6 +5,22 @@ use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::spatial::VoxelCoord;
 
+/// Repositions an idle admitted player for unit-test setup without preserving a gameplay movement
+/// path solely for fixtures.
+///
+/// Ordinary gameplay and gameplay-harness movement must use control-rate body locomotion. This
+/// helper exists only for focused owner tests whose subject is not movement.
+#[cfg(test)]
+pub(crate) fn relocate_player_for_test(state: &mut AppState, destination: VoxelCoord) {
+    assert!(
+        state.player_work().active().is_none(),
+        "player relocation fixture cannot bypass active player work"
+    );
+    state
+        .logistics_state_mut()
+        .relocate_player_for_test(destination);
+}
+
 /// Places one already-existing equipment instance before ordinary player admission.
 ///
 /// This is fixture setup, not a gameplay command. The logistics owner still performs the location

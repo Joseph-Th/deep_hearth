@@ -9,14 +9,12 @@ use crate::core::state::{AppState, StateValidationError};
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::logistics::{
-    LogisticsValidationError, PlayerEquipmentAccessError, add_traversable_edge_for_test,
-    assess_player_carrying, place_equipment_for_fixture, validate_player_equipment_access,
-    validate_start_player_step,
+    LogisticsValidationError, assess_player_carrying, place_equipment_for_fixture,
+    relocate_player_for_test, validate_player_equipment_access,
 };
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
-use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
 use super::{PlayerEquipmentCarryError, validate_drop_equipment, validate_pickup_equipment};
@@ -121,26 +119,16 @@ fn portable_equipment_shares_body_capacity_and_round_trips_persistence() {
 }
 
 #[test]
-fn carried_equipment_moves_with_player_and_cannot_start_work_mid_step() {
+fn carried_equipment_follows_player_relocation_and_remains_accessible() {
     let (registries, mut state, pick) = admitted_pick_fixture();
     let destination = VoxelCoord::new(1, 0, 0);
-    add_traversable_edge_for_test(&mut state, ORIGIN, destination);
     validate_pickup_equipment(&registries, &state, pick)
         .unwrap_or_else(|error| panic!("moving carried-equipment pickup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("moving carried-equipment pickup commit failed: {error}"));
     assert_eq!(state.logistics().equipment_position(pick), Some(ORIGIN));
 
-    validate_start_player_step(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("moving carried-equipment step failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("moving carried-equipment step commit failed: {error}"));
-    assert_eq!(
-        validate_player_equipment_access(&state, pick),
-        Err(PlayerEquipmentAccessError::CarriedEquipmentInTransit { equipment: pick })
-    );
-    let _ = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("moving carried-equipment tick failed: {error}"));
+    relocate_player_for_test(&mut state, destination);
     assert_eq!(
         state.logistics().equipment_position(pick),
         Some(destination)

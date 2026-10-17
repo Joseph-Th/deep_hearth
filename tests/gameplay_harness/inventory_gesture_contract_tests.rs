@@ -125,7 +125,9 @@ fn player_can_service_one_worn_tool_and_recover_another_through_visible_inventor
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("equipment-lifecycle matter baseline failed: {error}"))
         .total();
-    let route = state.available_player_steps().collect::<Vec<_>>();
+    let route = state
+        .available_adjacent_traversal_destinations()
+        .collect::<Vec<_>>();
     assert_eq!(
         route.len(),
         1,

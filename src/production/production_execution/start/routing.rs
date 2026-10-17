@@ -12,7 +12,7 @@ use crate::production::resolution::{ProcessResolution, sum_lot_spec_mass};
 use crate::production::state::ProductionOutputStream;
 use crate::registry::Registries;
 
-use super::{ProcessOutputRoute, StartProcessError, moving_player_output_destination};
+use super::{ProcessOutputRoute, StartProcessError};
 
 #[must_use]
 pub(super) struct ValidatedOutputRouting {
@@ -122,11 +122,6 @@ fn build_routed_output_streams(
                 stockpile: destination,
             });
         };
-        if moving_player_output_destination(state, [destination]).is_some() {
-            return Err(StartProcessError::OutputDestinationInTransit {
-                stockpile: destination,
-            });
-        }
         if state
             .player_work()
             .get_storage_dismantling_stockpile_occupant(destination)

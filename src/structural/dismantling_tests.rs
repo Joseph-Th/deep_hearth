@@ -12,9 +12,7 @@ use crate::inventory::{
     validate_mount_stockpile,
 };
 use crate::labor::PlayerWork;
-use crate::logistics::{
-    add_traversable_edge_for_test, validate_place_ground_stockpile, validate_start_player_step,
-};
+use crate::logistics::{relocate_player_for_test, validate_place_ground_stockpile};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -145,16 +143,7 @@ fn active_supported_leaf() -> (
         Some(StructuralLifecycle::Active)
     );
 
-    add_traversable_edge_for_test(&mut state, ORIGIN, FRAMING_POSITION);
-    let step = validate_start_player_step(&registries, &state, FRAMING_POSITION)
-        .unwrap_or_else(|error| panic!("supported dismantling reposition failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("supported dismantling reposition commit failed: {error}"));
-    while state.tick() < step.completes_at() {
-        let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
-            panic!("supported dismantling reposition tick failed: {error}")
-        });
-    }
+    relocate_player_for_test(&mut state, FRAMING_POSITION);
 
     let stack = project_material_stacks(&registries, &state, carried)
         .unwrap_or_else(|error| panic!("supported dismantling leaf stack failed: {error}"))
@@ -443,15 +432,7 @@ fn fatal_tick_cancels_structural_dismantling_without_losing_member_matter() {
 fn structural_dismantling_rejects_member_that_still_supports_a_stockpile() {
     let (registries, mut state, element, _) = active_grounded_member();
     let support_position = VoxelCoord::new(1, 0, 0);
-    add_traversable_edge_for_test(&mut state, ORIGIN, support_position);
-    let step = validate_start_player_step(&registries, &state, support_position)
-        .unwrap_or_else(|error| panic!("dismantling support-step validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("dismantling support-step commit failed: {error}"));
-    while state.tick() < step.completes_at() {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("dismantling support-step tick failed: {error}"));
-    }
+    relocate_player_for_test(&mut state, support_position);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("dismantling mounted stockpile setup failed: {error}"));
     validate_place_ground_stockpile(&state, stockpile, support_position)

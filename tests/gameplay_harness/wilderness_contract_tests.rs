@@ -266,7 +266,9 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
     );
 
     let water = adjacent_drinkable_source(&registries, &state);
-    let forage_choices = state.available_player_steps().collect::<Vec<_>>();
+    let forage_choices = state
+        .available_adjacent_traversal_destinations()
+        .collect::<Vec<_>>();
     let junctions = forage_choices
         .iter()
         .copied()
@@ -1816,7 +1818,9 @@ fn evaluate_generated_wilderness_opening_internal(
     );
     let berry_commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
     let adjacent_berries = adjacent_surface_resource(&state, berry_commodity);
-    let available_steps = state.available_player_steps().collect::<Vec<_>>();
+    let available_steps = state
+        .available_adjacent_traversal_destinations()
+        .collect::<Vec<_>>();
     assert_eq!(
         available_steps,
         vec![adjacent_berries.position()],
@@ -2467,7 +2471,9 @@ fn evaluate_generated_wilderness_opening_internal(
     );
 
     let forage_position = adjacent_berries.position();
-    let forage_steps = state.available_player_steps().collect::<Vec<_>>();
+    let forage_steps = state
+        .available_adjacent_traversal_destinations()
+        .collect::<Vec<_>>();
     let forage_step_choices = u64::try_from(forage_steps.len())
         .unwrap_or_else(|_| panic!("wilderness forage-step choice count exceeds u64"));
     max_step_choices = max_step_choices.max(forage_step_choices);
@@ -2625,8 +2631,9 @@ fn evaluate_generated_wilderness_opening_internal(
         "material junction",
     );
     total_steps += 1;
-    let junction_step_choices = u64::try_from(state.available_player_steps().count())
-        .unwrap_or_else(|_| panic!("wilderness junction-step choice count exceeds u64"));
+    let junction_step_choices =
+        u64::try_from(state.available_adjacent_traversal_destinations().count())
+            .unwrap_or_else(|_| panic!("wilderness junction-step choice count exceeds u64"));
     max_step_choices = max_step_choices.max(junction_step_choices);
     let stone_commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
     let timber_commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);

@@ -14,7 +14,7 @@ use crate::labor::{ManualPowerOutcome, StructuralConstructionWork, SurfaceGather
 use crate::logistics::{
     PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
     PlayerPendingPrimaryBreakError, PlayerPendingSecondaryUseError,
-    PlayerQuickAccessSelectionError, PlayerQuickAccessSlot, PlayerStepOutcome,
+    PlayerQuickAccessSelectionError, PlayerQuickAccessSlot,
 };
 use crate::mining::MiningOutputReceipt;
 use crate::production::{ProcessCompletion, ProductionAvailabilityChange};
@@ -313,7 +313,6 @@ pub struct TickOutcome {
     pub(super) production_availability_changes: Vec<ProductionAvailabilityChange>,
     pub(super) production_completions: Vec<ProcessCompletion>,
     pub(super) mining_output: Option<MiningOutputReceipt>,
-    pub(super) player_step: Option<PlayerStepOutcome>,
     pub(super) surface_gathering: Option<SurfaceGatheringOutcome>,
     pub(super) block_excavation: Option<BlockExcavationOutcome>,
     pub(super) manual_power: Option<ManualPowerOutcome>,
@@ -349,12 +348,6 @@ impl TickOutcome {
     #[must_use]
     pub const fn mining_output(&self) -> Option<&MiningOutputReceipt> {
         self.mining_output.as_ref()
-    }
-
-    /// Returns the adjacent player locality change completed this tick, if any.
-    #[must_use]
-    pub const fn player_step(&self) -> Option<PlayerStepOutcome> {
-        self.player_step
     }
 
     /// Returns loose surface matter gathered into ordinary inventory on this tick, if any.
@@ -423,7 +416,6 @@ impl TickOutcome {
             production_availability_changes,
             production_completions,
             mining_output,
-            player_step,
             surface_gathering,
             block_excavation,
             manual_power,
@@ -438,7 +430,6 @@ impl TickOutcome {
             !production_availability_changes.is_empty(),
             !production_completions.is_empty(),
             mining_output.is_some(),
-            player_step.is_some(),
             surface_gathering.is_some(),
             block_excavation.is_some(),
             manual_power.is_some(),

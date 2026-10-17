@@ -9,12 +9,11 @@ use crate::core::state::{AppState, StateValidationError};
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-use crate::labor::{PlayerWorkStartError, PlayerWorkValidationError};
+use crate::labor::{EatingWork, PlayerWork, PlayerWorkStartError, PlayerWorkValidationError};
 use crate::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, PlayerEquipmentCarryError,
-    PlayerQuickAccessSlot, add_traversable_edge_for_test, place_equipment_for_fixture,
-    validate_drop_equipment, validate_pickup_equipment, validate_set_active_selection,
-    validate_set_quick_access_slot, validate_start_player_step,
+    PlayerQuickAccessSlot, place_equipment_for_fixture, validate_drop_equipment,
+    validate_pickup_equipment, validate_set_active_selection, validate_set_quick_access_slot,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
@@ -1756,7 +1755,7 @@ fn validated_player_admission_cannot_cross_world_generation() {
 }
 
 #[test]
-fn validated_chunk_cannot_cross_player_or_player_work_changes() {
+fn validated_chunk_cannot_cross_player_or_player_work_revision_changes() {
     let registries = build_registries();
     let mut state = AppState::new();
     let chunk = ChunkCoord::new(0, 0);
@@ -1777,29 +1776,30 @@ fn validated_chunk_cannot_cross_player_or_player_work_changes() {
     );
     assert_eq!(state, before);
 
-    let origin = VoxelCoord::new(0, 100, 0);
-    let destination = VoxelCoord::new(1, 100, 0);
-    add_traversable_edge_for_test(&mut state, origin, destination);
     let validated = validate_generate_chunk(&registries, &state, SEED, chunk, BLOCK_STATE_STONE)
         .unwrap_or_else(|error| panic!("stale-work terrain validation failed: {error}"));
     let expected_player_work_revision = state.player_work().revision();
-    validate_start_player_step(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("stale-work bounded step validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("stale-work bounded step commit failed: {error}"));
+    let started_at = state.tick();
+    let completes_at = state
+        .tick()
+        .checked_add_span(TickSpan::new(1))
+        .unwrap_or_else(|| panic!("stale-work fixture completion overflowed"));
+    let next_player_work_revision = expected_player_work_revision
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("stale-work fixture exhausted player-work revisions"));
+    state.player_work_state_mut().apply_start(
+        expected_player_work_revision,
+        next_player_work_revision,
+        PlayerWork::Eating {
+            work: EatingWork::new(Mass::from_milligrams(1), started_at, completes_at),
+        },
+    );
     let actual_player_work_revision = state.player_work().revision();
     assert_eq!(
         validated.commit(&mut state),
         Err(ChunkGenerationCommitError::StalePlayerWorkRevision {
             expected: expected_player_work_revision,
             actual: actual_player_work_revision,
-        })
-    );
-    assert_eq!(
-        validate_generate_chunk(&registries, &state, SEED, chunk, BLOCK_STATE_STONE).err(),
-        Some(ChunkGenerationError::PlayerStepInProgress {
-            origin,
-            destination,
         })
     );
 }

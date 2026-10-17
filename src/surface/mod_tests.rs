@@ -24,7 +24,6 @@ use crate::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput,
     PlayerOverheadCoverAssessment, PlayerQuickAccessSlot, add_traversable_edge_for_test,
     assess_player_overhead_cover, validate_place_fluid_store, validate_set_active_selection,
-    validate_start_player_step,
 };
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::matter::calculate_matter_accounting;
@@ -2242,51 +2241,6 @@ fn natural_surface_opportunities_do_not_auto_pick_into_carried_custody() {
             .map(|stockpile| stockpile.stored_mass()),
         Some(Mass::ZERO),
         "natural opportunities must still require an explicit gathering action"
-    );
-}
-
-#[test]
-fn automatic_drop_pickup_does_not_increase_load_during_an_admitted_step() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    let origin = VoxelCoord::new(0, 0, 0);
-    let destination = VoxelCoord::new(1, 0, 0);
-    let mass = Mass::from_milligrams(100_000);
-    let spec = SurfaceResourceSpec::new(
-        SurfaceResourceKind::Drop,
-        origin,
-        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
-        mass,
-        TEMPERATURE,
-        MaterialComposition::pure(MATERIAL_STONE),
-    )
-    .unwrap_or_else(|error| panic!("step-blocked pickup drop specification failed: {error}"));
-    let drop = insert_surface_resource_for_test(&registries, &mut state, spec)
-        .unwrap_or_else(|error| panic!("step-blocked pickup drop creation failed: {error}"));
-    let carried = admit_player(&registries, &mut state, origin);
-    add_traversable_edge_for_test(&mut state, origin, destination);
-    validate_start_player_step(&registries, &state, destination)
-        .unwrap_or_else(|error| panic!("step-blocked pickup movement admission failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("step-blocked pickup movement commit failed: {error}"));
-
-    let control = advance_control_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("step-blocked pickup control tick failed: {error}"));
-    assert_eq!(control.surface_drop_pickup(), None);
-    assert_eq!(
-        state
-            .surface()
-            .get(drop)
-            .map(|resource| (resource.lifecycle(), resource.remaining_mass())),
-        Some((SurfaceResourceLifecycle::Available, mass))
-    );
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(carried)
-            .map(|stockpile| stockpile.stored_mass()),
-        Some(Mass::ZERO),
-        "automatic pickup must not change the load used to admit a timed step"
     );
 }
 

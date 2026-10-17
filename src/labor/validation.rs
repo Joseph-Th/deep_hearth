@@ -3,8 +3,7 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::logistics::{assess_player_carrying, validate_player_stockpile_access};
-use crate::production::player_move_production_site_conflict;
+use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 use crate::structural::{
     StructuralLifecycle, bounds_are_within_player_reach, calculate_prismatic_material_mass_ceiling,
@@ -114,14 +113,6 @@ pub(crate) fn validate_loaded_player_work(
     let available_energy = player.metabolic_energy();
     let available_hydration = player.hydration();
     match work {
-        PlayerWork::Step { work } => validate_player_step_work(
-            registries,
-            state,
-            &active_jobs,
-            work,
-            available_energy,
-            available_hydration,
-        ),
         PlayerWork::SurfaceGathering { work } => validate_surface_gathering_work(
             registries,
             state,
@@ -319,68 +310,6 @@ fn validate_structural_dismantling_work(
         available_energy,
         available_hydration,
         method.exertion(),
-        schedule.remaining,
-    )
-}
-
-fn validate_player_step_work(
-    registries: &Registries,
-    state: &AppState,
-    active_jobs: &ActivePlayerJobs,
-    work: crate::labor::PlayerStepWork,
-    available_energy: Energy,
-    available_hydration: Volume,
-) -> Result<(), PlayerWorkValidationError> {
-    if active_jobs.has_any() {
-        return Err(PlayerWorkValidationError::MultiplePlayerJobs);
-    }
-    let carrying =
-        assess_player_carrying(state).ok_or(PlayerWorkValidationError::StepPlayerNotLocated)?;
-    if carrying.position() != work.origin() {
-        return Err(PlayerWorkValidationError::StepOriginMismatch {
-            expected: work.origin(),
-            actual: carrying.position(),
-        });
-    }
-    if !work.origin().is_face_adjacent_to(work.destination()) {
-        return Err(PlayerWorkValidationError::StepDestinationNotAdjacent {
-            origin: work.origin(),
-            destination: work.destination(),
-        });
-    }
-    if !state
-        .logistics()
-        .is_step_authorized(work.origin(), work.destination())
-    {
-        return Err(PlayerWorkValidationError::StepDestinationInaccessible {
-            origin: work.origin(),
-            destination: work.destination(),
-        });
-    }
-    if let Some(job) =
-        player_move_production_site_conflict(state, carrying.stockpile(), work.destination())
-    {
-        return Err(PlayerWorkValidationError::StepProductionSiteConflict { job });
-    }
-    if let Some(job) = state
-        .mining()
-        .awaiting_settlement_destination_occupant(carrying.stockpile())
-    {
-        return Err(PlayerWorkValidationError::StepMiningSettlementPending { job });
-    }
-    let schedule =
-        project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
-            .ok_or(PlayerWorkValidationError::StepScheduleInvalid)?;
-    let locomotion = registries.survival().physiology().locomotion();
-    if schedule.duration != locomotion.step_duration() {
-        return Err(PlayerWorkValidationError::StepDurationMismatch);
-    }
-    validate_remaining_resources(
-        registries,
-        state,
-        available_energy,
-        available_hydration,
-        locomotion.exertion_for_load(carrying.stored(), carrying.capacity()),
         schedule.remaining,
     )
 }

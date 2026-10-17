@@ -14,38 +14,6 @@ impl Display for PlayerWorkValidationError {
             Self::SurvivalRevisionExhausted => formatter.write_str(
                 "active player work cannot reserve survival revisions through its completion tick",
             ),
-            Self::StepPlayerNotLocated => formatter
-                .write_str("player step requires initialized player world position"),
-            Self::StepOriginMismatch { expected, actual } => write!(
-                formatter,
-                "player step expected origin ({},{},{}) but player is at ({},{},{})",
-                expected.x(), expected.y(), expected.z(), actual.x(), actual.y(), actual.z()
-            ),
-            Self::StepDestinationNotAdjacent { origin, destination } => write!(
-                formatter,
-                "player step from ({},{},{}) to ({},{},{}) is not face-adjacent",
-                origin.x(), origin.y(), origin.z(), destination.x(), destination.y(), destination.z()
-            ),
-            Self::StepDestinationInaccessible { origin, destination } => write!(
-                formatter,
-                "player step from ({},{},{}) to ({},{},{}) lacks persisted traversal authorization",
-                origin.x(), origin.y(), origin.z(), destination.x(), destination.y(), destination.z()
-            ),
-            Self::StepProductionSiteConflict { job } => write!(
-                formatter,
-                "player step cannot persist while production job {} retains carried output custody at the step origin",
-                job.value()
-            ),
-            Self::StepMiningSettlementPending { job } => write!(
-                formatter,
-                "player step cannot persist while mining job {} still awaits settlement into carried custody",
-                job.value()
-            ),
-            Self::StepScheduleInvalid => {
-                formatter.write_str("player step has an invalid persisted schedule")
-            }
-            Self::StepDurationMismatch => formatter
-                .write_str("player step duration disagrees with current authored locomotion"),
             Self::SurfaceGatheringMethodMissing => formatter
                 .write_str("surface gathering work references a missing authored method"),
             Self::SurfaceGatheringResourceMissing => formatter

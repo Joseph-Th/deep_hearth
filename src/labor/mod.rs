@@ -37,7 +37,7 @@ pub use state::PlayerWorkState;
 pub use validation::PlayerWorkValidationError;
 pub use work::{
     BlockExcavationOutputCustody, BlockExcavationWork, DrinkingWork, EatingWork,
-    EquipmentMaintenanceWork, ManualPowerWork, PlayerStepWork, PlayerWork, ProspectingWork,
+    EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
     StorageEnclosureDismantlingWork, StructuralConstructionWork, StructuralDismantlingWork,
     SurfaceGatheringWork,
 };

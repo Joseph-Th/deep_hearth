@@ -64,25 +64,11 @@ pub enum ChunkGenerationError {
     PlayerNotAdmitted,
     GenerationProfileMissing,
     GenerationProfileConflict,
-    AlreadyGenerated {
-        chunk: ChunkCoord,
-    },
-    UnknownSolidState {
-        state: BlockStateId,
-    },
-    ChunkCoordinateOverflow {
-        chunk: ChunkCoord,
-    },
-    PlayerBodyCollision {
-        voxel: VoxelCoord,
-    },
-    PlayerStepInProgress {
-        origin: VoxelCoord,
-        destination: VoxelCoord,
-    },
-    PlayerDemandCoordinateOverflow {
-        center: ChunkCoord,
-    },
+    AlreadyGenerated { chunk: ChunkCoord },
+    UnknownSolidState { state: BlockStateId },
+    ChunkCoordinateOverflow { chunk: ChunkCoord },
+    PlayerBodyCollision { voxel: VoxelCoord },
+    PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
 }
 
@@ -121,19 +107,6 @@ impl Display for ChunkGenerationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
-            ),
-            Self::PlayerStepInProgress {
-                origin,
-                destination,
-            } => write!(
-                formatter,
-                "terrain generation cannot activate direct-world motion while bounded player step ({},{},{}) -> ({},{},{}) is in progress",
-                origin.x(),
-                origin.y(),
-                origin.z(),
-                destination.x(),
-                destination.y(),
-                destination.z()
             ),
             Self::PlayerDemandCoordinateOverflow { center } => write!(
                 formatter,
@@ -319,18 +292,6 @@ pub fn validate_generate_chunk(
     }
     let profile = WorldGenerationProfile::new(seed, solid_state);
     validate_generation_profile(registry, state, profile)?;
-    if let Some(step) = state
-        .player_work()
-        .active()
-        .and_then(crate::labor::PlayerWork::step)
-        && (ChunkCoord::containing(step.origin()) == coord
-            || ChunkCoord::containing(step.destination()) == coord)
-    {
-        return Err(ChunkGenerationError::PlayerStepInProgress {
-            origin: step.origin(),
-            destination: step.destination(),
-        });
-    }
     let expected_revision = state.world().revision();
     let next_revision = expected_revision
         .checked_add(1)
@@ -378,17 +339,6 @@ pub fn validate_generate_player_neighborhood(
         .generation_profile()
         .ok_or(ChunkGenerationError::GenerationProfileMissing)?;
     validate_generation_profile(registries.world(), state, profile)?;
-    if let Some(step) = state
-        .player_work()
-        .active()
-        .and_then(crate::labor::PlayerWork::step)
-    {
-        return Err(ChunkGenerationError::PlayerStepInProgress {
-            origin: step.origin(),
-            destination: step.destination(),
-        });
-    }
-
     let center = ChunkCoord::containing(player.position());
     let mut chunks = Vec::new();
     for x_offset in -PLAYER_CHUNK_DEMAND_RADIUS..=PLAYER_CHUNK_DEMAND_RADIUS {

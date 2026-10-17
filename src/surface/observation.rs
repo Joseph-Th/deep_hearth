@@ -49,7 +49,7 @@ pub fn available_adjacent_surface_resources(
             && !resource.remaining_mass().is_zero()
             && state
                 .logistics()
-                .is_step_authorized(player, resource.position()))
+                .has_traversal_edge(player, resource.position()))
         .then_some(AdjacentSurfaceResource {
             resource: resource.id(),
             commodity: resource.commodity(),

@@ -2,8 +2,9 @@
 //!
 //! Logistics owns *where* the player and carried custody are. Inventory remains authoritative for
 //! the carried stockpile's lots, capacity, temperature, preservation, and matter accounting.
-//! Logistics also owns explicit persisted face-adjacent traversal authorization. General terrain
-//! geometry, pathfinding, route cost, haulage, and arbitrary stockpile transport remain absent.
+//! Logistics also owns an explicit persisted face-adjacent opening-access graph used for bounded
+//! local observation and planning. Continuous body motion remains generated-world/collision driven;
+//! general pathfinding, route cost, haulage, and arbitrary stockpile transport remain absent.
 
 mod access;
 mod body;
@@ -17,7 +18,6 @@ mod ground;
 mod initialization;
 mod inventory_view;
 mod kinematics;
-mod movement;
 mod pending_primary;
 mod pending_secondary;
 mod quick_move;
@@ -31,7 +31,6 @@ mod validation;
 #[path = "control_tests.rs"]
 mod control_tests;
 
-pub(crate) use access::player_step_blocks_carried_load_increase;
 pub use access::{
     PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, PlayerFluidStoreAccessError,
     PlayerStockpileAccessError, validate_player_energy_store_access,
@@ -51,6 +50,8 @@ pub use equipment_carry::{
 pub(crate) use fixture::place_energy_store_for_fixture;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fixture::place_equipment_for_fixture;
+#[cfg(test)]
+pub(crate) use fixture::relocate_player_for_test;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fluid::validate_place_fluid_store;
 #[cfg(test)]
@@ -87,11 +88,6 @@ pub(crate) use kinematics::{
     first_player_body_collision_in_chunk, player_body_fits_continuous_world,
     player_body_is_grounded, player_body_occupies_voxel, player_body_uses_generated_world,
 };
-pub use movement::{
-    PlayerStepCommitError, PlayerStepError, PlayerStepOutcome, ValidatedPlayerStepStart,
-    validate_start_player_step,
-};
-pub(crate) use movement::{apply_player_step_tick, decide_player_step_tick};
 pub use pending_primary::PlayerPendingPrimaryBreakError;
 pub(crate) use pending_primary::{
     take_player_pending_primary_break, validate_buffer_player_primary_break,

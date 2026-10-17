@@ -15,10 +15,10 @@ use crate::inventory::{
 };
 use crate::logistics::{
     GroundStockpileAllocationError, HorizontalControlInput, LogisticsValidationError,
-    PlayerActiveSelection, PlayerControlInput, add_traversable_edge_for_test,
-    project_player_inventory, validate_allocate_ground_stockpile, validate_pickup_equipment,
+    PlayerActiveSelection, PlayerControlInput, project_player_inventory, relocate_player_for_test,
+    validate_allocate_ground_stockpile, validate_pickup_equipment,
     validate_player_logistics_initialization, validate_quick_move_player_stack,
-    validate_set_active_selection, validate_start_player_step,
+    validate_set_active_selection,
 };
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
@@ -247,13 +247,7 @@ fn dead_player_respawns_with_recoverable_exact_local_custody() {
     .unwrap_or_else(|error| panic!("respawn pick selection failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("respawn pick selection commit failed: {error}"));
-    add_traversable_edge_for_test(&mut state, spawn, death);
-    validate_start_player_step(&registries, &state, death)
-        .unwrap_or_else(|error| panic!("respawn death-route step failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("respawn death-route step commit failed: {error}"));
-    let _ = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("respawn death-route tick failed: {error}"));
+    relocate_player_for_test(&mut state, death);
     assert_eq!(
         state.logistics().player().map(|player| player.position()),
         Some(death)
@@ -336,12 +330,7 @@ fn dead_player_respawns_with_recoverable_exact_local_custody() {
         matter_before_death
     );
 
-    validate_start_player_step(&registries, &state, death)
-        .unwrap_or_else(|error| panic!("death-cache recovery step failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("death-cache recovery step commit failed: {error}"));
-    let _ = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("death-cache recovery tick failed: {error}"));
+    relocate_player_for_test(&mut state, death);
     let view = project_player_inventory(&registries, &state)
         .unwrap_or_else(|error| panic!("death-cache inventory projection failed: {error}"));
     assert_eq!(view.local_containers().len(), 1);
