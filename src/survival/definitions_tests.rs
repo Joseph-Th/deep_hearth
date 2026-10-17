@@ -178,6 +178,25 @@ fn physiology_exposes_explicit_body_kinematics() {
 }
 
 #[test]
+fn body_view_reach_must_fit_signed_world_point_distance() {
+    let maximum_micrometers = (i64::MAX as u64) / 1_000;
+    let standing = crate::core::quantity::Length::from_micrometers(1_620_000);
+    let crouching = crate::core::quantity::Length::from_micrometers(1_270_000);
+    let maximum = crate::core::quantity::Length::from_micrometers(maximum_micrometers);
+    let above_maximum = crate::core::quantity::Length::from_micrometers(maximum_micrometers + 1);
+    assert_eq!(
+        BodyViewDefinition::new(standing, crouching, maximum).interaction_reach(),
+        maximum
+    );
+    assert!(
+        std::panic::catch_unwind(|| {
+            BodyViewDefinition::new(standing, crouching, above_maximum)
+        })
+        .is_err()
+    );
+}
+
+#[test]
 fn fall_impact_injury_is_safe_at_threshold_and_lethal_at_terminal_speed() {
     let locomotion = physiology(1, 1).locomotion();
     assert_eq!(

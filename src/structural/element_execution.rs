@@ -489,25 +489,38 @@ pub(crate) fn bounds_are_within_player_reach(
         i128::from(foot.y_nanometers()) + i128::from(eye_height.micrometers()) * 1_000,
         i128::from(foot.z_nanometers()),
     ];
-    let voxel = [target.x(), target.y(), target.z()];
-    let reach = i128::from(locomotion.interaction_reach().micrometers()) * 1_000;
-    let mut distance_squared = 0_i128;
+    voxel_is_within_reach(
+        eye,
+        [target.x(), target.y(), target.z()],
+        u128::from(locomotion.interaction_reach().micrometers()) * 1_000,
+    )
+}
+
+fn voxel_is_within_reach(eye: [i128; 3], voxel: [i64; 3], reach: u128) -> bool {
+    // Authored reach fits signed world-point nanometers, so its square fits u128. Subtracting
+    // each axis square from the remaining radius budget also avoids intermediate sum overflow.
+    let mut remaining_squared = reach * reach;
     for (point, coordinate) in eye.into_iter().zip(voxel) {
         let minimum = i128::from(coordinate) * i128::from(NANOMETERS_PER_VOXEL);
         let maximum = minimum + i128::from(NANOMETERS_PER_VOXEL);
-        let distance = if point < minimum {
+        let signed_distance = if point < minimum {
             minimum - point
         } else if point > maximum {
             point - maximum
         } else {
             0
         };
+        let distance = u128::try_from(signed_distance)
+            .unwrap_or_else(|_| unreachable!("voxel-to-eye distance is nonnegative"));
         if distance > reach {
             return false;
         }
-        distance_squared += distance * distance;
+        let Some(remaining) = remaining_squared.checked_sub(distance * distance) else {
+            return false;
+        };
+        remaining_squared = remaining;
     }
-    distance_squared <= reach * reach
+    true
 }
 
 fn validate_plan_player_structural_element(
@@ -669,3 +682,7 @@ pub(crate) fn add_structural_element(
         .insert_element(record, next_element_id, next_revision);
     Ok(id)
 }
+
+#[cfg(test)]
+#[path = "element_execution_reach_tests.rs"]
+mod reach_tests;

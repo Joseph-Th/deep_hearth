@@ -43,6 +43,10 @@ impl BodyViewDefinition {
             !interaction_reach.is_zero(),
             "player interaction reach must be nonzero"
         );
+        assert!(
+            interaction_reach.micrometers() <= (i64::MAX as u64) / 1_000,
+            "player interaction reach must fit the signed-nanometer world-point range"
+        );
         Self {
             standing_eye_height,
             crouching_eye_height,
