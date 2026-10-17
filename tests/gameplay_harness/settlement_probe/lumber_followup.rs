@@ -3,9 +3,8 @@
 use std::num::NonZeroU64;
 
 use deep_hearth::content::{
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-    EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_BOARD, FORM_CHIP, FORM_SAW_BLADE, MANUAL_POWER_HAND_CRANK,
-    MATERIAL_COPPER, MATERIAL_WOOD, PROCESS_POWER_SAW_WOOD_BOARDS,
+    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, FORM_BOARD, FORM_CHIP, FORM_SAW_BLADE,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
@@ -14,7 +13,10 @@ use deep_hearth::crafting::{
     validate_start_powered_craft,
 };
 use deep_hearth::energy::EnergyStoreId;
-use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_upgrade_equipment};
+use deep_hearth::equipment::{
+    EquipmentDefinitionId, EquipmentId, PlayerEquipmentUpgradeOption,
+    validate_upgrade_player_equipment_option,
+};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::maintenance::Condition;
@@ -36,6 +38,7 @@ use crate::settlement_power_planning::project_manual_power_workload;
 
 #[derive(Clone, Copy)]
 pub(super) struct PoweredLumberOrder {
+    pub(super) process: ProcessId,
     pub(super) source: StockpileId,
     pub(super) output: StockpileId,
     pub(super) sawmill: EquipmentId,
@@ -51,6 +54,8 @@ pub(super) struct LumberFollowupInputs<'a> {
     pub(super) state: &'a mut AppState,
     pub(super) investment_policy: CapitalInvestmentPolicy,
     pub(super) batch: AuthoredPoweredCraftBatch,
+    pub(super) powered_process: ProcessId,
+    pub(super) upgrade_option: &'a PlayerEquipmentUpgradeOption,
     pub(super) manual_process: ProcessId,
     pub(super) work_source: StockpileId,
     pub(super) output: StockpileId,
@@ -124,6 +129,7 @@ pub(super) fn maximum_feasible_batches(upper: u64, mut feasible: impl FnMut(u64)
 pub(super) fn project_future_powered_lumber_sequence(
     registries: &Registries,
     state: &AppState,
+    process: ProcessId,
     equipment: EquipmentDefinitionId,
     condition: Condition,
     drive: EnergyStoreId,
@@ -133,7 +139,7 @@ pub(super) fn project_future_powered_lumber_sequence(
     project_powered_craft_sequence(
         registries,
         state,
-        PROCESS_POWER_SAW_WOOD_BOARDS,
+        process,
         equipment,
         condition,
         drive,
@@ -146,6 +152,7 @@ pub(super) fn project_future_powered_lumber_sequence(
 fn project_owned_powered_lumber_sequence(
     registries: &Registries,
     state: &AppState,
+    process: ProcessId,
     equipment: EquipmentId,
     batch: AuthoredPoweredCraftBatch,
     requested_batches: u64,
@@ -158,6 +165,7 @@ fn project_owned_powered_lumber_sequence(
     let projection = project_future_powered_lumber_sequence(
         registries,
         state,
+        process,
         record.definition(),
         record.condition(),
         drive,
@@ -168,7 +176,7 @@ fn project_owned_powered_lumber_sequence(
         let actual = project_powered_craft_work(
             registries,
             state,
-            PROCESS_POWER_SAW_WOOD_BOARDS,
+            process,
             first.input_mass,
             equipment,
             drive,
@@ -189,6 +197,7 @@ pub(super) fn execute_powered_lumber_order(
     order: PoweredLumberOrder,
 ) -> (u64, u64, u64) {
     let PoweredLumberOrder {
+        process,
         source,
         output,
         sawmill,
@@ -221,7 +230,7 @@ pub(super) fn execute_powered_lumber_order(
         let sequence = project_powered_craft_sequence(
             registries,
             state,
-            PROCESS_POWER_SAW_WOOD_BOARDS,
+            process,
             sawmill_record.definition(),
             sawmill_record.condition(),
             drive,
@@ -256,13 +265,7 @@ pub(super) fn execute_powered_lumber_order(
         let job = validate_start_powered_craft(
             registries,
             state,
-            PoweredCraftRequest::new(
-                PROCESS_POWER_SAW_WOOD_BOARDS,
-                source,
-                selections,
-                sawmill,
-                drive,
-            ),
+            PoweredCraftRequest::new(process, source, selections, sawmill, drive),
             output,
         )
         .unwrap_or_else(|error| panic!("{context} powered start failed: {error}"))
@@ -311,6 +314,8 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
         state,
         investment_policy,
         batch,
+        powered_process,
+        upgrade_option,
         manual_process,
         work_source,
         output,
@@ -324,6 +329,8 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
         board_mass_before,
         chip_mass_before,
     } = inputs;
+    let frame_definition = upgrade_option.base_definition();
+    let sawmill_definition = upgrade_option.target_definition();
     let started_at = state.tick().value();
     let replacement_blade = CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE);
     let service_stock = [upgrade_raw, upgrade_parts]
@@ -358,7 +365,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     registries,
                     manual_process,
                     batches,
-                    EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+                    frame_definition,
                     frame_condition,
                 )
                 .is_ok()
@@ -368,7 +375,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     registries,
                     manual_process,
                     batches,
-                    EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+                    frame_definition,
                     frame_condition,
                 )
                 .unwrap_or_else(|error| {
@@ -378,18 +385,25 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                 .value()
             });
 
-            let (plans, setup_attention) = setup_plans(registries, state, upgrade_raw, frame_saw);
+            let (plans, setup_attention) = setup_plans(
+                registries,
+                state,
+                upgrade_raw,
+                frame_saw,
+                sawmill_definition,
+            );
             let sawmill_start_condition = project_setup_equipment_condition(
                 registries,
                 &plans,
                 frame_saw,
-                EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+                frame_definition,
                 frame_condition,
             );
             let powered_projection = project_future_powered_lumber_sequence(
                 registries,
                 state,
-                EQUIPMENT_TIMBER_SASH_SAWMILL,
+                powered_process,
+                sawmill_definition,
                 sawmill_start_condition,
                 drive,
                 batch,
@@ -446,20 +460,15 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     executed_setup, setup_attention,
                     "settlement follow-up setup projection must match execution"
                 );
-                let sawmill = validate_upgrade_equipment(
-                    registries,
-                    state,
-                    frame_saw,
-                    EQUIPMENT_TIMBER_SASH_SAWMILL,
-                    upgrade_parts,
-                )
-                .unwrap_or_else(|error| {
-                    panic!("settlement follow-up sash-sawmill upgrade failed: {error}")
-                })
-                .commit(state)
-                .unwrap_or_else(|error| {
-                    panic!("settlement follow-up sash-sawmill commit failed: {error}")
-                });
+                let sawmill =
+                    validate_upgrade_player_equipment_option(registries, state, upgrade_option)
+                        .unwrap_or_else(|error| {
+                            panic!("settlement follow-up sash-sawmill upgrade failed: {error}")
+                        })
+                        .commit(state)
+                        .unwrap_or_else(|error| {
+                            panic!("settlement follow-up sash-sawmill commit failed: {error}")
+                        });
                 assert_eq!(
                     sawmill, frame_saw,
                     "settlement follow-up upgrade must preserve equipment identity"
@@ -468,6 +477,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     registries,
                     state,
                     PoweredLumberOrder {
+                        process: powered_process,
                         source: work_source,
                         output,
                         sawmill,
@@ -572,6 +582,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
             let projection = project_owned_powered_lumber_sequence(
                 registries,
                 state,
+                powered_process,
                 frame_saw,
                 batch,
                 demand_batches,
@@ -596,6 +607,7 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                     registries,
                     state,
                     PoweredLumberOrder {
+                        process: powered_process,
                         source: work_source,
                         output,
                         sawmill: frame_saw,

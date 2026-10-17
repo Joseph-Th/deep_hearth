@@ -90,6 +90,15 @@ def settlement_summary(lines: list[str]) -> str | None:
     if not settlement:
         return None
 
+    discovery_marker = (
+        " discovery=[upgrade-catalog:true powered-variant:true initially-ready:false] "
+    )
+    discovered = sum(discovery_marker in line for line in settlement)
+    if discovered != len(settlement):
+        raise ValueError(
+            "settlement lived lumber episode lost player-catalog mechanization discovery evidence"
+        )
+
     direct = sum("choice:frame-saw" in line for line in settlement)
     mechanized = sum("choice:sash-sawmill" in line for line in settlement)
     organic_settlement = organic_only(settlement)
@@ -360,6 +369,7 @@ def settlement_summary(lines: list[str]) -> str | None:
     return (
         "ORDINARY SUMMARY probe=settlement "
         f"samples={len(settlement)} sample-shape=[{sample_shape(settlement)}] "
+        f"discovery=[catalog+powered:{discovered}/{len(settlement)} unready:{discovered}/{len(settlement)}] "
         f"choice=[frame:{direct} sawmill:{mechanized}] "
         f"organic-play=[decision=[frame:{organic_direct} sawmill:{organic_mechanized}] "
         f"demand:{_span(organic_batches, 'batches')} "

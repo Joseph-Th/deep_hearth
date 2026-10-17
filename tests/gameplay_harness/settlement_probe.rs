@@ -9,14 +9,16 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-    EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_BOARD, FORM_CHIP, FORM_LOG, FORM_NATIVE_METAL,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_WOOD, PROCESS_POWER_SAW_WOOD_BOARDS,
-    PROCESS_SAW_WOOD_BOARDS,
+    FORM_BOARD, FORM_CHIP, FORM_LOG, FORM_NATIVE_METAL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
+    MATERIAL_WOOD, PROCESS_SAW_WOOD_BOARDS,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{project_manual_craft_equipment, resolve_manual_craft};
-use deep_hearth::equipment::{EquipmentId, validate_upgrade_equipment};
+use deep_hearth::equipment::{
+    EquipmentDefinitionId, EquipmentId, PlayerEquipmentUpgradeOption,
+    player_equipment_upgrade_options, validate_upgrade_player_equipment_option,
+};
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -71,7 +73,13 @@ fn declared_followup_lumber_batches(case: FocusedProbeCase, first_order_batches:
     }
 }
 
-fn assert_settlement_lumber_episode_available(registries: &Registries) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AuthoredLumberMechanization {
+    target: EquipmentDefinitionId,
+    powered_process: ProcessId,
+}
+
+fn authored_lumber_mechanization(registries: &Registries) -> AuthoredLumberMechanization {
     let manual = registries
         .process_topology(PROCESS_SAW_WOOD_BOARDS)
         .unwrap_or_else(|| panic!("settlement manual sawing topology disappeared"));
@@ -81,38 +89,71 @@ fn assert_settlement_lumber_episode_available(registries: &Registries) {
             .contains(&EQUIPMENT_TIMBER_FRAME_SAW_BENCH),
         "settlement bounded lumber episode lost its inherited frame-saw route"
     );
-    assert!(
-        manual
-            .nominal_providers()
-            .contains(&EQUIPMENT_TIMBER_SASH_SAWMILL),
-        "settlement bounded lumber episode lost its sash-sawmill manual route"
-    );
-    assert!(
-        registries
-            .crafting()
-            .powered_variants(PROCESS_SAW_WOOD_BOARDS)
-            .any(|variant| variant.process() == PROCESS_POWER_SAW_WOOD_BOARDS),
-        "settlement bounded lumber episode lost its powered sawing route"
-    );
-    let powered = registries
-        .process_topology(PROCESS_POWER_SAW_WOOD_BOARDS)
-        .unwrap_or_else(|| panic!("settlement powered sawing topology disappeared"));
-    assert!(
-        powered
-            .nominal_providers()
-            .contains(&EQUIPMENT_TIMBER_SASH_SAWMILL),
-        "settlement bounded lumber episode lost its sash-sawmill powered route"
-    );
-    let upgrade_from = registries
+    let routes = registries
         .equipment()
-        .get_equipment(EQUIPMENT_TIMBER_SASH_SAWMILL)
-        .and_then(|definition| definition.upgrade_profile())
-        .map(|upgrade| upgrade.from())
-        .unwrap_or_else(|| panic!("settlement sash sawmill lost its authored upgrade route"));
-    assert_eq!(
-        upgrade_from, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-        "settlement lumber episode no longer matches the authored frame-saw upgrade edge"
-    );
+        .definitions()
+        .filter(|definition| {
+            definition
+                .upgrade_profile()
+                .is_some_and(|upgrade| upgrade.from() == EQUIPMENT_TIMBER_FRAME_SAW_BENCH)
+                && manual.nominal_providers().contains(&definition.id())
+        })
+        .flat_map(|definition| {
+            registries
+                .crafting()
+                .powered_variants(PROCESS_SAW_WOOD_BOARDS)
+                .filter_map(move |variant| {
+                    registries
+                        .process_topology(variant.process())
+                        .filter(|topology| topology.nominal_providers().contains(&definition.id()))
+                        .map(|_| AuthoredLumberMechanization {
+                            target: definition.id(),
+                            powered_process: variant.process(),
+                        })
+                })
+        })
+        .collect::<Vec<_>>();
+    match routes.as_slice() {
+        [route] => *route,
+        [] => panic!("settlement bounded lumber episode has no upgradable powered sawing route"),
+        routes => panic!(
+            "settlement bounded lumber episode has {} ambiguous upgradable powered sawing routes",
+            routes.len()
+        ),
+    }
+}
+
+fn discover_player_lumber_mechanization(
+    registries: &Registries,
+    state: &AppState,
+    source: deep_hearth::inventory::StockpileId,
+    frame_saw: EquipmentId,
+) -> (PlayerEquipmentUpgradeOption, ProcessId) {
+    let routes = player_equipment_upgrade_options(registries, state, source)
+        .unwrap_or_else(|error| panic!("settlement player upgrade catalog failed: {error}"))
+        .into_iter()
+        .filter(|option| option.equipment() == frame_saw)
+        .flat_map(|option| {
+            let target = option.target_definition();
+            registries
+                .crafting()
+                .powered_variants(PROCESS_SAW_WOOD_BOARDS)
+                .filter_map(move |variant| {
+                    registries
+                        .process_topology(variant.process())
+                        .filter(|topology| topology.nominal_providers().contains(&target))
+                        .map(|_| (option.clone(), variant.process()))
+                })
+        })
+        .collect::<Vec<_>>();
+    match routes.as_slice() {
+        [(option, process)] => (option.clone(), *process),
+        [] => panic!("settlement player catalog exposes no powered lumber upgrade"),
+        routes => panic!(
+            "settlement player catalog exposes {} ambiguous powered lumber upgrades",
+            routes.len()
+        ),
+    }
 }
 
 #[path = "settlement_probe/lumber_followup.rs"]
@@ -277,13 +318,16 @@ fn seed_prior_workshop(
     }
 }
 
-fn settlement_upgrade_raw_requirements(registries: &Registries) -> BTreeMap<CommodityKey, Mass> {
+fn settlement_upgrade_raw_requirements(
+    registries: &Registries,
+    target: EquipmentDefinitionId,
+) -> BTreeMap<CommodityKey, Mass> {
     let additions = registries
         .equipment()
-        .get_equipment(EQUIPMENT_TIMBER_SASH_SAWMILL)
+        .get_equipment(target)
         .and_then(|definition| definition.upgrade_profile())
         .map(|upgrade| upgrade.additions())
-        .unwrap_or_else(|| panic!("settlement sash sawmill lost upgrade additions"));
+        .unwrap_or_else(|| panic!("settlement discovered lumber upgrade lost additions"));
     let primitive_roots = [
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
@@ -319,13 +363,14 @@ fn setup_plans(
     state: &AppState,
     raw: deep_hearth::inventory::StockpileId,
     frame_saw: EquipmentId,
+    target: EquipmentDefinitionId,
 ) -> (Vec<SetupPlan>, u64) {
     let additions = registries
         .equipment()
-        .get_equipment(EQUIPMENT_TIMBER_SASH_SAWMILL)
+        .get_equipment(target)
         .and_then(|definition| definition.upgrade_profile())
         .map(|upgrade| upgrade.additions())
-        .unwrap_or_else(|| panic!("settlement sash sawmill lost upgrade additions"));
+        .unwrap_or_else(|| panic!("settlement discovered lumber upgrade lost additions"));
     let mut plans = Vec::new();
     let mut attention = 0_u64;
     for input in additions.inputs() {
@@ -393,15 +438,22 @@ fn baseline_lumber_crossover_batches(
     frame_saw: EquipmentId,
     crank: EquipmentId,
     drive: deep_hearth::energy::EnergyStoreId,
+    target: EquipmentDefinitionId,
+    powered_process: ProcessId,
     batch: super::powered_craft_planning::AuthoredPoweredCraftBatch,
 ) -> Option<u64> {
-    let (plans, setup_attention) = setup_plans(registries, state, raw, frame_saw);
+    let (plans, setup_attention) = setup_plans(registries, state, raw, frame_saw, target);
     let manual_process = registries
         .crafting()
-        .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
+        .get_powered(powered_process)
         .and_then(|powered| registries.crafting().get_manual(powered.transform()))
         .map(|manual| manual.process())
         .unwrap_or_else(|| panic!("settlement sawmill lost its manual transform"));
+    let frame_definition = state
+        .equipment()
+        .get_equipment(frame_saw)
+        .map(|record| record.definition())
+        .unwrap_or_else(|| panic!("settlement frame saw disappeared before crossover planning"));
     let frame_condition = state
         .equipment()
         .get_equipment(frame_saw)
@@ -416,7 +468,7 @@ fn baseline_lumber_crossover_batches(
         registries,
         &plans,
         frame_saw,
-        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        frame_definition,
         frame_condition,
     );
     let minimum_attention_return =
@@ -432,7 +484,7 @@ fn baseline_lumber_crossover_batches(
                 registries,
                 manual_process,
                 batches_nonzero,
-                EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+                frame_definition,
                 frame_condition,
             )
             .ok()?
@@ -441,7 +493,8 @@ fn baseline_lumber_crossover_batches(
             let powered = lumber_followup::project_future_powered_lumber_sequence(
                 registries,
                 state,
-                EQUIPMENT_TIMBER_SASH_SAWMILL,
+                powered_process,
+                target,
                 sawmill_start_condition,
                 drive,
                 batch,
@@ -468,11 +521,11 @@ fn baseline_lumber_crossover_batches(
 }
 
 pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCase) {
-    assert_settlement_lumber_episode_available(registries);
+    let authored_route = authored_lumber_mechanization(registries);
     let investment_policy = investment_policy(case);
     let batch = authored_batch(
         registries,
-        PROCESS_POWER_SAW_WOOD_BOARDS,
+        authored_route.powered_process,
         "settlement lumber investment",
     );
     let opportunity_mass = Mass::from_milligrams(
@@ -484,7 +537,8 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     );
     let mut state = AppState::new();
     let prior_workshop = seed_prior_workshop(registries, &mut state, case);
-    let upgrade_requirements = settlement_upgrade_raw_requirements(registries);
+    let upgrade_requirements =
+        settlement_upgrade_raw_requirements(registries, authored_route.target);
     let upgrade_wood_mass = upgrade_requirements
         .get(&CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
         .copied()
@@ -573,6 +627,28 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         ),
         "settlement actor-visible inherited workshop diverged from admitted fixture custody"
     );
+    let (upgrade_option, powered_process) =
+        discover_player_lumber_mechanization(registries, &state, upgrade_parts, frame_saw);
+    assert_eq!(
+        (upgrade_option.target_definition(), powered_process),
+        (authored_route.target, authored_route.powered_process),
+        "settlement actor-visible mechanization route diverged from the disclosed authored opportunity"
+    );
+    assert_eq!(
+        upgrade_option.base_definition(),
+        state
+            .equipment()
+            .get_equipment(frame_saw)
+            .map(|record| record.definition())
+            .unwrap_or_else(|| panic!("settlement frame saw disappeared during route discovery")),
+        "settlement upgrade catalog must describe the actor's current frame-saw instance"
+    );
+    assert!(
+        !upgrade_option.material_ready(),
+        "settlement player should discover the mechanization route before fabricated upgrade parts are ready"
+    );
+    let frame_definition = upgrade_option.base_definition();
+    let sawmill_definition = upgrade_option.target_definition();
 
     let baseline_crossover_batches = baseline_lumber_crossover_batches(
         registries,
@@ -581,6 +657,8 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         frame_saw,
         crank,
         drive,
+        sawmill_definition,
+        powered_process,
         batch,
     );
     let order_batches = declared_lumber_batches(case, baseline_crossover_batches);
@@ -597,7 +675,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     );
     let manual_process = registries
         .crafting()
-        .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
+        .get_powered(powered_process)
         .and_then(|powered| registries.crafting().get_manual(powered.transform()))
         .map(|manual| manual.process())
         .unwrap_or_else(|| panic!("settlement sawmill lost its manual transform"));
@@ -613,7 +691,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             registries,
             manual_process,
             batches,
-            EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+            frame_definition,
             frame_condition,
         )
         .is_ok()
@@ -624,7 +702,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
                 registries,
                 manual_process,
                 batches,
-                EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+                frame_definition,
                 frame_condition,
             )
             .unwrap_or_else(|error| {
@@ -634,18 +712,25 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             .value()
         })
         .unwrap_or(0);
-    let (plans, setup_attention) = setup_plans(registries, &state, upgrade_raw, frame_saw);
+    let (plans, setup_attention) = setup_plans(
+        registries,
+        &state,
+        upgrade_raw,
+        frame_saw,
+        sawmill_definition,
+    );
     let sawmill_start_condition = lumber_followup::project_setup_equipment_condition(
         registries,
         &plans,
         frame_saw,
-        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        frame_definition,
         frame_condition,
     );
     let powered_projection = lumber_followup::project_future_powered_lumber_sequence(
         registries,
         &state,
-        EQUIPMENT_TIMBER_SASH_SAWMILL,
+        powered_process,
+        sawmill_definition,
         sawmill_start_condition,
         drive,
         batch,
@@ -738,16 +823,15 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
                 "settlement setup projection must match execution"
             );
             let mut active_attention = executed_setup;
-            let sawmill = validate_upgrade_equipment(
-                registries,
-                &state,
-                frame_saw,
-                EQUIPMENT_TIMBER_SASH_SAWMILL,
-                upgrade_parts,
-            )
-            .unwrap_or_else(|error| panic!("settlement sash-sawmill upgrade failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("settlement sash-sawmill commit failed: {error}"));
+            let sawmill =
+                validate_upgrade_player_equipment_option(registries, &state, &upgrade_option)
+                    .unwrap_or_else(|error| {
+                        panic!("settlement sash-sawmill upgrade failed: {error}")
+                    })
+                    .commit(&mut state)
+                    .unwrap_or_else(|error| {
+                        panic!("settlement sash-sawmill commit failed: {error}")
+                    });
             assert_eq!(
                 sawmill, frame_saw,
                 "settlement upgrade must preserve equipment identity"
@@ -759,6 +843,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
                     registries,
                     &mut state,
                     lumber_followup::PoweredLumberOrder {
+                        process: powered_process,
                         source: work_source,
                         output,
                         sawmill,
@@ -832,6 +917,8 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         state: &mut state,
         investment_policy,
         batch,
+        powered_process,
+        upgrade_option: &upgrade_option,
         manual_process,
         work_source,
         output,
@@ -874,7 +961,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let baseline_crossover =
         baseline_crossover_batches.map_or_else(|| "none".to_owned(), |batches| batches.to_string());
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] decision=[choice:{} basis:{} capacity=[frame-saw:{}/{} sash-sawmill:{}/{}] power-cycle=[charges:{} max-batches-per-charge:{}] policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t charge-events:{} upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t charge-events:{} machine-owned-before:{} reinvested:{} service-stock:{}mg boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=[frame-saw-condition:{}ppm crank-condition:{}ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] discovery=[upgrade-catalog:true powered-variant:true initially-ready:false] decision=[choice:{} basis:{} capacity=[frame-saw:{}/{} sash-sawmill:{}/{}] power-cycle=[charges:{} max-batches-per-charge:{}] policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t charge-events:{} upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t charge-events:{} machine-owned-before:{} reinvested:{} service-stock:{}mg boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=[frame-saw-condition:{}ppm crank-condition:{}ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         order_batches,

@@ -212,6 +212,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "settlement-frontier",
     ),
     "settlement": (
+        "discovery",
         "organic-play",
         "baseline-crossover",
         "payoff",
