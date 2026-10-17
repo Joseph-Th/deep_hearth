@@ -2,7 +2,7 @@
 
 use crate::core::arithmetic::{NORMALIZED_PARTS_PER_MILLION, checked_mul_div_with_remainder};
 use crate::core::quantity::{Acceleration, Energy, Length, Mass, Speed, Volume};
-use crate::core::time::TickSpan;
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::survival::resource_cost::SurvivalExertion;
 
 /// Authored body heights for direct-control stances.
@@ -349,12 +349,17 @@ impl LocomotionDefinition {
                 >= unloaded_exertion.hydration_loss_per_tick(),
             "fully loaded locomotion cannot lose less hydration than unloaded locomotion"
         );
-        Self {
+        let definition = Self {
             step_duration,
             unloaded_exertion,
             fully_loaded_exertion,
             body_kinematics,
-        }
+        };
+        assert!(
+            definition.pending_exertion_envelope().is_some(),
+            "locomotion exertion must fit the persisted control-interval accumulation envelope"
+        );
+        definition
     }
 
     #[must_use]
@@ -507,6 +512,48 @@ impl LocomotionDefinition {
             u128::from(self.walking_speed().nanometers_per_second()),
         )
         .unwrap_or_else(|| unreachable!("authored maximum locomotion exertion must fit"))
+    }
+
+    /// Maximum pending locomotion exertion that canonical control-rate execution can accumulate
+    /// before a slow-simulation settlement.
+    ///
+    /// Continuous motion can contribute at most one fully loaded sprint-rate interval. Discrete
+    /// jump launch is a whole-event impulse, so persistence must additionally admit one fully
+    /// loaded jump impulse for every control sample in the interval. The latter deliberately
+    /// over-approximates physically reachable jump cadence; it keeps trusted-load validation
+    /// independent of jump-arc timing while still rejecting arbitrary accumulator magnitudes.
+    pub(crate) fn maximum_pending_exertion(self) -> SurvivalExertion {
+        self.pending_exertion_envelope().unwrap_or_else(|| {
+            unreachable!("locomotion construction validates the pending exertion envelope")
+        })
+    }
+
+    fn pending_exertion_envelope(self) -> Option<SurvivalExertion> {
+        let continuous = scale_exertion(
+            self.fully_loaded_exertion,
+            u128::from(self.sprinting_speed().nanometers_per_second()),
+            u128::from(self.walking_speed().nanometers_per_second()),
+        )?;
+        let impulse_count = u128::from(CONTROL_TICKS_PER_SIMULATION_TICK);
+        let energy = self
+            .fully_loaded_exertion
+            .energy_cost_per_tick()
+            .nanojoules()
+            .checked_mul(impulse_count)?
+            .checked_add(continuous.energy_cost_per_tick().nanojoules())?;
+        let hydration = u128::from(
+            self.fully_loaded_exertion
+                .hydration_loss_per_tick()
+                .microliters(),
+        )
+        .checked_mul(impulse_count)?
+        .checked_add(u128::from(
+            continuous.hydration_loss_per_tick().microliters(),
+        ))?;
+        Some(SurvivalExertion::new(
+            Energy::from_nanojoules(energy),
+            Volume::from_microliters(u64::try_from(hydration).ok()?),
+        ))
     }
 
     #[must_use]

@@ -656,6 +656,85 @@ fn grounded_jump_is_load_sensitive_and_does_not_retrigger_in_air() {
 }
 
 #[test]
+fn repeated_loaded_jumps_remain_persistable_before_slow_settlement() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let carried = state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("repeated-jump player disappeared"))
+        .carried_stockpile();
+    let capacity = registries.survival().physiology().carried_mass_capacity();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        capacity,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("repeated-jump carried load failed: {error}"));
+    let jump = PlayerControlInput::NEUTRAL.with_jump(true);
+    let mut launches = 0_u32;
+
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let body = state
+            .logistics()
+            .player()
+            .copied()
+            .unwrap_or_else(|| panic!("repeated-jump player disappeared during motion"))
+            .body();
+        let grounded = body.foot_position().y_nanometers() == floor_y * NANOMETERS_PER_VOXEL
+            && body.vertical_velocity().nanometers_per_second() == 0;
+        let input = if grounded {
+            launches += 1;
+            jump
+        } else {
+            PlayerControlInput::NEUTRAL
+        };
+        let _ = advance_control_tick_with_input(&registries, &mut state, input)
+            .unwrap_or_else(|error| panic!("repeated-jump control tick failed: {error}"));
+        if launches < 2 {
+            continue;
+        }
+
+        assert!(
+            state.control_tick().value() < CONTROL_TICKS_PER_SIMULATION_TICK,
+            "two ordinary jumps must fit before the first slow settlement for this contract"
+        );
+        let pending = state
+            .logistics()
+            .player()
+            .copied()
+            .unwrap_or_else(|| panic!("repeated-jump player disappeared before persistence"))
+            .locomotion_exertion()
+            .pending();
+        let old_single_interval_cap = registries
+            .survival()
+            .physiology()
+            .locomotion()
+            .maximum_exertion();
+        assert!(
+            pending.energy_cost_per_tick() > old_single_interval_cap.energy_cost_per_tick(),
+            "two fully loaded jump impulses should exceed the obsolete single-interval persistence cap"
+        );
+
+        let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("repeated-jump serialization failed: {error}"));
+        let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+            .unwrap_or_else(|error| panic!("repeated-jump decode failed: {error}"));
+        assert_eq!(
+            decoded
+                .into_state(&registries)
+                .unwrap_or_else(|error| panic!("repeated-jump trusted load failed: {error}")),
+            state
+        );
+        return;
+    }
+    panic!("fully loaded player did not launch twice before the first slow settlement");
+}
+
+#[test]
 fn crouching_guards_ledges_and_standing_motion_falls() {
     let (registries, mut crouching, floor_y) = generated_grounded_player_at(0, 0);
     let mut standing = crouching.clone();

@@ -131,7 +131,7 @@ pub enum LogisticsValidationError {
         maximum_nanometers_per_second: u64,
     },
     PlayerLocomotionExertionRemainderInvalid,
-    PlayerPendingLocomotionExertionExceedsMaximum,
+    PlayerPendingLocomotionExertionExceedsEnvelope,
     PlayerPendingFallVitalityLossInvalid {
         loss_ppm: u32,
     },
@@ -366,8 +366,8 @@ impl Display for LogisticsValidationError {
             Self::PlayerLocomotionExertionRemainderInvalid => formatter.write_str(
                 "player locomotion exertion fractional carry is outside one control interval",
             ),
-            Self::PlayerPendingLocomotionExertionExceedsMaximum => formatter.write_str(
-                "player pending locomotion exertion exceeds one fully loaded simulation interval",
+            Self::PlayerPendingLocomotionExertionExceedsEnvelope => formatter.write_str(
+                "player pending locomotion exertion exceeds the canonical control-interval accumulation envelope",
             ),
             Self::PlayerPendingFallVitalityLossInvalid { loss_ppm } => write!(
                 formatter,
@@ -794,11 +794,11 @@ pub(crate) fn validate_loaded_logistics(
             return Err(LogisticsValidationError::PlayerLocomotionExertionRemainderInvalid);
         }
         let pending = locomotion_exertion.pending();
-        let maximum = locomotion.maximum_exertion();
+        let maximum = locomotion.maximum_pending_exertion();
         if pending.energy_cost_per_tick() > maximum.energy_cost_per_tick()
             || pending.hydration_loss_per_tick() > maximum.hydration_loss_per_tick()
         {
-            return Err(LogisticsValidationError::PlayerPendingLocomotionExertionExceedsMaximum);
+            return Err(LogisticsValidationError::PlayerPendingLocomotionExertionExceedsEnvelope);
         }
         if player.pending_fall_vitality_loss_ppm()
             > crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION
