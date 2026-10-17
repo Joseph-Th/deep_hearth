@@ -12,7 +12,7 @@ impl Display for PlayerWorkValidationError {
                 "active player work requires the generated-world body to remain grounded",
             ),
             Self::PlayerMoving => formatter.write_str(
-                "active player work requires the generated-world body to remain horizontally stopped",
+                "active player work requires the generated-world body to remain motionless",
             ),
             Self::RevisionExhausted => formatter.write_str(
                 "active player work cannot reserve the revision required to release attention",

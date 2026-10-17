@@ -51,7 +51,7 @@ impl Display for PlayerWorkStartError {
                 formatter.write_str("player must be grounded before beginning slow work")
             }
             Self::PlayerMoving => {
-                formatter.write_str("player must stop horizontal motion before beginning slow work")
+                formatter.write_str("player must stop body motion before beginning slow work")
             }
             Self::Busy { active } => write!(formatter, "player is already occupied by {active:?}"),
             Self::MetabolicCostOverflow { duration } => write!(
@@ -254,6 +254,7 @@ fn validate_player_work_start_inner(
         }
         if state.logistics().player().is_some_and(|player| {
             player.body().horizontal_velocity() != crate::spatial::HorizontalVelocity::ZERO
+                || player.body().vertical_velocity().nanometers_per_second() != 0
         }) {
             return Err(PlayerWorkStartError::PlayerMoving);
         }

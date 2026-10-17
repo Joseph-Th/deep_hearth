@@ -555,6 +555,18 @@ fn trusted_load_rejects_active_block_excavation_with_invalid_body_motion() {
         )))
     );
 
+    let mut upward = encoded.clone();
+    upward["state"]["systems"]["logistics"]["player"]["body"]["vertical_velocity"]["nanometers_per_second"] =
+        serde_json::json!(1_i64);
+    let upward: LoadedSaveEnvelope = serde_json::from_value(upward)
+        .unwrap_or_else(|error| panic!("upward-work tamper decode failed: {error}"));
+    assert_eq!(
+        upward.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::PlayerMoving
+        )))
+    );
+
     let mut airborne = encoded;
     let foot_y = airborne["state"]["systems"]["logistics"]["player"]["body"]
         ["foot_position"]["y_nanometers"]

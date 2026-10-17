@@ -118,11 +118,10 @@ pub(crate) fn validate_loaded_player_work(
         if !player_body_is_grounded(registries, state) {
             return Err(PlayerWorkValidationError::PlayerAirborne);
         }
-        if state
-            .logistics()
-            .player()
-            .is_some_and(|player| player.body().horizontal_velocity() != HorizontalVelocity::ZERO)
-        {
+        if state.logistics().player().is_some_and(|player| {
+            player.body().horizontal_velocity() != HorizontalVelocity::ZERO
+                || player.body().vertical_velocity().nanometers_per_second() != 0
+        }) {
             return Err(PlayerWorkValidationError::PlayerMoving);
         }
     }

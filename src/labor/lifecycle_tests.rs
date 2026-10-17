@@ -52,7 +52,7 @@ fn slow_player_work_requires_ground_contact_in_generated_world() {
 }
 
 #[test]
-fn slow_player_work_requires_horizontal_body_to_stop() {
+fn slow_player_work_requires_body_to_stop() {
     let registries = build_registries();
     let mut state = AppState::new();
     validate_generate_chunk(
@@ -94,6 +94,52 @@ fn slow_player_work_requires_horizontal_body_to_stop() {
         validate_player_work_start(
             &registries,
             &state,
+            PlayerWork::ManualProduction {
+                job: ProductionJobId::new(1),
+            },
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+        ),
+        Err(PlayerWorkStartError::PlayerMoving)
+    );
+}
+
+#[test]
+fn slow_player_work_rejects_grounded_upward_velocity_from_persisted_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0xA1B0_0003),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("vertical-work terrain generation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("vertical-work terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("vertical-work terrain column has no surface"));
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, surface_y + 1, 0))
+        .unwrap_or_else(|error| panic!("vertical-work player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("vertical-work player commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("vertical-work serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["player"]["body"]["vertical_velocity"]["nanometers_per_second"] =
+        serde_json::json!(1_i64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("vertical-work decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("idle grounded upward-velocity state should remain loadable: {error}")
+    });
+
+    assert_eq!(
+        validate_player_work_start(
+            &registries,
+            &loaded,
             PlayerWork::ManualProduction {
                 job: ProductionJobId::new(1),
             },
