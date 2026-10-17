@@ -4,6 +4,9 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+use crate::player::{
+    PlayerActionGuard, PlayerActionValidationError, StalePlayerSurvival, validate_player_action,
+};
 use crate::spatial::ViewDirection;
 use crate::structural::StructuralElementId;
 
@@ -12,6 +15,7 @@ use super::PlayerPendingPrimaryBreak;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerPendingPrimaryBreakError {
     PlayerNotAdmitted,
+    PlayerDead,
     AlreadyPending,
     SimulationBoundary,
     LogisticsRevisionExhausted,
@@ -23,6 +27,7 @@ impl Display for PlayerPendingPrimaryBreakError {
             Self::PlayerNotAdmitted => {
                 formatter.write_str("buffered structural break requires an admitted player")
             }
+            Self::PlayerDead => formatter.write_str("dead player cannot buffer structural break"),
             Self::AlreadyPending => formatter.write_str(
                 "one direct action is already buffered for the next simulation boundary",
             ),
@@ -39,12 +44,17 @@ impl Error for PlayerPendingPrimaryBreakError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlayerPendingPrimaryBreakCommitError {
+    StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
 }
 
 impl Display for PlayerPendingPrimaryBreakCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "buffered structural break expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "buffered structural break expected logistics revision {expected} but current revision is {actual}"
@@ -57,6 +67,7 @@ impl Error for PlayerPendingPrimaryBreakCommitError {}
 
 #[must_use]
 pub(crate) struct ValidatedPlayerPendingPrimaryBreak {
+    player_action: PlayerActionGuard,
     expected_revision: u64,
     next_revision: u64,
     pending: PlayerPendingPrimaryBreak,
@@ -67,6 +78,11 @@ impl ValidatedPlayerPendingPrimaryBreak {
         self,
         state: &mut AppState,
     ) -> Result<(), PlayerPendingPrimaryBreakCommitError> {
+        self.player_action.precheck(state).map_err(
+            |StalePlayerSurvival { expected, actual }| {
+                PlayerPendingPrimaryBreakCommitError::StaleSurvivalRevision { expected, actual }
+            },
+        )?;
         let actual = state.logistics().revision();
         if actual != self.expected_revision {
             return Err(
@@ -90,11 +106,17 @@ pub(crate) fn validate_buffer_player_primary_break(
     element: StructuralElementId,
     direction: ViewDirection,
 ) -> Result<ValidatedPlayerPendingPrimaryBreak, PlayerPendingPrimaryBreakError> {
+    let player_action = validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => {
+            PlayerPendingPrimaryBreakError::PlayerNotAdmitted
+        }
+        PlayerActionValidationError::PlayerDead => PlayerPendingPrimaryBreakError::PlayerDead,
+    })?;
     let player = state
         .logistics()
         .player()
         .copied()
-        .ok_or(PlayerPendingPrimaryBreakError::PlayerNotAdmitted)?;
+        .unwrap_or_else(|| unreachable!("validated player action requires logistics player"));
     if state.logistics().has_pending_direct_action() {
         return Err(PlayerPendingPrimaryBreakError::AlreadyPending);
     }
@@ -109,6 +131,7 @@ pub(crate) fn validate_buffer_player_primary_break(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("two-step logistics headroom was prevalidated"));
     Ok(ValidatedPlayerPendingPrimaryBreak {
+        player_action,
         expected_revision,
         next_revision,
         pending: PlayerPendingPrimaryBreak::new(

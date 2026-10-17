@@ -12,6 +12,7 @@ use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralElementId, StructureState};
+use crate::survival::Vitality;
 
 use super::{
     LogisticsState, PlayerActiveSelection, PlayerBodyState, PlayerQuickAccessSlot, TraversalEdge,
@@ -137,10 +138,12 @@ pub enum LogisticsValidationError {
     },
     MultiplePendingDirectActions,
     PendingSecondaryUseWithoutPlayer,
+    PendingSecondaryUsePlayerDead,
     PendingSecondaryUseRequestedInFuture,
     PendingSecondaryUseFromPriorSimulationInterval,
     PendingSecondaryUseDirectionInvalid,
     PendingPrimaryBreakWithoutPlayer,
+    PendingPrimaryBreakPlayerDead,
     PendingPrimaryBreakRequestedInFuture,
     PendingPrimaryBreakFromPriorSimulationInterval,
     PendingPrimaryBreakElementInvalid,
@@ -378,6 +381,9 @@ impl Display for LogisticsValidationError {
             ),
             Self::PendingSecondaryUseWithoutPlayer => formatter
                 .write_str("buffered contextual use exists without an admitted logistics player"),
+            Self::PendingSecondaryUsePlayerDead => {
+                formatter.write_str("dead player cannot retain buffered contextual use")
+            }
             Self::PendingSecondaryUseRequestedInFuture => formatter
                 .write_str("buffered contextual use claims a request control tick in the future"),
             Self::PendingSecondaryUseFromPriorSimulationInterval => formatter.write_str(
@@ -387,6 +393,9 @@ impl Display for LogisticsValidationError {
                 .write_str("buffered contextual use contains an invalid fixed-point view direction"),
             Self::PendingPrimaryBreakWithoutPlayer => formatter
                 .write_str("buffered structural break exists without an admitted logistics player"),
+            Self::PendingPrimaryBreakPlayerDead => {
+                formatter.write_str("dead player cannot retain buffered structural break")
+            }
             Self::PendingPrimaryBreakRequestedInFuture => formatter
                 .write_str("buffered structural break claims a request control tick in the future"),
             Self::PendingPrimaryBreakFromPriorSimulationInterval => formatter.write_str(
@@ -435,6 +444,13 @@ fn validate_pending_primary_break(
     if state.player().is_none() {
         return Err(LogisticsValidationError::PendingPrimaryBreakWithoutPlayer);
     }
+    if app
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() == Vitality::ZERO)
+    {
+        return Err(LogisticsValidationError::PendingPrimaryBreakPlayerDead);
+    }
     if pending.requested_at() > app.control_tick() {
         return Err(LogisticsValidationError::PendingPrimaryBreakRequestedInFuture);
     }
@@ -466,6 +482,13 @@ fn validate_pending_secondary_use(
     };
     if state.player().is_none() {
         return Err(LogisticsValidationError::PendingSecondaryUseWithoutPlayer);
+    }
+    if app
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() == Vitality::ZERO)
+    {
+        return Err(LogisticsValidationError::PendingSecondaryUsePlayerDead);
     }
     if pending.requested_at() > app.control_tick() {
         return Err(LogisticsValidationError::PendingSecondaryUseRequestedInFuture);

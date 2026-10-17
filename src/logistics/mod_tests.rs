@@ -1,5 +1,6 @@
 //! Contracts for persistent player world location and carried custody.
 
+use super::pending_secondary::PlayerPendingSecondaryUseCommitError;
 use super::*;
 use crate::content::{
     FORM_LOG, FORM_ROUGH_BOX_BODY, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX, build_registries,
@@ -14,7 +15,128 @@ use crate::inventory::{
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
-use crate::spatial::VoxelCoord;
+use crate::simulation::advance_control_tick;
+use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
+use crate::structural::StructuralElementId;
+use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+fn positive_x_view() -> ViewDirection {
+    ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
+        .unwrap_or_else(|error| panic!("positive-x view direction failed: {error}"))
+}
+
+fn mark_admitted_player_dead(state: &mut AppState) {
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("dead-buffer fixture lost survival player"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+}
+
+fn off_boundary_admitted_player() -> (crate::registry::Registries, AppState) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("buffer fixture admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("buffer fixture admission commit failed: {error}"));
+    let _ = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("buffer fixture control advance failed: {error}"));
+    assert!(!state.control_tick().is_simulation_boundary());
+    (registries, state)
+}
+
+#[test]
+fn dead_player_cannot_buffer_primary_or_secondary_direct_actions() {
+    let (_registries, mut state) = off_boundary_admitted_player();
+    mark_admitted_player_dead(&mut state);
+    let before = state.clone();
+
+    assert_eq!(
+        validate_buffer_player_secondary_use(&state, positive_x_view()).err(),
+        Some(PlayerPendingSecondaryUseError::PlayerDead)
+    );
+    assert_eq!(
+        validate_buffer_player_primary_break(
+            &state,
+            StructuralElementId::new(1),
+            positive_x_view(),
+        )
+        .err(),
+        Some(PlayerPendingPrimaryBreakError::PlayerDead)
+    );
+    assert_eq!(state, before);
+    assert!(!state.logistics().has_pending_direct_action());
+}
+
+#[test]
+fn buffered_direct_action_validation_tracks_survival_revision() {
+    let (_registries, mut state) = off_boundary_admitted_player();
+    let validated = validate_buffer_player_secondary_use(&state, positive_x_view())
+        .unwrap_or_else(|error| panic!("stale buffer validation failed: {error}"));
+    let expected = state.survival().revision();
+    mark_admitted_player_dead(&mut state);
+    let actual = state.survival().revision();
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(PlayerPendingSecondaryUseCommitError::StaleSurvivalRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    assert!(!state.logistics().has_pending_direct_action());
+}
+
+#[test]
+fn trusted_load_rejects_dead_player_with_buffered_direct_action() {
+    let (registries, state) = off_boundary_admitted_player();
+    let mut secondary = state.clone();
+    validate_buffer_player_secondary_use(&secondary, positive_x_view())
+        .unwrap_or_else(|error| panic!("secondary buffer validation failed: {error}"))
+        .commit(&mut secondary)
+        .unwrap_or_else(|error| panic!("secondary buffer commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &secondary))
+        .unwrap_or_else(|error| panic!("secondary dead-buffer serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("secondary dead-buffer decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::PendingSecondaryUsePlayerDead
+        )))
+    );
+
+    let mut primary = state;
+    validate_buffer_player_primary_break(&primary, StructuralElementId::new(1), positive_x_view())
+        .unwrap_or_else(|error| panic!("primary buffer validation failed: {error}"))
+        .commit(&mut primary)
+        .unwrap_or_else(|error| panic!("primary buffer commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &primary))
+        .unwrap_or_else(|error| panic!("primary dead-buffer serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("primary dead-buffer decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::PendingPrimaryBreakPlayerDead
+        )))
+    );
+}
 
 #[test]
 fn authored_capacity_initialization_binds_player_position_and_carried_custody() {
