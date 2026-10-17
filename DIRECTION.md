@@ -234,12 +234,15 @@ not overlap the body and non-grounded work has a non-empty set of face-contactin
 exact material embodiment, attention and survival are prechecked before mutation, and in-progress work survives
 save/load before activating on completion. Selected logs place posts/framing; selected boards may place one solid
 1 m² × 10 mm, 6.5 kg timber panel on an existing active support. Only the completed panel counts as opaque overhead
-cover and reduces the existing thermal-exposure loss; it does not generate heat. The wilderness harness now proves a
-fresh-world long-stay episode that gathers its own stone/timber, builds three real support members, earns an adze from
-the panel's nine-batch board workload, completes the roof, conserves matter, and observes exposure fall from 1000 to
-500 ppm per tick. Broader panels/walls/joints, general terrain-support physics, dependent demolition, weather, sleep,
-enclosure and insulation remain open, as does one continuous first-day episode combining every food/water/fire/storage/
-shelter action in a single state.
+cover and reduces the existing thermal-exposure loss; it does not generate heat. The wilderness harness now carries
+the existing field-box-and-fire worksite state into a fresh-world long stay: after one fire charge leaves 5 kg of its
+staged timber reserve, the same actor consumes that cache first, gathers the remaining 14.75 kg timber plus 1 kg stone,
+builds three real support members, earns an adze from the panel's nine-batch board workload, completes the roof,
+conserves matter, and observes exposure fall from 1000 to 500 ppm per tick in a continuation with finite fire warmth
+removed. Broader panels/walls/joints, general terrain-support physics, dependent demolition, weather, sleep, enclosure
+and insulation remain open. The rested long-stay proof now combines food, storage, fire, toolmaking, and shelter in one
+state; the need-driven water detour remains separately covered, so one all-need branch that actually requires water is
+still open.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a

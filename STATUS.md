@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual shaping, wear, service, primitive machines, copper upgrades, field instruments, wire drawing, and workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
 | Processing | Crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and first/settlement foundry routes. Compound-ore reduction is absent. |
-| Opening wilderness acquisition | Terrain-fit forage/water/stone/timber graph, continuous-body proof, finite fire heat/light, and a fresh-start overhead-refuge route. General pathfinding, enclosure, and weather are absent. |
+| Opening wilderness acquisition | Terrain-fit forage/water/stone/timber graph, continuous-body proof, finite fire/light, and a same-state camp/refuge route. General pathfinding, enclosure, and weather are absent. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -70,7 +70,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 
 | Area | Boundary |
 | --- | --- |
-| Wilderness opening | Travel beyond the bounded graph, enclosure/weather, general light propagation, and one continuous first-day loop. The overhead refuge exists; pathfinding, hydrology, climate, and enclosure simulation do not. |
+| Wilderness opening | Travel beyond the bounded graph, enclosure/weather, general light propagation, and an all-need first-day branch. Integrated camp/refuge exists; pathfinding, hydrology, climate, and enclosure simulation do not. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Residency, indexing, height/light summaries, placement/updates, partial shapes, geology/biome/ecology, and clue discovery. Terrain demand, locomotion, targeting, and conserved partial excavation exist. |
 | Logistics | General access generation, routing/haulage/transport, remote acquisition, adapter inventory UI, fluid transport, and mounted-production geometry. |

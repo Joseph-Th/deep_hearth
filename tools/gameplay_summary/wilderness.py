@@ -101,7 +101,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
         r'shelter=\[supports:(\d+)x(\d+)mg panel:(\d+)mg board-work:(\d+)b\] '
         r'attention=\[setup:(\d+)t bare:(\d+)t assisted:(\d+)t with-setup:(\d+)t saved:(\d+)t\] '
         r'exposure=\[open:(\d+)ppm/t covered:(\d+)ppm/t observed:(\d+)ppm/t\] '
-        r'output=(\d+)mg wear=(true|false) matter-conserved=(true|false)',
+        r'output=(\d+)mg wear=(true|false) matter-conserved=(true|false) '
+        r'continuity=same-opening-state staged-timber-used:(\d+)mg fresh-timber:(\d+)mg',
         shelter_lines[0],
     )
     if shelter_match is None:
@@ -126,6 +127,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
         or observed_loss != covered_loss
         or shelter_match.group(18) != "true"
         or shelter_match.group(19) != "true"
+        or int(shelter_match.group(20)) <= 0
+        or int(shelter_match.group(21)) <= 0
     ):
         raise ValueError("wilderness shelter no longer proves earned structural survival leverage")
     shelter = (
@@ -138,14 +141,15 @@ def wilderness_summary(lines: list[str]) -> str | None:
     maintained = [line for line in experiences if " sample=maintained " in line]
     coverage = [line for line in experiences if " sample=coverage " in line]
     organic = [line for line in experiences if " sample=organic " in line]
+    long_stay = [line for line in experiences if " goal=long-stay-shelter " in line]
     pressure_coverage = [
         line
         for line in coverage
         if " start=hydration-pressure " in line and " goal=stay-mobile " in line
     ]
-    if len(maintained) != 1 or len(pressure_coverage) != 1:
+    if len(maintained) != 1 or len(pressure_coverage) != 1 or len(long_stay) != 1:
         raise ValueError(
-            "wilderness report requires one maintained mobile baseline and one mobile hydration-pressure coverage experience"
+            "wilderness report requires one maintained mobile baseline, one mobile hydration-pressure coverage experience, and one integrated long-stay shelter experience"
         )
     baseline = compact_fields(
         maintained[0],
@@ -223,7 +227,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             r"burn-runway:(\d+)t/(\d+)\.(\d)m comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ(?: light:(\d+))?\]",
             experience,
         )
-        if " goal=worksite-cache " in experience:
+        if " goal=worksite-cache " in experience or " goal=long-stay-shelter " in experience:
             if warmth is None:
                 raise ValueError("wilderness worksite experience lost campfire warmth telemetry")
             campfires_built += 1
@@ -272,6 +276,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         "camp-goals=["
         f"mobile:{sum(' goal=stay-mobile ' in line for line in experiences)} "
         f"worksite-cache:{sum(' goal=worksite-cache ' in line for line in experiences)} "
+        f"long-stay-shelter:{sum(' goal=long-stay-shelter ' in line for line in experiences)} "
         f"preserve-provisions:{sum(' goal=preserve-provisions ' in line for line in experiences)} "
         "built=["
         f"field-box:{sum(' storage:field-box ' in line for line in experiences)} "
@@ -295,6 +300,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
         else ""
     )
     cache_projects = [line for line in experiences if " goal=worksite-cache " in line]
+    long_stay_projects = [line for line in experiences if " goal=long-stay-shelter " in line]
+    worksite_projects = cache_projects + long_stay_projects
     camp_projects = "projects=[none]"
     if camp_work_ticks:
         camp_projects = (
@@ -302,7 +309,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"work:{min(camp_work_ticks)}..{max(camp_work_ticks)}t "
             f"cached:{scaled_span(camp_cached_mass, 1_000_000, 'kg')} "
             f"staged-timber:{scaled_span(camp_staged_timber, 1_000_000, 'kg')} "
-            f"worksite-support=[built:{worksite_support_built}/{len(cache_projects)} "
+            f"worksite-support=[built:{worksite_support_built}/{len(worksite_projects)} "
             f"mass:{scaled_span(worksite_support_mass, 1_000_000, 'kg')} "
             f"work:{scaled_span(worksite_support_ticks, 1, 't')} "
             f"retained-residue:{scaled_span(worksite_residue, 1_000, 'g')}] "
@@ -313,14 +320,14 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"{scaled_span(camp_hydration_budget, 1_000, 'mL')}]"
         )
     camp_warmth = ""
-    if cache_projects:
-        has_direct_fire_telemetry = any(" direct-control:" in line for line in cache_projects)
-        if has_direct_fire_telemetry and direct_control_fires != len(cache_projects):
+    if worksite_projects:
+        has_direct_fire_telemetry = any(" direct-control:" in line for line in worksite_projects)
+        if has_direct_fire_telemetry and direct_control_fires != len(worksite_projects):
             raise ValueError(
                 "wilderness worksite fires must assemble and fuel through direct control"
             )
         direct_fire = (
-            f"direct:{direct_control_fires}/{len(cache_projects)} "
+            f"direct:{direct_control_fires}/{len(worksite_projects)} "
             if has_direct_fire_telemetry
             else ""
         )
@@ -331,7 +338,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         )
         camp_warmth = (
             "camp-warmth=["
-            f"fires:{campfires_built}/{len(cache_projects)} "
+            f"fires:{campfires_built}/{len(worksite_projects)} "
             f"{direct_fire}"
             f"fuel:{scaled_span(campfire_fuel, 1_000_000, 'kg')} "
             f"runway:{_tenths_span(campfire_runway_minutes_tenths, 'm')} "
@@ -353,8 +360,9 @@ def wilderness_summary(lines: list[str]) -> str | None:
         raise ValueError("wilderness experience lost early adze crossover telemetry")
     tool_policy = (
         "tool-policy=["
-        f"cache-projects:{len(cache_projects)} "
+        f"short-cache-projects:{len(cache_projects)} "
         f"first-box-adze-deferred:{sum(' reason:first-box-below-adze-crossover]' in line for line in cache_projects)}/{len(cache_projects)} "
+        f"long-stay-adze:{sum(' reason:roof-workload-repays-tool]' in line for line in long_stay_projects)}/{len(long_stay_projects)} "
         f"crossover:{adze_crossover}batches]"
     )
     organic_detail = ""
