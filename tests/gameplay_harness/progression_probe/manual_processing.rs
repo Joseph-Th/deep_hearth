@@ -12,7 +12,7 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::project_manual_craft_hand_work;
-use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
@@ -260,7 +260,7 @@ pub(super) fn evaluate_manual_processing_fallback(
     let reinforcement_required =
         native_input_for_upgrade(registries, EQUIPMENT_COPPER_REINFORCED_PICK);
     let shaped = add_solid_stockpile(&mut state, reinforcement_required);
-    let ore_lot = seed_composed_lot(
+    let _ = seed_composed_lot(
         registries,
         &mut state,
         ore,
@@ -277,14 +277,16 @@ pub(super) fn evaluate_manual_processing_fallback(
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("manual processing fallback player disappeared at setup"));
 
+    let breaking_feed = select_stockpile_mass(
+        &state,
+        ore,
+        setup.ore_mass,
+        "manual processing fallback breaking feed",
+    );
     let breaking = resolve_manual_comminution_process(
         registries,
         &state,
-        ManualComminutionRequest::new(
-            PROCESS_HAND_BREAK_ORE,
-            ore,
-            &[MaterialLotSelection::new(ore_lot, setup.ore_mass)],
-        ),
+        ManualComminutionRequest::new(PROCESS_HAND_BREAK_ORE, ore, breaking_feed.as_slice()),
     )
     .unwrap_or_else(|error| panic!("manual processing fallback hand breaking failed: {error}"));
     let break_ticks = breaking.duration().value();
