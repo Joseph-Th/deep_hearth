@@ -9,6 +9,7 @@ mod geometry;
 mod load;
 mod member_projection;
 mod placement_projection;
+mod plan_cancellation;
 mod player_construction;
 mod player_placement;
 mod state;
@@ -50,6 +51,10 @@ pub use member_projection::{
 pub use placement_projection::{
     PlayerStructuralPlacementProjection, PlayerStructuralPlacementProjectionError,
     StructuralSupportPlacementProjection, project_player_multi_supported_structural_placement,
+};
+pub use plan_cancellation::{
+    CancelPlayerStructuralPlanCommitError, CancelPlayerStructuralPlanError,
+    ValidatedPlayerStructuralPlanCancellation, validate_cancel_player_structural_plan,
 };
 pub use player_construction::{
     PlayerStructuralConstructionCommitError, PlayerStructuralConstructionError,

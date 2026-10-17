@@ -17,8 +17,12 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    GroundedStructuralElementPlan, PlanPlayerStructuralElementError, StructuralElementGeometry,
+    CancelPlayerStructuralPlanError, GroundedStructuralElementPlan,
+    PlanPlayerStructuralElementError, StructuralElementGeometry, SupportedStructuralElementPlan,
+    add_structural_element, materialize_structural_element_for_test,
+    validate_activate_structural_element, validate_cancel_player_structural_plan,
     validate_plan_player_grounded_structural_element,
+    validate_plan_player_supported_structural_element,
 };
 use crate::survival::{Vitality, player_record};
 
@@ -33,6 +37,127 @@ fn local_member_geometry() -> StructuralElementGeometry {
         Area::from_square_millimeters(5_000),
     )
     .unwrap_or_else(|error| panic!("player construction geometry failed: {error}"))
+}
+
+fn elevated_member_geometry() -> StructuralElementGeometry {
+    let bounds = VoxelBounds::new(VoxelCoord::new(1, 1, 0), VoxelCoord::new(2, 2, 1))
+        .unwrap_or_else(|error| panic!("elevated player construction bounds failed: {error}"));
+    StructuralElementGeometry::new(
+        bounds,
+        Length::from_micrometers(2_000_000),
+        Area::from_square_millimeters(5_000),
+    )
+    .unwrap_or_else(|error| panic!("elevated player construction geometry failed: {error}"))
+}
+
+#[test]
+fn persisted_empty_supported_blueprint_can_be_cancelled_without_matter_change() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("blueprint cancellation admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("blueprint cancellation admission commit failed: {error}"));
+    let support = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        local_member_geometry(),
+        true,
+    )
+    .unwrap_or_else(|error| panic!("blueprint cancellation support setup failed: {error}"));
+    materialize_structural_element_for_test(&registries, &mut state, support, FORM_LOG);
+    let _ = validate_activate_structural_element(&registries, &state, support)
+        .unwrap_or_else(|error| panic!("blueprint cancellation support activation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("blueprint cancellation support activation commit failed: {error}")
+        });
+    let blueprint = validate_plan_player_supported_structural_element(
+        &registries,
+        &state,
+        SupportedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            elevated_member_geometry(),
+            support,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("supported blueprint planning failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("supported blueprint planning commit failed: {error}"));
+    assert_eq!(
+        state
+            .structures()
+            .supports(blueprint)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![support])
+    );
+    assert_eq!(
+        state
+            .structures()
+            .dependents(support)
+            .map(|dependents| dependents.collect::<Vec<_>>()),
+        Some(vec![blueprint])
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("supported blueprint save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("supported blueprint decode failed: {error}"));
+    let mut state = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("supported blueprint trusted load failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("blueprint cancellation matter baseline failed: {error}"))
+        .total();
+
+    let cancelled = validate_cancel_player_structural_plan(&registries, &state, blueprint)
+        .unwrap_or_else(|error| panic!("supported blueprint cancellation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("supported blueprint cancellation commit failed: {error}"));
+
+    assert_eq!(cancelled, blueprint);
+    assert!(state.structures().get_element(blueprint).is_none());
+    assert_eq!(
+        state
+            .structures()
+            .dependents(support)
+            .map(|dependents| dependents.collect::<Vec<_>>()),
+        Some(vec![])
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("blueprint cancellation matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn materialized_planned_member_cannot_be_cancelled_as_blueprint() {
+    let (registries, mut state, element, lot) = admitted_player_with_planned_member();
+    validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        element,
+        &[MaterialLotSelection::new(
+            lot,
+            Mass::from_milligrams(MEMBER_MASS_MG),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("materialized cancellation construction failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("materialized cancellation commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_cancel_player_structural_plan(&registries, &state, element).err(),
+        Some(CancelPlayerStructuralPlanError::ElementMaterialized { element })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
