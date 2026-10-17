@@ -20,9 +20,7 @@ use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::{
-    StructuralElementId, StructuralLifecycle, StructuralLoadKind, bounds_are_within_player_reach,
-};
+use super::{StructuralElementId, StructuralLoadKind, bounds_are_within_player_reach};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStructuralDismantlingError {
@@ -202,12 +200,10 @@ fn target_record<'a>(
         .structures()
         .get_element(element)
         .ok_or(PlayerStructuralDismantlingError::UnknownElement { element })?;
-    if record.embodied_mass().is_zero()
-        || !matches!(
-            record.lifecycle(),
-            StructuralLifecycle::Active | StructuralLifecycle::Failed
-        )
-    {
+    // Interrupted construction already transferred exact material custody into the planned
+    // member. Treat that positioned matter like active or failed embodied structure for recovery;
+    // an empty plan remains only configuration and cannot produce material on dismantling.
+    if record.embodied_mass().is_zero() {
         return Err(PlayerStructuralDismantlingError::ElementNotRecoverable { element });
     }
     if state.structures().elements().any(|candidate| {

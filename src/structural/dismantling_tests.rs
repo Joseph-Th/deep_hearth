@@ -16,12 +16,12 @@ use crate::logistics::{relocate_player_for_test, validate_place_ground_stockpile
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
-use crate::player::validate_admit_player;
+use crate::player::{validate_admit_player, validate_respawn_player};
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     GroundedStructuralElementPlan, StructuralElementGeometry, StructuralLifecycle,
-    SupportedStructuralElementPlan,
+    SupportedStructuralElementPlan, validate_plan_player_grounded_structural_element,
     validate_start_player_grounded_structural_construction_from_stack,
     validate_start_player_supported_structural_construction_from_stack,
 };
@@ -45,6 +45,127 @@ fn local_member_plan() -> GroundedStructuralElementPlan {
         MATERIAL_WOOD,
         geometry,
     )
+}
+
+#[test]
+fn interrupted_planned_member_can_be_recovered_after_respawn() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, ORIGIN)
+        .unwrap_or_else(|error| panic!("interrupted recovery admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("interrupted recovery admission commit failed: {error}"))
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        MEMBER_MASS,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("interrupted recovery timber setup failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("interrupted recovery stack projection failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("interrupted recovery timber stack disappeared"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("interrupted recovery matter baseline failed: {error}"))
+        .total();
+    let construction = validate_start_player_grounded_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        local_member_plan(),
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("interrupted recovery construction start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("interrupted recovery construction commit failed: {error}"));
+    let element = construction.element();
+    assert!(construction.completes_at().value() > state.tick().value() + 1);
+    make_next_tick_fatal(&registries, &mut state);
+
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("interrupted recovery fatal tick failed: {error}"));
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .structures()
+            .get_element(element)
+            .map(|record| (record.lifecycle(), record.embodied_mass())),
+        Some((StructuralLifecycle::Planned, MEMBER_MASS))
+    );
+
+    let respawn = validate_respawn_player(&registries, &state)
+        .unwrap_or_else(|error| panic!("interrupted recovery respawn failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("interrupted recovery respawn commit failed: {error}"));
+    let recovery_destination = respawn.carried_stockpile();
+    let dismantling = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap_or_else(|error| panic!("interrupted planned member was not recoverable: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("interrupted recovery dismantling commit failed: {error}"));
+    assert_eq!(dismantling.recovery_destination(), recovery_destination);
+
+    while state.tick() < dismantling.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("interrupted recovery dismantling tick failed: {error}")
+        });
+    }
+
+    assert!(state.structures().get_element(element).is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovery_destination)
+            .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG))),
+        Some(MEMBER_MASS)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("interrupted recovery matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn unmaterialized_planned_member_is_not_recoverable() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, ORIGIN)
+        .unwrap_or_else(|error| panic!("empty planned recovery admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("empty planned recovery admission commit failed: {error}"));
+    let element =
+        validate_plan_player_grounded_structural_element(&registries, &state, local_member_plan())
+            .unwrap_or_else(|error| panic!("empty planned recovery planning failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("empty planned recovery planning commit failed: {error}")
+            });
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_player_structural_dismantling(
+            &registries,
+            &state,
+            element,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        )
+        .err(),
+        Some(PlayerStructuralDismantlingError::ElementNotRecoverable { element })
+    );
+    assert_eq!(state, before);
 }
 
 fn geometry_at(position: VoxelCoord, context: &str) -> StructuralElementGeometry {
