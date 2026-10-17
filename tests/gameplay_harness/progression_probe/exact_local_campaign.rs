@@ -18,11 +18,11 @@ use deep_hearth::equipment::{
     EquipmentDefinitionId, EquipmentId, player_equipment_assembly_options,
     validate_assemble_player_equipment_option,
 };
-use deep_hearth::inventory::MaterialLotSelection;
+use deep_hearth::inventory::project_material_stacks;
 use deep_hearth::logistics::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
     assess_player_carrying, project_player_adjacent_walk, validate_drop_equipment,
-    validate_drop_to_ground, validate_pickup_equipment,
+    validate_drop_stack_to_ground, validate_pickup_equipment,
 };
 use deep_hearth::mining::{
     MiningStartError, MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target,
@@ -400,33 +400,28 @@ fn drop_all_carried_material(
     state: &mut AppState,
     destination: deep_hearth::inventory::StockpileId,
 ) -> Mass {
-    let carrying = assess_player_carrying(state)
-        .unwrap_or_else(|| panic!("exact-local progression drop lost carrying state"));
-    let selections = state
-        .inventory()
-        .lots()
-        .filter(|lot| lot.stockpile() == carrying.stockpile())
-        .map(|lot| MaterialLotSelection::new(lot.id(), lot.mass()))
-        .collect::<Vec<_>>();
-    let mass = selections
-        .iter()
-        .try_fold(Mass::ZERO, |total, selection| {
-            state
-                .inventory()
-                .get_lot(selection.lot())
-                .and_then(|lot| total.checked_add(lot.mass()))
-        })
-        .unwrap_or_else(|| panic!("exact-local progression carried material mass overflowed"));
-    if selections.is_empty() {
-        return Mass::ZERO;
+    let mut dropped = Mass::ZERO;
+    loop {
+        let carrying = assess_player_carrying(state)
+            .unwrap_or_else(|| panic!("exact-local progression drop lost carrying state"));
+        let mut stacks = project_material_stacks(registries, state, carrying.stockpile())
+            .unwrap_or_else(|error| {
+                panic!("exact-local progression carried-stack projection failed: {error}")
+            });
+        let Some(stack) = stacks.pop() else {
+            return dropped;
+        };
+        let mass = stack.mass();
+        validate_drop_stack_to_ground(registries, state, destination, &stack, mass)
+            .unwrap_or_else(|error| panic!("exact-local progression material drop failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| {
+                panic!("exact-local progression material drop commit failed: {error}")
+            });
+        dropped = dropped
+            .checked_add(mass)
+            .unwrap_or_else(|| panic!("exact-local progression dropped material mass overflowed"));
     }
-    validate_drop_to_ground(registries, state, destination, &selections)
-        .unwrap_or_else(|error| panic!("exact-local progression material drop failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("exact-local progression material drop commit failed: {error}")
-        });
-    mass
 }
 
 fn extract_and_haul(
