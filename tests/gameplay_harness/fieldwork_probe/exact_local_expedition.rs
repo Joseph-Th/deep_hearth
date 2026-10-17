@@ -18,7 +18,7 @@ use deep_hearth::geology::{
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId, StockpileStorageProfile};
 use deep_hearth::logistics::{
     assess_player_carrying, project_player_adjacent_walk, validate_drop_equipment,
-    validate_drop_to_ground, validate_pickup_equipment, validate_start_player_step,
+    validate_drop_to_ground, validate_pickup_equipment,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -27,9 +27,7 @@ use deep_hearth::mining::{
 };
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::VoxelCoord;
-use deep_hearth::survival::assess_survival;
 use deep_hearth::world::{
     BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
     validate_generate_chunk,
@@ -40,7 +38,6 @@ use super::super::exact_local_runtime::walk_continuous_body_adjacent_and_settle;
 use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::focused_witnesses::FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED;
 use super::super::ore_fixture::copper_ore_composition;
-use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::extraction::{FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction};
 use super::planning::{
     choose_fieldwork_tool_with_market_phase, equipment_component_requirements,
@@ -309,69 +306,24 @@ fn equipment_mass(state: &AppState, equipment: EquipmentId) -> Mass {
 fn walk_step(registries: &Registries, state: &mut AppState, destination: VoxelCoord) -> StepCost {
     let carrying = assess_player_carrying(state)
         .unwrap_or_else(|| panic!("exact-local field step lost player carrying assessment"));
-    if state.world().block_at(carrying.position()).is_some() {
-        let projection = project_player_adjacent_walk(registries, state, destination)
-            .unwrap_or_else(|error| {
-                panic!("exact-local continuous movement projection failed: {error}")
-            });
-        let _ = walk_continuous_body_adjacent_and_settle(
-            registries,
-            state,
-            destination,
-            "field expedition movement",
-        );
-        return StepCost {
-            load: carrying.stored(),
-            energy: projection.resource_budget().metabolic_energy(),
-            hydration: projection.resource_budget().hydration(),
-        };
-    }
-    let before = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("exact-local field step lost player survival"));
-    let work = validate_start_player_step(registries, state, destination)
-        .unwrap_or_else(|error| panic!("exact-local field step admission failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("exact-local field step commit failed: {error}"));
-    let mut completed = false;
-    while state.tick() < work.completes_at() {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("exact-local field step tick failed: {error}"));
-        assert_tick_events_within(
-            &outcome,
-            TickEventAllowance {
-                player_step: true,
-                ..TickEventAllowance::default()
-            },
-            "exact-local field expedition movement",
-        );
-        if let Some(step) = outcome.player_step() {
-            assert_eq!(step.origin(), work.origin());
-            assert_eq!(step.destination(), work.destination());
-            completed = true;
-        }
-    }
     assert!(
-        completed,
-        "exact-local field step produced no completion outcome"
+        state.world().block_at(carrying.position()).is_some(),
+        "exact-local field movement requires generated world truth at the player"
     );
-    let after = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("exact-local field step lost final survival"));
+    let projection =
+        project_player_adjacent_walk(registries, state, destination).unwrap_or_else(|error| {
+            panic!("exact-local continuous movement projection failed: {error}")
+        });
+    let _ = walk_continuous_body_adjacent_and_settle(
+        registries,
+        state,
+        destination,
+        "field expedition movement",
+    );
     StepCost {
         load: carrying.stored(),
-        energy: Energy::from_nanojoules(
-            before
-                .metabolic_energy()
-                .nanojoules()
-                .checked_sub(after.metabolic_energy().nanojoules())
-                .unwrap_or_else(|| panic!("field expedition movement created metabolic energy")),
-        ),
-        hydration: Volume::from_microliters(
-            before
-                .hydration()
-                .microliters()
-                .checked_sub(after.hydration().microliters())
-                .unwrap_or_else(|| panic!("field expedition movement created hydration")),
-        ),
+        energy: projection.resource_budget().metabolic_energy(),
+        hydration: projection.resource_budget().hydration(),
     }
 }
 
