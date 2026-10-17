@@ -23,7 +23,7 @@ use super::progression_generation::{
     SHALLOW_OPPORTUNITY_MIN_BATCHES, ore_opportunity, varied_four_way_order,
 };
 use super::progression_upgrade_planning::{equipment_upgrade_additions, native_input_for_upgrade};
-use super::prospecting_timing::select_visible_prospecting_method;
+use super::prospecting_selection::select_visible_prospecting_method;
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::content::gameplay_fixture::seed_player_survival_at_full_reserve;

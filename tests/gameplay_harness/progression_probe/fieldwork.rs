@@ -1,8 +1,7 @@
 //! Observable prospecting, mining execution, and clue interpretation for primitive progression.
 
-use super::super::prospecting_timing::{
-    complete_prospecting_work, select_visible_prospecting_method,
-};
+use super::super::prospecting_selection::select_visible_prospecting_method;
+use super::super::prospecting_timing::complete_prospecting_work;
 use super::*;
 
 pub(super) fn mine_and_claim(

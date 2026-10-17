@@ -13,9 +13,8 @@ use deep_hearth::mining::{
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 
-use super::super::prospecting_timing::{
-    complete_prospecting_work, select_visible_prospecting_method,
-};
+use super::super::prospecting_selection::select_visible_prospecting_method;
+use super::super::prospecting_timing::complete_prospecting_work;
 
 pub(super) const CHANNEL_START_X: i64 = 20;
 pub(super) const SECONDARY_CHANNEL_START_X: i64 = 100;

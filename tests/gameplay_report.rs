@@ -139,6 +139,8 @@ mod progression_manual_processing_generation;
 mod progression_probe;
 #[path = "gameplay_harness/progression_upgrade_planning.rs"]
 mod progression_upgrade_planning;
+#[path = "gameplay_harness/prospecting_selection.rs"]
+mod prospecting_selection;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
 #[path = "gameplay_harness/report.rs"]

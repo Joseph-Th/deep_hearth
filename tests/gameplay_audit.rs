@@ -186,6 +186,8 @@ mod primitive_liberation_kit_planning;
 mod production_support;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/prospecting_selection.rs"]
+mod prospecting_selection;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
 #[path = "gameplay_harness/report.rs"]

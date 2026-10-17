@@ -72,6 +72,8 @@ mod physical_time;
 mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/prospecting_selection.rs"]
+mod prospecting_selection;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
 #[path = "gameplay_harness/seed.rs"]
