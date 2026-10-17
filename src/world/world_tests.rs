@@ -588,6 +588,52 @@ fn trusted_load_rejects_active_block_excavation_with_invalid_body_motion() {
 }
 
 #[test]
+fn chunk_generation_preserves_active_excavation_world_revision_headroom() {
+    let (registries, state, pick, _target) = generated_excavation_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("world-headroom serialization failed: {error}"));
+    encoded["state"]["systems"]["world"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("world-headroom decode failed: {error}"));
+    let mut state = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("near-exhausted world fixture should load: {error}"));
+    let _ = validate_start_player_block_excavation(
+        &registries,
+        &state,
+        BlockExcavationRequest::new(
+            positive_x_view(),
+            MINING_METHOD_HAND_PICK,
+            pick,
+            Mass::from_milligrams(200_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("world-headroom excavation validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("world-headroom excavation commit failed: {error}"));
+    assert_eq!(state.world().revision(), u64::MAX - 1);
+    let before = state.clone();
+
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(ChunkGenerationError::WorldRevisionExhausted)
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::new(1, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::WorldRevisionExhausted)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_work() {
     let (registries, mut state, pick, target) = generated_excavation_fixture();
     let batch = Mass::from_milligrams(200_000);

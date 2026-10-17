@@ -292,10 +292,13 @@ pub fn validate_generate_chunk(
     }
     let profile = WorldGenerationProfile::new(seed, solid_state);
     validate_generation_profile(registry, state, profile)?;
+    if !state.can_spend_world_revisions(1) {
+        return Err(ChunkGenerationError::WorldRevisionExhausted);
+    }
     let expected_revision = state.world().revision();
     let next_revision = expected_revision
         .checked_add(1)
-        .ok_or(ChunkGenerationError::WorldRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("world headroom check includes chunk generation"));
     let chunk = build_generated_chunk(registry, profile, coord)?;
     if let Some(player) = state.logistics().player()
         && let Some(voxel) = first_player_body_collision_in_chunk(
@@ -371,10 +374,13 @@ pub fn validate_generate_player_neighborhood(
         return Ok(None);
     }
     chunks.sort_unstable_by_key(WorldChunk::coord);
+    if !state.can_spend_world_revisions(1) {
+        return Err(ChunkGenerationError::WorldRevisionExhausted);
+    }
     let expected_revision = state.world().revision();
     let next_revision = expected_revision
         .checked_add(1)
-        .ok_or(ChunkGenerationError::WorldRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("world headroom check includes player chunk demand"));
     Ok(Some(ValidatedPlayerChunkDemand {
         expected_revision,
         expected_logistics_revision: state.logistics().revision(),
