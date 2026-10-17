@@ -38,6 +38,108 @@ pub enum EatLotToTargetError {
     Eat(EatError),
 }
 
+#[must_use]
+#[derive(Clone, Copy, Debug)]
+pub struct FoodStackPortion<'a> {
+    stack: &'a MaterialStackProjection,
+    mass: Mass,
+}
+
+impl<'a> FoodStackPortion<'a> {
+    pub const fn new(stack: &'a MaterialStackProjection, mass: Mass) -> Self {
+        Self { stack, mass }
+    }
+
+    #[must_use]
+    pub const fn stack(self) -> &'a MaterialStackProjection {
+        self.stack
+    }
+
+    #[must_use]
+    pub const fn mass(self) -> Mass {
+        self.mass
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EatStackPortionsError {
+    EmptyMeal,
+    MixedSources {
+        expected: crate::inventory::StockpileId,
+        actual: crate::inventory::StockpileId,
+    },
+    Stack {
+        portion: usize,
+        error: MaterialStackProjectionError,
+    },
+    Eat(EatError),
+}
+
+impl Display for EatStackPortionsError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyMeal => {
+                formatter.write_str("visible-stack meal requires at least one portion")
+            }
+            Self::MixedSources { expected, actual } => write!(
+                formatter,
+                "visible-stack meal mixes stockpiles {} and {}",
+                expected.value(),
+                actual.value()
+            ),
+            Self::Stack { portion, error } => {
+                write!(formatter, "meal portion {portion} became stale: {error}")
+            }
+            Self::Eat(error) => write!(formatter, "visible-stack meal failed: {error}"),
+        }
+    }
+}
+
+impl Error for EatStackPortionsError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Stack { error, .. } => Some(error),
+            Self::Eat(error) => Some(error),
+            Self::EmptyMeal | Self::MixedSources { .. } => None,
+        }
+    }
+}
+
+/// Validates one deliberate meal composed from visible physical stack portions.
+///
+/// Exact lot membership remains private to inventory. Every portion must come from the same
+/// stockpile; canonical eating still owns freshness, intake limits, nutrition, timing, attention,
+/// custody, and conservation.
+pub fn validate_eat_stack_portions(
+    registries: &Registries,
+    state: &AppState,
+    portions: &[FoodStackPortion<'_>],
+) -> Result<ValidatedEat, EatStackPortionsError> {
+    let source = portions
+        .first()
+        .map(|portion| portion.stack().stockpile())
+        .ok_or(EatStackPortionsError::EmptyMeal)?;
+    let mut selections = Vec::new();
+    for (index, portion) in portions.iter().copied().enumerate() {
+        if portion.stack().stockpile() != source {
+            return Err(EatStackPortionsError::MixedSources {
+                expected: source,
+                actual: portion.stack().stockpile(),
+            });
+        }
+        selections.extend(
+            portion
+                .stack()
+                .selections_for_mass(state, source, portion.mass())
+                .map_err(|error| EatStackPortionsError::Stack {
+                    portion: index,
+                    error,
+                })?,
+        );
+    }
+    validate_eat(registries, state, source, &selections).map_err(EatStackPortionsError::Eat)
+}
+
 /// Failure while composing one familiar projected food stack into exact eating.
 ///
 /// Unlike the lot-oriented adapter, this surface does not expose inventory lot identity.

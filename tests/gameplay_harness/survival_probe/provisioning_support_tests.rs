@@ -125,20 +125,19 @@ fn provisioning_plan_reobserves_live_food_after_canonical_consumption() {
     let consumed = observed
         .iter()
         .skip(1)
-        .copied()
-        .find(|food| can_exhaust_in_legal_meals(food.mass))
+        .find(|food| can_exhaust_in_legal_meals(food.stack.mass()))
         .unwrap_or_else(|| {
-            panic!("live survival inventory produced no exhaustible replan witness")
+            panic!("live survival inventory produced no exhaustible visible-stack replan witness")
         });
-    let consumed_lot = consumed.lot;
-    let initial_mass = consumed.mass;
+    let consumed_commodity = consumed.stack.commodity();
+    let initial_mass = consumed.stack.mass();
     let mut consumed_mass = Mass::ZERO;
-    while let Some(remaining) = prepared
-        .state
-        .inventory()
-        .get_lot(consumed_lot)
-        .map(|lot| lot.mass())
+    while let Some(current) =
+        observed_provisioning_foods(&registries, &prepared.state, prepared.ambient_meal)
+            .into_iter()
+            .find(|food| food.stack.commodity() == consumed_commodity)
     {
+        let remaining = current.stack.mass();
         let remaining_meals = remaining.milligrams().div_ceil(maximum.milligrams());
         let portion_mg = if remaining_meals == 1 {
             remaining.milligrams()
@@ -149,12 +148,17 @@ fn provisioning_plan_reobserves_live_food_after_canonical_consumption() {
         };
         let portion = Mass::from_milligrams(portion_mg);
         assert!(portion >= minimum && portion <= maximum);
-        let (meal, _elapsed) = execute_planned_meal(
-            &registries,
-            &mut prepared.state,
-            prepared.ambient_meal,
-            &[MaterialLotSelection::new(consumed_lot, portion)],
-        );
+        let planned = [PlannedFoodStackPortion {
+            stack: current.stack,
+            mass: portion,
+        }];
+        let visible = [FoodStackPortion::new(&planned[0].stack, planned[0].mass)];
+        let meal = validate_eat_stack_portions(&registries, &prepared.state, &visible)
+            .unwrap_or_else(|error| panic!("survival visible-stack replan meal failed: {error}"))
+            .commit(&mut prepared.state)
+            .unwrap_or_else(|error| panic!("survival visible-stack replan commit failed: {error}"));
+        let _elapsed =
+            finish_direct_consumption(&registries, &mut prepared.state, meal.completes_at());
         assert_eq!(meal.total_mass(), portion);
         consumed_mass = consumed_mass
             .checked_add(portion)
@@ -162,8 +166,9 @@ fn provisioning_plan_reobserves_live_food_after_canonical_consumption() {
     }
     assert_eq!(consumed_mass, initial_mass);
     assert!(
-        prepared.state.inventory().get_lot(consumed_lot).is_none(),
-        "canonical eating must remove the exhausted lot before replanning"
+        observed_provisioning_foods(&registries, &prepared.state, prepared.ambient_meal)
+            .iter()
+            .all(|food| food.stack.commodity() != consumed_commodity)
     );
 
     let replanned = provisioning_plan(
@@ -173,20 +178,14 @@ fn provisioning_plan_reobserves_live_food_after_canonical_consumption() {
     );
     assert!(
         replanned
-            .selections
+            .portions
             .iter()
-            .all(|selection| selection.lot() != consumed_lot),
-        "survival actor planning must not reuse a food lot that canonical gameplay already exhausted"
+            .all(|portion| portion.stack.commodity() != consumed_commodity),
+        "survival actor planning must not reuse a visible food stack that canonical gameplay exhausted"
     );
-    for selection in &replanned.selections {
-        let available = prepared
-            .state
-            .inventory()
-            .get_lot(selection.lot())
-            .unwrap_or_else(|| panic!("replanned survival food lot disappeared"))
-            .mass();
+    for portion in &replanned.portions {
         assert!(
-            selection.mass() <= available,
+            portion.mass <= portion.stack.mass(),
             "survival actor meal selection exceeded currently visible inventory"
         );
     }

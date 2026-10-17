@@ -117,16 +117,19 @@ pub(super) struct ProvisioningActionOutcome {
     pub(super) action_order: &'static str,
 }
 
-pub(super) fn execute_planned_meal(
+fn execute_planned_stack_meal(
     registries: &Registries,
     state: &mut AppState,
-    source: StockpileId,
-    selections: &[MaterialLotSelection],
+    portions: &[PlannedFoodStackPortion],
 ) -> (EatOutcome, u64) {
-    let meal = validate_eat(registries, state, source, selections)
-        .unwrap_or_else(|error| panic!("survival probe varied meal validation failed: {error}"))
+    let visible = portions
+        .iter()
+        .map(|portion| FoodStackPortion::new(&portion.stack, portion.mass))
+        .collect::<Vec<_>>();
+    let meal = validate_eat_stack_portions(registries, state, &visible)
+        .unwrap_or_else(|error| panic!("survival visible-stack meal validation failed: {error}"))
         .commit(state)
-        .unwrap_or_else(|error| panic!("survival probe varied meal commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("survival visible-stack meal commit failed: {error}"));
     let elapsed = finish_direct_consumption(registries, state, meal.completes_at());
     (meal, elapsed)
 }
@@ -146,15 +149,14 @@ pub(super) fn execute_recovery_drink(
 pub(super) fn execute_provisioning_actions(
     registries: &Registries,
     state: &mut AppState,
-    prepared: &PreparedProvisioningWorld,
-    selections: &[MaterialLotSelection],
+    _prepared: &PreparedProvisioningWorld,
+    portions: &[PlannedFoodStackPortion],
     drink_first: bool,
 ) -> ProvisioningActionOutcome {
     let (meal, drank_volume, hydration_offered, elapsed_ticks, action_order) = if drink_first {
         let drink_store = observed_provisioning_drink(registries, state).store();
         if let Some((drank, drink_ticks)) = execute_recovery_drink(registries, state, drink_store) {
-            let (meal, meal_ticks) =
-                execute_planned_meal(registries, state, prepared.ambient_meal, selections);
+            let (meal, meal_ticks) = execute_planned_stack_meal(registries, state, portions);
             (
                 meal,
                 drank.volume(),
@@ -165,13 +167,11 @@ pub(super) fn execute_provisioning_actions(
                 "drink->eat",
             )
         } else {
-            let (meal, meal_ticks) =
-                execute_planned_meal(registries, state, prepared.ambient_meal, selections);
+            let (meal, meal_ticks) = execute_planned_stack_meal(registries, state, portions);
             (meal, Volume::ZERO, Volume::ZERO, meal_ticks, "eat-only")
         }
     } else {
-        let (meal, meal_ticks) =
-            execute_planned_meal(registries, state, prepared.ambient_meal, selections);
+        let (meal, meal_ticks) = execute_planned_stack_meal(registries, state, portions);
         let drink_store = observed_provisioning_drink(registries, state).store();
         if let Some((drank, drink_ticks)) = execute_recovery_drink(registries, state, drink_store) {
             (

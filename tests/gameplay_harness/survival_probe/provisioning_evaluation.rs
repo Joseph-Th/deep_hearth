@@ -29,7 +29,7 @@ pub(super) fn run_provisioning_case(
         .copied()
         .unwrap_or_else(|| panic!("survival preserved witness is no longer edible"));
     let witness_mass = witness_record.mass();
-    let selections = plan.selections.as_slice();
+    let portions = plan.portions.as_slice();
     let ambient_age = prepared.ambient_age;
     let preserved_age = prepared.preserved_age;
     let preservation_age_saved_ticks = prepared.preservation_age_saved_ticks;
@@ -58,20 +58,13 @@ pub(super) fn run_provisioning_case(
             mix64(behavior_seed ^ 0x5052_4F56_4953_494F).is_multiple_of(2)
         }
     };
-    let selected_categories = selections
+    let selected_categories = portions
         .iter()
-        .map(|selection| {
-            let lot = prepared
-                .state
-                .inventory()
-                .get_lot(selection.lot())
-                .unwrap_or_else(|| {
-                    panic!("selected survival food lot disappeared before execution")
-                });
+        .map(|portion| {
             registries
                 .survival()
-                .get_food(lot.commodity())
-                .unwrap_or_else(|| panic!("selected survival lot is no longer edible"))
+                .get_food(portion.stack.commodity())
+                .unwrap_or_else(|| panic!("selected survival stack is no longer edible"))
                 .category()
         })
         .collect::<Vec<_>>();
@@ -88,7 +81,7 @@ pub(super) fn run_provisioning_case(
     let recovery_rate_before = before.diet_supported_vitality_recovery_ppm_per_tick();
     let mut no_provision_baseline = state.clone();
     let actions =
-        execute_provisioning_actions(registries, &mut state, prepared, selections, drink_first);
+        execute_provisioning_actions(registries, &mut state, prepared, portions, drink_first);
     let provisioning_elapsed_ticks = actions.elapsed_ticks;
     let meal = actions.meal;
     let drank_volume = actions.drank_volume;
@@ -115,7 +108,11 @@ pub(super) fn run_provisioning_case(
         no_provision_baseline.tick(),
         "provisioning and no-provision branches must be observed at the same world tick"
     );
-    assert_eq!(meal.portions().len(), selections.len());
+    let planned_meal_mass = portions
+        .iter()
+        .try_fold(Mass::ZERO, |total, portion| total.checked_add(portion.mass))
+        .unwrap_or_else(|| panic!("survival planned stack meal mass overflowed"));
+    assert_eq!(meal.total_mass(), planned_meal_mass);
     for category in selected_categories.iter().copied() {
         assert!(
             meal.nutrition_offered().get(category) > 0,

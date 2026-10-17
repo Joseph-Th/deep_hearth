@@ -151,12 +151,14 @@ impl MaterialStackProjection {
         self.ambient_storage_age_parts
     }
 
-    pub(crate) fn selections_for_mass(
+    pub(crate) const fn storage_history(&self) -> MaterialStorageHistory {
+        self.storage_history
+    }
+
+    pub(crate) fn validate_current(
         &self,
         state: &AppState,
-        expected_source: StockpileId,
-        requested: Mass,
-    ) -> Result<Vec<MaterialLotSelection>, MaterialStackProjectionError> {
+    ) -> Result<(), MaterialStackProjectionError> {
         let actual_revision = state.inventory().revision();
         if actual_revision != self.expected_inventory_revision {
             return Err(MaterialStackProjectionError::StaleInventoryRevision {
@@ -164,6 +166,16 @@ impl MaterialStackProjection {
                 actual: actual_revision,
             });
         }
+        Ok(())
+    }
+
+    pub(crate) fn selections_for_mass(
+        &self,
+        state: &AppState,
+        expected_source: StockpileId,
+        requested: Mass,
+    ) -> Result<Vec<MaterialLotSelection>, MaterialStackProjectionError> {
+        self.validate_current(state)?;
         if self.stockpile != expected_source {
             return Err(MaterialStackProjectionError::SourceMismatch {
                 expected: expected_source,

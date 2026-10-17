@@ -21,7 +21,8 @@ use deep_hearth::equipment::validate_assemble_equipment;
 use deep_hearth::fluid::{FluidStoreId, calculate_fluid_volume_accounting};
 use deep_hearth::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use deep_hearth::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, StorageDefinitionId,
+    MaterialLotId, MaterialLotSelection, MaterialStackProjection, StockpileId,
+    StockpileStorageProfile, StorageDefinitionId, project_material_stacks,
     validate_build_storage_enclosure, validate_start_storage_enclosure_dismantling,
 };
 use deep_hearth::labor::{
@@ -35,11 +36,12 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
-    DrinkOutcome, EatOutcome, FoodDefinition, FoodFreshness, LocalDrinkSource, SurvivalExertion,
-    ValidatedDrink, assess_food_freshness, assess_survival, available_local_drink_sources,
+    DrinkOutcome, EatOutcome, FoodDefinition, FoodFreshness, FoodStackPortion, LocalDrinkSource,
+    SurvivalExertion, ValidatedDrink, assess_food_freshness, assess_food_stack_freshness,
+    assess_survival, available_local_drink_sources,
     project_food_freshness_after_storage_transition, project_survival_resource_budget,
     validate_drink, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
-    validate_eat,
+    validate_eat, validate_eat_stack_portions,
 };
 
 use super::environment::ROOM_TEMPERATURE;
@@ -108,9 +110,9 @@ include_survival_probe_contract_tests!();
 #[path = "survival_probe/provisioning_runtime.rs"]
 pub(super) mod provisioning_runtime;
 use provisioning_runtime::{
-    PreparedProvisioningWorld, ProvisioningPlan, maximum_direct_provisioning_ticks,
-    observed_provisioning_drink, observed_provisioning_foods, prepare_provisioning_world,
-    provisioning_plan,
+    PlannedFoodStackPortion, PreparedProvisioningWorld, ProvisioningPlan,
+    maximum_direct_provisioning_ticks, observed_provisioning_drink, observed_provisioning_foods,
+    prepare_provisioning_world, provisioning_plan,
 };
 
 #[path = "survival_probe/provisioning_evaluation.rs"]
@@ -360,26 +362,28 @@ fn provision_diet_recovery_branch(
         );
         let selected_masses =
             desired_policy_meal_masses(registries, &state, &available_foods, &selected_indices);
-        let selections = selected_indices
+        let portions = selected_indices
             .iter()
             .zip(selected_masses)
             .map(|(index, desired)| {
-                let observed = available[*index];
-                MaterialLotSelection::new(observed.lot, desired.min(observed.mass))
+                let observed = &available[*index];
+                FoodStackPortion::new(&observed.stack, desired.min(observed.stack.mass()))
             })
             .collect::<Vec<_>>();
-        let offered = selections
+        let offered = portions
             .iter()
-            .try_fold(Mass::ZERO, |total, selection| {
-                total.checked_add(selection.mass())
+            .try_fold(Mass::ZERO, |total, portion| {
+                total.checked_add(portion.mass())
             })
             .unwrap_or_else(|| panic!("diet-recovery serving mass overflowed"));
         assert!(
             offered >= physiology.direct_consumption().minimum_meal_mass(),
             "diet-recovery finite food supply cannot provide another legal serving"
         );
-        let meal = validate_eat(registries, &state, branch.food_store, &selections)
-            .unwrap_or_else(|error| panic!("diet-recovery meal validation failed: {error}"))
+        let meal = validate_eat_stack_portions(registries, &state, &portions)
+            .unwrap_or_else(|error| {
+                panic!("diet-recovery visible-stack meal validation failed: {error}")
+            })
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("diet-recovery meal commit failed: {error}"));
         provisioning_elapsed_ticks = provisioning_elapsed_ticks

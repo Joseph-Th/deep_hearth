@@ -14,15 +14,17 @@ pub use assessment::{
 pub use consumption::{
     AdjacentDrinkSource, DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome,
     DrinkStoreToTargetError, EatCommitError, EatError, EatLotToTargetError, EatOutcome,
-    EatPortionOutcome, EatStackToTargetError, FoodFreshness, FoodFreshnessError,
-    FoodFreshnessProjectionError, LocalDrinkSource, MealMetabolicProjectionError,
-    MinimumDrinkHydrationProjection, MinimumMealMetabolicProjection, NutritionGain, ValidatedDrink,
-    ValidatedEat, assess_food_freshness, available_adjacent_drink_sources,
+    EatPortionOutcome, EatStackPortionsError, EatStackToTargetError, FoodFreshness,
+    FoodFreshnessError, FoodFreshnessProjectionError, FoodStackFreshnessError, FoodStackPortion,
+    LocalDrinkSource, MealMetabolicProjectionError, MinimumDrinkHydrationProjection,
+    MinimumMealMetabolicProjection, NutritionGain, ValidatedDrink, ValidatedEat,
+    assess_food_freshness, assess_food_stack_freshness, available_adjacent_drink_sources,
     available_local_drink_sources, project_food_freshness_after_storage_transition,
     project_minimum_drink_to_hydration_target, project_minimum_meal_to_metabolic_target,
     validate_drink, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
     validate_eat, validate_eat_lot_to_full, validate_eat_lot_to_metabolic_target,
-    validate_eat_stack_to_full, validate_eat_stack_to_metabolic_target,
+    validate_eat_stack_portions, validate_eat_stack_to_full,
+    validate_eat_stack_to_metabolic_target,
 };
 pub use definitions::{
     BodyKinematicsDefinition, BodyStanceDefinition, BodyViewDefinition,

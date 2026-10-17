@@ -3,8 +3,8 @@
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::{
-    MaterialLotId, MaterialStorageHistory, STORAGE_AGE_PARTS_PER_TICK, StockpileId,
-    StorageDefinitionId,
+    MaterialLotId, MaterialStackProjection, MaterialStackProjectionError, MaterialStorageHistory,
+    STORAGE_AGE_PARTS_PER_TICK, StockpileId, StorageDefinitionId,
 };
 use crate::material::CommodityKey;
 use crate::registry::Registries;
@@ -16,6 +16,14 @@ pub enum FoodFreshness {
     Spoiled { age: TickSpan },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FoodStackFreshnessError {
+    Stack(MaterialStackProjectionError),
+    UnknownStockpile { stockpile: StockpileId },
+    NotEdible { commodity: CommodityKey },
+    ShelfLifeOverflow,
+}
+
 /// Failure while projecting freshness for one lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FoodFreshnessError {
@@ -23,6 +31,41 @@ pub enum FoodFreshnessError {
     UnknownStockpile { stockpile: StockpileId },
     NotEdible { commodity: CommodityKey },
     ShelfLifeOverflow,
+}
+
+/// Projects freshness for one visible physical food stack without exposing its member lot IDs.
+pub fn assess_food_stack_freshness(
+    registries: &Registries,
+    state: &AppState,
+    stack: &MaterialStackProjection,
+) -> Result<FoodFreshness, FoodStackFreshnessError> {
+    stack
+        .validate_current(state)
+        .map_err(FoodStackFreshnessError::Stack)?;
+    let food = registries.survival().get_food(stack.commodity()).ok_or(
+        FoodStackFreshnessError::NotEdible {
+            commodity: stack.commodity(),
+        },
+    )?;
+    let stockpile = state.inventory().get_stockpile(stack.stockpile()).ok_or(
+        FoodStackFreshnessError::UnknownStockpile {
+            stockpile: stack.stockpile(),
+        },
+    )?;
+    freshness_from_history(
+        stack.storage_history(),
+        stockpile.storage_profile().preservation_multiplier_ppm(),
+        state.tick(),
+        food.shelf_life(),
+    )
+    .map_err(|error| match error {
+        FoodFreshnessError::ShelfLifeOverflow => FoodStackFreshnessError::ShelfLifeOverflow,
+        FoodFreshnessError::UnknownLot { .. }
+        | FoodFreshnessError::UnknownStockpile { .. }
+        | FoodFreshnessError::NotEdible { .. } => {
+            unreachable!("stack freshness inputs were already resolved")
+        }
+    })
 }
 
 /// Failure while projecting freshness through one prospective authored storage transition.

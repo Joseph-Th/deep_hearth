@@ -1,7 +1,7 @@
 //! Familiar selected-stack/vessel direct-consumption contracts.
 
 use super::*;
-use crate::content::{FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, build_registries};
+use crate::content::{FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN, build_registries};
 use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
@@ -30,6 +30,49 @@ fn set_player_reserves(state: &mut AppState, metabolic_energy: Energy, hydration
             0,
         ),
     );
+}
+
+#[test]
+fn visible_stack_meal_composes_multiple_food_categories_without_lot_ids() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stack meal survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    set_player_reserves(&mut state, Energy::ZERO, physiology.maximum_hydration());
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(500_000))
+        .unwrap_or_else(|error| panic!("stack meal stockpile failed: {error}"));
+    for material in [MATERIAL_BERRIES, MATERIAL_GRAIN] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(material, FORM_FOOD),
+            Mass::from_milligrams(100_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("stack meal food fixture failed: {error}"));
+    }
+    let stacks = project_material_stacks(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("stack meal projection failed: {error}"));
+    assert_eq!(stacks.len(), 2);
+    for stack in &stacks {
+        assert!(matches!(
+            assess_food_stack_freshness(&registries, &state, stack),
+            Ok(FoodFreshness::Fresh { .. })
+        ));
+    }
+    let portion_mass = Mass::from_milligrams(10_000);
+    let portions = stacks
+        .iter()
+        .map(|stack| FoodStackPortion::new(stack, portion_mass))
+        .collect::<Vec<_>>();
+    let outcome = validate_eat_stack_portions(&registries, &state, &portions)
+        .unwrap_or_else(|error| panic!("stack meal validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stack meal commit failed: {error}"));
+    assert_eq!(outcome.total_mass(), Mass::from_milligrams(20_000));
+    assert_eq!(outcome.portions().len(), 2);
 }
 
 #[test]
@@ -131,6 +174,13 @@ fn projected_food_stack_use_rejects_stale_inventory_revision_without_mutation() 
     let _unrelated = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("stale projected-stack revision mutation failed: {error}"));
     let before = state.clone();
+
+    assert!(matches!(
+        assess_food_stack_freshness(&registries, &state, &stack),
+        Err(FoodStackFreshnessError::Stack(
+            crate::inventory::MaterialStackProjectionError::StaleInventoryRevision { .. }
+        ))
+    ));
 
     assert!(matches!(
         validate_eat_stack_to_full(&registries, &state, &stack),
