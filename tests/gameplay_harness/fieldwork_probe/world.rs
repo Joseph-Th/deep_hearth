@@ -15,7 +15,7 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
-use deep_hearth::spatial::VoxelBounds;
+use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::inventory_support::add_solid_stockpile;
@@ -25,7 +25,9 @@ use super::planning::{
     FieldworkMiningLimits, fieldwork_hardness_frontier, fieldwork_mining_limits,
     fieldwork_raw_opportunity, multiplied_mass,
 };
-use super::survey::{CHANNEL_COUNT, CHANNEL_START_X, FOLLOWUP_CHANNEL_STARTS, horizontal_region};
+use super::survey::{
+    CHANNEL_COUNT, CHANNEL_START_X, FOLLOWUP_CHANNEL_STARTS, horizontal_region_at,
+};
 
 pub(super) struct FieldworkWorld {
     pub(super) state: AppState,
@@ -99,15 +101,15 @@ pub(super) fn seed_generated_primary_fieldwork_site(
 ///
 /// The relative hidden channel/slot, reserve, hardness, and grade reuse the same generation
 /// channels as the spatial-proxy fieldwork world. The caller chooses only where that bounded
-/// corridor is embedded in its authored traversal graph. No hidden location is returned: an
-/// admitted actor must still acquire the target through ordinary local prospecting.
-pub(super) fn seed_generated_followup_fieldwork_site(
+/// corridor is embedded in world space. No hidden location is returned: an admitted actor must
+/// still acquire the target through ordinary local prospecting.
+pub(super) fn seed_generated_followup_fieldwork_site_at(
     registries: &Registries,
     state: &mut AppState,
     seed: u64,
     followup_index: usize,
     channel_voxels: i64,
-    local_start_x: i64,
+    local_start: VoxelCoord,
 ) {
     let site_seed = *followup_site_seeds(seed)
         .get(followup_index)
@@ -133,10 +135,10 @@ pub(super) fn seed_generated_followup_fieldwork_site(
         false,
     )
     .2;
-    seed_channel_deposit(
+    seed_channel_deposit_at(
         registries,
         state,
-        local_start_x,
+        local_start,
         channel_voxels,
         hidden,
         supply,
@@ -338,7 +340,32 @@ fn seed_channel_deposit(
     supply: Mass,
     profile: FieldworkGeologyProfile,
 ) {
-    let region = horizontal_region(start_x + hidden.0 * channel_voxels + hidden.1, 1);
+    seed_channel_deposit_at(
+        registries,
+        state,
+        VoxelCoord::new(start_x, -1, 0),
+        channel_voxels,
+        hidden,
+        supply,
+        profile,
+    );
+}
+
+fn seed_channel_deposit_at(
+    registries: &Registries,
+    state: &mut AppState,
+    start: VoxelCoord,
+    channel_voxels: i64,
+    hidden: (i64, i64),
+    supply: Mass,
+    profile: FieldworkGeologyProfile,
+) {
+    let region = horizontal_region_at(
+        start.x() + hidden.0 * channel_voxels + hidden.1,
+        1,
+        start.y(),
+        start.z(),
+    );
     seed_geological_deposit(
         registries,
         state,

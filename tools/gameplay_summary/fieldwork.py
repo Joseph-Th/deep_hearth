@@ -736,6 +736,11 @@ def _generated_exact_local_orders_summary(lines: list[str]) -> str | None:
         )
         if None in (seed, sample, route, investment, extraction):
             raise ValueError(f"malformed generated exact-local field order: {line}")
+        if " route=[body:continuous-generated-terrain " not in line:
+            raise ValueError(
+                "generated exact-local field order lost continuous generated-terrain movement evidence: "
+                + line
+            )
         assert seed is not None
         assert sample is not None
         assert route is not None
@@ -794,6 +799,7 @@ def _generated_exact_local_orders_summary(lines: list[str]) -> str | None:
         "generated-exact-local=["
         f"cases:{len(orders)} coverage:{coverage} organic:{organic} replay:{replay} "
         f"parity:{len(parity_keys)}/{len(order_keys)} "
+        "body:continuous-generated-terrain "
         f"fabricated-kit:{fabricated}/{len(orders)} "
         f"trips:{min(trips)}..{max(trips)} multi-trip:{sum(value > 1 for value in trips)} "
         f"returned:{scaled_span(returned, 1_000_000, 'kg')} "
@@ -861,6 +867,8 @@ def _exact_local_depletion_reroute_summary(lines: list[str]) -> str | None:
         raise ValueError("exact-local field depletion reroute/parity identities disagree")
     if " evidence=ordinary-exact-local " not in line or not line.endswith(" matter=conserved"):
         raise ValueError("exact-local field depletion reroute lost ordinary/conservation evidence")
+    if " route=[body:continuous-generated-terrain] " not in line:
+        raise ValueError("exact-local field depletion reroute lost continuous generated-terrain movement evidence")
     if " tools-dropped:true]" not in line:
         raise ValueError("exact-local field depletion reroute lost final tool custody evidence")
     if not all(
@@ -879,7 +887,7 @@ def _exact_local_depletion_reroute_summary(lines: list[str]) -> str | None:
         raise ValueError("fieldwork exact-local depletion parity is incomplete")
     return (
         "exact-local-depletion-reroute=["
-        "cases:1 parity:1/1 "
+        "cases:1 parity:1/1 body:continuous-generated-terrain "
         f"depletion:{_scaled_value(int(depletion.group(2)), 1_000_000, 'kg')}/"
         f"{depletion.group(4)} "
         f"search-travel:{search.group(1)}steps search-work:{search.group(7)}t "
