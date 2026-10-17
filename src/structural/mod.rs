@@ -56,7 +56,7 @@ pub use player_construction::{
     ValidatedPlayerStructuralConstructionStart, validate_start_player_structural_construction,
 };
 pub(crate) use player_construction::{
-    StructuralConstructionTickPlan, apply_structural_construction_tick, bounds_are_local,
+    StructuralConstructionTickPlan, apply_structural_construction_tick,
     decide_structural_construction_tick,
     validate_start_player_structural_construction_for_multi_supported_planned_member,
     validate_start_player_structural_construction_for_planned_member,
@@ -80,6 +80,7 @@ pub use structural_execution::{StructuralCommitError, StructuralMutationError};
 
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use element_execution::add_structural_element;
+pub(crate) use element_execution::bounds_are_within_player_reach;
 pub use element_execution::{
     AddStructuralElementError, GroundedStructuralElementPlan, MultiSupportedStructuralElementPlan,
     PlanPlayerStructuralElementCommitError, PlanPlayerStructuralElementError,

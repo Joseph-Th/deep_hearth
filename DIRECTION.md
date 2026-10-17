@@ -226,13 +226,18 @@ same finite passive-energy loss rather than separate light state. Fuel mass rema
 combustion terminal account. This is a primitive local heat/light source, not weather, environmental heat
 transport, atmospheric chemistry, sky/block-light propagation or occlusion, meshing, or shelter semantics.
 
-The structural owner now has ordinary carried-stack construction below shelter semantics. An admitted player may
-hand-set a local grounded member or one non-grounded member on a non-empty set of face-contacting active supports;
-all support links, exact material embodiment, attention and survival are prechecked before mutation, and in-progress
-work survives save/load before activating on completion. Selected timber secondary use now points at either a
-terrain top face for a grounded post or an active member face for one supported framing cell, binding every active
-member that face-contacts that target cell. This is framing substrate, not shelter: joints, panels, dependent
-demolition, weather/exposure, sleep, enclosure, and shelter benefit remain open.
+The structural owner now has an ordinary fresh-start overhead-refuge path below complete shelter semantics. An admitted
+player may hand-set one-voxel members anywhere inside the authored interaction-reach envelope, provided the target does
+not overlap the body and non-grounded work has a non-empty set of face-contacting active supports. All support links,
+exact material embodiment, attention and survival are prechecked before mutation, and in-progress work survives
+save/load before activating on completion. Selected logs place posts/framing; selected boards may place one solid
+1 m² × 10 mm, 6.5 kg timber panel on an existing active support. Only the completed panel counts as opaque overhead
+cover and reduces the existing thermal-exposure loss; it does not generate heat. The wilderness harness now proves a
+fresh-world long-stay episode that gathers its own stone/timber, builds three real support members, earns an adze from
+the panel's nine-batch board workload, completes the roof, conserves matter, and observes exposure fall from 1000 to
+500 ppm per tick. Broader panels/walls/joints, general terrain-support physics, dependent demolition, weather, sleep,
+enclosure and insulation remain open, as does one continuous first-day episode combining every food/water/fire/storage/
+shelter action in a single state.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a

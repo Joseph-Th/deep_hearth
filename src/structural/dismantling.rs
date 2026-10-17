@@ -20,7 +20,9 @@ use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::{StructuralElementId, StructuralLifecycle, StructuralLoadKind, bounds_are_local};
+use super::{
+    StructuralElementId, StructuralLifecycle, StructuralLoadKind, bounds_are_within_player_reach,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStructuralDismantlingError {
@@ -31,7 +33,7 @@ pub enum PlayerStructuralDismantlingError {
     ElementNotRecoverable {
         element: StructuralElementId,
     },
-    ElementRemote {
+    ElementOutOfReach {
         element: StructuralElementId,
     },
     ElementHasDependents {
@@ -257,8 +259,8 @@ pub fn validate_start_player_structural_dismantling(
         .copied()
         .ok_or(PlayerStructuralDismantlingError::PlayerNotAdmitted)?;
     let record = target_record(state, element)?;
-    if !bounds_are_local(record.bounds(), player.position()) {
-        return Err(PlayerStructuralDismantlingError::ElementRemote { element });
+    if !bounds_are_within_player_reach(registries, state, record.bounds()) {
+        return Err(PlayerStructuralDismantlingError::ElementOutOfReach { element });
     }
     let definition = registries
         .labor()

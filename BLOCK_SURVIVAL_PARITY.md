@@ -68,10 +68,10 @@ Foundational blockers:
   commodity, while an explicit projected stack can select among visible freshness cohorts without exposing lot IDs;
   with empty hands, secondary use gathers one authored direct batch from a co-located natural opportunity or drinks one finite source, clamps gathering to carried capacity, and rejects ambiguous local contexts;
   secondary use can also place an authored finished storage object into generated air adjacent to the pointed face, with body/object
-  overlap rejection; an unambiguous carried wood-log stack can likewise set one authored timber post on the top face
-  of adjacent generated terrain through atomic timed hand-setting. Primary break targets a visible structure before
-  terrain and can recover that isolated one-voxel grounded member through timed work and exact embodied-matter salvage.
-  Side-supported shapes, dependent/cascading demolition, general terrain placement, broader interact semantics, and adapter feedback remain absent;
+  overlap rejection; carried logs can set posts/framing and carried boards can set one conserved 1 m² × 10 mm supported
+  timber cover panel through atomic timed hand-setting. Only the completed 6.5 kg panel reduces overhead thermal exposure.
+  Primary break targets a visible structure before terrain and can recover an isolated local member through timed work and exact matter salvage.
+  Broader panels/joints, dependent/cascading demolition, general terrain placement, broader interact semantics, and adapter feedback remain absent;
 - no generic dropped-item world entity or rendered container UI shell; logistics now persists a nine-slot semantic
   hotbar and inventory exposes one carried/local-container projection; familiar material stacks preserve meaningful
   physical/freshness boundaries and can drive partial same-voxel storage transfer without exposing lot IDs; selected carried material
@@ -442,11 +442,11 @@ stronger structural owner. The parity challenge is to make that depth compatible
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
-| Stack blocks freely | Most solid blocks can be placed without support analysis | Secondary use maps carried logs onto an adjacent terrain top face as one 3.25 kg timber post with timed hand-setting; other shapes/materials remain unplaced | `GAP-P0` shell | Extend this familiar gesture across simple authored shapes while structural simulation rejects/settles impossible builds instead of turning placement into engineering UI. |
+| Stack blocks freely | Most solid blocks can be placed without support analysis | Secondary use places timed 3.25 kg timber posts/framing and one supported 6.5 kg board cover panel; other shapes/materials remain unplaced | `GAP-P0` shell | Extend this familiar gesture across simple authored shapes while structural simulation rejects/settles impossible builds instead of turning placement into engineering UI. |
 | Gravity blocks | Sand/gravel-like blocks fall | Structural owner models load but no terrain blocks | `DIFFERENT+` | Loose/unsupported materials should fall or fail based on material/cohesion/support, not a hardcoded tiny list. |
 | Structural failure | Most Minecraft blocks never fail by load | Support/load/failure physics | `PARITY+` | This is a major differentiator. Keep failure readable and recoverable. |
 | Terrain support | Terrain implicitly supports blocks | Terrain support absent | `GAP-P0` | World terrain must contribute structural support before structures can integrate with actual ground. |
-| Joints/panels | Block adjacency usually implies connection | Joints/panels absent | `GAP-P1` | Add explicit connection semantics where material/geometry needs them; ordinary masonry/block contact can use simple defaults. |
+| Joints/panels | Block adjacency usually implies connection | One solid supported cover-panel geometry exists; general joints/panel families are absent | `GAP-P1` | Add explicit connection semantics where material/geometry needs them; ordinary masonry/block contact can use simple defaults. |
 | Deconstruction | Break block and get drops | Primary break dismantles one isolated local grounded member through timed work and recovers its exact embodied matter; dependents, cascading demolition, and salvage loss remain absent | `GAP-P1` shell | Extend the familiar break/recovery gesture across supported assemblies with explicit salvage/yield consequences rather than instant deletion. |
 | Redstone signal | 0-15 neighbour-propagated signal network | No generic control network | `OUT-OF-SCOPE` exact mechanic | Physical electrical/mechanical/control networks replace redstone. |
 | Switches/buttons | Immediate local player control | No direct block controls | `GAP-P1` | Basic switches/valves/levers are still familiar world interactions and should exist even though network physics differ. |
@@ -510,7 +510,7 @@ require enough content to exercise the substrate through the same recognizable f
 | Eat | Hold/use food | Contextual selected-food use with human-scale serving | `PARITY+` core verb; adapter absent |
 | Drink | Vanilla has no hydration requirement | Empty-hand use of one local finite drink source | `PARITY+` core verb; adapter absent |
 | Survive night/environment | Light, shelter-ish construction, hostile mobs | Darkness, weather/thermal exposure, shelter, fire, basic threat | `GAP-P1` |
-| Place shelter blocks | Right-click blocks into world | Contextual placement plus structural consequences | `GAP-P0` |
+| Place shelter blocks | Right-click blocks into world | Contextual log framing plus a material-backed supported roof panel with structural and exposure consequences | `PARITY` shell; broader placement/shapes remain `GAP-P1` |
 | Use fire | Furnace/campfire/torches | Exact fuel/heat plus cooking/light/warmth | `PARITY+` heat core, `GAP-P1` world effects |
 | Save and return | World persists | Validated persisted world chunks and player | `GAP-P0` file/world adapter |
 | Explore farther | Stream new chunks/biomes/resources | Deterministic terrain/climate/geology/ecology streaming | `GAP-P0` |
@@ -560,7 +560,7 @@ This is a dependency order, not a promise that every row becomes a separate subs
 
 ### P1: recognizable survival sandbox
 
-1. Basic weather, shelter/exposure coupling and environmental thermal effects.
+1. Basic weather plus environmental thermal effects beyond the implemented overhead-cover exposure reduction.
 2. Spatial finite water and player swimming/drowning.
 3. General damage beyond current fall impact: protection/armor, fire/suffocation, death/corpse/respawn/recovery.
 4. One coherent wildlife/threat slice with entity transforms, pathfinding, melee and drops.

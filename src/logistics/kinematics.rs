@@ -689,7 +689,12 @@ pub fn assess_player_overhead_cover(
                 .unwrap_or_else(|| {
                     panic!("runtime invariant broken: world block state disappeared")
                 });
-            if !block.is_opaque() {
+            let structural_cover = state.structures().elements().any(|record| {
+                record.lifecycle() == crate::structural::StructuralLifecycle::Active
+                    && record.bounds().has_voxel(voxel)
+                    && record.geometry().covers_horizontal_footprint()
+            });
+            if !block.is_opaque() && !structural_cover {
                 return Some(PlayerOverheadCoverAssessment::Open);
             }
         }

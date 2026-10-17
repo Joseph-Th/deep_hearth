@@ -13,8 +13,10 @@ use deep_hearth::content::gameplay_fixture::{
     admit_player_at_hunger_warning_boundary, admit_player_at_hydration_warning_boundary,
 };
 use deep_hearth::content::{
-    CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE,
-    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, CAMPFIRE_FUEL_MASS,
+    CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_WOODWORKING_ADZE,
+    FORM_BOARD, FORM_FOOD, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_TOOL, MATERIAL_BERRIES,
     MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
@@ -22,8 +24,6 @@ use deep_hearth::content::{
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE,
     SURFACE_GATHERING_HAND_COLLECT_TIMBER, build_registries,
 };
-#[cfg(test)]
-use deep_hearth::content::{FORM_BOARD, FORM_HANDLE, FORM_TOOL};
 use deep_hearth::core::quantity::{Area, Energy, Force, Length, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::{SimulationTick, TickSpan};
@@ -32,7 +32,6 @@ use deep_hearth::crafting::{
     project_manual_craft_hand_work, validate_start_player_manual_craft_option,
 };
 use deep_hearth::energy::assess_local_illumination;
-#[cfg(test)]
 use deep_hearth::equipment::{
     player_equipment_assembly_options, validate_assemble_player_equipment_option,
 };
@@ -42,12 +41,11 @@ use deep_hearth::inventory::{
     validate_mount_stockpile, validate_place_player_storage,
 };
 use deep_hearth::labor::PlayerWork;
-#[cfg(test)]
-use deep_hearth::logistics::validate_pickup_equipment;
 use deep_hearth::logistics::{
-    HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, assess_player_carrying,
+    HorizontalControlInput, PlayerActiveSelection, PlayerControlInput,
+    PlayerOverheadCoverAssessment, assess_player_carrying, assess_player_overhead_cover,
     project_player_walk_path, project_player_walk_path_for_load, validate_drop_stack_to_ground,
-    validate_pickup_stack_from_ground, validate_set_active_selection,
+    validate_pickup_equipment, validate_pickup_stack_from_ground, validate_set_active_selection,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -63,8 +61,10 @@ use deep_hearth::spatial::{
 };
 use deep_hearth::structural::{
     GroundedStructuralElementPlan, PrismaticMemberLoadRequest, StructuralElementGeometry,
-    StructuralLifecycle, StructuralLoadKind, project_prismatic_member_load,
+    StructuralLifecycle, StructuralLoadKind, SupportedStructuralElementPlan,
+    calculate_prismatic_material_mass_ceiling, project_prismatic_member_load,
     validate_start_player_grounded_structural_construction_from_stack,
+    validate_start_player_supported_structural_construction_from_stack,
 };
 use deep_hearth::surface::{
     AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceResourceId,
@@ -77,7 +77,9 @@ use deep_hearth::survival::{
     project_survival_resource_budget, validate_drink_store_to_hydration_target,
     validate_eat_stack_to_metabolic_target,
 };
-use deep_hearth::world::{WorldGenerationSeed, validate_generate_player_neighborhood};
+use deep_hearth::world::{
+    BlockStateId, WorldGenerationSeed, validate_generate_player_neighborhood,
+};
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
 use super::exact_local_runtime::{
@@ -1050,8 +1052,7 @@ fn craft_in_place(
     assert_eq!(state.player_work().active(), None);
 }
 
-#[cfg(test)]
-fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
+fn assert_generated_wilderness_shelter_is_player_visible(emit_report: bool) {
     let registries = build_registries();
     let mut state = AppState::new();
     let spawn = generated_wilderness_surface_spawn(&registries, &mut state, WILDERNESS_WORLD_SEED);
@@ -1076,23 +1077,6 @@ fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
         .unwrap_or_else(|error| panic!("toolkit initial matter audit failed: {error}"))
         .total();
 
-    let (_, _, _, crossover_batches) = project_wilderness_adze_decision(&registries, 1);
-    let workload_batches = crossover_batches
-        .checked_add(1)
-        .unwrap_or_else(|| panic!("wilderness toolkit workload overflowed"));
-    let batches = NonZeroU64::new(workload_batches)
-        .unwrap_or_else(|| unreachable!("wilderness toolkit workload is nonzero"));
-    let (setup_ticks, bare_ticks, assisted_ticks, confirmed_crossover) =
-        project_wilderness_adze_decision(&registries, workload_batches);
-    assert_eq!(confirmed_crossover, crossover_batches);
-    let with_setup_ticks = setup_ticks
-        .checked_add(assisted_ticks)
-        .unwrap_or_else(|| panic!("toolkit attention comparison overflowed"));
-    assert!(
-        with_setup_ticks < bare_ticks,
-        "maintained toolkit workload must repay primitive tool acquisition"
-    );
-
     let stone_tool = CommodityKey::new(MATERIAL_STONE, FORM_TOOL);
     let wood_handle = CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
     let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -1110,6 +1094,42 @@ fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
         .crafting()
         .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
         .unwrap_or_else(|| panic!("toolkit board recipe disappeared"));
+    let panel_mass = calculate_prismatic_material_mass_ceiling(
+        registries.materials(),
+        MATERIAL_WOOD,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+    )
+    .unwrap_or_else(|error| panic!("shelter panel mass failed: {error}"));
+    let board_output = board
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == boards)
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("shelter board output disappeared"));
+    let workload_batches = panel_mass.milligrams().div_ceil(board_output.milligrams());
+    let batches = NonZeroU64::new(workload_batches)
+        .unwrap_or_else(|| unreachable!("shelter panel requires nonzero board work"));
+    let (setup_ticks, bare_ticks, assisted_ticks, crossover_batches) =
+        project_wilderness_adze_decision(&registries, workload_batches);
+    let with_setup_ticks = setup_ticks
+        .checked_add(assisted_ticks)
+        .unwrap_or_else(|| panic!("shelter attention comparison overflowed"));
+    assert!(
+        workload_batches >= crossover_batches && with_setup_ticks < bare_ticks,
+        "material-backed shelter workload must genuinely repay primitive adze acquisition"
+    );
+    let support_mass = calculate_prismatic_material_mass_ceiling(
+        registries.materials(),
+        MATERIAL_WOOD,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+        BASIC_TIMBER_POST_LENGTH,
+    )
+    .unwrap_or_else(|error| panic!("shelter support mass failed: {error}"));
+    let support_timber_mg = support_mass
+        .milligrams()
+        .checked_mul(3)
+        .unwrap_or_else(|| panic!("shelter support timber overflowed"));
     let stone_required = knapping.input_mass();
     let timber_required = Mass::from_milligrams(
         handle
@@ -1122,6 +1142,7 @@ fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
                     .checked_mul(workload_batches)
                     .unwrap_or_else(|| panic!("toolkit board timber requirement overflowed")),
             )
+            .and_then(|mass| mass.checked_add(support_timber_mg))
             .unwrap_or_else(|| panic!("toolkit timber requirement overflowed")),
     );
     assert!(
@@ -1370,6 +1391,266 @@ fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
             .is_some_and(|record| record.condition() < Condition::PRISTINE),
         "toolkit workload should pay real tool wear"
     );
+
+    let shelter_base = VoxelCoord::new(
+        junction
+            .x()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("shelter support x-coordinate overflowed")),
+        junction.y(),
+        junction.z(),
+    );
+    let shelter_middle = VoxelCoord::new(
+        shelter_base.x(),
+        shelter_base
+            .y()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("shelter middle y-coordinate overflowed")),
+        shelter_base.z(),
+    );
+    let shelter_upper = VoxelCoord::new(
+        shelter_base.x(),
+        shelter_base
+            .y()
+            .checked_add(2)
+            .unwrap_or_else(|| panic!("shelter upper y-coordinate overflowed")),
+        shelter_base.z(),
+    );
+    let panel_position = VoxelCoord::new(
+        junction.x(),
+        junction
+            .y()
+            .checked_add(2)
+            .unwrap_or_else(|| panic!("shelter panel y-coordinate overflowed")),
+        junction.z(),
+    );
+    let support_ground = VoxelCoord::new(
+        shelter_base.x(),
+        shelter_base
+            .y()
+            .checked_sub(1)
+            .unwrap_or_else(|| panic!("shelter support ground y-coordinate underflowed")),
+        shelter_base.z(),
+    );
+    assert!(
+        state
+            .world()
+            .block_at(support_ground)
+            .is_some_and(|block| block != BlockStateId::AIR),
+        "long-stay shelter support must begin on generated solid terrain"
+    );
+    for position in [shelter_base, shelter_middle, shelter_upper, panel_position] {
+        assert_eq!(
+            state.world().block_at(position),
+            Some(BlockStateId::AIR),
+            "long-stay shelter must occupy generated air rather than overwrite terrain"
+        );
+    }
+    let support_geometry = |position: VoxelCoord| {
+        StructuralElementGeometry::new(
+            VoxelBounds::new(
+                position,
+                VoxelCoord::new(position.x() + 1, position.y() + 1, position.z() + 1),
+            )
+            .unwrap_or_else(|error| panic!("shelter support bounds failed: {error}")),
+            BASIC_TIMBER_POST_LENGTH,
+            BASIC_TIMBER_POST_CROSS_SECTION,
+        )
+        .unwrap_or_else(|error| panic!("shelter support geometry failed: {error}"))
+    };
+    let timber_stack = |state: &AppState, context: &str| {
+        project_material_stacks(&registries, state, carried)
+            .unwrap_or_else(|error| panic!("{context} stack projection failed: {error}"))
+            .into_iter()
+            .find(|stack| stack.commodity() == timber)
+            .unwrap_or_else(|| panic!("{context} timber disappeared"))
+    };
+
+    let lower_start = validate_start_player_grounded_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            support_geometry(shelter_base),
+        ),
+        &timber_stack(&state, "shelter lower support"),
+    )
+    .unwrap_or_else(|error| panic!("shelter lower support failed: {error}"));
+    let lower = lower_start.element();
+    let lower_work = lower_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("shelter lower support commit failed: {error}"));
+    advance_to(
+        &registries,
+        &mut state,
+        lower_work.completes_at(),
+        TickEventAllowance {
+            structural_construction: Some(lower),
+            ..TickEventAllowance::default()
+        },
+        "shelter lower support",
+    );
+
+    let middle_start = validate_start_player_supported_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        SupportedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            support_geometry(shelter_middle),
+            lower,
+        ),
+        &timber_stack(&state, "shelter middle support"),
+    )
+    .unwrap_or_else(|error| panic!("shelter middle support failed: {error}"));
+    let middle = middle_start.element();
+    let middle_work = middle_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("shelter middle support commit failed: {error}"));
+    advance_to(
+        &registries,
+        &mut state,
+        middle_work.completes_at(),
+        TickEventAllowance {
+            structural_construction: Some(middle),
+            ..TickEventAllowance::default()
+        },
+        "shelter middle support",
+    );
+
+    let upper_start = validate_start_player_supported_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        SupportedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            support_geometry(shelter_upper),
+            middle,
+        ),
+        &timber_stack(&state, "shelter upper support"),
+    )
+    .unwrap_or_else(|error| panic!("shelter upper support failed: {error}"));
+    let upper = upper_start.element();
+    let upper_work = upper_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("shelter upper support commit failed: {error}"));
+    advance_to(
+        &registries,
+        &mut state,
+        upper_work.completes_at(),
+        TickEventAllowance {
+            structural_construction: Some(upper),
+            ..TickEventAllowance::default()
+        },
+        "shelter upper support",
+    );
+    assert_eq!(
+        state
+            .structures()
+            .supports(upper)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![middle])
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open)
+    );
+
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(boards)),
+    )
+    .unwrap_or_else(|error| panic!("shelter board selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("shelter board selection commit failed: {error}"));
+    let roof_view = ViewDirection::new(707_107, 707_107, 0)
+        .unwrap_or_else(|error| panic!("shelter roof view failed: {error}"));
+    let direct = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(roof_view));
+    let first = advance_control_tick_with_direct_input(&registries, &mut state, direct)
+        .unwrap_or_else(|error| panic!("shelter roof direct action failed: {error}"));
+    let mut roof_work = match first.secondary_action() {
+        Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) => Some(*work),
+        Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary) | None => None,
+        other => panic!("shelter roof returned unexpected first outcome: {other:?}"),
+    };
+    while roof_work.is_none() {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("shelter roof continuation failed: {error}"));
+        if let Some(action) = control.secondary_action() {
+            match action {
+                SecondaryActionOutcome::StructuralConstructionStarted(work) => {
+                    roof_work = Some(*work)
+                }
+                SecondaryActionOutcome::QueuedUntilSimulationBoundary => {}
+                other => panic!("shelter roof returned unexpected outcome: {other:?}"),
+            }
+        }
+    }
+    let roof_work = roof_work.unwrap_or_else(|| unreachable!("shelter roof work was resolved"));
+    let roof = roof_work.element();
+    let roof_record = state
+        .structures()
+        .get_element(roof)
+        .unwrap_or_else(|| panic!("shelter roof disappeared after admission"));
+    assert!(roof_record.bounds().has_voxel(panel_position));
+    assert_eq!(roof_record.embodied_mass(), panel_mass);
+    assert!(roof_record.geometry().covers_horizontal_footprint());
+    assert_eq!(
+        state
+            .structures()
+            .supports(roof)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![upper])
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open),
+        "unfinished roof must not reduce thermal exposure"
+    );
+    advance_to(
+        &registries,
+        &mut state,
+        roof_work.completes_at(),
+        TickEventAllowance {
+            structural_construction: Some(roof),
+            ..TickEventAllowance::default()
+        },
+        "shelter roof hand-setting",
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Covered)
+    );
+    let comfort_before = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("shelter survival assessment disappeared"))
+        .thermal_comfort_ppm();
+    let covered_tick = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("shelter covered survival tick failed: {error}"));
+    assert_tick_events_within(
+        &covered_tick,
+        TickEventAllowance::default(),
+        "shelter covered survival",
+    );
+    let comfort_after = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("shelter covered survival result disappeared"))
+        .thermal_comfort_ppm();
+    let observed_cover_loss = comfort_before.saturating_sub(comfort_after);
+    let thermal = registries.survival().physiology().thermal_comfort();
+    assert_eq!(
+        observed_cover_loss,
+        thermal.overhead_cover_loss_ppm_per_tick(),
+        "lived shelter must settle the authored covered exposure rate"
+    );
+    assert!(
+        thermal.overhead_cover_loss_ppm_per_tick() < thermal.unsheltered_loss_ppm_per_tick(),
+        "shelter must buy real thermal resilience instead of being cosmetic"
+    );
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("toolkit final matter audit failed: {error}"))
@@ -1381,15 +1662,20 @@ fn assert_generated_wilderness_toolkit_is_player_visible(emit_report: bool) {
 
     if emit_report {
         std::println!(
-            "WILDERNESS TOOLKIT source=fresh-world selection=player-catalog tool=\"{tool_name}\" travel=continuous/6legs materials=[stone:{}mg timber:{}mg] workload={}b attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] output={}mg carried=true hotbar=true wear=true matter-conserved=true",
+            "WILDERNESS SHELTER EXPERIENCE source=fresh-world goal=long-stay selection=player-catalog tool=\"{tool_name}\" travel=continuous/6legs materials=[stone:{}mg timber:{}mg] shelter=[supports:3x{}mg panel:{}mg board-work:{}b] attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] exposure=[open:{}ppm/t covered:{}ppm/t observed:{}ppm/t] output={}mg wear=true matter-conserved=true",
             stone_required.milligrams(),
             timber_required.milligrams(),
+            support_mass.milligrams(),
+            panel_mass.milligrams(),
             workload_batches,
             setup_ticks,
             bare_ticks,
             assisted_ticks,
             with_setup_ticks,
             bare_ticks - with_setup_ticks,
+            thermal.unsheltered_loss_ppm_per_tick(),
+            thermal.overhead_cover_loss_ppm_per_tick(),
+            observed_cover_loss,
             expected_board_mass.milligrams(),
         );
     }
@@ -3234,6 +3520,7 @@ fn organic_camp_goal(behavior_root: u64, index: usize) -> WildernessCampGoal {
 
 pub(super) fn run_wilderness_report() {
     assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
+    assert_generated_wilderness_shelter_is_player_visible(true);
     const ORGANIC_SAMPLES: usize = 4;
     let world_root = configured_root(
         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
@@ -3319,7 +3606,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         run_wilderness_report();
     } else {
         assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);
-        assert_generated_wilderness_toolkit_is_player_visible(false);
+        assert_generated_wilderness_shelter_is_player_visible(false);
         let _ = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,

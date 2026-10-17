@@ -7,7 +7,7 @@ use crate::logistics::{assess_player_carrying, validate_player_stockpile_access}
 use crate::production::player_move_production_site_conflict;
 use crate::registry::Registries;
 use crate::structural::{
-    StructuralLifecycle, bounds_are_local, calculate_prismatic_material_mass_ceiling,
+    StructuralLifecycle, bounds_are_within_player_reach, calculate_prismatic_material_mass_ceiling,
 };
 use crate::survival::Vitality;
 
@@ -245,7 +245,7 @@ fn validate_structural_dismantling_work(
     {
         return Err(PlayerWorkValidationError::StructuralDismantlingElementNotRecoverable);
     }
-    if !bounds_are_local(record.bounds(), player.position()) {
+    if !bounds_are_within_player_reach(registries, state, record.bounds()) {
         return Err(PlayerWorkValidationError::StructuralDismantlingElementNotLocal);
     }
     if state.structures().elements().any(|candidate| {
@@ -500,11 +500,9 @@ fn validate_structural_construction_work(
         .get_structural_construction(work.method())
         .copied()
         .ok_or(PlayerWorkValidationError::StructuralConstructionMethodMissing)?;
-    let player_position = state
-        .logistics()
-        .player()
-        .map(|player| player.position())
-        .ok_or(PlayerWorkValidationError::StructuralConstructionPlayerNotLocated)?;
+    if state.logistics().player().is_none() {
+        return Err(PlayerWorkValidationError::StructuralConstructionPlayerNotLocated);
+    }
     let record = state
         .structures()
         .get_element(work.element())
@@ -527,7 +525,7 @@ fn validate_structural_construction_work(
     {
         return Err(PlayerWorkValidationError::StructuralConstructionElementUnsupported);
     }
-    if !bounds_are_local(record.bounds(), player_position) {
+    if !bounds_are_within_player_reach(registries, state, record.bounds()) {
         return Err(PlayerWorkValidationError::StructuralConstructionPlayerRemote);
     }
     let required = calculate_prismatic_material_mass_ceiling(

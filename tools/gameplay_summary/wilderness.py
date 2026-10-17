@@ -90,6 +90,51 @@ def wilderness_summary(lines: list[str]) -> str | None:
             )
             + "]"
         )
+    shelter_lines = [
+        line for line in lines if line.startswith("WILDERNESS SHELTER EXPERIENCE ")
+    ]
+    if len(shelter_lines) != 1:
+        raise ValueError("wilderness report requires exactly one lived long-stay shelter witness")
+    shelter_match = re.search(
+        r'\bsource=fresh-world goal=long-stay selection=player-catalog tool="([^"]+)" '
+        r'travel=continuous/(\d+)legs materials=\[stone:(\d+)mg timber:(\d+)mg\] '
+        r'shelter=\[supports:(\d+)x(\d+)mg panel:(\d+)mg board-work:(\d+)b\] '
+        r'attention=\[setup:(\d+)t bare:(\d+)t assisted:(\d+)t with-setup:(\d+)t saved:(\d+)t\] '
+        r'exposure=\[open:(\d+)ppm/t covered:(\d+)ppm/t observed:(\d+)ppm/t\] '
+        r'output=(\d+)mg wear=(true|false) matter-conserved=(true|false)',
+        shelter_lines[0],
+    )
+    if shelter_match is None:
+        raise ValueError("wilderness shelter witness lost workload/support/exposure telemetry")
+    setup = int(shelter_match.group(9))
+    bare = int(shelter_match.group(10))
+    assisted = int(shelter_match.group(11))
+    with_setup = int(shelter_match.group(12))
+    saved = int(shelter_match.group(13))
+    open_loss = int(shelter_match.group(14))
+    covered_loss = int(shelter_match.group(15))
+    observed_loss = int(shelter_match.group(16))
+    if (
+        int(shelter_match.group(5)) <= 0
+        or int(shelter_match.group(6)) <= 0
+        or int(shelter_match.group(7)) <= 0
+        or int(shelter_match.group(8)) <= 0
+        or with_setup != setup + assisted
+        or saved != bare - with_setup
+        or saved <= 0
+        or covered_loss >= open_loss
+        or observed_loss != covered_loss
+        or shelter_match.group(18) != "true"
+        or shelter_match.group(19) != "true"
+    ):
+        raise ValueError("wilderness shelter no longer proves earned structural survival leverage")
+    shelter = (
+        "shelter=["
+        f"long adze:+{saved}t "
+        f"roof:{_mass_kg(int(shelter_match.group(7)))}kg/{shelter_match.group(8)}b "
+        f"posts:{shelter_match.group(5)} "
+        f"exposure:{open_loss}->{covered_loss}ppm/t]"
+    )
     maintained = [line for line in experiences if " sample=maintained " in line]
     coverage = [line for line in experiences if " sample=coverage " in line]
     organic = [line for line in experiences if " sample=organic " in line]
@@ -336,6 +381,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{crafting + ' ' if crafting else ''}"
         f"{camp_projects} "
         f"{camp_warmth + ' ' if camp_warmth else ''}"
+        f"{shelter} "
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"

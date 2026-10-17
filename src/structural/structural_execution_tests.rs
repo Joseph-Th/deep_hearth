@@ -2,15 +2,17 @@
 
 use super::*;
 use crate::content::{
-    FORM_LOG, MATERIAL_WATER, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, FORM_LOG, MATERIAL_WATER,
+    MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Area, Length};
+use crate::core::quantity::{Area, Length, Mass};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     AddStructuralElementError, StructuralAnalysisError, StructuralElementGeometry,
     StructuralFailureCause, StructuralStage, add_structural_element,
-    materialize_structural_element_for_test,
+    calculate_prismatic_material_mass_ceiling, materialize_structural_element_for_test,
 };
 
 const MEMBER_AREA: Area = Area::from_square_millimeters(1_000);
@@ -49,6 +51,36 @@ fn structural_geometry_rejects_zero_length_before_allocation() {
     };
     encoded["length"] = serde_json::json!(0_u64);
     assert!(serde_json::from_value::<StructuralElementGeometry>(encoded).is_err());
+}
+
+#[test]
+fn horizontal_cover_requires_full_voxel_area_and_has_exact_board_mass() {
+    let registries = build_registries();
+    let bounds = make_test_bounds(0, 2);
+    let post = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap_or_else(|error| panic!("cover post geometry failed: {error}"));
+    let panel = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap_or_else(|error| panic!("cover panel geometry failed: {error}"));
+
+    assert!(!post.covers_horizontal_footprint());
+    assert!(panel.covers_horizontal_footprint());
+    assert_eq!(
+        calculate_prismatic_material_mass_ceiling(
+            registries.materials(),
+            MATERIAL_WOOD,
+            panel.cross_section(),
+            panel.length(),
+        ),
+        Ok(Mass::from_milligrams(6_500_000))
+    );
 }
 
 #[test]

@@ -1,7 +1,8 @@
 //! Ordered direct player interactions evaluated after authoritative body motion.
 
 use crate::content::{
-    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, FORM_LOG, MATERIAL_WOOD,
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, FORM_BOARD, FORM_LOG, MATERIAL_WOOD,
     STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
 };
 use crate::core::state::AppState;
@@ -366,6 +367,12 @@ fn attempt_selected_secondary_action(
         {
             return outcome;
         }
+    }
+    if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)
+        && let Some(outcome) =
+            attempt_selected_timber_cover_placement(registries, state, commodity, direction)
+    {
+        return outcome;
     }
     if let Some(outcome) = attempt_selected_combustion(registries, state, commodity) {
         return outcome;
@@ -815,6 +822,126 @@ fn single_voxel_bounds(position: VoxelCoord) -> Option<VoxelBounds> {
         position.z().checked_add(1)?,
     );
     VoxelBounds::new(position, max).ok()
+}
+
+fn attempt_selected_timber_cover_placement(
+    registries: &Registries,
+    state: &mut AppState,
+    commodity: CommodityKey,
+    direction: ViewDirection,
+) -> Option<SecondaryActionOutcome> {
+    if commodity != CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
+        return None;
+    }
+    if !state.control_tick().is_simulation_boundary() {
+        return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
+    }
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: active board selection requires player")
+        });
+    let stacks = project_material_stacks(registries, state, carried)
+        .unwrap_or_else(|error| {
+            panic!("runtime invariant broken: carried board projection failed: {error}")
+        })
+        .into_iter()
+        .filter(|stack| stack.commodity() == commodity)
+        .collect::<Vec<_>>();
+    let stack = match stacks.as_slice() {
+        [] => return Some(SecondaryActionOutcome::MaterialUnavailable),
+        [stack] => stack,
+        stacks => {
+            return Some(SecondaryActionOutcome::AmbiguousMaterialStacks {
+                count: stacks.len(),
+            });
+        }
+    };
+    let target = match resolve_direct_structural_face_target(registries, state, direction) {
+        Ok(Some(target)) => target,
+        Ok(None) | Err(DirectStructuralTargetError::TargetUnavailable) => {
+            return Some(SecondaryActionOutcome::NoStructuralPlacementTarget);
+        }
+        Err(DirectStructuralTargetError::NoTarget) => {
+            return Some(SecondaryActionOutcome::NoStructuralPlacementTarget);
+        }
+        Err(DirectStructuralTargetError::Ambiguous { count }) => {
+            return Some(SecondaryActionOutcome::AmbiguousStructuralPlacementTarget { count });
+        }
+    };
+    let Some(position) = target.face.adjacent_voxel(target.voxel) else {
+        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
+    };
+    if let Err(error) = validate_direct_structural_placement_position(registries, state, position) {
+        return Some(match error {
+            DirectPlacementTargetError::Target(error) => {
+                SecondaryActionOutcome::StructuralTargetRejected(error)
+            }
+            DirectPlacementTargetError::NoTarget => {
+                SecondaryActionOutcome::NoStructuralPlacementTarget
+            }
+            DirectPlacementTargetError::CoordinateOverflow => {
+                SecondaryActionOutcome::StructuralPlacementCoordinateOverflow
+            }
+            DirectPlacementTargetError::WorldUnavailable { position } => {
+                SecondaryActionOutcome::StructuralPlacementWorldUnavailable { position }
+            }
+            DirectPlacementTargetError::Occupied { position, state } => {
+                SecondaryActionOutcome::StructuralPlacementOccupied { position, state }
+            }
+            DirectPlacementTargetError::IntersectsPlayer { position } => {
+                SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }
+            }
+            DirectPlacementTargetError::LocationOccupied { position } => {
+                SecondaryActionOutcome::StructuralPlacementLocationOccupied { position }
+            }
+        });
+    }
+    let Some(bounds) = single_voxel_bounds(position) else {
+        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
+    };
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap_or_else(|error| panic!("built-in timber cover-panel geometry is invalid: {error}"));
+    let supports = state
+        .structures()
+        .elements()
+        .filter(|record| {
+            record.lifecycle() == crate::structural::StructuralLifecycle::Active
+                && bounds.has_face_contact(record.bounds())
+        })
+        .map(|record| record.id())
+        .collect::<Vec<_>>();
+    let plan = MultiSupportedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        supports,
+    );
+    Some(
+        match validate_start_player_multi_supported_structural_construction_from_stack(
+            registries,
+            state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            plan,
+            stack,
+        ) {
+            Ok(validated) => {
+                let work = validated.commit(state).unwrap_or_else(|error| {
+                    panic!(
+                        "runtime invariant broken: synchronous timber cover placement became stale: {error}"
+                    )
+                });
+                SecondaryActionOutcome::StructuralConstructionStarted(work)
+            }
+            Err(error) => SecondaryActionOutcome::StructuralPlacementRejected(error),
+        },
+    )
 }
 
 fn attempt_selected_timber_placement(

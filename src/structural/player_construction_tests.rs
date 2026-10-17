@@ -349,7 +349,7 @@ fn carried_timber_becomes_load_bearing_only_after_persisted_hand_setting() {
 }
 
 #[test]
-fn ordinary_grounded_member_planning_and_hand_setting_stay_local_and_human_scale() {
+fn ordinary_grounded_member_planning_and_hand_setting_stay_within_interaction_reach() {
     let registries = build_registries();
     let mut state = AppState::new();
     let player = VoxelCoord::new(0, 0, 0);
@@ -357,7 +357,27 @@ fn ordinary_grounded_member_planning_and_hand_setting_stay_local_and_human_scale
         .unwrap_or_else(|error| panic!("construction locality admission failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("construction locality admission commit failed: {error}"));
-    let remote_bounds = VoxelBounds::new(VoxelCoord::new(2, 0, 0), VoxelCoord::new(3, 1, 1))
+    let reachable_bounds = VoxelBounds::new(VoxelCoord::new(2, 0, 0), VoxelCoord::new(3, 1, 1))
+        .unwrap_or_else(|error| panic!("construction reachable bounds failed: {error}"));
+    let reachable_geometry = StructuralElementGeometry::new(
+        reachable_bounds,
+        Length::from_micrometers(2_000_000),
+        Area::from_square_millimeters(5_000),
+    )
+    .unwrap_or_else(|error| panic!("construction reachable geometry failed: {error}"));
+    let reachable = validate_plan_player_grounded_structural_element(
+        &registries,
+        &state,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            reachable_geometry,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("reachable construction planning failed: {error}"));
+    assert_eq!(reachable.record().bounds(), reachable_bounds);
+
+    let remote_bounds = VoxelBounds::new(VoxelCoord::new(6, 0, 0), VoxelCoord::new(7, 1, 1))
         .unwrap_or_else(|error| panic!("construction remote bounds failed: {error}"));
     let remote_geometry = StructuralElementGeometry::new(
         remote_bounds,
@@ -377,7 +397,7 @@ fn ordinary_grounded_member_planning_and_hand_setting_stay_local_and_human_scale
             ),
         )
         .err(),
-        Some(PlanPlayerStructuralElementError::TargetNotAdjacent { player })
+        Some(PlanPlayerStructuralElementError::TargetOutOfReach { player })
     );
     assert_eq!(state, before);
 

@@ -891,9 +891,9 @@ impl SurvivalStressDefinition {
 /// Authored unsheltered thermal-comfort reserve and local-heat response.
 ///
 /// This models only the player's short-horizon warmth reserve. Ambient weather, clothing
-/// insulation, enclosure quality, and structural-panel shelter remain separate future owners.
-/// `OverheadCover` is deliberately narrower: it represents only a fully opaque roof over the
-/// current body footprint and reduces exposure without implying walls, insulation, or heating.
+/// insulation, enclosure quality, and broader shelter remain separate owners. `OverheadCover` is
+/// deliberately narrower: it consumes a coarse fully opaque roof assessment over the current body
+/// footprint and reduces exposure without implying walls, insulation, weather sealing, or heating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThermalExposure {
     Open,

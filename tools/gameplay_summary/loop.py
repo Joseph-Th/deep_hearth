@@ -11,6 +11,7 @@ from .common import field
 @dataclass(frozen=True)
 class _LoopEvidenceLines:
     wilderness: list[str]
+    wilderness_shelter: list[str]
     progression: list[str]
     progression_reviews: list[str]
     progression_local_campaigns: list[str]
@@ -39,6 +40,7 @@ def _lines_with_prefix(lines: list[str], prefix: str) -> list[str]:
 def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
     return _LoopEvidenceLines(
         wilderness=_lines_with_prefix(lines, "WILDERNESS EXPERIENCE "),
+        wilderness_shelter=_lines_with_prefix(lines, "WILDERNESS SHELTER EXPERIENCE "),
         progression=_lines_with_prefix(lines, "PROGRESSION EXPERIENCE "),
         progression_reviews=_lines_with_prefix(lines, "PROGRESSION REVIEW "),
         progression_local_campaigns=_lines_with_prefix(lines, "PROGRESSION LOCAL CAMPAIGN "),
@@ -104,6 +106,7 @@ def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
     return (
         "evidence-shape=["
         f"wilderness:{len(evidence.wilderness)} "
+        f"shelter:{len(evidence.wilderness_shelter)} "
         f"single-state-progression:{single_state}/{len(evidence.progression_reviews)} "
         f"domain-episodes:survival{len(evidence.survival)}/"
         f"woodworking{len(evidence.woodworking)}/fieldwork{len(evidence.fieldwork)}/"
@@ -379,6 +382,27 @@ def _fantasy_evidence(evidence: _LoopEvidenceLines) -> str:
         if worksite_projects
         else ""
     )
+    shelter_resilience = 0
+    for line in evidence.wilderness_shelter:
+        exposure = re.search(
+            r"\bexposure=\[open:(\d+)ppm/t covered:(\d+)ppm/t observed:(\d+)ppm/t\]",
+            line,
+        )
+        attention = re.search(r"\battention=\[.*? saved:(\d+)t\]", line)
+        if (
+            exposure is not None
+            and attention is not None
+            and int(exposure.group(2)) < int(exposure.group(1))
+            and int(exposure.group(3)) == int(exposure.group(2))
+            and int(attention.group(1)) > 0
+            and " matter-conserved=true" in line
+        ):
+            shelter_resilience += 1
+    shelter_evidence = (
+        f"shelter-resilience:{shelter_resilience}/{len(evidence.wilderness_shelter)} "
+        if evidence.wilderness_shelter
+        else ""
+    )
     workload_sensitive_processing = sum(
         " processing-market=[one-cycle:manual " in line
         and " disclosed:mechanized]" in line
@@ -406,6 +430,7 @@ def _fantasy_evidence(evidence: _LoopEvidenceLines) -> str:
         f"material-leverage:{_conditional_ratio(camp_leverage, len(camp_projects))} "
         f"{worksite_construction_evidence}"
         f"{worksite_warmth_evidence}"
+        f"{shelter_evidence}"
         f"earned-mechanization:{workload_sensitive_processing}/{len(evidence.progression)} "
         f"delegated-attention:{_conditional_ratio(delegated_orders, len(mechanized_settlement))} "
         f"electrical-foundry:{_conditional_ratio(electrical_foundries, foundry_builds)}]"

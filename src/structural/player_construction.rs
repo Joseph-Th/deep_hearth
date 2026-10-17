@@ -19,9 +19,9 @@ use super::construction_execution::ValidatedStructuralConstruction;
 use super::{
     StructuralConstructionBindingError, StructuralConstructionCommitError,
     StructuralConstructionError, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
-    ValidatedStructuralMutation, bind_structural_construction_selection, resolve_required_mass,
-    validate_activate_structural_element_in, validate_structural_construction,
-    validate_structural_construction_for_planned_member,
+    ValidatedStructuralMutation, bind_structural_construction_selection,
+    bounds_are_within_player_reach, resolve_required_mass, validate_activate_structural_element_in,
+    validate_structural_construction, validate_structural_construction_for_planned_member,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,7 +39,7 @@ pub enum PlayerStructuralConstructionError {
     ElementUnsupported {
         element: StructuralElementId,
     },
-    ElementNotLocal {
+    ElementOutOfReach {
         element: StructuralElementId,
     },
     MemberTooHeavy {
@@ -65,7 +65,7 @@ impl Display for PlayerStructuralConstructionError {
             Self::UnknownElement { element } => write!(formatter, "unknown structural element {}", element.value()),
             Self::ElementNotPlanned { element } => write!(formatter, "structural element {} is not awaiting construction", element.value()),
             Self::ElementUnsupported { element } => write!(formatter, "structural element {} is neither grounded nor attached to an active support", element.value()),
-            Self::ElementNotLocal { element } => write!(formatter, "structural element {} is not in a face-adjacent construction voxel", element.value()),
+            Self::ElementOutOfReach { element } => write!(formatter, "structural element {} is outside player interaction reach", element.value()),
             Self::MemberTooHeavy { required, maximum } => write!(
                 formatter,
                 "structural member requires {} mg but the construction method permits at most {} mg",
@@ -93,7 +93,7 @@ impl Error for PlayerStructuralConstructionError {
             | Self::UnknownElement { .. }
             | Self::ElementNotPlanned { .. }
             | Self::ElementUnsupported { .. }
-            | Self::ElementNotLocal { .. }
+            | Self::ElementOutOfReach { .. }
             | Self::MemberTooHeavy { .. }
             | Self::CompletionTickOverflow
             | Self::UnexpectedMaterialSelection
@@ -260,40 +260,6 @@ impl ValidatedPlayerStructuralConstructionStart {
     }
 }
 
-pub(crate) fn bounds_are_local(bounds: crate::spatial::VoxelBounds, player: VoxelCoord) -> bool {
-    bounds.voxel_count() == Some(1)
-        && !bounds.has_voxel(player)
-        && [
-            player
-                .x()
-                .checked_sub(1)
-                .map(|x| VoxelCoord::new(x, player.y(), player.z())),
-            player
-                .x()
-                .checked_add(1)
-                .map(|x| VoxelCoord::new(x, player.y(), player.z())),
-            player
-                .y()
-                .checked_sub(1)
-                .map(|y| VoxelCoord::new(player.x(), y, player.z())),
-            player
-                .y()
-                .checked_add(1)
-                .map(|y| VoxelCoord::new(player.x(), y, player.z())),
-            player
-                .z()
-                .checked_sub(1)
-                .map(|z| VoxelCoord::new(player.x(), player.y(), z)),
-            player
-                .z()
-                .checked_add(1)
-                .map(|z| VoxelCoord::new(player.x(), player.y(), z)),
-        ]
-        .into_iter()
-        .flatten()
-        .any(|neighbor| bounds.has_voxel(neighbor))
-}
-
 #[derive(Clone, Copy)]
 struct PlayerStructuralConstructionContext {
     definition: StructuralConstructionDefinition,
@@ -355,8 +321,8 @@ fn validate_player_structural_construction_context(
     if !record.is_grounded() && !has_active_support {
         return Err(PlayerStructuralConstructionError::ElementUnsupported { element });
     }
-    if !bounds_are_local(record.bounds(), player.position()) {
-        return Err(PlayerStructuralConstructionError::ElementNotLocal { element });
+    if !bounds_are_within_player_reach(registries, state, record.bounds()) {
+        return Err(PlayerStructuralConstructionError::ElementOutOfReach { element });
     }
     let required = resolve_required_mass(registries.materials(), record)
         .map_err(|_| PlayerStructuralConstructionError::MaterialStateChanged { element })?;

@@ -103,6 +103,30 @@ impl StructuralElementGeometry {
     pub const fn cross_section(self) -> Area {
         self.cross_section
     }
+
+    /// Reports whether this solid prism spans its complete horizontal voxel footprint.
+    ///
+    /// Plate bending and arbitrary orientation are not modeled yet. This narrow geometric
+    /// convention lets a thin plate whose cross-section covers the represented X/Z footprint act
+    /// as overhead coverage while ordinary posts and beams remain far below the threshold.
+    #[must_use]
+    pub fn covers_horizontal_footprint(self) -> bool {
+        let min = self.bounds.min();
+        let max = self.bounds.max_exclusive();
+        let Some(x_voxels) = u128::try_from(i128::from(max.x()) - i128::from(min.x())).ok() else {
+            return false;
+        };
+        let Some(z_voxels) = u128::try_from(i128::from(max.z()) - i128::from(min.z())).ok() else {
+            return false;
+        };
+        let Some(required_mm2) = x_voxels
+            .checked_mul(z_voxels)
+            .and_then(|area| area.checked_mul(1_000_000))
+        else {
+            return false;
+        };
+        u128::from(self.cross_section.square_millimeters()) >= required_mm2
+    }
 }
 
 #[derive(Deserialize)]

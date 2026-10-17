@@ -8,7 +8,7 @@ use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
 use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{NANOMETERS_PER_VOXEL, VoxelCoord};
 
 use super::definitions::StructuralProfileId;
 use super::geometry::StructuralGeometryError;
@@ -200,7 +200,7 @@ pub enum PlanPlayerStructuralElementError {
     PlayerDead,
     TargetOverlapsPlayer { player: VoxelCoord },
     TargetNotSingleVoxel,
-    TargetNotAdjacent { player: VoxelCoord },
+    TargetOutOfReach { player: VoxelCoord },
     SupportSetEmpty,
     DuplicateSupport { support: StructuralElementId },
     UnknownSupport { support: StructuralElementId },
@@ -233,9 +233,9 @@ impl Display for PlanPlayerStructuralElementError {
             ),
             Self::TargetNotSingleVoxel => formatter
                 .write_str("ordinary grounded structural target must occupy exactly one voxel"),
-            Self::TargetNotAdjacent { player } => write!(
+            Self::TargetOutOfReach { player } => write!(
                 formatter,
-                "grounded structural target is not face-adjacent to player voxel ({}, {}, {})",
+                "structural target is outside interaction reach from player position ({}, {}, {})",
                 player.x(),
                 player.y(),
                 player.z()
@@ -266,7 +266,7 @@ impl Error for PlanPlayerStructuralElementError {
             | Self::PlayerDead
             | Self::TargetOverlapsPlayer { .. }
             | Self::TargetNotSingleVoxel
-            | Self::TargetNotAdjacent { .. }
+            | Self::TargetOutOfReach { .. }
             | Self::SupportSetEmpty
             | Self::DuplicateSupport { .. }
             | Self::UnknownSupport { .. }
@@ -463,36 +463,51 @@ impl ValidatedPlayerStructuralElementPlan {
     }
 }
 
-fn target_is_face_adjacent(bounds: crate::spatial::VoxelBounds, player: VoxelCoord) -> bool {
-    [
-        player
-            .x()
-            .checked_sub(1)
-            .map(|x| VoxelCoord::new(x, player.y(), player.z())),
-        player
-            .x()
-            .checked_add(1)
-            .map(|x| VoxelCoord::new(x, player.y(), player.z())),
-        player
-            .y()
-            .checked_sub(1)
-            .map(|y| VoxelCoord::new(player.x(), y, player.z())),
-        player
-            .y()
-            .checked_add(1)
-            .map(|y| VoxelCoord::new(player.x(), y, player.z())),
-        player
-            .z()
-            .checked_sub(1)
-            .map(|z| VoxelCoord::new(player.x(), player.y(), z)),
-        player
-            .z()
-            .checked_add(1)
-            .map(|z| VoxelCoord::new(player.x(), player.y(), z)),
-    ]
-    .into_iter()
-    .flatten()
-    .any(|neighbor| bounds.has_voxel(neighbor))
+pub(crate) fn bounds_are_within_player_reach(
+    registries: &Registries,
+    state: &AppState,
+    bounds: crate::spatial::VoxelBounds,
+) -> bool {
+    if bounds.voxel_count() != Some(1) {
+        return false;
+    }
+    let target = bounds.min();
+    if crate::logistics::player_body_occupies_voxel(registries, state, target) {
+        return false;
+    }
+    let Some(player) = state.logistics().player().copied() else {
+        return false;
+    };
+    let locomotion = registries.survival().physiology().locomotion();
+    let eye_height = match player.body().stance() {
+        crate::logistics::PlayerStance::Standing => locomotion.standing_eye_height(),
+        crate::logistics::PlayerStance::Crouching => locomotion.crouching_eye_height(),
+    };
+    let foot = player.body().foot_position();
+    let eye = [
+        i128::from(foot.x_nanometers()),
+        i128::from(foot.y_nanometers()) + i128::from(eye_height.micrometers()) * 1_000,
+        i128::from(foot.z_nanometers()),
+    ];
+    let voxel = [target.x(), target.y(), target.z()];
+    let reach = i128::from(locomotion.interaction_reach().micrometers()) * 1_000;
+    let mut distance_squared = 0_i128;
+    for (point, coordinate) in eye.into_iter().zip(voxel) {
+        let minimum = i128::from(coordinate) * i128::from(NANOMETERS_PER_VOXEL);
+        let maximum = minimum + i128::from(NANOMETERS_PER_VOXEL);
+        let distance = if point < minimum {
+            minimum - point
+        } else if point > maximum {
+            point - maximum
+        } else {
+            0
+        };
+        if distance > reach {
+            return false;
+        }
+        distance_squared += distance * distance;
+    }
+    distance_squared <= reach * reach
 }
 
 fn validate_plan_player_structural_element(
@@ -517,14 +532,16 @@ fn validate_plan_player_structural_element(
         .ok_or(PlanPlayerStructuralElementError::PlayerNotAdmitted)?;
     let position = player.position();
     let bounds = geometry.bounds();
-    if bounds.has_voxel(position) {
+    if bounds.voxel_count() == Some(1)
+        && crate::logistics::player_body_occupies_voxel(registries, state, bounds.min())
+    {
         return Err(PlanPlayerStructuralElementError::TargetOverlapsPlayer { player: position });
     }
     if bounds.voxel_count() != Some(1) {
         return Err(PlanPlayerStructuralElementError::TargetNotSingleVoxel);
     }
-    if !target_is_face_adjacent(bounds, position) {
-        return Err(PlanPlayerStructuralElementError::TargetNotAdjacent { player: position });
+    if !bounds_are_within_player_reach(registries, state, bounds) {
+        return Err(PlanPlayerStructuralElementError::TargetOutOfReach { player: position });
     }
     validate_definition(registries, profile, material, geometry)
         .map_err(PlanPlayerStructuralElementError::Element)?;

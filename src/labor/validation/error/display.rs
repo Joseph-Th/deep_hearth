@@ -484,7 +484,7 @@ impl Display for PlayerWorkValidationError {
                 "structural construction requires initialized player world position",
             ),
             Self::StructuralConstructionPlayerRemote => formatter.write_str(
-                "structural construction member is no longer local to the player",
+                "structural construction member is outside player interaction reach",
             ),
             Self::StructuralConstructionScheduleInvalid => formatter
                 .write_str("structural construction work has an invalid persisted schedule"),
@@ -502,7 +502,7 @@ impl Display for PlayerWorkValidationError {
                 "structural dismantling requires an embodied active or failed member",
             ),
             Self::StructuralDismantlingElementNotLocal => formatter.write_str(
-                "structural dismantling member is no longer local to the player",
+                "structural dismantling member is outside player interaction reach",
             ),
             Self::StructuralDismantlingElementHasDependents => formatter.write_str(
                 "simple structural dismantling cannot remove a member supporting other members",

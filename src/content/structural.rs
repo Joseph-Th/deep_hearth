@@ -10,6 +10,10 @@ pub const STRUCTURAL_PROFILE_AXIAL_TENSION: StructuralProfileId = StructuralProf
 /// Familiar one-voxel timber post used by the first direct pointed-face build gesture.
 pub const BASIC_TIMBER_POST_LENGTH: Length = Length::from_micrometers(1_000_000);
 pub const BASIC_TIMBER_POST_CROSS_SECTION: Area = Area::from_square_millimeters(5_000);
+/// One square metre of 10 mm solid timber boarding used by the first overhead-cover gesture.
+/// At the authored 650 kg/m3 wood density this embodies exactly 6.5 kg of material.
+pub const BASIC_TIMBER_COVER_PANEL_THICKNESS: Length = Length::from_micrometers(10_000);
+pub const BASIC_TIMBER_COVER_PANEL_AREA: Area = Area::from_square_millimeters(1_000_000);
 
 pub(crate) fn build_structural_registry() -> StructuralRegistry {
     StructuralRegistry::new([

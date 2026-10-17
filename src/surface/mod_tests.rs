@@ -2,9 +2,10 @@
 
 use super::*;
 use crate::content::{
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
     BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE,
-    CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FLUID_WATER, FORM_CHIP, FORM_FOOD, FORM_LOG,
-    FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FLUID_WATER, FORM_BOARD, FORM_CHIP, FORM_FOOD,
+    FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
     STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE,
     SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS, SURFACE_GATHERING_HAND_FORAGE_BERRIES,
@@ -20,8 +21,9 @@ use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{StockpileStorageError, deposit_lot_for_test, project_material_stacks};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    HorizontalControlInput, PlayerActiveSelection, PlayerControlInput, PlayerQuickAccessSlot,
-    add_traversable_edge_for_test, validate_place_fluid_store, validate_set_active_selection,
+    HorizontalControlInput, PlayerActiveSelection, PlayerControlInput,
+    PlayerOverheadCoverAssessment, PlayerQuickAccessSlot, add_traversable_edge_for_test,
+    assess_player_overhead_cover, validate_place_fluid_store, validate_set_active_selection,
     validate_start_player_step,
 };
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
@@ -36,9 +38,13 @@ use crate::simulation::{
 use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{
     GroundedStructuralElementPlan, StructuralElementGeometry, StructuralLifecycle,
+    SupportedStructuralElementPlan, calculate_prismatic_material_mass_ceiling,
     validate_start_player_grounded_structural_construction_from_stack,
+    validate_start_player_supported_structural_construction_from_stack,
 };
-use crate::survival::{FoodFreshness, Vitality, assess_food_freshness, player_record};
+use crate::survival::{
+    FoodFreshness, Vitality, assess_food_freshness, assess_survival, player_record,
+};
 use crate::world::{
     BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
     set_generated_block_for_test, validate_generate_chunk,
@@ -635,6 +641,285 @@ fn downward_view() -> ViewDirection {
 fn forward_down_view() -> ViewDirection {
     ViewDirection::new(500_000, -866_025, 0)
         .unwrap_or_else(|error| panic!("surface forward-down view failed: {error}"))
+}
+
+fn forward_up_view() -> ViewDirection {
+    ViewDirection::new(707_107, 707_107, 0)
+        .unwrap_or_else(|error| panic!("surface forward-up view failed: {error}"))
+}
+
+#[test]
+fn selected_boards_build_material_backed_overhead_cover_that_reduces_exposure() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("cover terrain failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("cover terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("cover terrain has no solid surface"));
+    let foot_y = surface_y + 1;
+    let player_position = VoxelCoord::new(0, foot_y, 0);
+    let panel_position = VoxelCoord::new(0, foot_y + 2, 0);
+    let support_position = VoxelCoord::new(1, foot_y + 2, 0);
+    for voxel in [
+        player_position,
+        VoxelCoord::new(0, foot_y + 1, 0),
+        panel_position,
+        support_position,
+    ] {
+        set_generated_block_for_test(registries.world(), &mut state, voxel, BlockStateId::AIR);
+    }
+
+    let carried = admit_player(&registries, &mut state, player_position);
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let support_mass = calculate_prismatic_material_mass_ceiling(
+        registries.materials(),
+        MATERIAL_WOOD,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+        BASIC_TIMBER_POST_LENGTH,
+    )
+    .unwrap_or_else(|error| panic!("cover support mass failed: {error}"));
+    let support_timber = Mass::from_milligrams(
+        support_mass
+            .milligrams()
+            .checked_mul(3)
+            .unwrap_or_else(|| panic!("cover support timber mass overflowed")),
+    );
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        timber,
+        support_timber,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("cover support timber failed: {error}"));
+    let support_geometry = |position: VoxelCoord| {
+        StructuralElementGeometry::new(
+            VoxelBounds::new(
+                position,
+                VoxelCoord::new(position.x() + 1, position.y() + 1, position.z() + 1),
+            )
+            .unwrap_or_else(|error| panic!("cover support bounds failed: {error}")),
+            BASIC_TIMBER_POST_LENGTH,
+            BASIC_TIMBER_POST_CROSS_SECTION,
+        )
+        .unwrap_or_else(|error| panic!("cover support geometry failed: {error}"))
+    };
+    let lower_position = VoxelCoord::new(1, foot_y, 0);
+    let middle_position = VoxelCoord::new(1, foot_y + 1, 0);
+    for voxel in [lower_position, middle_position] {
+        set_generated_block_for_test(registries.world(), &mut state, voxel, BlockStateId::AIR);
+    }
+
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("cover lower-support stack failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == timber)
+        .unwrap_or_else(|| panic!("cover lower-support timber disappeared"));
+    let lower_start = validate_start_player_grounded_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            support_geometry(lower_position),
+        ),
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("cover lower-support validation failed: {error}"));
+    let lower = lower_start.element();
+    let lower_work = lower_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("cover lower-support commit failed: {error}"));
+    while state.tick() < lower_work.completes_at() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("cover lower-support work failed: {error}"));
+    }
+
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("cover middle-support stack failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == timber)
+        .unwrap_or_else(|| panic!("cover middle-support timber disappeared"));
+    let middle_start = validate_start_player_supported_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        SupportedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            support_geometry(middle_position),
+            lower,
+        ),
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("cover middle-support validation failed: {error}"));
+    let middle = middle_start.element();
+    let middle_work = middle_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("cover middle-support commit failed: {error}"));
+    while state.tick() < middle_work.completes_at() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("cover middle-support work failed: {error}"));
+    }
+
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap_or_else(|error| panic!("cover upper-support stack failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == timber)
+        .unwrap_or_else(|| panic!("cover upper-support timber disappeared"));
+    let upper_start = validate_start_player_supported_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        SupportedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            support_geometry(support_position),
+            middle,
+        ),
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("cover upper-support validation failed: {error}"));
+    let support = upper_start.element();
+    let upper_work = upper_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("cover upper-support commit failed: {error}"));
+    while state.tick() < upper_work.completes_at() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("cover upper-support work failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .structures()
+            .supports(support)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![middle])
+    );
+
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let panel_mass = Mass::from_milligrams(6_500_000);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        boards,
+        panel_mass,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("cover board material failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("cover matter baseline failed: {error}"))
+        .total();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(boards)),
+    )
+    .unwrap_or_else(|error| panic!("cover board selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("cover board selection commit failed: {error}"));
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open)
+    );
+
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(forward_up_view()));
+    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("cover direct-use queue failed: {error}"));
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let work = loop {
+        let control = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("cover direct-use continuation failed: {error}"));
+        match control.secondary_action() {
+            Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) => break *work,
+            None => {}
+            other => panic!("cover direct-use returned unexpected outcome: {other:?}"),
+        }
+    };
+    let panel = work.element();
+    let record = state
+        .structures()
+        .get_element(panel)
+        .unwrap_or_else(|| panic!("cover panel disappeared after construction start"));
+    assert!(record.bounds().has_voxel(panel_position));
+    assert_eq!(record.embodied_mass(), panel_mass);
+    assert_eq!(record.lifecycle(), StructuralLifecycle::Planned);
+    assert!(record.geometry().covers_horizontal_footprint());
+    assert_eq!(
+        record.geometry().length(),
+        BASIC_TIMBER_COVER_PANEL_THICKNESS
+    );
+    assert_eq!(
+        record.geometry().cross_section(),
+        BASIC_TIMBER_COVER_PANEL_AREA
+    );
+    assert_eq!(
+        state
+            .structures()
+            .supports(panel)
+            .map(|supports| supports.collect::<Vec<_>>()),
+        Some(vec![support])
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open),
+        "planned panel must not protect the player before hand-setting completes"
+    );
+
+    while state.tick() < work.completes_at() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("cover hand-setting failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .structures()
+            .get_element(panel)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Active)
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Covered)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("cover matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+
+    let comfort_before = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("cover survival assessment disappeared"))
+        .thermal_comfort_ppm();
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("covered survival tick failed: {error}"));
+    let comfort_after = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("cover survival result disappeared"))
+        .thermal_comfort_ppm();
+    assert_eq!(
+        comfort_before.saturating_sub(comfort_after),
+        registries
+            .survival()
+            .physiology()
+            .thermal_comfort()
+            .overhead_cover_loss_ppm_per_tick()
+    );
 }
 
 fn seed_surface(
