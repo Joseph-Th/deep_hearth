@@ -164,6 +164,29 @@ fn tampered_planned_structural_damage_is_rejected_on_load() {
 }
 
 #[test]
+fn trusted_load_rejects_support_edge_to_planned_member() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let support = make_test_structural_element(&registries, &mut state, 0, 0, false);
+    let member = make_test_structural_element(&registries, &mut state, 1, 0, false);
+    link_test_structural_support(&registries, &mut state, member, support);
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("planned-support serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("planned-support decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Structure(
+            StructureValidationError::PlannedSupportReference {
+                element: member,
+                support
+            }
+        )))
+    );
+}
+
+#[test]
 fn tampered_structural_cycle_is_rejected_on_load() {
     let registries = build_registries();
     let mut state = AppState::new();

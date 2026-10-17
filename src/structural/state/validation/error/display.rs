@@ -188,6 +188,12 @@ impl Display for StructureValidationError {
                 element.value(),
                 support.value()
             ),
+            Self::PlannedSupportReference { element, support } => write!(
+                formatter,
+                "structural element {} references planned support {}; support edges can only be established to load-bearing members",
+                element.value(),
+                support.value()
+            ),
             Self::SelfSupport { element } => write!(
                 formatter,
                 "structural element {} cannot support itself",

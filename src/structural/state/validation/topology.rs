@@ -59,6 +59,9 @@ fn validate_support_edge(
     if state.has_path(support, element) {
         return Err(StructureValidationError::SupportCycle { element, support });
     }
+    if support_record.lifecycle() == StructuralLifecycle::Planned {
+        return Err(StructureValidationError::PlannedSupportReference { element, support });
+    }
     Ok(())
 }
 

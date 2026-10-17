@@ -35,6 +35,7 @@ impl Error for StructureValidationError {
             | Self::MissingSupportIndex { .. }
             | Self::OrphanSupportIndex { .. }
             | Self::UnknownSupportReference { .. }
+            | Self::PlannedSupportReference { .. }
             | Self::SelfSupport { .. }
             | Self::SupportOutOfContact { .. }
             | Self::GroundedElementHasSupport { .. }

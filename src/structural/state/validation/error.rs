@@ -123,6 +123,10 @@ pub enum StructureValidationError {
         element: StructuralElementId,
         support: StructuralElementId,
     },
+    PlannedSupportReference {
+        element: StructuralElementId,
+        support: StructuralElementId,
+    },
     SelfSupport {
         element: StructuralElementId,
     },
