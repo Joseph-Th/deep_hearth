@@ -35,8 +35,8 @@ use deep_hearth::equipment::{
 };
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{
-    MaterialLotSelection, MaterialStackProjection, StockpileId, StorageDefinitionId,
-    project_material_stacks, validate_mount_stockpile, validate_place_player_storage,
+    MaterialStackProjection, StorageDefinitionId, project_material_stacks,
+    validate_mount_stockpile, validate_place_player_storage,
 };
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
@@ -59,8 +59,7 @@ use deep_hearth::spatial::{
 use deep_hearth::structural::{
     GroundedStructuralElementPlan, PrismaticMemberLoadRequest, StructuralElementGeometry,
     StructuralLifecycle, StructuralLoadKind, project_prismatic_member_load,
-    validate_plan_player_grounded_structural_element,
-    validate_start_player_structural_construction,
+    validate_start_player_grounded_structural_construction_from_stack,
 };
 use deep_hearth::surface::{
     AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceResourceId,
@@ -164,40 +163,6 @@ pub(super) enum WildernessStartProfile {
     Rested,
     HungerPressure,
     HydrationPressure,
-}
-
-fn select_stockpile_commodity_mass(
-    state: &AppState,
-    stockpile: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-    context: &str,
-) -> Vec<MaterialLotSelection> {
-    let mut remaining = mass;
-    let mut selections = Vec::new();
-    for lot in state.inventory().lot_ids(stockpile) {
-        if remaining.is_zero() {
-            break;
-        }
-        let Some(record) = state.inventory().get_lot(lot) else {
-            continue;
-        };
-        if record.commodity() != commodity {
-            continue;
-        }
-        let selected = remaining.min(record.mass());
-        selections.push(MaterialLotSelection::new(lot, selected));
-        remaining = remaining
-            .checked_sub(selected)
-            .unwrap_or_else(|| unreachable!("wilderness material selection is bounded by demand"));
-    }
-    assert!(
-        remaining.is_zero(),
-        "wilderness {context} is missing {}mg of commodity {} in local custody",
-        remaining.milligrams(),
-        commodity.value()
-    );
-    selections
 }
 
 impl WildernessStartProfile {
@@ -2457,38 +2422,28 @@ fn evaluate_generated_wilderness_opening_internal(
                 .unwrap_or_else(|| {
                     panic!("wilderness worksite-cache source disappeared after staging")
                 });
-            let support_geometry = worksite_support_geometry(junction);
-            let support = validate_plan_player_grounded_structural_element(
+            let support_stack = carried_material_stack(
                 &registries,
                 &state,
-                GroundedStructuralElementPlan::new(
-                    STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-                    MATERIAL_WOOD,
-                    support_geometry,
-                ),
-            )
-            .unwrap_or_else(|error| panic!("wilderness worksite support planning failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("wilderness worksite support plan commit failed: {error}")
-            });
-            let support_selections = select_stockpile_commodity_mass(
-                &state,
-                carried,
                 timber_commodity,
-                worksite_support_mass,
                 "wilderness worksite grounded support",
             );
-            let support_work = validate_start_player_structural_construction(
+            let support_start = validate_start_player_grounded_structural_construction_from_stack(
                 &registries,
                 &state,
                 STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-                support,
-                support_selections.as_slice(),
+                GroundedStructuralElementPlan::new(
+                    STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+                    MATERIAL_WOOD,
+                    worksite_support_geometry(junction),
+                ),
+                &support_stack,
             )
-            .unwrap_or_else(|error| panic!("wilderness worksite support start failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("wilderness worksite support commit failed: {error}"));
+            .unwrap_or_else(|error| panic!("wilderness worksite support start failed: {error}"));
+            let support = support_start.element();
+            let support_work = support_start.commit(&mut state).unwrap_or_else(|error| {
+                panic!("wilderness worksite support commit failed: {error}")
+            });
             advance_to(
                 &registries,
                 &mut state,
