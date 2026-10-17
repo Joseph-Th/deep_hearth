@@ -3,8 +3,11 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::logistics::validate_player_stockpile_access;
+use crate::logistics::{
+    player_body_is_grounded, player_body_uses_generated_world, validate_player_stockpile_access,
+};
 use crate::registry::Registries;
+use crate::spatial::HorizontalVelocity;
 use crate::structural::{
     StructuralLifecycle, bounds_are_within_player_reach, calculate_prismatic_material_mass_ceiling,
 };
@@ -109,6 +112,19 @@ pub(crate) fn validate_loaded_player_work(
         .ok_or(PlayerWorkValidationError::WorkWithoutPlayer)?;
     if player.vitality() == Vitality::ZERO {
         return Err(PlayerWorkValidationError::PlayerDead);
+    }
+    let locomotion = registries.survival().physiology().locomotion();
+    if player_body_uses_generated_world(state, locomotion) {
+        if !player_body_is_grounded(registries, state) {
+            return Err(PlayerWorkValidationError::PlayerAirborne);
+        }
+        if state
+            .logistics()
+            .player()
+            .is_some_and(|player| player.body().horizontal_velocity() != HorizontalVelocity::ZERO)
+        {
+            return Err(PlayerWorkValidationError::PlayerMoving);
+        }
     }
     let available_energy = player.metabolic_energy();
     let available_hydration = player.hydration();

@@ -16,6 +16,8 @@ mod source;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWorkValidationError {
     WorkWithoutPlayer,
+    PlayerAirborne,
+    PlayerMoving,
     RevisionExhausted,
     SurvivalRevisionExhausted,
     SurfaceGatheringMethodMissing,

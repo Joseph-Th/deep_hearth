@@ -118,11 +118,11 @@ pub fn admit_player_at_hydration_warning_boundary(
     )
 }
 
-/// Establishes one authored face-adjacent traversal edge before actor admission.
+/// Establishes one authored face-adjacent opening-access edge before actor admission.
 ///
-/// Ordinary movement may only query persisted traversal authority. This gameplay-only setup surface
-/// exists so exact-local maintained probes can construct a bounded route without exposing arbitrary
-/// traversal mutation to runtime callers.
+/// Continuous body movement does not depend on this graph. This gameplay-only setup surface exists
+/// so exact-local maintained probes can construct bounded actor-visible orientation and planning
+/// without exposing arbitrary topology mutation to runtime callers.
 pub fn seed_traversable_edge(state: &mut AppState, first: VoxelCoord, second: VoxelCoord) {
     assert_pre_admission(state, "traversal-edge seed");
     add_traversable_edge_for_test(state, first, second);

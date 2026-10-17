@@ -207,8 +207,8 @@ fn validate_initialization_with_capacity(
 /// The cross-owner `player` boundary owns ordinary admission. This owner-level helper contributes
 /// only the initial world position and physiology-sized carried stockpile so callers cannot admit a
 /// location/custody half-state as ordinary play. It intentionally creates no movement authority:
-/// later pickup, drop, haulage, and movement actions must prove world access/path cost before
-/// changing custody or position.
+/// later custody changes must satisfy their owning access constraints, while continuous body motion
+/// derives legality from generated-world collision and current work/custody state.
 pub(crate) fn validate_player_logistics_initialization(
     registries: &Registries,
     state: &AppState,

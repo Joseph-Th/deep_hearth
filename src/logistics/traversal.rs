@@ -1,13 +1,14 @@
-//! Canonical persisted representation of immediate player traversal access.
+//! Canonical persisted representation of bounded opening-access topology.
 
 use serde::{Deserialize, Serialize};
 
 use crate::spatial::VoxelCoord;
 
-/// One undirected, explicitly authorized face-adjacent player traversal edge.
+/// One undirected, persisted face-adjacent opening-access edge.
 ///
-/// Endpoints are stored in coordinate order so persisted traversal access has one canonical
-/// representation. World generation owns creation; ordinary movement only queries these edges.
+/// Endpoints are stored in coordinate order so the bounded observation/planning graph has one
+/// canonical representation. World generation owns creation; continuous body locomotion does not
+/// require these edges.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TraversalEdge {

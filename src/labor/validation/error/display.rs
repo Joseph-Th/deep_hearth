@@ -8,6 +8,12 @@ impl Display for PlayerWorkValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WorkWithoutPlayer => formatter.write_str("player work exists without a player"),
+            Self::PlayerAirborne => formatter.write_str(
+                "active player work requires the generated-world body to remain grounded",
+            ),
+            Self::PlayerMoving => formatter.write_str(
+                "active player work requires the generated-world body to remain horizontally stopped",
+            ),
             Self::RevisionExhausted => formatter.write_str(
                 "active player work cannot reserve the revision required to release attention",
             ),

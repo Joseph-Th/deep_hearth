@@ -526,6 +526,56 @@ fn trusted_load_rejects_block_excavation_source_mass_tamper() {
 }
 
 #[test]
+fn trusted_load_rejects_active_block_excavation_with_invalid_body_motion() {
+    let (registries, mut state, pick, _target) = generated_excavation_fixture();
+    let _start = validate_start_player_block_excavation(
+        &registries,
+        &state,
+        BlockExcavationRequest::new(
+            positive_x_view(),
+            MINING_METHOD_HAND_PICK,
+            pick,
+            Mass::from_milligrams(200_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("moving-work load validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("moving-work load commit failed: {error}"));
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("moving-work serialization failed: {error}"));
+    let mut moving = encoded.clone();
+    moving["state"]["systems"]["logistics"]["player"]["body"]["horizontal_velocity"]["x_nanometers_per_second"] =
+        serde_json::json!(1_i64);
+    let moving: LoadedSaveEnvelope = serde_json::from_value(moving)
+        .unwrap_or_else(|error| panic!("moving-work tamper decode failed: {error}"));
+    assert_eq!(
+        moving.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::PlayerMoving
+        )))
+    );
+
+    let mut airborne = encoded;
+    let foot_y = airborne["state"]["systems"]["logistics"]["player"]["body"]
+        ["foot_position"]["y_nanometers"]
+        .as_i64()
+        .unwrap_or_else(|| panic!("serialized active-work foot height is not an i64"));
+    airborne["state"]["systems"]["logistics"]["player"]["body"]["foot_position"]["y_nanometers"] = serde_json::json!(
+        foot_y
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("active-work foot height cannot be incremented"))
+    );
+    let airborne: LoadedSaveEnvelope = serde_json::from_value(airborne)
+        .unwrap_or_else(|error| panic!("airborne-work tamper decode failed: {error}"));
+    assert_eq!(
+        airborne.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::PlayerAirborne
+        )))
+    );
+}
+
+#[test]
 fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_work() {
     let (registries, mut state, pick, target) = generated_excavation_fixture();
     let batch = Mass::from_milligrams(200_000);

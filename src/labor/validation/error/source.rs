@@ -22,6 +22,8 @@ impl Error for PlayerWorkValidationError {
             Self::BlockExcavationDestinationAccess(error) => Some(error),
             Self::BlockExcavationDestinationStorage(error) => Some(error),
             Self::WorkWithoutPlayer
+            | Self::PlayerAirborne
+            | Self::PlayerMoving
             | Self::RevisionExhausted
             | Self::SurvivalRevisionExhausted
             | Self::SurfaceGatheringMethodMissing
