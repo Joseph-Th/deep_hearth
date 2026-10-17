@@ -34,8 +34,8 @@ use crate::survival::{
     available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
 };
 use crate::world::{
-    BlockStateId, PlayerBlockTargetError, raycast_player_air_voxel, raycast_player_block,
-    validate_start_player_block_excavation_active,
+    BlockCollisionShape, BlockStateId, PlayerBlockTargetError, raycast_player_air_voxel,
+    raycast_player_block, validate_start_player_block_excavation_active,
 };
 
 use super::control::{PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent};
@@ -623,7 +623,7 @@ fn attempt_primary_break(
     }
 }
 
-fn validate_direct_structural_placement_position(
+fn validate_direct_placement_position(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
@@ -669,7 +669,7 @@ fn attempt_supported_timber_placement(
     let Some(position) = target.face.adjacent_voxel(target.voxel) else {
         return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
     };
-    if let Err(error) = validate_direct_structural_placement_position(registries, state, position) {
+    if let Err(error) = validate_direct_placement_position(registries, state, position) {
         return Some(match error {
             DirectPlacementTargetError::Target(error) => {
                 SecondaryActionOutcome::StructuralTargetRejected(error)
@@ -796,22 +796,7 @@ fn resolve_direct_placement_target(
         .face()
         .adjacent_voxel(target.voxel())
         .ok_or(DirectPlacementTargetError::CoordinateOverflow)?;
-    match state.world().block_at(position) {
-        None => return Err(DirectPlacementTargetError::WorldUnavailable { position }),
-        Some(BlockStateId::AIR) => {}
-        Some(block) => {
-            return Err(DirectPlacementTargetError::Occupied {
-                position,
-                state: block,
-            });
-        }
-    }
-    if player_body_occupies_voxel(registries, state, position) {
-        return Err(DirectPlacementTargetError::IntersectsPlayer { position });
-    }
-    if state.logistics().has_stationary_occupant_at(position) {
-        return Err(DirectPlacementTargetError::LocationOccupied { position });
-    }
+    validate_direct_placement_position(registries, state, position)?;
     Ok((target.face(), position))
 }
 
@@ -874,7 +859,7 @@ fn attempt_selected_timber_cover_placement(
     let Some(position) = target.face.adjacent_voxel(target.voxel) else {
         return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
     };
-    if let Err(error) = validate_direct_structural_placement_position(registries, state, position) {
+    if let Err(error) = validate_direct_placement_position(registries, state, position) {
         return Some(match error {
             DirectPlacementTargetError::Target(error) => {
                 SecondaryActionOutcome::StructuralTargetRejected(error)
@@ -1009,13 +994,6 @@ fn attempt_selected_timber_placement(
     if face != CubeFace::Top {
         return Some(SecondaryActionOutcome::StructuralPlacementRequiresTopFace { face });
     }
-    if state
-        .structures()
-        .elements()
-        .any(|record| record.bounds().has_voxel(position))
-    {
-        return Some(SecondaryActionOutcome::StructuralPlacementLocationOccupied { position });
-    }
     let Some(bounds) = single_voxel_bounds(position) else {
         return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
     };
@@ -1099,6 +1077,22 @@ fn attempt_selected_storage_placement(
             return Some(SecondaryActionOutcome::StoragePlacementLocationOccupied { position });
         }
     };
+    // Pointed placement must not suspend a freestanding container in empty air. The lower-level
+    // stockpile allocator deliberately owns custody rather than terrain physics; this direct
+    // interaction owns the generated-world contact requirement.
+    let supported = position
+        .y()
+        .checked_sub(1)
+        .and_then(|y| {
+            state
+                .world()
+                .block_at(VoxelCoord::new(position.x(), y, position.z()))
+        })
+        .and_then(|block| registries.world().block_for_state(block))
+        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube);
+    if !supported {
+        return Some(SecondaryActionOutcome::StoragePlacementUnsupported { position });
+    }
     Some(
         match validate_place_player_storage_at(registries, state, definition, position) {
             Ok(validated) => {

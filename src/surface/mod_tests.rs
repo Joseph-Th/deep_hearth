@@ -37,7 +37,8 @@ use crate::simulation::{
 use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{
     GroundedStructuralElementPlan, StructuralElementGeometry, StructuralLifecycle,
-    SupportedStructuralElementPlan, calculate_prismatic_material_mass_ceiling,
+    SupportedStructuralElementPlan, add_structural_element,
+    calculate_prismatic_material_mass_ceiling, materialize_structural_element_for_test,
     validate_start_player_grounded_structural_construction_from_stack,
     validate_start_player_supported_structural_construction_from_stack,
 };
@@ -1612,8 +1613,6 @@ fn secondary_use_places_selected_storage_body_through_canonical_storage_placemen
         TEMPERATURE,
     )
     .unwrap_or_else(|error| panic!("secondary placement body fixture failed: {error}"));
-    let matter_before = calculate_matter_accounting(&state)
-        .unwrap_or_else(|error| panic!("secondary placement matter baseline failed: {error}"));
     validate_set_active_selection(
         &registries,
         &state,
@@ -1622,6 +1621,80 @@ fn secondary_use_places_selected_storage_body_through_canonical_storage_placemen
     .unwrap_or_else(|error| panic!("secondary placement selection failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("secondary placement selection commit failed: {error}"));
+
+    let unsupported = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("unsupported storage placement control failed: {error}"));
+    assert_eq!(
+        unsupported.secondary_action(),
+        Some(&SecondaryActionOutcome::StoragePlacementUnsupported {
+            position: placement
+        })
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(body_mass),
+        "unsupported storage placement must not consume its enclosure material"
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(placement.x(), placement.y() - 1, placement.z()),
+        BLOCK_STATE_STONE,
+    );
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("secondary placement matter baseline failed: {error}"));
+
+    let mut framed = state.clone();
+    let bounds = VoxelBounds::new(
+        placement,
+        VoxelCoord::new(placement.x() + 1, placement.y() + 1, placement.z() + 1),
+    )
+    .unwrap_or_else(|error| panic!("storage obstruction bounds failed: {error}"));
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap_or_else(|error| panic!("storage obstruction geometry failed: {error}"));
+    let frame = add_structural_element(
+        &registries,
+        &mut framed,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap_or_else(|error| panic!("storage obstruction creation failed: {error}"));
+    materialize_structural_element_for_test(&registries, &mut framed, frame, FORM_LOG);
+    let obstructed = advance_control_tick_with_direct_input(
+        &registries,
+        &mut framed,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap_or_else(|error| panic!("structurally obstructed placement control failed: {error}"));
+    assert_eq!(
+        obstructed.secondary_action(),
+        Some(&SecondaryActionOutcome::StoragePlacementLocationOccupied {
+            position: placement
+        })
+    );
+    assert_eq!(
+        framed
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(body_mass),
+        "structural obstruction must not consume enclosure material"
+    );
 
     let control = advance_control_tick_with_direct_input(
         &registries,

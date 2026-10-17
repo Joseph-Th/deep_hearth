@@ -108,6 +108,9 @@ pub enum SecondaryActionOutcome {
     StoragePlacementLocationOccupied {
         position: VoxelCoord,
     },
+    StoragePlacementUnsupported {
+        position: VoxelCoord,
+    },
     StructuralTargetRejected(PlayerBlockTargetError),
     NoStructuralPlacementTarget,
     StructuralPlacementCoordinateOverflow,

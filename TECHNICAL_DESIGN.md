@@ -399,6 +399,12 @@ energy-store disassembly recovery likewise uses current carried capacity and own
 support without teleporting an existing location. Assembly establishes player-local world custody for newly created
 equipment/energy stores; disassembly removes that custody.
 
+Pointed storage placement additionally requires a generated empty destination voxel, clearance from the player,
+stationary assets, and structural elements, and a `FullCube` terrain block directly beneath the destination.
+This contact rule belongs to player interaction, not the general-purpose stockpile custody allocator. It checks
+support at placement time only: later terrain removal and general terrain-dependent structural collapse are not
+currently modeled.
+
 Slow `TickSpan` player work may start in generated-world body mode only at an exact control/simulation boundary
 while the body is grounded and horizontally stopped. Ordinary player locomotion has no separate slow-work movement
 variant: generated-world movement stays on the continuous body authority, while persisted opening-access edges are
