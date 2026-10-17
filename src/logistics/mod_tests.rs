@@ -42,6 +42,49 @@ fn authored_capacity_initialization_binds_player_position_and_carried_custody() 
 }
 
 #[test]
+fn trusted_load_rejects_upward_velocity_above_canonical_jump_launch() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("upward-velocity player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("upward-velocity player admission commit failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let maximum_upward = physiology
+        .locomotion()
+        .jump_speed_for_load(Mass::ZERO, physiology.carried_mass_capacity())
+        .nanometers_per_second();
+    assert!(
+        maximum_upward
+            < physiology
+                .locomotion()
+                .maximum_fall_speed()
+                .nanometers_per_second(),
+        "test requires the canonical upward launch ceiling to be below terminal fall speed"
+    );
+    let forged = maximum_upward
+        .checked_add(1)
+        .and_then(|velocity| i64::try_from(velocity).ok())
+        .unwrap_or_else(|| panic!("authored upward velocity ceiling cannot be incremented"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("upward-velocity serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["player"]["body"]["vertical_velocity"]["nanometers_per_second"] =
+        serde_json::json!(forged);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("upward-velocity tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::PlayerVerticalVelocityExceedsMaximum {
+                nanometers_per_second: forged,
+                maximum_nanometers_per_second: maximum_upward,
+            },
+        )))
+    );
+}
+
+#[test]
 fn local_ground_observation_rejects_dangling_logistics_reference() {
     let mut state = AppState::new();
     let position = VoxelCoord::new(0, 0, 0);

@@ -780,7 +780,16 @@ pub(crate) fn validate_loaded_logistics(
             );
         }
         let vertical = player.body().vertical_velocity().nanometers_per_second();
-        let maximum_vertical = locomotion.maximum_fall_speed().nanometers_per_second();
+        let maximum_vertical = if vertical >= 0 {
+            locomotion
+                .jump_speed_for_load(
+                    crate::core::quantity::Mass::ZERO,
+                    registries.survival().physiology().carried_mass_capacity(),
+                )
+                .nanometers_per_second()
+        } else {
+            locomotion.maximum_fall_speed().nanometers_per_second()
+        };
         if vertical.unsigned_abs() > maximum_vertical {
             return Err(
                 LogisticsValidationError::PlayerVerticalVelocityExceedsMaximum {
