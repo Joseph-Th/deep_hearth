@@ -6,12 +6,11 @@ use deep_hearth::content::EQUIPMENT_TIMBER_FRAME_SAW_BENCH;
 use deep_hearth::maintenance::Condition;
 
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
-use super::settlement_demand::{
-    organic_followup_lumber_batches, organic_lumber_batch_limits, organic_lumber_batches,
-};
+use super::settlement_demand::{organic_lumber_batch_limits, organic_lumber_batches};
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
-    organic_inherited_equipment_condition, organic_investment_policy,
+    organic_followup_lumber_batches, organic_inherited_equipment_condition,
+    organic_investment_policy,
 };
 
 #[test]

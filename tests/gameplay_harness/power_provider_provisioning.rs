@@ -9,17 +9,17 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::TickSpan;
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
+    MaterialStackProjection, StockpileId, StockpileStorageProfile, project_material_stacks,
     validate_build_storage_enclosure,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::{
-    DrinkHydrationProjectionError, DrinkStoreToTargetError, FoodFreshness,
-    MealMetabolicProjectionError, SurvivalExertion, assess_food_freshness, assess_survival,
+    DrinkHydrationProjectionError, DrinkStoreToTargetError, FoodFreshness, FoodStackPortion,
+    MealMetabolicProjectionError, SurvivalExertion, assess_food_stack_freshness, assess_survival,
     available_local_drink_sources, project_minimum_meal_to_metabolic_target,
     project_survival_resource_budget, validate_drink, validate_drink_store_to_hydration_target,
-    validate_eat, validate_eat_lot_to_metabolic_target,
+    validate_eat_stack_portions, validate_eat_stack_to_metabolic_target,
 };
 
 use super::super::direct_consumption_timing::finish_direct_consumption_work;
@@ -238,23 +238,26 @@ impl ProvisioningOutcome {
     }
 }
 
-fn grain_lot(registries: &Registries, state: &AppState, stockpile: StockpileId) -> MaterialLotId {
+fn grain_stack(
+    registries: &Registries,
+    state: &AppState,
+    stockpile: StockpileId,
+) -> MaterialStackProjection {
     let grain = CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD);
-    let candidates = state
-        .inventory()
-        .lot_ids(stockpile)
-        .filter_map(|lot| {
-            let record = state.inventory().get_lot(lot)?;
-            if record.commodity() != grain {
+    let candidates = project_material_stacks(registries, state, stockpile)
+        .unwrap_or_else(|error| panic!("power project grain-stack projection failed: {error}"))
+        .into_iter()
+        .filter_map(|stack| {
+            if stack.commodity() != grain {
                 return None;
             }
-            let remaining = match assess_food_freshness(registries, state, lot)
+            let remaining = match assess_food_stack_freshness(registries, state, &stack)
                 .unwrap_or_else(|error| panic!("power project grain freshness failed: {error:?}"))
             {
                 FoodFreshness::Fresh { remaining, .. } => remaining,
                 FoodFreshness::Spoiled { .. } => return None,
             };
-            Some((remaining.value(), lot))
+            Some((remaining.value(), stack))
         })
         .collect::<Vec<_>>();
     let earliest_remaining = candidates
@@ -281,7 +284,7 @@ fn grain_lot(registries: &Registries, state: &AppState, stockpile: StockpileId) 
         .unwrap_or_else(|| unreachable!("earliest grain freshness came from a candidate"));
     assert!(
         earliest.next().is_none(),
-        "power project provisions contain equally perishable grain lots; add an explicit stack-level preference instead of using lot identity"
+        "power project provisions contain equally perishable visible grain stacks; add an explicit observable stack preference instead of using hidden identity"
     );
     selected
 }
@@ -457,21 +460,20 @@ pub(super) fn provision_for_project_leg(
                 break;
             }
         }
-        let lot = grain_lot(registries, state, provisions.food);
+        let stack = grain_stack(registries, state, provisions.food);
         let before_meal = assess_survival(registries, state)
             .unwrap_or_else(|| panic!("power project {context} lost player before eating"));
         let validated = if meal_plan.reaches_target {
-            validate_eat_lot_to_metabolic_target(registries, state, lot, metabolic_target)
+            validate_eat_stack_to_metabolic_target(registries, state, &stack, metabolic_target)
                 .unwrap_or_else(|error| {
                     panic!("power project {context} selected-stack meal validation failed: {error}")
                 })
                 .unwrap_or_else(|| unreachable!("meal target remains unmet before validation"))
         } else {
-            validate_eat(
+            validate_eat_stack_portions(
                 registries,
                 state,
-                provisions.food,
-                &[MaterialLotSelection::new(lot, meal_plan.mass)],
+                &[FoodStackPortion::new(&stack, meal_plan.mass)],
             )
             .unwrap_or_else(|error| {
                 panic!("power project {context} maximum legal meal failed: {error}")

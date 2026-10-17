@@ -41,17 +41,3 @@ pub(crate) fn organic_lumber_batches(
         .min(organic_maximum);
     lower + entropy % (upper - lower + 1)
 }
-
-pub(crate) fn organic_followup_lumber_batches(
-    world_stratum: u64,
-    entropy: u64,
-    first_order_batches: u64,
-    opportunity_batches: u64,
-) -> u64 {
-    assert!(
-        first_order_batches > 0 && first_order_batches < opportunity_batches,
-        "settlement follow-up demand requires a positive first order with remaining opportunity"
-    );
-    let remaining_opportunity = opportunity_batches - first_order_batches;
-    organic_lumber_batches(world_stratum, entropy, remaining_opportunity)
-}

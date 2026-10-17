@@ -5,12 +5,27 @@ use deep_hearth::registry::Registries;
 use super::capital_investment_policy::CapitalInvestmentPolicy;
 use super::inherited_condition::healthy_used_equipment_condition;
 pub(super) use super::settlement_demand::SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES;
+use super::settlement_demand::organic_lumber_batches;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CrossoverWorkloads {
     pub(super) short_batches: u64,
     pub(super) marginal_batches: u64,
     pub(super) project_batches: u64,
+}
+
+pub(super) fn organic_followup_lumber_batches(
+    world_stratum: u64,
+    entropy: u64,
+    first_order_batches: u64,
+    opportunity_batches: u64,
+) -> u64 {
+    assert!(
+        first_order_batches > 0 && first_order_batches < opportunity_batches,
+        "settlement follow-up demand requires a positive first order with remaining opportunity"
+    );
+    let remaining_opportunity = opportunity_batches - first_order_batches;
+    organic_lumber_batches(world_stratum, entropy, remaining_opportunity)
 }
 
 fn workload_roll(value: u64, salt: u64) -> u64 {
