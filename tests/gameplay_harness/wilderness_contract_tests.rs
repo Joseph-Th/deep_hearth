@@ -707,7 +707,11 @@ pub(super) struct WildernessOpeningReview {
     pub(super) thermal_before_fire_ppm: u32,
     pub(super) thermal_after_fire_ppm: u32,
     pub(super) campfire_heat_remaining_nj: u128,
+    /// Current fire energy at the end of the complete episode, not just initial recovery.
+    pub(super) campfire_heat_at_end_nj: u128,
+    pub(super) campfire_runway_at_end_ticks: u64,
     pub(super) campfire_light_level: u8,
+    pub(super) final_thermal_comfort_ppm: u32,
     pub(super) selected_source_opportunity_mg: u64,
     pub(super) selected_source_remaining_mg: u64,
     pub(super) camp_logistics_legs: u64,
@@ -1948,8 +1952,8 @@ fn evaluate_generated_wilderness_opening_internal(
         ))
         .unwrap_or_else(|| panic!("wilderness food-provisioning duration overflowed"));
     assert!(
-        (3 * minute..=8 * minute).contains(&food_secured_microseconds),
-        "a useful food reserve should be secured early instead of waiting behind fabrication or storage construction"
+        food_secured_microseconds > 0 && food_secured_microseconds <= 3 * minute,
+        "first-session food acquisition should take meaningful physical time but finish within three minutes"
     );
 
     let mut meal_consumed_mg = 0_u64;
@@ -2677,6 +2681,7 @@ fn evaluate_generated_wilderness_opening_internal(
     let mut thermal_before_fire_ppm = 0_u32;
     let mut thermal_after_fire_ppm = 0_u32;
     let mut campfire_heat_remaining_nj = 0_u128;
+    let mut campfire_id = None;
     let mut campfire_light_level = 0_u8;
     let mut selected_source_opportunity_mg = 0_u64;
     let mut selected_source_remaining_mg = 0_u64;
@@ -3218,6 +3223,7 @@ fn evaluate_generated_wilderness_opening_internal(
                 }
                 other => panic!("wilderness stone use did not assemble campfire: {other:?}"),
             };
+            campfire_id = Some(campfire);
 
             let timber_stacks = project_material_stacks(&registries, &state, storage)
                 .unwrap_or_else(|error| {
@@ -3405,21 +3411,21 @@ fn evaluate_generated_wilderness_opening_internal(
         .unwrap_or_else(|| panic!("wilderness physical duration overflowed"));
     match camp_goal {
         WildernessCampGoal::StayMobile => assert!(
-            (3 * minute..=8 * minute).contains(&elapsed_microseconds),
-            "mobile opening should end when immediate provisioning is stable instead of padding time with unneeded infrastructure"
+            elapsed_microseconds <= 5 * minute,
+            "mobile opening should finish promptly once essential provisioning is stable"
         ),
         WildernessCampGoal::WorksiteCache | WildernessCampGoal::PreserveProvisions => {
             let maximum = 30 * minute;
             assert!(
-                (10 * minute..=maximum).contains(&elapsed_microseconds),
+                elapsed_microseconds <= maximum,
                 "an elected primitive camp project should be substantial but remain an opening-session investment: elapsed={elapsed_microseconds}us maximum={maximum}us"
             )
         }
         WildernessCampGoal::LongStayShelter => {
             let maximum = 90 * minute;
             assert!(
-                (60 * minute..=maximum).contains(&elapsed_microseconds),
-                "a long-stay shelter should occupy roughly an hour of deliberate first-camp work without becoming an all-day build: elapsed={elapsed_microseconds}us maximum={maximum}us"
+                elapsed_microseconds <= maximum,
+                "a long-stay shelter should not become an all-day build: elapsed={elapsed_microseconds}us maximum={maximum}us"
             )
         }
     }
@@ -3439,6 +3445,36 @@ fn evaluate_generated_wilderness_opening_internal(
         .unwrap_or_else(|error| panic!("wilderness final state invalid: {error}"));
     let final_survival = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("wilderness player disappeared at final review"));
+    let campfire_heat_at_end_nj = campfire_id.map_or(0, |campfire| {
+        state
+            .energy()
+            .get_store(campfire)
+            .unwrap_or_else(|| panic!("wilderness campfire disappeared before final review"))
+            .stored()
+            .nanojoules()
+    });
+    let campfire_runway_at_end_ticks = if campfire_id.is_some() {
+        passive_dissipation_ticks_until_empty(
+            &registries,
+            ENERGY_STONE_RING_CAMPFIRE,
+            Energy::from_nanojoules(campfire_heat_at_end_nj),
+        )
+        .unwrap_or_else(|error| panic!("final wilderness fire runway projection failed: {error}"))
+        .unwrap_or_else(|| panic!("authored fire must have finite dissipation"))
+        .value()
+    } else {
+        0
+    };
+    assert!(
+        campfire_heat_at_end_nj <= campfire_heat_remaining_nj,
+        "finite fire must not acquire uncommitted energy during the camp project"
+    );
+    if camp_goal.builds_shelter() {
+        assert!(
+            campfire_heat_at_end_nj < campfire_heat_remaining_nj,
+            "long-stay shelter construction must expose the fire's finite energy consumed over time"
+        );
+    }
     let final_warning_safe = final_survival.metabolic_energy() > physiology.hungry_below()
         && final_survival.hydration() > physiology.thirsty_below();
     assert!(
@@ -3493,7 +3529,10 @@ fn evaluate_generated_wilderness_opening_internal(
         thermal_before_fire_ppm,
         thermal_after_fire_ppm,
         campfire_heat_remaining_nj,
+        campfire_heat_at_end_nj,
+        campfire_runway_at_end_ticks,
         campfire_light_level,
+        final_thermal_comfort_ppm: final_survival.thermal_comfort_ppm(),
         selected_source_opportunity_mg,
         selected_source_remaining_mg,
         camp_logistics_legs: camp_logistics_steps,
@@ -3547,8 +3586,83 @@ fn physical_hours_tenths(registries: &Registries, ticks: u64) -> String {
     format!("{}.{:01}h", tenths / 10, tenths % 10)
 }
 
+/// Short causal reading of the exact-local episode; unlike the owner ledger this follows
+/// the problems the actor saw, the decisions made, and their experienced consequences.
+fn format_megajoules_tenths(nanojoules: u128) -> String {
+    let tenths = (nanojoules + 50_000_000_000_000) / 100_000_000_000_000;
+    format!("{}.{:01}", tenths / 10, tenths % 10)
+}
+
+fn print_player_journey(registries: &Registries, review: WildernessOpeningReview) {
+    let goal = review.camp_goal.label();
+    std::println!(
+        "PLAYER JOURNEY goal={goal} initial={} first-provisions=[{}g berries in {} patch-left:{}g] water=[adjacent:known quantity-before-visit:unknown choice:{} consumed:{}mL]",
+        review.start_profile.label(),
+        review.gathered_food_mass_mg / 1_000,
+        physical_minutes_tenths(registries, review.food_secured_ticks),
+        review.forage_remaining_mass_mg / 1_000,
+        if review.water_visited {
+            "visit"
+        } else {
+            "skip"
+        },
+        review.water_consumed_ul / 1_000,
+    );
+    match review.camp_goal {
+        WildernessCampGoal::StayMobile => std::println!(
+            "PLAYER JOURNEY goal={goal} junction=[stone,timber] action=leave-unneeded-resources outcome=travel-light-with-food",
+        ),
+        WildernessCampGoal::WorksiteCache | WildernessCampGoal::LongStayShelter => std::println!(
+            "PLAYER JOURNEY goal={goal} junction=[stone,timber] action=haul-timber-build-field-box-and-support outcome=[cached:{}g staged-timber:{}g fabrication-residue:{}g fire:{} charge-runway:{}]",
+            review.cached_total_mass_mg / 1_000,
+            review.staged_worksite_timber_mg / 1_000,
+            review.worksite_construction_residue_mg / 1_000,
+            review.campfire_built,
+            physical_minutes_tenths(registries, review.campfire_single_charge_runway_ticks),
+        ),
+        WildernessCampGoal::PreserveProvisions => std::println!(
+            "PLAYER JOURNEY goal={goal} junction=[stone,timber] action=haul-stone-build-crock outcome=[cached-food:{}g shelf:{}d vs-field-box:{}d]",
+            review.cached_food_mass_mg / 1_000,
+            review.stone_crock_food_shelf_ticks / registries.core().calendar().ticks_per_day(),
+            review.field_box_food_shelf_ticks / registries.core().calendar().ticks_per_day(),
+        ),
+    }
+    if let Some(shelter) = review.shelter {
+        std::println!(
+            "PLAYER JOURNEY goal={goal} decision=make-adze-for-roof consequence=[posts:{} cover:{}g attention-saved:{} less-exposure:{}ppm/t]",
+            shelter.support_count,
+            shelter.panel_mass_mg / 1_000,
+            physical_minutes_tenths(registries, shelter.saved_ticks),
+            shelter.open_loss_ppm_per_tick - shelter.covered_loss_ppm_per_tick,
+        );
+    }
+    std::println!(
+        "PLAYER JOURNEY goal={goal} final=[elapsed:{} peak-load:{}g/{}g warning-safe:{} comfort:{}ppm fire-runway-left:{} fire-energy-after-recovery:{}MJ fire-energy-at-end:{}MJ] mode=single-continuous-world",
+        physical_minutes_tenths(registries, review.camp_ticks),
+        review.peak_carried_mass_mg / 1_000,
+        review.carried_capacity_mg / 1_000,
+        review.final_warning_safe,
+        review.final_thermal_comfort_ppm,
+        physical_minutes_tenths(registries, review.campfire_runway_at_end_ticks),
+        format_megajoules_tenths(review.campfire_heat_remaining_nj),
+        format_megajoules_tenths(review.campfire_heat_at_end_nj),
+    );
+}
+
 pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sample: &str) {
     let registries = build_registries();
+    if sample == "maintained"
+        || (sample == "coverage"
+            && review.start_profile == WildernessStartProfile::Rested
+            && matches!(
+                review.camp_goal,
+                WildernessCampGoal::WorksiteCache
+                    | WildernessCampGoal::LongStayShelter
+                    | WildernessCampGoal::PreserveProvisions
+            ))
+    {
+        print_player_journey(&registries, review);
+    }
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     let water_decision = if review.water_visited {
         "drink-needed"

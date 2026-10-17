@@ -990,7 +990,7 @@ fn player_surface_gathering_options_are_local_natural_and_revision_bound() {
     );
     assert_eq!(
         option.duration_for_mass(Mass::from_milligrams(1_000_000)),
-        Some(TickSpan::new(12))
+        Some(TickSpan::new(6))
     );
     assert!(option.exertion().energy_cost_per_tick() > Energy::ZERO);
 

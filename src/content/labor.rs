@@ -58,35 +58,33 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
                 Mass::from_milligrams(5_000_000),
                 Mass::from_milligrams(1_000_000),
-                TickSpan::new(60),
+                TickSpan::new(30),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_200_000_000_000),
                     Volume::from_microliters(300),
                 ),
             ),
-            // Fallen timber is bulky and awkward to drag into carried custody even when it needs
-            // no cutting. Keep the same practical batch ceiling as loose stone but make collection
-            // somewhat slower so a wood-heavy camp project carries a visible acquisition cost.
+            // Fallen timber still takes longer to load than loose stone, but a short first-session
+            // camp haul should not monopolize the player's attention for most of an in-game hour.
             SurfaceGatheringDefinition::new(
                 SURFACE_GATHERING_HAND_COLLECT_TIMBER,
                 CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
                 Mass::from_milligrams(5_000_000),
                 Mass::from_milligrams(1_000_000),
-                TickSpan::new(90),
+                TickSpan::new(40),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_200_000_000_000),
                     Volume::from_microliters(300),
                 ),
             ),
-            // Foraging is an attention-limited search-and-pick action, not bulk material loading.
-            // A smaller batch and lower mass rate keep food acquisition distinct from scooping up
-            // construction material without inventing ecology that the world shell does not own yet.
+            // Foraging is deliberate search-and-pick work, but an ordinary half-kilogram ration
+            // should be a short opening action rather than several minutes of exclusive waiting.
             SurfaceGatheringDefinition::new(
                 SURFACE_GATHERING_HAND_FORAGE_BERRIES,
                 CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
                 Mass::from_milligrams(1_000_000),
                 Mass::from_milligrams(500_000),
-                TickSpan::new(120),
+                TickSpan::new(40),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(900_000_000_000),
                     Volume::from_microliters(220),
@@ -100,7 +98,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
                 Mass::from_milligrams(5_000_000),
                 Mass::from_milligrams(1_000_000),
-                TickSpan::new(75),
+                TickSpan::new(35),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_000_000_000_000),
                     Volume::from_microliters(260),
@@ -114,7 +112,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
                 Mass::from_milligrams(5_000_000),
                 Mass::from_milligrams(1_000_000),
-                TickSpan::new(45),
+                TickSpan::new(20),
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_000_000_000_000),
                     Volume::from_microliters(250),

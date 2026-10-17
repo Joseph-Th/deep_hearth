@@ -794,7 +794,7 @@ fn blocked_unsettled_mining_with_local_stone(
             crate::surface::SurfaceResourceKind::Opportunity,
             position,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(100_000),
+            Mass::from_milligrams(500_000),
             Temperature::from_millikelvin(293_150),
             MaterialComposition::pure(MATERIAL_STONE),
         )
@@ -832,7 +832,7 @@ fn mining_settlement_retry_defers_to_due_surface_gathering_inventory_mutation() 
         &state,
         SURFACE_GATHERING_HAND_COLLECT_STONE,
         stone,
-        Mass::from_milligrams(100_000),
+        Mass::from_milligrams(500_000),
     )
     .unwrap_or_else(|error| panic!("surface gathering start failed: {error}"))
     .commit(&mut state)
@@ -877,7 +877,7 @@ fn mining_settlement_retry_defers_to_fatal_surface_gathering_cancellation() {
         &state,
         SURFACE_GATHERING_HAND_COLLECT_STONE,
         stone,
-        Mass::from_milligrams(100_000),
+        Mass::from_milligrams(500_000),
     )
     .unwrap_or_else(|error| panic!("cancelable surface gathering start failed: {error}"))
     .commit(&mut state)
