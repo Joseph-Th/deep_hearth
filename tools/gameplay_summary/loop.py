@@ -314,7 +314,7 @@ def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
     return f"thermal-bootstrap={batch_foundry}/{foundry_builds}"
 
 
-def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
+def _fantasy_evidence(evidence: _LoopEvidenceLines) -> str:
     self_sufficient_camps = sum(
         " warning-safe:true]" in line
         and " water=[observed:" in line
@@ -384,18 +384,6 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         and " disclosed:mechanized]" in line
         for line in evidence.progression
     )
-    exact_local_progression = ""
-    if evidence.progression_local_campaigns:
-        completed = sum(
-            " evidence=ordinary-exact-local " in line
-            and " mechanization=[line-local:true " in line
-            and " convergence=[both-upgrades:true " in line
-            and " matter=conserved" in line
-            for line in evidence.progression_local_campaigns
-        )
-        exact_local_progression = (
-            f" generated-exact-local-progression-campaigns:{completed}/{len(evidence.progression_local_campaigns)}"
-        )
     mechanized_settlement = [
         line
         for line in evidence.settlement
@@ -411,48 +399,16 @@ def _agency_growth_evidence(evidence: _LoopEvidenceLines) -> str:
         for line in evidence.first_foundry
     )
     foundry_builds = sum(" foundry-build=true " in line for line in evidence.first_foundry)
-    exact_local = ""
-    if evidence.fieldwork_expeditions:
-        completed = sum(
-            " cache=[returned:" in line
-            and " tool-dropped:true] matter=conserved" in line
-            for line in evidence.fieldwork_expeditions
-        )
-        exact_local = (
-            f" exact-local-field-expedition:{completed}/{len(evidence.fieldwork_expeditions)}"
-        )
-    generated_exact_local = ""
-    if evidence.fieldwork_local_orders:
-        conserved = sum(
-            " evidence=ordinary-exact-local " in line
-            and " tools-dropped:true] matter=conserved" in line
-            for line in evidence.fieldwork_local_orders
-        )
-        generated_exact_local = (
-            f" generated-exact-local-field-orders:{conserved}/{len(evidence.fieldwork_local_orders)}"
-        )
-    exact_local_depletion = ""
-    if evidence.fieldwork_local_reroutes:
-        completed = sum(
-            " evidence=ordinary-exact-local " in line
-            and " retool=[salvage:" in line
-            and " tools-dropped:true] matter=conserved" in line
-            for line in evidence.fieldwork_local_reroutes
-        )
-        exact_local_depletion = (
-            f" exact-local-depletion-reroute:{completed}/{len(evidence.fieldwork_local_reroutes)}"
-        )
     return (
-        "agency-growth=["
-        f"opening-stabilized:{self_sufficient_camps}/{len(evidence.wilderness)} "
-        f"rational-mobility:{_conditional_ratio(rational_mobility, len(mobile_wilderness))} "
-        f"camp-leverage:{_conditional_ratio(camp_leverage, len(camp_projects))} "
+        "fantasy-evidence=["
+        f"local-stability:{self_sufficient_camps}/{len(evidence.wilderness)} "
+        f"rational-restraint:{_conditional_ratio(rational_mobility, len(mobile_wilderness))} "
+        f"material-leverage:{_conditional_ratio(camp_leverage, len(camp_projects))} "
         f"{worksite_construction_evidence}"
         f"{worksite_warmth_evidence}"
-        f"workload-sensitive-processing:{workload_sensitive_processing}/{len(evidence.progression)} "
-        f"delegated-settlement-orders:{_conditional_ratio(delegated_orders, len(mechanized_settlement))} "
-        f"electrical-foundry:{_conditional_ratio(electrical_foundries, foundry_builds)}"
-        f"{exact_local_progression}{exact_local}{generated_exact_local}{exact_local_depletion}]"
+        f"earned-mechanization:{workload_sensitive_processing}/{len(evidence.progression)} "
+        f"delegated-attention:{_conditional_ratio(delegated_orders, len(mechanized_settlement))} "
+        f"electrical-foundry:{_conditional_ratio(electrical_foundries, foundry_builds)}]"
     )
 
 
@@ -908,7 +864,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         "PLAYER LOOP EVIDENCE "
         "role=self-reliant-field-engineer "
         f"{_evidence_shape(evidence)} "
-        f"{_agency_growth_evidence(evidence)} "
+        f"{_fantasy_evidence(evidence)} "
         f"{_continuity_evidence(evidence)} "
         f"{_bootstrap_boundary_evidence(evidence.wilderness, evidence.liberation_kit)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "

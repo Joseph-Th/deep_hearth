@@ -1178,23 +1178,37 @@ fn resolve_control_exertion(
     } else {
         before_accumulator
     };
-    if !availability.accepts_ground_control()
-        || input.horizontal().is_neutral()
-        || !horizontal_position_changed(before.foot_position(), after.foot_position())
-    {
+    if !availability.accepts_ground_control() {
         return Ok((accumulator, settled));
     }
     let carrying = assess_player_carrying(state)
         .unwrap_or_else(|| unreachable!("generated body motion requires admitted carrying"));
-    let realized_velocity =
-        realized_horizontal_velocity(before.foot_position(), after.foot_position())?;
-    let speed = horizontal_speed(realized_velocity)?;
-    let exertion = locomotion
-        .exertion_for_horizontal_speed(carrying.stored(), carrying.capacity(), speed)
-        .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    accumulator = accumulator
-        .checked_accrue(exertion)
-        .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
+    let horizontal_exertion = if input.horizontal().is_neutral()
+        || !horizontal_position_changed(before.foot_position(), after.foot_position())
+    {
+        None
+    } else {
+        let realized_velocity =
+            realized_horizontal_velocity(before.foot_position(), after.foot_position())?;
+        let speed = horizontal_speed(realized_velocity)?;
+        Some(
+            locomotion
+                .exertion_for_horizontal_speed(carrying.stored(), carrying.capacity(), speed)
+                .ok_or(PlayerBodyMotionError::ExertionOverflow)?,
+        )
+    };
+    if let Some(horizontal_exertion) = horizontal_exertion {
+        accumulator = accumulator
+            .checked_accrue(horizontal_exertion)
+            .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
+    }
+    if input.jump() {
+        let jump_exertion =
+            locomotion.jump_exertion_for_load(carrying.stored(), carrying.capacity());
+        accumulator = accumulator
+            .checked_accrue_impulse(jump_exertion)
+            .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
+    }
     Ok((accumulator, settled))
 }
 

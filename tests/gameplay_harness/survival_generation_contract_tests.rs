@@ -198,11 +198,21 @@ fn diet_policy_responds_to_visible_recovery_and_available_variety() {
     );
     assert_eq!(
         diet_provisioning_policy_from_visible_recovery(maximum - 1, maximum, true),
+        DietProvisioningPolicy::CompactCalories,
+        "a minor visible recovery fluctuation should not justify a heavier balanced meal"
+    );
+    assert_eq!(
+        diet_provisioning_policy_from_visible_recovery(maximum - 2, maximum, true),
         DietProvisioningPolicy::BalancedRecovery
     );
     assert_eq!(
-        diet_provisioning_policy_from_visible_recovery(maximum - 1, maximum, false),
+        diet_provisioning_policy_from_visible_recovery(maximum - 2, maximum, false),
         DietProvisioningPolicy::CompactCalories,
         "the actor must not choose a balance-restoring policy when the missing category is unavailable"
+    );
+    assert_eq!(
+        diet_provisioning_policy_from_visible_recovery(0, 0, true),
+        DietProvisioningPolicy::CompactCalories,
+        "a physiology with no diet-supported recovery has no balance investment to recover"
     );
 }

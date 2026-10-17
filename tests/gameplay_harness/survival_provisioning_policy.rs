@@ -3,6 +3,8 @@
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::survival::{FoodCategory, FoodDefinition};
 
+const BALANCED_DIET_RECOVERY_SHORTFALL_PPM: u64 = 200_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum DietProvisioningPolicy {
     CompactCalories,
@@ -28,9 +30,15 @@ pub(super) fn diet_provisioning_policy_from_visible_recovery(
         current_recovery_ppm_per_tick <= maximum_recovery_ppm_per_tick,
         "visible diet recovery cannot exceed its authored maximum"
     );
-    if full_category_supply_available
-        && current_recovery_ppm_per_tick < maximum_recovery_ppm_per_tick
-    {
+    let recovery_shortfall = maximum_recovery_ppm_per_tick - current_recovery_ppm_per_tick;
+    let materially_degraded = maximum_recovery_ppm_per_tick > 0
+        && u64::from(recovery_shortfall) * 1_000_000
+            >= u64::from(maximum_recovery_ppm_per_tick) * BALANCED_DIET_RECOVERY_SHORTFALL_PPM;
+    // Dietary variety costs extra carried/consumed mass. Do not pay that cost for a one-ppm wobble
+    // in an otherwise healthy recent diet. A twenty-percent loss of the actor-visible recovery
+    // rate is large enough to be a legible player problem and small enough to respond before the
+    // missing category has fully decayed.
+    if full_category_supply_available && materially_degraded {
         DietProvisioningPolicy::BalancedRecovery
     } else {
         DietProvisioningPolicy::CompactCalories

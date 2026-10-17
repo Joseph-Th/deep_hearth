@@ -197,6 +197,11 @@ struct DietComparisonReview {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct DietRecoveryReview {
     pub(super) policy_sensitive: bool,
+    pub(super) natural_policy: DietProvisioningPolicy,
+    pub(super) decision_recovery_ppm_per_tick: u32,
+    pub(super) maximum_recovery_ppm_per_tick: u32,
+    pub(super) available_category_count: usize,
+    pub(super) authored_category_count: usize,
     pub(super) deprivation_ticks: u64,
     pub(super) provisioning_horizon_ticks: u64,
     pub(super) compact_provisioning_ticks: u64,
@@ -275,6 +280,7 @@ fn evaluate_survival_provisioning_probe(
             "survival continuation witness must turn the newly observed continuation into stored-work preparation"
         );
     }
+
     let diet_comparison = evaluate_provisioning_comparison(registries, behavior_seed, &world);
     SurvivalProbeEvaluation {
         seed,
@@ -737,6 +743,29 @@ pub(super) fn evaluate_diet_recovery_consequence(
         );
     }
 
+    let recovery_decision = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("diet-recovery player disappeared at warm decision point"));
+    let authored_category_count = registries
+        .survival()
+        .foods()
+        .map(|food| food.category())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let available_category_count = world
+        .foods
+        .iter()
+        .map(|food| food.category())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let maximum_recovery_ppm_per_tick = physiology.nutrition().vitality_recovery_ppm_per_tick();
+    let decision_recovery_ppm_per_tick =
+        recovery_decision.diet_supported_vitality_recovery_ppm_per_tick();
+    let natural_policy = diet_provisioning_policy_from_visible_recovery(
+        decision_recovery_ppm_per_tick,
+        maximum_recovery_ppm_per_tick,
+        available_category_count == authored_category_count,
+    );
+
     let matter_total = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("diet-recovery initial matter audit failed: {error}"))
         .total();
@@ -806,6 +835,11 @@ pub(super) fn evaluate_diet_recovery_consequence(
         - i64::from(compact_observation.vitality_after_ppm);
     DietRecoveryReview {
         policy_sensitive,
+        natural_policy,
+        decision_recovery_ppm_per_tick,
+        maximum_recovery_ppm_per_tick,
+        available_category_count,
+        authored_category_count,
         deprivation_ticks,
         provisioning_horizon_ticks: comparison_horizon_ticks,
         compact_provisioning_ticks,

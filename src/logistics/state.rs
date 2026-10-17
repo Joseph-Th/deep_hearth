@@ -238,6 +238,24 @@ impl LocomotionExertionAccumulator {
         })
     }
 
+    /// Adds one discrete locomotion event whose authored cost is already a whole event total.
+    ///
+    /// Continuous body control uses [`Self::checked_accrue`] because its exertion is a slow-tick
+    /// rate sampled at control frequency. Impulses such as jump launch must not be divided by the
+    /// control/slow-tick ratio or their one-shot cost would depend on input sampling frequency.
+    pub(crate) fn checked_accrue_impulse(self, exertion: SurvivalExertion) -> Option<Self> {
+        Some(Self {
+            pending_energy: self
+                .pending_energy
+                .checked_add(exertion.energy_cost_per_tick())?,
+            pending_hydration: self
+                .pending_hydration
+                .checked_add(exertion.hydration_loss_per_tick())?,
+            energy_remainder: self.energy_remainder,
+            hydration_remainder: self.hydration_remainder,
+        })
+    }
+
     pub(crate) const fn pending(self) -> SurvivalExertion {
         SurvivalExertion::new(self.pending_energy, self.pending_hydration)
     }

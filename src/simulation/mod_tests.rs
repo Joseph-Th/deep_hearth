@@ -555,6 +555,29 @@ fn grounded_jump_is_load_sensitive_and_does_not_retrigger_in_air() {
         .unwrap_or_else(|error| panic!("loaded jump failed: {error}"))
         .body_motion()
         .unwrap_or_else(|| panic!("loaded jump produced no body motion"));
+    let unloaded_jump_exertion = unloaded
+        .logistics()
+        .player()
+        .map(|player| player.locomotion_exertion().pending())
+        .unwrap_or_else(|| panic!("unloaded jumping player disappeared"));
+    let loaded_jump_exertion = loaded
+        .logistics()
+        .player()
+        .map(|player| player.locomotion_exertion().pending())
+        .unwrap_or_else(|| panic!("loaded jumping player disappeared"));
+    let physiology = registries.survival().physiology();
+    let locomotion = physiology.locomotion();
+    let capacity = physiology.carried_mass_capacity();
+    assert_eq!(
+        unloaded_jump_exertion,
+        locomotion.jump_exertion_for_load(Mass::ZERO, capacity),
+        "stationary jump launch must settle its authored one-shot exertion without control-rate dilution"
+    );
+    assert_eq!(
+        loaded_jump_exertion,
+        locomotion.jump_exertion_for_load(capacity, capacity),
+        "jump launch must preserve carried-load pressure"
+    );
     assert!(
         first_unloaded
             .after()
@@ -578,6 +601,14 @@ fn grounded_jump_is_load_sensitive_and_does_not_retrigger_in_air() {
         .unwrap_or_else(|error| panic!("airborne held-jump tick failed: {error}"))
         .body_motion()
         .unwrap_or_else(|| panic!("airborne held-jump produced no motion"));
+    assert_eq!(
+        unloaded
+            .logistics()
+            .player()
+            .map(|player| player.locomotion_exertion().pending()),
+        Some(unloaded_jump_exertion),
+        "holding jump while airborne must not repeatedly charge launch exertion"
+    );
     assert!(
         second.after().vertical_velocity().nanometers_per_second()
             < first_unloaded

@@ -165,12 +165,17 @@ pub(in super::super) fn run_survival_provisioning_probe(
     let reserve_recovered = diet_comparison.reserve_recovered;
     let diet_recovery = diet_comparison.recovery;
     let recovery_consequence = format!(
-        "choice:{} deprivation:{}t warmth=[setup:{}t fuel:{}mg refuels=[compact:{} balanced:{}] min-comfort=[compact:{} balanced:{}ppm]] provisioning=[compact:{}t balanced:{}t horizon:{}t] servings=[compact:{}meal+{}drink balanced:{}meal+{}drink] observe:{}t vitality:{}->[compact:{} balanced:{} realized-delta:{:+}ppm window-delta=[compact:{:+} balanced:{:+}]] diet:[compact:{} balanced:{}ppm]",
+        "choice:{} natural:{} visible-recovery:{}/{}ppm/t categories:{}/{} deprivation:{}t warmth=[setup:{}t fuel:{}mg refuels=[compact:{} balanced:{}] min-comfort=[compact:{} balanced:{}ppm]] provisioning=[compact:{}t balanced:{}t horizon:{}t] servings=[compact:{}meal+{}drink balanced:{}meal+{}drink] observe:{}t vitality:{}->[compact:{} balanced:{} realized-delta:{:+}ppm window-delta=[compact:{:+} balanced:{:+}]] diet:[compact:{} balanced:{}ppm]",
         if diet_recovery.policy_sensitive {
             "policy-sensitive"
         } else {
             "supply-converged"
         },
+        diet_recovery.natural_policy.label(),
+        diet_recovery.decision_recovery_ppm_per_tick,
+        diet_recovery.maximum_recovery_ppm_per_tick,
+        diet_recovery.available_category_count,
+        diet_recovery.authored_category_count,
         diet_recovery.deprivation_ticks,
         diet_recovery.fire_warmup_ticks,
         diet_recovery.fire_fuel_mass_mg,

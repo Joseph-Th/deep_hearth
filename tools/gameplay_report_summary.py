@@ -547,7 +547,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         return f"GAMEPLAY {probe}{scope} {detail}".rstrip()
 
     if summary.startswith("PLAYER LOOP EVIDENCE "):
-        fantasy = compact_fields(summary, ("role", "agency-growth"))
+        fantasy = compact_fields(summary, ("role", "fantasy-evidence"))
         world_interaction = compact_fields(
             summary,
             (

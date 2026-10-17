@@ -554,6 +554,17 @@ impl LocomotionDefinition {
         )
     }
 
+    /// Returns the one-shot body effort charged when a grounded jump is launched.
+    ///
+    /// Jumping is an impulse rather than a continuous locomotion rate. The current body model
+    /// deliberately calibrates one launch to one load-scaled walking quantum so the cost remains
+    /// legible beside ordinary travel without inventing an unmodeled player body mass. Callers
+    /// must settle this as a discrete event rather than dividing it across control ticks.
+    #[must_use]
+    pub fn jump_exertion_for_load(self, carried: Mass, capacity: Mass) -> SurvivalExertion {
+        self.exertion_for_load(carried, capacity)
+    }
+
     pub fn exertion_for_horizontal_speed(
         self,
         carried: Mass,

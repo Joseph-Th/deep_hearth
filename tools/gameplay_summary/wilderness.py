@@ -58,16 +58,26 @@ def wilderness_summary(lines: list[str]) -> str | None:
             r"\bqueue=\[forage:(\d+)ct drink:(\d+)ct timber:(\d+)ct\]",
             direct_use_lines[0],
         )
+        body_effort = re.search(
+            r"\bbody-effort=\[jump-load:(\d+)mg vertical:(\d+)nm/s energy:(\d+)nJ>(\d+)nJ-idle "
+            r"hydration:(\d+)uL>(\d+)uL-idle settle:(\d+)ct\]",
+            direct_use_lines[0],
+        )
         if (
             movement is None
             or known_path is None
             or material_choice is None
             or haul is None
             or queue is None
+            or body_effort is None
         ):
             raise ValueError(
-                "wilderness direct-use witness lost continuous-body route/projection/material/haul/queue telemetry"
+                "wilderness direct-use witness lost route/projection/material/haul/body-effort/queue telemetry"
             )
+        if int(body_effort.group(3)) <= int(body_effort.group(4)) or int(
+            body_effort.group(5)
+        ) <= int(body_effort.group(6)):
+            raise ValueError("wilderness jump no longer carries a survival cost above idle")
         direct_use = (
             f"direct-use=[route={movement.group(2)}/{movement.group(3)}e/{movement.group(4)}ct "
             f"plan={known_path.group(1)}e/{known_path.group(2)}ct "
@@ -79,46 +89,6 @@ def wilderness_summary(lines: list[str]) -> str | None:
                 ("gather", "water", "hydration", "timed"),
             )
             + "]"
-        )
-    toolkit_lines = [
-        line for line in lines if line.startswith("WILDERNESS TOOLKIT ")
-    ]
-    if len(toolkit_lines) > 1:
-        raise ValueError("wilderness report has multiple fresh-start toolkit witnesses")
-    toolkit_policy = ""
-    if toolkit_lines:
-        toolkit = re.search(
-            r'\bsource=fresh-world selection=player-catalog tool="([^"]+)" '
-            r'travel=continuous/(\d+)legs materials=\[stone:(\d+)mg timber:(\d+)mg\] '
-            r'workload=(\d+)b attention=\[setup:(\d+)t bare:(\d+)t assisted:(\d+)t '
-            r'with-setup:(\d+)t saved:(\d+)t\] output=(\d+)mg '
-            r'carried=(true|false) hotbar=(true|false) wear=(true|false) '
-            r'matter-conserved=(true|false)',
-            toolkit_lines[0],
-        )
-        if toolkit is None:
-            raise ValueError("wilderness toolkit witness lost fresh-world catalog/payback telemetry")
-        setup = int(toolkit.group(6))
-        bare = int(toolkit.group(7))
-        assisted = int(toolkit.group(8))
-        with_setup = int(toolkit.group(9))
-        saved = int(toolkit.group(10))
-        if (
-            with_setup != setup + assisted
-            or saved != bare - with_setup
-            or saved <= 0
-            or toolkit.group(12) != "true"
-            or toolkit.group(13) != "true"
-            or toolkit.group(14) != "true"
-            or toolkit.group(15) != "true"
-        ):
-            raise ValueError(
-                "wilderness toolkit witness no longer proves carried hotbar tool payback"
-            )
-        tool = re.sub(r"\s+", "-", toolkit.group(1).strip())
-        toolkit_policy = (
-            f" earned=[tool:{tool} workload:{toolkit.group(5)}b "
-            f"saved:{saved}t carried:true hotbar:true wear:true]"
         )
     maintained = [line for line in experiences if " sample=maintained " in line]
     coverage = [line for line in experiences if " sample=coverage " in line]
@@ -335,7 +305,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         "tool-policy=["
         f"cache-projects:{len(cache_projects)} "
         f"first-box-adze-deferred:{sum(' reason:first-box-below-adze-crossover]' in line for line in cache_projects)}/{len(cache_projects)} "
-        f"crossover:{adze_crossover}batches{toolkit_policy}]"
+        f"crossover:{adze_crossover}batches]"
     )
     organic_detail = ""
     if organic:
