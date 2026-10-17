@@ -473,7 +473,7 @@ impl Display for PlayerWorkValidationError {
             Self::StructuralDismantlingElementMissing => formatter
                 .write_str("structural dismantling work references a missing member"),
             Self::StructuralDismantlingElementNotRecoverable => formatter.write_str(
-                "structural dismantling requires an embodied active or failed member",
+                "structural dismantling requires a member with embodied material",
             ),
             Self::StructuralDismantlingElementNotLocal => formatter.write_str(
                 "structural dismantling member is outside player interaction reach",

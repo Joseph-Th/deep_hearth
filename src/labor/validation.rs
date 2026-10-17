@@ -243,12 +243,7 @@ fn validate_structural_dismantling_work(
         .structures()
         .get_element(work.element())
         .ok_or(PlayerWorkValidationError::StructuralDismantlingElementMissing)?;
-    if record.embodied_mass().is_zero()
-        || !matches!(
-            record.lifecycle(),
-            StructuralLifecycle::Active | StructuralLifecycle::Failed
-        )
-    {
+    if record.embodied_mass().is_zero() {
         return Err(PlayerWorkValidationError::StructuralDismantlingElementNotRecoverable);
     }
     if !bounds_are_within_player_reach(registries, state, record.bounds()) {

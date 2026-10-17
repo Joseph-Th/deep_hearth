@@ -113,6 +113,15 @@ fn interrupted_planned_member_can_be_recovered_after_respawn() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("interrupted recovery dismantling commit failed: {error}"));
     assert_eq!(dismantling.recovery_destination(), recovery_destination);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("interrupted recovery save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("interrupted recovery decode failed: {error}"));
+    state = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("interrupted recovery trusted load failed: {error}"));
 
     while state.tick() < dismantling.completes_at() {
         let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
