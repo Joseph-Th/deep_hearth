@@ -880,12 +880,20 @@ impl SurvivalStressDefinition {
 /// Authored unsheltered thermal-comfort reserve and local-heat response.
 ///
 /// This models only the player's short-horizon warmth reserve. Ambient weather, clothing
-/// insulation, and shelter modifiers remain separate future owners rather than being implied by
-/// this baseline exposure rate.
+/// insulation, enclosure quality, and structural-panel shelter remain separate future owners.
+/// `OverheadCover` is deliberately narrower: it represents only a fully opaque roof over the
+/// current body footprint and reduces exposure without implying walls, insulation, or heating.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThermalExposure {
+    Open,
+    OverheadCover,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThermalComfortDefinition {
     warning_below_ppm: u32,
     unsheltered_loss_ppm_per_tick: u32,
+    overhead_cover_loss_ppm_per_tick: u32,
     maximum_local_heat_gain_ppm_per_tick: u32,
     local_heat_for_maximum_gain: Energy,
     cold_vitality_loss_ppm_per_tick: u32,
@@ -896,6 +904,7 @@ impl ThermalComfortDefinition {
     pub fn new(
         warning_below_ppm: u32,
         unsheltered_loss_ppm_per_tick: u32,
+        overhead_cover_loss_ppm_per_tick: u32,
         maximum_local_heat_gain_ppm_per_tick: u32,
         local_heat_for_maximum_gain: Energy,
         cold_vitality_loss_ppm_per_tick: u32,
@@ -903,6 +912,8 @@ impl ThermalComfortDefinition {
         assert!(warning_below_ppm < NORMALIZED_PARTS_PER_MILLION);
         assert!(unsheltered_loss_ppm_per_tick > 0);
         assert!(unsheltered_loss_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION);
+        assert!(overhead_cover_loss_ppm_per_tick > 0);
+        assert!(overhead_cover_loss_ppm_per_tick <= unsheltered_loss_ppm_per_tick);
         assert!(maximum_local_heat_gain_ppm_per_tick > 0);
         assert!(maximum_local_heat_gain_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION);
         assert!(!local_heat_for_maximum_gain.is_zero());
@@ -911,6 +922,7 @@ impl ThermalComfortDefinition {
         Self {
             warning_below_ppm,
             unsheltered_loss_ppm_per_tick,
+            overhead_cover_loss_ppm_per_tick,
             maximum_local_heat_gain_ppm_per_tick,
             local_heat_for_maximum_gain,
             cold_vitality_loss_ppm_per_tick,
@@ -925,6 +937,19 @@ impl ThermalComfortDefinition {
     #[must_use]
     pub const fn unsheltered_loss_ppm_per_tick(self) -> u32 {
         self.unsheltered_loss_ppm_per_tick
+    }
+
+    #[must_use]
+    pub const fn overhead_cover_loss_ppm_per_tick(self) -> u32 {
+        self.overhead_cover_loss_ppm_per_tick
+    }
+
+    #[must_use]
+    pub const fn exposure_loss_ppm_per_tick(self, exposure: ThermalExposure) -> u32 {
+        match exposure {
+            ThermalExposure::Open => self.unsheltered_loss_ppm_per_tick,
+            ThermalExposure::OverheadCover => self.overhead_cover_loss_ppm_per_tick,
+        }
     }
 
     #[must_use]

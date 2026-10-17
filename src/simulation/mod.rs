@@ -27,9 +27,9 @@ use crate::labor::{
     decide_player_work_control_tick, decide_player_work_tick, player_work_exertion,
 };
 use crate::logistics::{
-    PlayerControlInput, PlayerStance, apply_player_body_motion, apply_player_step_tick,
-    decide_player_body_motion, decide_player_step_tick, player_body_is_grounded,
-    player_body_uses_generated_world,
+    PlayerControlInput, PlayerOverheadCoverAssessment, PlayerStance, apply_player_body_motion,
+    apply_player_step_tick, assess_player_overhead_cover, decide_player_body_motion,
+    decide_player_step_tick, player_body_is_grounded, player_body_uses_generated_world,
 };
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
@@ -40,8 +40,9 @@ use crate::surface::{
     available_player_world_drops, decide_automatic_surface_drop_pickup,
 };
 use crate::survival::{
-    SurvivalExertion, apply_survival_tick, assess_survival, control_exertion_between,
-    decide_control_exertion_settlement, decide_survival_tick_with_local_heat,
+    SurvivalExertion, ThermalExposure, apply_survival_tick, assess_survival,
+    control_exertion_between, decide_control_exertion_settlement,
+    decide_survival_tick_with_local_heat,
 };
 use crate::world::{
     BlockExcavationTickError, apply_block_excavation_tick, decide_block_excavation_completion,
@@ -425,12 +426,20 @@ fn advance_simulation_tick(
             .checked_add(locomotion_exertion.hydration_loss_per_tick())
             .ok_or(TickError::SurvivalHydrationCostOverflow)?,
     );
+    let thermal_exposure = match assess_player_overhead_cover(registries, state) {
+        Some(PlayerOverheadCoverAssessment::Covered) => ThermalExposure::OverheadCover,
+        Some(
+            PlayerOverheadCoverAssessment::Open | PlayerOverheadCoverAssessment::WorldUnavailable,
+        )
+        | None => ThermalExposure::Open,
+    };
     let survival_plan = decide_survival_tick_with_local_heat(
         registries,
         state,
         exertion,
         next_tick,
         local_warmth,
+        thermal_exposure,
         fall_vitality_loss_ppm,
     )?;
     // Player attention uses the projected survival result so fatality, work release, and direct-

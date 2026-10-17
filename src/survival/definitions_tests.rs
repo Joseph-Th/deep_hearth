@@ -65,7 +65,7 @@ fn physiology_with_carry(
         SurvivalStressDefinition::new(
             starvation_loss,
             dehydration_loss,
-            ThermalComfortDefinition::new(500_000, 1, 2, Energy::from_nanojoules(3), 4),
+            ThermalComfortDefinition::new(500_000, 2, 1, 2, Energy::from_nanojoules(3), 4),
         ),
     )
 }
@@ -79,7 +79,27 @@ fn physiology_exposes_explicit_thermal_definition() {
     let physiology = physiology(1, 1);
     assert_eq!(
         physiology.thermal_comfort(),
-        ThermalComfortDefinition::new(500_000, 1, 2, Energy::from_nanojoules(3), 4)
+        ThermalComfortDefinition::new(500_000, 2, 1, 2, Energy::from_nanojoules(3), 4)
+    );
+    assert_eq!(
+        physiology.thermal_comfort().unsheltered_loss_ppm_per_tick(),
+        2
+    );
+    assert_eq!(
+        physiology
+            .thermal_comfort()
+            .overhead_cover_loss_ppm_per_tick(),
+        1
+    );
+}
+
+#[test]
+fn overhead_cover_cannot_be_more_exposing_than_open_air() {
+    assert!(
+        std::panic::catch_unwind(|| {
+            ThermalComfortDefinition::new(500_000, 1, 2, 2, Energy::from_nanojoules(3), 4)
+        })
+        .is_err()
     );
 }
 

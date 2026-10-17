@@ -62,7 +62,15 @@ pub(crate) fn decide_survival_tick(
     exertion: SurvivalExertion,
     next_tick: SimulationTick,
 ) -> Result<Option<SurvivalTickPlan>, SurvivalTickError> {
-    decide_survival_tick_with_local_heat(registries, state, exertion, next_tick, Energy::ZERO, 0)
+    decide_survival_tick_with_local_heat(
+        registries,
+        state,
+        exertion,
+        next_tick,
+        Energy::ZERO,
+        crate::survival::ThermalExposure::Open,
+        0,
+    )
 }
 
 pub(crate) fn decide_survival_tick_with_local_heat(
@@ -71,6 +79,7 @@ pub(crate) fn decide_survival_tick_with_local_heat(
     exertion: SurvivalExertion,
     next_tick: SimulationTick,
     local_heat: Energy,
+    thermal_exposure: crate::survival::ThermalExposure,
     fall_vitality_loss_ppm: u32,
 ) -> Result<Option<SurvivalTickPlan>, SurvivalTickError> {
     let Some(before) = state.survival().player().copied() else {
@@ -92,6 +101,7 @@ pub(crate) fn decide_survival_tick_with_local_heat(
         exertion,
         next_tick,
         local_heat,
+        thermal_exposure,
         fall_vitality_loss_ppm,
     )?;
     build_tick_plan(

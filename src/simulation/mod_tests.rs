@@ -14,9 +14,9 @@ use crate::energy::{
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::logistics::{
-    HorizontalControlInput, PlayerControlInput, PlayerStance, PlayerWalkProjectionError,
-    assess_player_carrying, project_player_adjacent_walk, project_player_walk_path,
-    project_player_walk_path_for_load,
+    HorizontalControlInput, PlayerControlInput, PlayerOverheadCoverAssessment, PlayerStance,
+    PlayerWalkProjectionError, assess_player_carrying, assess_player_overhead_cover,
+    project_player_adjacent_walk, project_player_walk_path, project_player_walk_path_for_load,
 };
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -759,6 +759,55 @@ fn generated_grounded_player_at(x: i64, z: i64) -> (Registries, AppState, i64) {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("horizontal-motion player commit failed: {error}"));
     (registries, state, floor_y)
+}
+
+#[test]
+fn opaque_overhead_cover_reduces_thermal_exposure_without_warming() {
+    let (registries, mut open, floor_y) = generated_grounded_player_at(0, 0);
+    let mut covered = open.clone();
+    let roof = VoxelCoord::new(0, floor_y + 2, 0);
+    set_generated_block_for_test(registries.world(), &mut covered, roof, BLOCK_STATE_STONE);
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &open),
+        Some(PlayerOverheadCoverAssessment::Open)
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &covered),
+        Some(PlayerOverheadCoverAssessment::Covered)
+    );
+    let before = open
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("overhead-cover survival player disappeared"))
+        .thermal_comfort_ppm();
+    let _ = advance_tick(&registries, &mut open)
+        .unwrap_or_else(|error| panic!("open thermal exposure tick failed: {error}"));
+    let _ = advance_tick(&registries, &mut covered)
+        .unwrap_or_else(|error| panic!("covered thermal exposure tick failed: {error}"));
+    let open_after = open
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("open thermal exposure player disappeared"))
+        .thermal_comfort_ppm();
+    let covered_after = covered
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("covered thermal exposure player disappeared"))
+        .thermal_comfort_ppm();
+    let thermal = registries.survival().physiology().thermal_comfort();
+    assert_eq!(before - open_after, thermal.unsheltered_loss_ppm_per_tick());
+    assert_eq!(
+        before - covered_after,
+        thermal.overhead_cover_loss_ppm_per_tick()
+    );
+    assert!(
+        covered_after < before,
+        "overhead cover must not create heat"
+    );
+    assert!(covered_after > open_after);
 }
 
 fn generated_airborne_player(clearance_voxels: i64) -> (Registries, AppState, i64) {

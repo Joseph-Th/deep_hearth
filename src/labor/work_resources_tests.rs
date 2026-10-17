@@ -62,7 +62,14 @@ fn budget_includes_basal_and_incremental_work_costs() {
         SurvivalStressDefinition::new(
             1,
             1,
-            crate::survival::ThermalComfortDefinition::new(1, 1, 1, Energy::from_nanojoules(1), 1),
+            crate::survival::ThermalComfortDefinition::new(
+                1,
+                1,
+                1,
+                1,
+                Energy::from_nanojoules(1),
+                1,
+            ),
         ),
     );
     let exertion = SurvivalExertion::new(Energy::from_nanojoules(30), Volume::from_microliters(3));

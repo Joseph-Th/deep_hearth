@@ -117,6 +117,7 @@ fn physiology() -> PhysiologyDefinition {
             ThermalComfortDefinition::new(
                 800_000,
                 1_000,
+                500,
                 20_000,
                 Energy::from_nanojoules(10_800_000_000_000),
                 25,

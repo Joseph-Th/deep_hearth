@@ -102,6 +102,7 @@ fn resolve_tick_resources(
     exertion: SurvivalExertion,
     installment: DirectConsumptionInstallment,
     local_heat: Energy,
+    thermal_exposure: crate::survival::ThermalExposure,
 ) -> Result<TickResourceResolution, SurvivalTickError> {
     let resource_cost =
         resolve_survival_tick_resource_cost(physiology, exertion).map_err(|error| match error {
@@ -127,7 +128,7 @@ fn resolve_tick_resources(
         .checked_sub(hydration_loss)
         .unwrap_or(Volume::ZERO);
     let thermal = physiology.thermal_comfort();
-    let thermal_loss = thermal.unsheltered_loss_ppm_per_tick();
+    let thermal_loss = thermal.exposure_loss_ppm_per_tick(thermal_exposure);
     let heat_gain = thermal.local_heat_gain_ppm(local_heat);
     let heat_shortfall = thermal_loss.saturating_sub(before.thermal_comfort_ppm());
     let thermal_after_loss = before.thermal_comfort_ppm().saturating_sub(thermal_loss);
@@ -230,11 +231,19 @@ pub(super) fn resolve_live_player_tick(
     exertion: SurvivalExertion,
     next_tick: SimulationTick,
     local_heat: Energy,
+    thermal_exposure: crate::survival::ThermalExposure,
     fall_vitality_loss_ppm: u32,
 ) -> Result<LivePlayerTickResolution, SurvivalTickError> {
     let physiology = registries.survival().physiology();
     let installment = resolve_pending_installment(registries, state, next_tick);
-    let resources = resolve_tick_resources(physiology, before, exertion, installment, local_heat)?;
+    let resources = resolve_tick_resources(
+        physiology,
+        before,
+        exertion,
+        installment,
+        local_heat,
+        thermal_exposure,
+    )?;
     let (vitality_after, recovery_remainder) =
         resolve_vitality(physiology, before, resources, fall_vitality_loss_ppm);
     let clear_pending_consumption = installment.completes() || vitality_after == Vitality::ZERO;

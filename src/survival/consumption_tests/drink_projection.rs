@@ -203,7 +203,7 @@ fn minimum_drink_projection_reports_canonical_resource_budget_overflow() {
         SurvivalStressDefinition::new(
             1,
             1,
-            ThermalComfortDefinition::new(1, 1, 1, Energy::from_nanojoules(1), 1),
+            ThermalComfortDefinition::new(1, 1, 1, 1, Energy::from_nanojoules(1), 1),
         ),
     );
 
