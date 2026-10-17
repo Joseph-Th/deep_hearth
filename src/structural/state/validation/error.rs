@@ -110,6 +110,10 @@ pub enum StructureValidationError {
     PlannedElementCracked {
         element: StructuralElementId,
     },
+    PlannedElementHasExternalLoad {
+        element: StructuralElementId,
+        kind: StructuralLoadKind,
+    },
     FailedElementNotCracked {
         element: StructuralElementId,
     },

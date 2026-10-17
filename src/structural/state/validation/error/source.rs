@@ -31,6 +31,7 @@ impl Error for StructureValidationError {
             | Self::ZeroLoadContribution { .. }
             | Self::CreatedInFuture { .. }
             | Self::PlannedElementCracked { .. }
+            | Self::PlannedElementHasExternalLoad { .. }
             | Self::FailedElementNotCracked { .. }
             | Self::MissingSupportIndex { .. }
             | Self::OrphanSupportIndex { .. }

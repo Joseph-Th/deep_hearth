@@ -167,6 +167,11 @@ impl Display for StructureValidationError {
                 "planned structural element {} cannot already contain irreversible crack damage",
                 element.value()
             ),
+            Self::PlannedElementHasExternalLoad { element, kind } => write!(
+                formatter,
+                "planned structural element {} cannot carry external {kind:?} load before activation",
+                element.value()
+            ),
             Self::FailedElementNotCracked { element } => write!(
                 formatter,
                 "failed structural element {} is missing persistent crack damage",

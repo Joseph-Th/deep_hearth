@@ -164,6 +164,29 @@ fn tampered_planned_structural_damage_is_rejected_on_load() {
 }
 
 #[test]
+fn trusted_load_rejects_external_load_on_planned_member() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("planned external-load serialization failed: {error}"));
+    encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["loads"]["Snow"] =
+        serde_json::json!(1_u128);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("planned external-load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Structure(
+            StructureValidationError::PlannedElementHasExternalLoad {
+                element: member,
+                kind: StructuralLoadKind::Snow,
+            }
+        )))
+    );
+}
+
+#[test]
 fn trusted_load_rejects_support_edge_to_planned_member() {
     let registries = build_registries();
     let mut state = AppState::new();

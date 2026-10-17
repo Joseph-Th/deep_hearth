@@ -249,6 +249,17 @@ fn validate_element_lifecycle(
     if record.lifecycle == StructuralLifecycle::Planned && record.is_cracked {
         return Err(StructureValidationError::PlannedElementCracked { element: record.id });
     }
+    if record.lifecycle == StructuralLifecycle::Planned
+        && let Some((kind, _)) = record
+            .loads
+            .iter()
+            .find(|(kind, _)| **kind != StructuralLoadKind::SelfWeight)
+    {
+        return Err(StructureValidationError::PlannedElementHasExternalLoad {
+            element: record.id,
+            kind: *kind,
+        });
+    }
     if record.lifecycle == StructuralLifecycle::Failed && !record.is_cracked {
         return Err(StructureValidationError::FailedElementNotCracked { element: record.id });
     }
