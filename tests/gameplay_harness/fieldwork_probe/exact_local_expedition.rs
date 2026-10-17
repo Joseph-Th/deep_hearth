@@ -15,10 +15,10 @@ use deep_hearth::geology::{
     ExcavationHardnessEstimate, FieldProspectingOutcome, GeologicalEvidenceKind,
     ResourceMassEstimate,
 };
-use deep_hearth::inventory::{MaterialLotSelection, StockpileId, StockpileStorageProfile};
+use deep_hearth::inventory::{StockpileId, StockpileStorageProfile, project_material_stacks};
 use deep_hearth::logistics::{
     assess_player_carrying, project_player_adjacent_walk, validate_drop_equipment,
-    validate_drop_to_ground, validate_pickup_equipment,
+    validate_drop_stack_to_ground, validate_pickup_equipment,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -519,17 +519,32 @@ fn run_exact_local_point_search(
     panic!("maintained exact-local depletion reroute found no localized follow-up target")
 }
 
-fn carried_ore_selection(
-    state: &AppState,
-    stockpile: deep_hearth::inventory::StockpileId,
-) -> Vec<MaterialLotSelection> {
+fn drop_carried_ore_to_cache(
+    registries: &Registries,
+    state: &mut AppState,
+    cache: StockpileId,
+) -> Mass {
     let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
-    state
-        .inventory()
-        .lots()
-        .filter(|lot| lot.stockpile() == stockpile && lot.commodity() == ore)
-        .map(|lot| MaterialLotSelection::new(lot.id(), lot.mass()))
-        .collect()
+    let mut dropped = Mass::ZERO;
+    loop {
+        let carried = assess_player_carrying(state)
+            .unwrap_or_else(|| panic!("exact-local ore cache drop lost carried custody"));
+        let stack = project_material_stacks(registries, state, carried.stockpile())
+            .unwrap_or_else(|error| panic!("exact-local ore stack projection failed: {error}"))
+            .into_iter()
+            .find(|stack| stack.commodity() == ore);
+        let Some(stack) = stack else {
+            return dropped;
+        };
+        let mass = stack.mass();
+        validate_drop_stack_to_ground(registries, state, cache, &stack, mass)
+            .unwrap_or_else(|error| panic!("exact-local ore cache drop failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("exact-local ore cache drop commit failed: {error}"));
+        dropped = dropped
+            .checked_add(mass)
+            .unwrap_or_else(|| panic!("exact-local ore cache drop mass overflowed"));
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -675,14 +690,11 @@ fn execute_exact_local_order(
         }
         minimum_utilization_ppm = minimum_utilization_ppm.min(utilization_ppm);
         maximum_utilization_ppm = maximum_utilization_ppm.max(utilization_ppm);
-        let carried = assess_player_carrying(state)
-            .unwrap_or_else(|| panic!("exact-local return lost carried custody"));
-        let ore_selection = carried_ore_selection(state, carried.stockpile());
-        assert!(!ore_selection.is_empty());
-        validate_drop_to_ground(registries, state, cache, &ore_selection)
-            .unwrap_or_else(|error| panic!("exact-local ore cache drop failed: {error}"))
-            .commit(state)
-            .unwrap_or_else(|error| panic!("exact-local ore cache drop commit failed: {error}"));
+        let dropped = drop_carried_ore_to_cache(registries, state, cache);
+        assert_eq!(
+            dropped, extraction.extracted,
+            "exact-local ore cache unload must transfer exactly the current trip's visible ore"
+        );
         total_returned = total_returned
             .checked_add(extraction.extracted)
             .unwrap_or_else(|| panic!("exact-local returned ore accounting overflowed"));
