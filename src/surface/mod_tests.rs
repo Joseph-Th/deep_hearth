@@ -2208,13 +2208,14 @@ fn active_material_drop_preserves_exact_lot_profiles_and_delays_self_pickup() {
         )))
     );
 
-    for _ in 0..40 {
+    for _ in 1..super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS {
         let outcome = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("active-material pickup-delay tick failed: {error}"));
         assert_eq!(outcome.surface_drop_pickup(), None);
     }
     let pickup = advance_control_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("active-material delayed pickup tick failed: {error}"));
+    assert_eq!(pickup.control_tick(), pickup_after);
     assert!(pickup.surface_drop_pickup().is_some());
     assert_eq!(
         state

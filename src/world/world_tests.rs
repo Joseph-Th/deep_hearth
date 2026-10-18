@@ -30,6 +30,9 @@ use crate::survival::{Vitality, player_record, project_survival_resource_budget}
 
 use super::*;
 
+#[path = "world_tests/excavation_selection.rs"]
+mod excavation_selection;
+
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xD33F_4845_4152_5448);
 
 #[test]

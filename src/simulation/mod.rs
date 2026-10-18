@@ -159,9 +159,9 @@ pub fn advance_control_tick_with_direct_input(
             } else {
                 None
             };
+        apply_control_clock_advance(state, next_control);
         let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
             .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
-        apply_control_clock_advance(state, next_control);
         let direct_actions = attempt_direct_actions(registries, state, input, None, None);
         debug_assert_runtime_invariants(registries, state, world_revision_before);
         return Ok(ControlTickOutcome::new(
