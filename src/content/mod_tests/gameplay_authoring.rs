@@ -300,7 +300,24 @@ fn settlement_batch_foundry_and_channel_sampling_add_distinct_connected_progress
         .unwrap_or_else(|| panic!("settlement electrical buffer disappeared"));
     assert_eq!(
         electrical.upgrade_profile().map(|upgrade| upgrade.from()),
+        Some(ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER)
+    );
+    let wound = registries
+        .energy()
+        .get_store(ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER)
+        .unwrap_or_else(|| panic!("intermediate winding buffer disappeared"));
+    assert_eq!(
+        wound.upgrade_profile().map(|upgrade| upgrade.from()),
         Some(ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER)
+    );
+    assert_eq!(
+        wound.capacity(),
+        Energy::from_nanojoules(30_000_000_000_000)
+    );
+    assert_eq!(wound.max_input_power(), Power::from_microwatts(125_000_000));
+    assert_eq!(
+        wound.max_output_power(),
+        Power::from_microwatts(150_000_000)
     );
     assert_eq!(
         electrical.capacity(),

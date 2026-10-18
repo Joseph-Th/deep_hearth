@@ -8,11 +8,11 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
-    ENERGY_STONE_THERMAL_SINK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
-    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
-    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER, ENERGY_STONE_THERMAL_SINK,
+    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
+    EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
     EQUIPMENT_TIMBER_TREADLE_DYNAMO, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_ELECTRICAL_WINDING,
     FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT,
     FORM_SAW_BLADE, FORM_SCRAP, MANUAL_POWER_HAND_CRANK, MANUAL_POWER_TREADLE_DYNAMO,
@@ -22,7 +22,10 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::energy::validate_assemble_energy_store;
+use deep_hearth::energy::{
+    player_energy_store_upgrade_options, validate_assemble_energy_store,
+    validate_upgrade_player_energy_store_option,
+};
 use deep_hearth::equipment::{
     EquipmentDefinitionId, EquipmentId, player_equipment_upgrade_options,
     validate_assemble_equipment, validate_upgrade_player_equipment_option,
@@ -1165,6 +1168,33 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         }
 
         let mut winding_alternative = state.clone();
+        let offered_buffer_option = |state: &AppState| {
+            let catalog = player_energy_store_upgrade_options(registries, state, parts)
+                .unwrap_or_else(|error| panic!("first foundry buffer catalog failed: {error}"));
+            let matches = catalog
+                .into_iter()
+                .filter(|option| {
+                    option.store() == electrical
+                        && option.target() == ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                matches.len(),
+                1,
+                "actor must see exactly one winding-buffer upgrade"
+            );
+            matches.into_iter().next().unwrap_or_else(|| unreachable!())
+        };
+        let offered_before = offered_buffer_option(&winding_alternative);
+        assert!(
+            !offered_before.material_ready(),
+            "cast winding must be fabricated before the upgrade is ready"
+        );
+        assert_eq!(offered_before.additions().len(), 1);
+        assert_eq!(
+            offered_before.additions()[0].mass(),
+            Mass::from_milligrams(54_000)
+        );
         let fabricate = |branch: &mut AppState, component: CommodityKey, expected_process| {
             let (plan, _) = manual_craft_plan_with_available_equipment(
                 registries,
@@ -1232,12 +1262,137 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             winding_stock,
             PROCESS_COLD_WORK_CAST_COPPER_WINDING,
         );
+        // One cast cannot supply the double-wound generator's two 54 g coils.
+        // It can now expand the EXISTING finite electrical store through its additive
+        // single-winding stage. Prove that the extra capacity changes a legal action, not just
+        // an authored number: charge enough for two primitive melts without topping up.
+        let two_melt_charge = required_electrical
+            .checked_add(required_electrical)
+            .unwrap_or_else(|| panic!("two-melt electrical charge overflowed"));
+        let base_capacity = registries
+            .energy()
+            .get_store(ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER)
+            .unwrap_or_else(|| {
+                panic!("first foundry base electrical buffer definition disappeared")
+            })
+            .capacity();
+        let wound_capacity = registries
+            .energy()
+            .get_store(ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER)
+            .unwrap_or_else(|| panic!("first foundry wound buffer definition disappeared"))
+            .capacity();
+        assert!(
+            two_melt_charge > base_capacity && two_melt_charge <= wound_capacity,
+            "single-wound copper investment must unlock a useful two-melt charging leg"
+        );
+        let before_upgrade = winding_alternative
+            .energy()
+            .get_store(electrical)
+            .unwrap_or_else(|| panic!("post-foundry electrical store disappeared"));
+        let old_embodied_mass = before_upgrade.embodied_mass();
+        let old_stored = before_upgrade.stored();
+        assert_eq!(old_stored, Energy::ZERO);
+        let offered_after = offered_buffer_option(&winding_alternative);
+        assert!(
+            offered_after.material_ready(),
+            "one actual cast winding must unlock the upgrade"
+        );
+        assert_eq!(offered_after.capacity(), wound_capacity);
+        let upgraded = validate_upgrade_player_energy_store_option(
+            registries,
+            &winding_alternative,
+            &offered_after,
+        )
+        .unwrap_or_else(|error| panic!("post-foundry winding buffer upgrade failed: {error}"))
+        .commit(&mut winding_alternative)
+        .unwrap_or_else(|error| panic!("post-foundry winding buffer commit failed: {error}"));
+        assert_eq!(
+            upgraded, electrical,
+            "upgrade must preserve existing buffer identity"
+        );
+        let upgraded_record = winding_alternative
+            .energy()
+            .get_store(electrical)
+            .unwrap_or_else(|| panic!("upgraded electrical store disappeared"));
+        assert_eq!(
+            upgraded_record.definition(),
+            ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER
+        );
+        assert_eq!(
+            upgraded_record
+                .embodied_mass()
+                .checked_sub(old_embodied_mass),
+            Some(Mass::from_milligrams(54_000))
+        );
+        assert_eq!(upgraded_record.stored(), old_stored);
+        let future = player_energy_store_upgrade_options(registries, &winding_alternative, parts)
+            .unwrap_or_else(|error| panic!("upgraded buffer continuation catalog failed: {error}"));
+        let followup = future
+            .iter()
+            .filter(|option| option.store() == electrical)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            followup.len(),
+            1,
+            "single-wound stage must expose one larger rack"
+        );
+        assert_eq!(
+            followup[0].target(),
+            deep_hearth::content::ENERGY_COPPER_RACK_ELECTRICAL_BUFFER
+        );
+        assert!(
+            !followup[0].material_ready(),
+            "larger rack must still cost additional copper and timber"
+        );
+        let charge = validate_start_manual_power(
+            registries,
+            &winding_alternative,
+            ManualPowerRequest::new(
+                MANUAL_POWER_TREADLE_DYNAMO,
+                dynamo,
+                electrical,
+                two_melt_charge,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("wound buffer two-melt charge rejected: {error}"));
+        let charge_work = charge.work();
+        charge
+            .commit(&mut winding_alternative)
+            .unwrap_or_else(|error| {
+                panic!("wound buffer two-melt charge commit rejected: {error}")
+            });
+        let two_melt_charge_ticks = finish_manual_power_work(
+            registries,
+            &mut winding_alternative,
+            charge_work,
+            "wound-buffer two-melt charging",
+        );
+        assert_eq!(
+            winding_alternative
+                .energy()
+                .get_store(electrical)
+                .map(|record| record.stored()),
+            Some(two_melt_charge),
+            "new intermediate buffer must physically hold two melt charges"
+        );
+        validate_loaded_state(registries, &winding_alternative)
+            .unwrap_or_else(|error| panic!("post-upgrade charged state invalid: {error}"));
+        assert_eq!(
+            calculate_matter_accounting(&winding_alternative)
+                .unwrap_or_else(|error| panic!("wound buffer matter audit failed: {error}"))
+                .total(),
+            matter_before
+        );
         cast_stock_attention = saw_ticks;
         reviewln!(
-            "FIRST FOUNDRY CAST-STOCK seed=0x{:016X} evidence=matched-ordinary-actor-branches source=real-settlement-size-cast source-mass=80000mg selected=[spare-saw-blade:54000mg attention:{}t] alternative=[dynamo-winding:54000mg attention:{}t] shared-cost=[ingot:60000mg offcuts:6000mg retained-ingot:20000mg] destinations=[frame-saw:existing-component double-wound-dynamo:existing-component] matter=conserved state=validated",
+            "FIRST FOUNDRY CAST-STOCK seed=0x{:016X} evidence=matched-ordinary-actor-branches source=real-settlement-size-cast source-mass=80000mg selected=[spare-saw-blade:54000mg attention:{}t] alternative=[dynamo-winding:54000mg attention:{}t] shared-cost=[ingot:60000mg offcuts:6000mg retained-ingot:20000mg] destinations=[frame-saw:existing-component double-wound-dynamo:existing-component] buffer-catalog=[initial:unready after-winding:ready next-rack:unready] buffer-reinvestment=[base:{}nJ upgraded:{}nJ retained-identity:true charged:{}nJ charge-attention:{}t] matter=conserved state=validated",
             case.seed(),
             saw_ticks,
             winding_ticks,
+            base_capacity.nanojoules(),
+            wound_capacity.nanojoules(),
+            two_melt_charge.nanojoules(),
+            two_melt_charge_ticks,
         );
     }
 

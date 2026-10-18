@@ -11,6 +11,7 @@ mod fixture_execution;
 mod illumination;
 mod integration;
 mod passive_dissipation;
+mod player_upgrade;
 mod state;
 mod storage_execution;
 mod upgrade_execution;
@@ -47,6 +48,10 @@ pub use integration::{
 };
 pub use passive_dissipation::{
     PassiveDissipationHorizonError, passive_dissipation_ticks_until_empty,
+};
+pub use player_upgrade::{
+    PlayerEnergyStoreUpgradeCatalogError, PlayerEnergyStoreUpgradeOption,
+    player_energy_store_upgrade_options, validate_upgrade_player_energy_store_option,
 };
 pub use state::{EnergyState, EnergyStoreId, EnergyStoreRecord, EnergyValidationError};
 pub use storage_execution::{

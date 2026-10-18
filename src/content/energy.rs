@@ -36,6 +36,8 @@ pub const ENERGY_COPPER_RACK_ELECTRICAL_BUFFER: EnergyStoreDefinitionId =
 pub const ENERGY_COPPER_BANDED_STONE_THERMAL_SINK: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(13);
 pub const ENERGY_STONE_RING_CAMPFIRE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(14);
+pub const ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER: EnergyStoreDefinitionId =
+    EnergyStoreDefinitionId::new(15);
 
 pub const CAMPFIRE_FUEL_MASS: Mass = Mass::from_milligrams(1_000_000);
 /// Usable thermal energy from one kilogram-scale primitive wood charge.
@@ -288,6 +290,38 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(4_000_000),
         )])),
+        // A single recovered winding adds inductive buffering and better transfer capacity to
+        // the same copper-plate base. One settlement cast can fund this useful intermediate
+        // upgrade without requiring the 240 g of extra copper used by the larger rack.
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER,
+            "copper-wound workshop electrical buffer",
+            EnergyCarrier::Electrical,
+            Energy::from_nanojoules(30_000_000_000_000),
+            Power::from_microwatts(125_000_000),
+            Power::from_microwatts(150_000_000),
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(80_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+                COPPER_ELECTRICAL_WINDING_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(1_600_000),
+            ),
+        ]))
+        .with_upgrade_profile(EnergyStoreUpgradeProfile::new(
+            ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+                COPPER_ELECTRICAL_WINDING_MASS,
+            )]),
+        )),
         // Parallel copper plates and a purpose-made winding support settlement foundry batches
         // while transfer limits keep charging and melting visible player-time costs.
         EnergyStoreDefinition::new_with_transfer_limits(
@@ -313,15 +347,11 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             ),
         ]))
         .with_upgrade_profile(EnergyStoreUpgradeProfile::new(
-            ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
+            ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER,
             MaterialAssemblyProfile::new(vec![
                 MaterialInputSpec::pure(
                     CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                     Mass::from_milligrams(240_000),
-                ),
-                MaterialInputSpec::pure(
-                    CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
-                    COPPER_ELECTRICAL_WINDING_MASS,
                 ),
                 MaterialInputSpec::pure(
                     CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),

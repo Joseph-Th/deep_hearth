@@ -12,14 +12,18 @@ use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::SimulationTick;
 use crate::energy::{
-    EnergySinkError, EnergyStoreRecord, EnergyValidationError, add_energy_store,
-    calculate_explicit_energy_accounting, validate_assemble_energy_store,
-    validate_disassemble_energy_store,
+    EnergySinkError, EnergyStoreRecord, EnergyValidationError,
+    PlayerEnergyStoreUpgradeCatalogError, add_energy_store, calculate_explicit_energy_accounting,
+    player_energy_store_upgrade_options, validate_assemble_energy_store,
+    validate_disassemble_energy_store, validate_upgrade_player_energy_store_option,
 };
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerError, ManualPowerRequest, validate_start_manual_power};
-use crate::logistics::{PlayerEnergyStoreAccessError, validate_initialize_player_logistics};
+use crate::logistics::{
+    PlayerEnergyStoreAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -169,6 +173,86 @@ fn upgraded_store_load_rejects_post_construction_base_material_provenance() {
                 created_at: SimulationTick::ZERO,
             }
         )))
+    );
+}
+
+#[test]
+fn player_energy_upgrade_catalog_exposes_the_material_gate_and_locality() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = assemble_stone_flywheel(&registries, &mut state);
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("energy upgrade catalog source failed: {error}"));
+    assert_eq!(
+        player_energy_store_upgrade_options(&registries, &state, source).err(),
+        Some(PlayerEnergyStoreUpgradeCatalogError::PlayerNotAdmitted)
+    );
+    let origin = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, origin, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("energy catalog admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("energy catalog admission commit failed: {error}"));
+    validate_place_ground_stockpile(&state, source, origin)
+        .unwrap_or_else(|error| panic!("energy catalog source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("energy catalog source placement commit failed: {error}"));
+    let revision = state.logistics().revision();
+    state
+        .logistics_state_mut()
+        .apply_energy_store_placement(revision, revision + 1, store, origin);
+    let offered = player_energy_store_upgrade_options(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("energy catalog lookup failed: {error}"));
+    assert_eq!(
+        offered.len(),
+        2,
+        "stone flywheel has both banding and pairing choices"
+    );
+    let banded = offered
+        .iter()
+        .find(|option| option.target() == ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("copper banding missing from energy upgrade catalog"));
+    assert_eq!(banded.store(), store);
+    assert!(!banded.material_ready());
+    assert_eq!(banded.additions()[0].mass(), Mass::from_milligrams(20_000));
+
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        Mass::from_milligrams(20_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("energy catalog replacement failed: {error}"));
+    let ready = player_energy_store_upgrade_options(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("energy catalog readiness failed: {error}"));
+    assert_eq!(ready.len(), 2);
+    let ready_banding = ready
+        .into_iter()
+        .find(|option| option.target() == ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("ready banding missing from energy catalog"));
+    assert!(ready_banding.material_ready());
+    // A visible choice is not a remote-authorization capability.
+    let revision = state.logistics().revision();
+    state
+        .logistics_state_mut()
+        .apply_energy_store_location_removal(revision, revision + 1, store, origin);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        store,
+        VoxelCoord::new(1, 0, 0),
+    );
+    assert!(
+        player_energy_store_upgrade_options(&registries, &state, source)
+            .unwrap_or_else(|error| panic!("remote catalog lookup failed: {error}"))
+            .iter()
+            .all(|option| option.store() != store)
+    );
+    assert!(
+        validate_upgrade_player_energy_store_option(&registries, &state, &ready_banding).is_err(),
+        "retained catalog option must not authorize a now-remote energy store"
     );
 }
 

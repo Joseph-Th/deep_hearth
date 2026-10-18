@@ -619,6 +619,15 @@ same-tick ingress. A definition may also mark nonempty finite storage as a rende
 Material-backed energy-store upgrades are additive: registry validation requires carrier compatibility, non-
 regressing capacity/transfer semantics, non-increasing passive loss, and exact base-plus-additions embodiment.
 Runtime upgrade requires an empty unoccupied store and preserves store identity/location/creation history.
+`player_energy_store_upgrade_options` enumerates eligible exact-local empty stores, reports
+material-ready/unready candidate additions, names and directional transfer limits, and never
+reserves material. Selecting a row revalidates through `validate_upgrade_energy_store`; moving,
+charging or consuming inputs between observation and action cannot bypass ownership.
+The foundry's 15 kJ copper-plate buffer accepts one 54 g winding to become a 30 kJ wound
+buffer with greater transfer limits; the subsequent 60 kJ copper rack adds 240 g
+reinforcement and 3.2 kg of boards while retaining that winding. The intermediate buffer can
+hold two small melts' electrical demand at once, but the upgrade requires an empty idle store,
+and the increased capacity neither creates free power nor distributes it remotely.
 Disassembly is the inverse custody route for empty idle stores.
 
 Fluid stores own identity, exact volume, temperature, capacity, revision, optional structural support, and

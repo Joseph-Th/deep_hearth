@@ -16,7 +16,7 @@ Progression:
 | Materials and inventory | Typed commodities, exact lots, finite stockpiles/reservations, provenance, temperature, storage effects, and matter accounting. |
 | Prospecting and mining | Player-facing survey choices, bounded evidence, tool-dependent extraction, and inventory claim. Hidden reserves remain non-public. |
 | Crafting and equipment | Manual shaping, tool wear/service, primitive machines, field instruments and copper/workshop upgrades. |
-| Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
+| Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing, copper forming, first/batch casting and cast ingot-to-blade/winding/screen fabrication. Ore reduction is absent. |
 | Opening wilderness acquisition | Berry/nut/water/clay/stone/timber graph, continuous-body proof, finite fire/light, and a same-state camp/refuge route. General pathfinding, enclosure, and weather are absent. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |

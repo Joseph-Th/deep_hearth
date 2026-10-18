@@ -65,6 +65,37 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
     cast_winding_ticks = _values(cast_stock, r"\bdynamo-winding:54000mg attention:(\d+)t")
     if len(cast_saw_ticks) != len(cast_stock) or len(cast_winding_ticks) != len(cast_stock):
         raise ValueError("foundry cast-stock branch lost measurable fabrication work")
+    wound_capacity_before = _values(
+        cast_stock, r"buffer-reinvestment=\[base:(\d+)nJ"
+    )
+    wound_capacity_after = _values(
+        cast_stock, r"buffer-reinvestment=\[base:\d+nJ upgraded:(\d+)nJ"
+    )
+    wound_charge = _values(
+        cast_stock, r"buffer-reinvestment=\[[^\]]*\bcharged:(\d+)nJ"
+    )
+    wound_charge_ticks = _values(
+        cast_stock, r"buffer-reinvestment=\[[^\]]*\bcharge-attention:(\d+)t"
+    )
+    if (
+        any(len(values) != len(cast_stock) for values in (
+            wound_capacity_before, wound_capacity_after, wound_charge, wound_charge_ticks,
+        ))
+        or any("retained-identity:true" not in line for line in cast_stock)
+        or any(
+            "buffer-catalog=[initial:unready after-winding:ready next-rack:unready]"
+            not in line
+            for line in cast_stock
+        )
+        or any(
+            not 0 < before < charged <= after or ticks <= 0
+            for before, after, charged, ticks in zip(
+                wound_capacity_before, wound_capacity_after,
+                wound_charge, wound_charge_ticks,
+            )
+        )
+    ):
+        raise ValueError("cast winding did not establish an executed finite-buffer upgrade")
     settlement_shortfall = _values(
         builds, r"\bsettlement-cast=\[[^\]]*\bsupply-shortfall:(\d+)mg"
     )
@@ -171,6 +202,11 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         f"selected:blade-54g/{_span(cast_saw_ticks, 't')} "
         f"alternative:winding-54g/{_span(cast_winding_ticks, 't')} "
         "cost:60g-ingot/6g-recoverable-scrap/20g-left] "
+        f"winding-buffer=[upgraded:{len(wound_charge)}/{len(cast_stock)} "
+        f"capacity:{scaled_span(wound_capacity_before, 1_000_000_000_000, 'kJ')}"
+        f"->{scaled_span(wound_capacity_after, 1_000_000_000_000, 'kJ')} "
+        f"two-melt-charge:{scaled_span(wound_charge, 1_000_000_000_000, 'kJ')} "
+        f"attention:{_span(wound_charge_ticks, 't')}] "
         f"rhythm=[bootstrap-cooldown:{_span(cooldown, 't')} "
         f"bootstrap-autonomous:{_span(autonomous, 't')}] "
         f"attention=[build:{_span(build_attention, 't')} defer:{_span(defer_attention, 't')}] "

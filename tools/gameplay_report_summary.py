@@ -230,6 +230,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "workshop-reuse",
         "settlement-batch",
         "cast-stock",
+        "winding-buffer",
     ),
     "survival": (
         "pressure",
@@ -296,6 +297,8 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
         "workshop-reuse",
         "mold",
         "settlement-batch",
+        "cast-stock",
+        "winding-buffer",
         "rhythm",
         "attention",
     ),

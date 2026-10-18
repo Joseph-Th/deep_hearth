@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_THERMAL_SINK, ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
-    ENERGY_COPPER_RACK_ELECTRICAL_BUFFER, ENERGY_STONE_THERMAL_SINK,
-    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
-    EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_TREADLE_DYNAMO, FORM_SCRAP,
-    MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, PROCESS_CAST_PURE_COPPER,
-    PROCESS_MELT_PURE_COPPER, build_registries,
+    ENERGY_COPPER_RACK_ELECTRICAL_BUFFER, ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER,
+    ENERGY_STONE_THERMAL_SINK, EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
+    EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE,
+    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
+    EQUIPMENT_TIMBER_TREADLE_DYNAMO, FORM_SCRAP, MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER,
+    PROCESS_CAST_PURE_COPPER, PROCESS_MELT_PURE_COPPER, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -207,6 +207,16 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
     .unwrap_or_else(|error| panic!("settlement base electrical buffer assembly failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("settlement base electrical buffer commit failed: {error}"));
+    validate_upgrade_energy_store(
+        &registries,
+        &state,
+        electrical,
+        ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER,
+        parts,
+    )
+    .unwrap_or_else(|error| panic!("settlement wound-buffer upgrade failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("settlement wound-buffer commit failed: {error}"));
     validate_upgrade_energy_store(
         &registries,
         &state,
