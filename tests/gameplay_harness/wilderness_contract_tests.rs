@@ -710,6 +710,11 @@ pub(super) struct WildernessOpeningReview {
     /// Current fire energy at the end of the complete episode, not just initial recovery.
     pub(super) campfire_heat_at_end_nj: u128,
     pub(super) campfire_runway_at_end_ticks: u64,
+    pub(super) campfire_runway_before_refuel_ticks: u64,
+    pub(super) campfire_refuel_retrieval_ticks: u64,
+    pub(super) campfire_refueled: bool,
+    pub(super) campfire_one_hour_comfort_with_refuel_ppm: u32,
+    pub(super) campfire_one_hour_comfort_without_refuel_ppm: u32,
     pub(super) campfire_light_level: u8,
     pub(super) final_thermal_comfort_ppm: u32,
     pub(super) selected_source_opportunity_mg: u64,
@@ -2682,6 +2687,11 @@ fn evaluate_generated_wilderness_opening_internal(
     let mut thermal_after_fire_ppm = 0_u32;
     let mut campfire_heat_remaining_nj = 0_u128;
     let mut campfire_id = None;
+    let mut campfire_runway_before_refuel_ticks = 0_u64;
+    let mut campfire_refuel_retrieval_ticks = 0_u64;
+    let mut campfire_refueled = false;
+    let mut campfire_one_hour_comfort_with_refuel_ppm = 0_u32;
+    let mut campfire_one_hour_comfort_without_refuel_ppm = 0_u32;
     let mut campfire_light_level = 0_u8;
     let mut selected_source_opportunity_mg = 0_u64;
     let mut selected_source_remaining_mg = 0_u64;
@@ -3375,6 +3385,146 @@ fn evaluate_generated_wilderness_opening_internal(
                         panic!("wilderness long-stay cache disappeared after shelter")
                     });
                 shelter = Some(shelter_review);
+
+                // The roof changes exposure, but it does not manufacture fuel. A player intending
+                // to stay another hour can assess their *current* fire reserve, compare it with
+                // that disclosed stay, and fetch a finite replacement charge before the fire dies.
+                // Execute that decision in the same world and body, not as a detached fuel test.
+                let fire_energy = state
+                    .energy()
+                    .get_store(campfire)
+                    .unwrap_or_else(|| panic!("long-stay fire disappeared at roof completion"))
+                    .stored();
+                campfire_runway_before_refuel_ticks = passive_dissipation_ticks_until_empty(
+                    &registries,
+                    ENERGY_STONE_RING_CAMPFIRE,
+                    fire_energy,
+                )
+                .unwrap_or_else(|error| panic!("long-stay fire runway failed: {error}"))
+                .unwrap_or_else(|| panic!("long-stay fire must have finite loss"))
+                .value();
+                let next_stay_ticks = registries.core().calendar().ticks_per_day() / 24;
+                if campfire_runway_before_refuel_ticks < next_stay_ticks {
+                    // Keep the roof-complete, unfueled alternative only as a matched evaluator
+                    // branch. It never influences the player's choice or material custody.
+                    let mut decline_branch = state.clone();
+                    let refuel_started_at = state.tick();
+                    let timber_source = adjacent_surface_resource(&state, timber_commodity);
+                    walk_continuous_body_adjacent_and_settle(
+                        &registries,
+                        &mut state,
+                        timber_source.position(),
+                        "long-stay fuel collection outward",
+                    );
+                    let timber_resource = local_surface_resource(&state, timber_commodity);
+                    gather(
+                        &registries,
+                        &mut state,
+                        timber_resource,
+                        CAMPFIRE_FUEL_MASS,
+                        "long-stay replacement fuel gathering",
+                    );
+                    selected_source_remaining_mg = state
+                        .available_surface_resources()
+                        .find(|record| record.id() == timber_resource)
+                        .unwrap_or_else(|| panic!("long-stay fuel source disappeared"))
+                        .remaining_mass()
+                        .milligrams();
+                    peak_carried_mass_mg = peak_carried_mass_mg.max(
+                        assess_player_carrying(&state)
+                            .unwrap_or_else(|| panic!("long-stay fuel load disappeared"))
+                            .stored()
+                            .milligrams(),
+                    );
+                    walk_continuous_body_adjacent_and_settle(
+                        &registries,
+                        &mut state,
+                        junction,
+                        "long-stay replacement fuel return",
+                    );
+                    total_steps += 2;
+                    camp_logistics_steps += 2;
+                    campfire_refuel_retrieval_ticks = state
+                        .tick()
+                        .checked_duration_since(refuel_started_at)
+                        .unwrap_or_else(|| panic!("long-stay fuel retrieval reversed"))
+                        .value();
+                    validate_set_active_selection(
+                        &registries,
+                        &state,
+                        Some(PlayerActiveSelection::material(timber_commodity)),
+                    )
+                    .unwrap_or_else(|error| panic!("long-stay refuel selection failed: {error}"))
+                    .commit(&mut state)
+                    .unwrap_or_else(|error| {
+                        panic!("long-stay refuel selection commit failed: {error}")
+                    });
+                    let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
+                        .unwrap_or_else(|error| panic!("long-stay refuel view failed: {error}"));
+                    let refuel = advance_control_tick_with_direct_input(
+                        &registries,
+                        &mut state,
+                        PlayerDirectControlInput::NEUTRAL
+                            .with_secondary(SecondaryControlIntent::use_active(upward)),
+                    )
+                    .unwrap_or_else(|error| panic!("long-stay refuel control failed: {error}"));
+                    assert_eq!(
+                        refuel.secondary_action(),
+                        Some(&SecondaryActionOutcome::CombustionFuelAdded {
+                            store: campfire,
+                            released: CAMPFIRE_FUEL_THERMAL_ENERGY,
+                        }),
+                        "the fuel haul must improve the actual campfire through selected use"
+                    );
+                    assert_eq!(
+                        state
+                            .inventory()
+                            .get_stockpile(carried)
+                            .map(|record| record.get_mass(timber_commodity)),
+                        Some(Mass::ZERO),
+                        "long-stay refueling must consume exactly the collected charge"
+                    );
+                    campfire_fuel_mg += CAMPFIRE_FUEL_MASS.milligrams();
+                    campfire_refueled = true;
+
+                    let next_stay_end = state
+                        .tick()
+                        .checked_add_span(TickSpan::new(next_stay_ticks))
+                        .unwrap_or_else(|| panic!("long-stay matched-hour endpoint overflowed"));
+                    let mut refueled_branch = state.clone();
+                    advance_to(
+                        &registries,
+                        &mut decline_branch,
+                        next_stay_end,
+                        TickEventAllowance::default(),
+                        "long-stay one hour without new fuel",
+                    );
+                    advance_to(
+                        &registries,
+                        &mut refueled_branch,
+                        next_stay_end,
+                        TickEventAllowance::default(),
+                        "long-stay one hour with gathered fuel",
+                    );
+                    campfire_one_hour_comfort_without_refuel_ppm =
+                        assess_survival(&registries, &decline_branch)
+                            .unwrap_or_else(|| panic!("unfueled continuation player disappeared"))
+                            .thermal_comfort_ppm();
+                    campfire_one_hour_comfort_with_refuel_ppm =
+                        assess_survival(&registries, &refueled_branch)
+                            .unwrap_or_else(|| panic!("fueled continuation player disappeared"))
+                            .thermal_comfort_ppm();
+                    assert!(
+                        campfire_one_hour_comfort_with_refuel_ppm
+                            > campfire_one_hour_comfort_without_refuel_ppm,
+                        "an actual finite fuel trip must improve the later player's warmth"
+                    );
+                    assert_eq!(
+                        decline_branch.tick(),
+                        refueled_branch.tick(),
+                        "one-hour refuel benefit must be measured at the same wall-clock time"
+                    );
+                }
             }
         }
     }
@@ -3385,7 +3535,7 @@ fn evaluate_generated_wilderness_opening_internal(
             WildernessCampGoal::StayMobile => 0,
             WildernessCampGoal::PreserveProvisions => 2,
             WildernessCampGoal::WorksiteCache => 6,
-            WildernessCampGoal::LongStayShelter => 10,
+            WildernessCampGoal::LongStayShelter => 10 + u64::from(campfire_refueled) * 2,
         };
     assert_eq!(
         total_steps, expected_steps,
@@ -3465,14 +3615,15 @@ fn evaluate_generated_wilderness_opening_internal(
     } else {
         0
     };
-    assert!(
-        campfire_heat_at_end_nj <= campfire_heat_remaining_nj,
-        "finite fire must not acquire uncommitted energy during the camp project"
-    );
-    if camp_goal.builds_shelter() {
+    if campfire_refueled {
         assert!(
-            campfire_heat_at_end_nj < campfire_heat_remaining_nj,
-            "long-stay shelter construction must expose the fire's finite energy consumed over time"
+            campfire_heat_at_end_nj > campfire_heat_remaining_nj,
+            "a material-backed replacement charge must increase the remaining fire energy"
+        );
+    } else {
+        assert!(
+            campfire_heat_at_end_nj <= campfire_heat_remaining_nj,
+            "finite fire must not acquire uncommitted energy without refueling"
         );
     }
     let final_warning_safe = final_survival.metabolic_energy() > physiology.hungry_below()
@@ -3531,6 +3682,11 @@ fn evaluate_generated_wilderness_opening_internal(
         campfire_heat_remaining_nj,
         campfire_heat_at_end_nj,
         campfire_runway_at_end_ticks,
+        campfire_runway_before_refuel_ticks,
+        campfire_refuel_retrieval_ticks,
+        campfire_refueled,
+        campfire_one_hour_comfort_with_refuel_ppm,
+        campfire_one_hour_comfort_without_refuel_ppm,
         campfire_light_level,
         final_thermal_comfort_ppm: final_survival.thermal_comfort_ppm(),
         selected_source_opportunity_mg,
@@ -3635,17 +3791,50 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
             physical_minutes_tenths(registries, shelter.saved_ticks),
             shelter.open_loss_ppm_per_tick - shelter.covered_loss_ppm_per_tick,
         );
+        let later_comfort = if review.campfire_refueled {
+            format!(
+                "[with-refuel:{}ppm without-refuel:{}ppm]",
+                review.campfire_one_hour_comfort_with_refuel_ppm,
+                review.campfire_one_hour_comfort_without_refuel_ppm,
+            )
+        } else {
+            "not-compared-no-refuel-needed".to_owned()
+        };
+        std::println!(
+            "PLAYER JOURNEY goal={goal} new-need=another-hour-at-camp observed-fire-runway:{} choice={} response=[fuel-haul:{} material:{}g fire-runway-after:{} source-remaining:{}g] matched-hour-comfort={later_comfort}",
+            physical_minutes_tenths(registries, review.campfire_runway_before_refuel_ticks),
+            if review.campfire_refueled {
+                "resupply-from-known-timber"
+            } else {
+                "defer-enough-fire"
+            },
+            physical_minutes_tenths(registries, review.campfire_refuel_retrieval_ticks),
+            if review.campfire_refueled {
+                CAMPFIRE_FUEL_MASS.milligrams() / 1_000
+            } else {
+                0
+            },
+            physical_minutes_tenths(registries, review.campfire_runway_at_end_ticks),
+            review.selected_source_remaining_mg / 1_000,
+        );
     }
+    let remaining_fire = if review.campfire_built {
+        format!(
+            " fire=[runway:{} energy-after-warming:{}MJ energy-now:{}MJ]",
+            physical_minutes_tenths(registries, review.campfire_runway_at_end_ticks),
+            format_megajoules_tenths(review.campfire_heat_remaining_nj),
+            format_megajoules_tenths(review.campfire_heat_at_end_nj),
+        )
+    } else {
+        String::new()
+    };
     std::println!(
-        "PLAYER JOURNEY goal={goal} final=[elapsed:{} peak-load:{}g/{}g warning-safe:{} comfort:{}ppm fire-runway-left:{} fire-energy-after-recovery:{}MJ fire-energy-at-end:{}MJ] mode=single-continuous-world",
+        "PLAYER JOURNEY goal={goal} final=[elapsed:{} peak-load:{}g/{}g warning-safe:{} comfort:{}ppm{remaining_fire}] mode=single-continuous-world",
         physical_minutes_tenths(registries, review.camp_ticks),
         review.peak_carried_mass_mg / 1_000,
         review.carried_capacity_mg / 1_000,
         review.final_warning_safe,
         review.final_thermal_comfort_ppm,
-        physical_minutes_tenths(registries, review.campfire_runway_at_end_ticks),
-        format_megajoules_tenths(review.campfire_heat_remaining_nj),
-        format_megajoules_tenths(review.campfire_heat_at_end_nj),
     );
 }
 
@@ -4048,6 +4237,7 @@ pub(super) fn run_wilderness_report() {
 
 #[test]
 fn generated_wilderness_opening_stabilizes_without_premature_investment() {
+    let registries = build_registries();
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         run_wilderness_report();
     } else {
@@ -4124,7 +4314,31 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         );
         assert!(shelter.covered_loss_ppm_per_tick < shelter.open_loss_ppm_per_tick);
         assert!(shelter.tool_worn);
-        assert_eq!(long_stay.camp_logistics_legs, 8);
+        assert_eq!(long_stay.camp_logistics_legs, 10);
+        assert!(long_stay.campfire_refueled);
+        assert!(
+            long_stay.campfire_runway_before_refuel_ticks
+                < registries.core().calendar().ticks_per_day() / 24
+        );
+        assert!(
+            long_stay.campfire_runway_at_end_ticks
+                > registries.core().calendar().ticks_per_day() / 24,
+            "the finite gathered charge must cover the disclosed next hour"
+        );
+        assert!(long_stay.campfire_refuel_retrieval_ticks > 0);
+        assert_eq!(
+            long_stay.selected_source_remaining_mg + CAMPFIRE_FUEL_MASS.milligrams(),
+            shelter.timber_source_remaining_mg,
+            "camp continuation must take one new charge from the surviving local timber source"
+        );
+        assert_eq!(
+            long_stay.campfire_fuel_mg,
+            2 * CAMPFIRE_FUEL_MASS.milligrams()
+        );
+        assert!(
+            long_stay.campfire_one_hour_comfort_with_refuel_ppm
+                > long_stay.campfire_one_hour_comfort_without_refuel_ppm
+        );
         assert!(long_stay.final_warning_safe);
 
         let preserved = evaluate_generated_wilderness_opening(
