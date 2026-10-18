@@ -8,6 +8,7 @@ use crate::inventory::{
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
 };
 use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
 
 use super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
@@ -54,32 +55,45 @@ impl SurfaceDropPickupOutcome {
     }
 }
 
-pub(crate) fn decide_automatic_surface_drop_pickup(
-    registries: &Registries,
-    state: &AppState,
-) -> Option<SurfaceDropPickupPlan> {
+/// Shares the authoritative pickup eligibility gate with neutral slow stepping.
+fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelCoord, Mass)> {
     let player = state.logistics().player().copied()?;
     if !state
         .survival()
         .player()
         .is_some_and(|survival| survival.vitality() != Vitality::ZERO)
+        || !state.can_spend_inventory_revisions(1)
+        || !state.can_spend_surface_revisions(1)
     {
         return None;
     }
-    if !state.can_spend_inventory_revisions(1) || !state.can_spend_surface_revisions(1) {
-        return None;
-    }
-
     let destination = player.carried_stockpile();
-    let destination_record = state
+    let capacity = state
         .inventory()
         .get_stockpile(destination)
-        .unwrap_or_else(|| unreachable!("admitted player carried stockpile exists"));
-    let picked_at = state.tick();
-    for resource in state
+        .unwrap_or_else(|| unreachable!("admitted player carried stockpile exists"))
+        .available_capacity();
+    (!capacity.is_zero()).then_some((destination, player.position(), capacity))
+}
+
+/// A full pack or dead player cannot pick up a drop during a skipped control interval.
+pub(crate) fn automatic_surface_pickup_requires_control_stepping(state: &AppState) -> bool {
+    let Some((_, position, _)) = available_pickup_destination(state) else {
+        return false;
+    };
+    state
         .surface()
-        .available_resources_at(Some(player.position()))
-    {
+        .available_resources_at(Some(position))
+        .any(|resource| resource.kind() == SurfaceResourceKind::Drop)
+}
+
+pub(crate) fn decide_automatic_surface_drop_pickup(
+    registries: &Registries,
+    state: &AppState,
+) -> Option<SurfaceDropPickupPlan> {
+    let (destination, position, available_capacity) = available_pickup_destination(state)?;
+    let picked_at = state.tick();
+    for resource in state.surface().available_resources_at(Some(position)) {
         if resource.kind() != SurfaceResourceKind::Drop {
             continue;
         }
@@ -93,12 +107,7 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
                 continue;
             }
         }
-        let picked_mass = resource
-            .remaining_mass()
-            .min(destination_record.available_capacity());
-        if picked_mass.is_zero() {
-            continue;
-        }
+        let picked_mass = resource.remaining_mass().min(available_capacity);
         let entry = MaterialIngressEntry::from_surface_parcel(
             picked_mass,
             resource.material_profile().clone(),

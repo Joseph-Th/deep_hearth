@@ -34,8 +34,10 @@ pub use material_drop::{
 pub use observation::{AdjacentSurfaceResource, available_adjacent_surface_resources};
 pub use pickup::SurfaceDropPickupOutcome;
 pub(crate) use pickup::{
-    apply_automatic_surface_drop_pickup, decide_automatic_surface_drop_pickup,
+    apply_automatic_surface_drop_pickup, automatic_surface_pickup_requires_control_stepping,
+    decide_automatic_surface_drop_pickup,
 };
+
 pub use state::{
     SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, SurfaceResourceRecord,
     SurfaceResourceValidationError,
@@ -47,3 +49,7 @@ pub(crate) use state::{
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "pickup_tests.rs"]
+mod pickup_tests;

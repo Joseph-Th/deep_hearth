@@ -37,7 +37,7 @@ use crate::registry::Registries;
 use crate::structural::{apply_structural_construction_tick, apply_structural_dismantling_tick};
 use crate::surface::{
     apply_automatic_surface_drop_pickup, apply_surface_gathering_tick,
-    available_player_world_drops, decide_automatic_surface_drop_pickup,
+    automatic_surface_pickup_requires_control_stepping, decide_automatic_surface_drop_pickup,
 };
 use crate::survival::{
     SurvivalExertion, ThermalExposure, apply_survival_tick, assess_survival,
@@ -273,7 +273,7 @@ fn control_stepping_required(registries: &Registries, state: &AppState) -> bool 
             state.player_work().active(),
             Some(PlayerWork::BlockExcavation { .. })
         )
-        || available_player_world_drops(state).next().is_some()
+        || automatic_surface_pickup_requires_control_stepping(state)
     {
         return true;
     }
@@ -301,8 +301,9 @@ fn control_stepping_required(registries: &Registries, state: &AppState) -> bool 
 ///
 /// Headless/process-only states, players outside generated body truth, and a standing grounded
 /// motionless generated-world player with settled locomotion may use this fast path. Buffered
-/// input, unsettled fall injury, crouch/air/motion, control-rate excavation, and local automatic-
-/// pickup drops still require exact 50 ms stepping and return `TickError::ControlSteppingRequired`.
+/// input, unsettled fall injury, crouch/air/motion, control-rate excavation, and local drops that
+/// can enter the player's pack still require exact 50 ms stepping and return
+/// `TickError::ControlSteppingRequired`.
 pub fn advance_tick(
     registries: &Registries,
     state: &mut AppState,
