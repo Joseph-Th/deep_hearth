@@ -6,6 +6,9 @@ use std::fmt::{Display, Formatter};
 use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
 use crate::material::CommodityKey;
+use crate::player::{
+    PlayerActionGuard, PlayerActionValidationError, StalePlayerSurvival, validate_player_action,
+};
 use crate::registry::Registries;
 
 use super::{PlayerActiveSelection, PlayerQuickAccessSlot};
@@ -13,6 +16,7 @@ use super::{PlayerActiveSelection, PlayerQuickAccessSlot};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerActiveSelectionError {
     PlayerNotAdmitted,
+    PlayerDead,
     EquipmentNotCarried { equipment: EquipmentId },
     MaterialNotCarried { commodity: CommodityKey },
     UnsupportedMaterial { commodity: CommodityKey },
@@ -23,6 +27,7 @@ impl Display for PlayerActiveSelectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerDead => formatter.write_str("dead player cannot bind quick-access items"),
             Self::EquipmentNotCarried { equipment } => write!(
                 formatter,
                 "equipment {} cannot be selected because it is not player-carried",
@@ -51,6 +56,7 @@ impl Error for PlayerActiveSelectionError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerActiveSelectionCommitError {
+    StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     EquipmentNoLongerCarried { equipment: EquipmentId },
@@ -60,6 +66,10 @@ pub enum PlayerActiveSelectionCommitError {
 impl Display for PlayerActiveSelectionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "active selection expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "active selection expected logistics revision {expected} but current revision is {actual}"
@@ -88,6 +98,7 @@ impl Error for PlayerActiveSelectionCommitError {}
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ValidatedPlayerActiveSelection {
+    player_action: PlayerActionGuard,
     expected_logistics_revision: u64,
     expected_inventory_revision: Option<u64>,
     next_logistics_revision: Option<u64>,
@@ -97,6 +108,11 @@ pub struct ValidatedPlayerActiveSelection {
 
 impl ValidatedPlayerActiveSelection {
     pub fn commit(self, state: &mut AppState) -> Result<(), PlayerActiveSelectionCommitError> {
+        self.player_action.precheck(state).map_err(
+            |StalePlayerSurvival { expected, actual }| {
+                PlayerActiveSelectionCommitError::StaleSurvivalRevision { expected, actual }
+            },
+        )?;
         let actual = state.logistics().revision();
         if actual != self.expected_logistics_revision {
             return Err(PlayerActiveSelectionCommitError::StaleLogisticsRevision {
@@ -159,6 +175,7 @@ impl ValidatedPlayerActiveSelection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerQuickAccessSelectionError {
     PlayerNotAdmitted,
+    PlayerDead,
     LogisticsRevisionExhausted,
 }
 
@@ -166,6 +183,7 @@ impl Display for PlayerQuickAccessSelectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerDead => formatter.write_str("dead player cannot change quick-access slots"),
             Self::LogisticsRevisionExhausted => {
                 formatter.write_str("logistics revision space is exhausted")
             }
@@ -178,12 +196,17 @@ impl Error for PlayerQuickAccessSelectionError {}
 /// Commit failure for a previously validated quick-access slot change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerQuickAccessSelectionCommitError {
+    StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
 }
 
 impl Display for PlayerQuickAccessSelectionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "quick-access selection expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "quick-access selection expected logistics revision {expected} but current revision is {actual}"
@@ -197,6 +220,7 @@ impl Error for PlayerQuickAccessSelectionCommitError {}
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ValidatedPlayerQuickAccessSelection {
+    player_action: PlayerActionGuard,
     expected_logistics_revision: u64,
     next_logistics_revision: Option<u64>,
     slot: PlayerQuickAccessSlot,
@@ -204,6 +228,11 @@ pub struct ValidatedPlayerQuickAccessSelection {
 
 impl ValidatedPlayerQuickAccessSelection {
     pub fn commit(self, state: &mut AppState) -> Result<(), PlayerQuickAccessSelectionCommitError> {
+        self.player_action.precheck(state).map_err(
+            |StalePlayerSurvival { expected, actual }| {
+                PlayerQuickAccessSelectionCommitError::StaleSurvivalRevision { expected, actual }
+            },
+        )?;
         let actual = state.logistics().revision();
         if actual != self.expected_logistics_revision {
             return Err(
@@ -251,14 +280,21 @@ pub fn validate_set_quick_access_slot(
     slot: PlayerQuickAccessSlot,
     selection: Option<PlayerActiveSelection>,
 ) -> Result<ValidatedPlayerActiveSelection, PlayerActiveSelectionError> {
+    let player_action = validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => {
+            PlayerActiveSelectionError::PlayerNotAdmitted
+        }
+        PlayerActionValidationError::PlayerDead => PlayerActiveSelectionError::PlayerDead,
+    })?;
     let player = state
         .logistics()
         .player()
         .copied()
-        .ok_or(PlayerActiveSelectionError::PlayerNotAdmitted)?;
+        .unwrap_or_else(|| unreachable!("validated player action requires logistics player"));
     let expected_logistics_revision = state.logistics().revision();
     if state.logistics().quick_access_slot(slot) == selection {
         return Ok(ValidatedPlayerActiveSelection {
+            player_action,
             expected_logistics_revision,
             expected_inventory_revision: None,
             next_logistics_revision: None,
@@ -297,6 +333,7 @@ pub fn validate_set_quick_access_slot(
             .unwrap_or_else(|| unreachable!("logistics headroom check includes active selection")),
     );
     Ok(ValidatedPlayerActiveSelection {
+        player_action,
         expected_logistics_revision,
         expected_inventory_revision,
         next_logistics_revision,
@@ -310,12 +347,16 @@ pub fn validate_select_quick_access_slot(
     state: &AppState,
     slot: PlayerQuickAccessSlot,
 ) -> Result<ValidatedPlayerQuickAccessSelection, PlayerQuickAccessSelectionError> {
-    if state.logistics().player().is_none() {
-        return Err(PlayerQuickAccessSelectionError::PlayerNotAdmitted);
-    }
+    let player_action = validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => {
+            PlayerQuickAccessSelectionError::PlayerNotAdmitted
+        }
+        PlayerActionValidationError::PlayerDead => PlayerQuickAccessSelectionError::PlayerDead,
+    })?;
     let expected_logistics_revision = state.logistics().revision();
     if state.logistics().active_quick_access_slot() == slot {
         return Ok(ValidatedPlayerQuickAccessSelection {
+            player_action,
             expected_logistics_revision,
             next_logistics_revision: None,
             slot,
@@ -330,6 +371,7 @@ pub fn validate_select_quick_access_slot(
             unreachable!("logistics headroom check includes quick-access selection")
         });
     Ok(ValidatedPlayerQuickAccessSelection {
+        player_action,
         expected_logistics_revision,
         next_logistics_revision: Some(next_logistics_revision),
         slot,

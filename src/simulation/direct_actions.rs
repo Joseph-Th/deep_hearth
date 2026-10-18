@@ -358,6 +358,37 @@ fn attempt_direct_drinking(
     }
 }
 
+/// Resolves a single visible carried stack without selecting an arbitrary physical lot.
+fn resolve_unique_carried_stack(
+    registries: &Registries,
+    state: &AppState,
+    commodity: CommodityKey,
+) -> Result<crate::inventory::MaterialStackProjection, SecondaryActionOutcome> {
+    let carried = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: active material selection requires player")
+        });
+    let mut matches = project_material_stacks(registries, state, carried)
+        .unwrap_or_else(|error| {
+            panic!("runtime invariant broken: carried stack projection failed: {error}")
+        })
+        .into_iter()
+        .filter(|stack| stack.commodity() == commodity);
+    let Some(first) = matches.next() else {
+        return Err(SecondaryActionOutcome::MaterialUnavailable);
+    };
+    let remaining = matches.count();
+    if remaining != 0 {
+        return Err(SecondaryActionOutcome::AmbiguousMaterialStacks {
+            count: remaining + 1,
+        });
+    }
+    Ok(first)
+}
+
 fn attempt_selected_secondary_action(
     registries: &Registries,
     state: &mut AppState,
@@ -407,29 +438,11 @@ fn attempt_selected_secondary_action(
     if !state.control_tick().is_simulation_boundary() {
         return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
     }
-    let carried = state
-        .logistics()
-        .player()
-        .map(|player| player.carried_stockpile())
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: active material selection requires player")
-        });
-    let stacks = project_material_stacks(registries, state, carried)
-        .unwrap_or_else(|error| {
-            panic!("runtime invariant broken: carried stack projection failed: {error}")
-        })
-        .into_iter()
-        .filter(|stack| stack.commodity() == commodity)
-        .collect::<Vec<_>>();
-    let stack = match stacks.as_slice() {
-        [] => return SecondaryActionOutcome::MaterialUnavailable,
-        [stack] => stack,
-        stacks => {
-            return SecondaryActionOutcome::AmbiguousMaterialStacks {
-                count: stacks.len(),
-            };
-        }
+    let stack = match resolve_unique_carried_stack(registries, state, commodity) {
+        Ok(stack) => stack,
+        Err(outcome) => return outcome,
     };
+    let stack = &stack;
     match validate_eat_stack_to_full(registries, state, stack) {
         Ok(Some(validated)) => {
             let outcome = validated.commit(state).unwrap_or_else(|error| {
@@ -847,29 +860,11 @@ fn attempt_selected_timber_cover_placement(
     if !state.control_tick().is_simulation_boundary() {
         return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
     }
-    let carried = state
-        .logistics()
-        .player()
-        .map(|player| player.carried_stockpile())
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: active board selection requires player")
-        });
-    let stacks = project_material_stacks(registries, state, carried)
-        .unwrap_or_else(|error| {
-            panic!("runtime invariant broken: carried board projection failed: {error}")
-        })
-        .into_iter()
-        .filter(|stack| stack.commodity() == commodity)
-        .collect::<Vec<_>>();
-    let stack = match stacks.as_slice() {
-        [] => return Some(SecondaryActionOutcome::MaterialUnavailable),
-        [stack] => stack,
-        stacks => {
-            return Some(SecondaryActionOutcome::AmbiguousMaterialStacks {
-                count: stacks.len(),
-            });
-        }
+    let stack = match resolve_unique_carried_stack(registries, state, commodity) {
+        Ok(stack) => stack,
+        Err(outcome) => return Some(outcome),
     };
+    let stack = &stack;
     let (bounds, supports) = match resolve_supported_timber_target(registries, state, direction) {
         Ok(Some(target)) => target,
         Ok(None) => return Some(SecondaryActionOutcome::NoStructuralPlacementTarget),
@@ -920,29 +915,11 @@ fn attempt_selected_timber_placement(
     if !state.control_tick().is_simulation_boundary() {
         return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
     }
-    let carried = state
-        .logistics()
-        .player()
-        .map(|player| player.carried_stockpile())
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: active timber selection requires player")
-        });
-    let stacks = project_material_stacks(registries, state, carried)
-        .unwrap_or_else(|error| {
-            panic!("runtime invariant broken: carried timber projection failed: {error}")
-        })
-        .into_iter()
-        .filter(|stack| stack.commodity() == commodity)
-        .collect::<Vec<_>>();
-    let stack = match stacks.as_slice() {
-        [] => return Some(SecondaryActionOutcome::MaterialUnavailable),
-        [stack] => stack,
-        stacks => {
-            return Some(SecondaryActionOutcome::AmbiguousMaterialStacks {
-                count: stacks.len(),
-            });
-        }
+    let stack = match resolve_unique_carried_stack(registries, state, commodity) {
+        Ok(stack) => stack,
+        Err(outcome) => return Some(outcome),
     };
+    let stack = &stack;
     if let Some(outcome) = attempt_supported_timber_placement(registries, state, stack, direction) {
         return Some(outcome);
     }

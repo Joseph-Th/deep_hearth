@@ -18,6 +18,7 @@ use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
+use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
 const ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
 
@@ -64,6 +65,91 @@ fn selected_pick_fixture() -> (
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("selection pickup commit failed: {error}"));
     (registries, state, pick)
+}
+
+fn kill_selected_player(state: &mut AppState) {
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("quick-access death fixture missing survival player"));
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("death fixture revision overflowed")),
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+}
+
+#[test]
+fn quick_access_rejects_dead_player_even_for_idempotent_selection() {
+    let (registries, mut state, pick) = selected_pick_fixture();
+    kill_selected_player(&mut state);
+    let before = state.clone();
+    assert_eq!(
+        validate_select_quick_access_slot(&state, PlayerQuickAccessSlot::FIRST).err(),
+        Some(PlayerQuickAccessSelectionError::PlayerDead)
+    );
+    assert_eq!(
+        validate_set_active_selection(&registries, &state, None).err(),
+        Some(PlayerActiveSelectionError::PlayerDead)
+    );
+    assert_eq!(
+        validate_set_quick_access_slot(
+            &registries,
+            &state,
+            PlayerQuickAccessSlot::FIRST,
+            Some(PlayerActiveSelection::equipment(pick)),
+        )
+        .err(),
+        Some(PlayerActiveSelectionError::PlayerDead)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn quick_access_validations_reject_survival_change_before_commit() {
+    let (registries, mut state, pick) = selected_pick_fixture();
+    let second = PlayerQuickAccessSlot::new(1)
+        .unwrap_or_else(|| panic!("second quick-access slot disappeared"));
+    let slot_change = validate_select_quick_access_slot(&state, second)
+        .unwrap_or_else(|error| panic!("slot change validation failed: {error}"));
+    let equipment_binding = validate_set_quick_access_slot(
+        &registries,
+        &state,
+        second,
+        Some(PlayerActiveSelection::equipment(pick)),
+    )
+    .unwrap_or_else(|error| panic!("equipment binding validation failed: {error}"));
+    let unchanged_selection =
+        validate_select_quick_access_slot(&state, PlayerQuickAccessSlot::FIRST)
+            .unwrap_or_else(|error| panic!("idempotent selection validation failed: {error}"));
+    let expected = state.survival().revision();
+    kill_selected_player(&mut state);
+    let actual = state.survival().revision();
+    let before = state.clone();
+    assert_eq!(
+        slot_change.commit(&mut state),
+        Err(PlayerQuickAccessSelectionCommitError::StaleSurvivalRevision { expected, actual })
+    );
+    assert_eq!(
+        unchanged_selection.commit(&mut state),
+        Err(PlayerQuickAccessSelectionCommitError::StaleSurvivalRevision { expected, actual })
+    );
+    assert_eq!(
+        equipment_binding.commit(&mut state),
+        Err(PlayerActiveSelectionCommitError::StaleSurvivalRevision { expected, actual })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
