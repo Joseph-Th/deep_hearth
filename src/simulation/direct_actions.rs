@@ -546,19 +546,9 @@ fn resolve_direct_structural_target(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<StructuralElementId, DirectStructuralTargetError> {
-    let target = raycast_player_air_voxel(registries, state, direction, |voxel, _face| {
-        let mut elements = state
-            .structures()
-            .elements()
-            .filter(|record| record.bounds().has_voxel(voxel))
-            .map(|record| record.id());
-        let first = elements.next()?;
-        let count = 1 + elements.count();
-        Some(if count == 1 { Ok(first) } else { Err(count) })
-    })
-    .map_err(|_| DirectStructuralTargetError::TargetUnavailable)?
-    .ok_or(DirectStructuralTargetError::NoTarget)?;
-    target.map_err(|count| DirectStructuralTargetError::Ambiguous { count })
+    resolve_direct_structural_face_target(registries, state, direction)?
+        .map(|target| target.element)
+        .ok_or(DirectStructuralTargetError::NoTarget)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
