@@ -1,6 +1,7 @@
 //! Timed conserved player excavation of targeted block-world matter.
 
 mod runtime;
+mod selection;
 
 pub(crate) use runtime::{
     BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
@@ -8,14 +9,14 @@ pub(crate) use runtime::{
     decide_block_excavation_completion, decide_block_excavation_tick,
 };
 pub use runtime::{BlockExcavationOutcome, BlockExcavationOutputReceipt};
+pub(crate) use selection::validate_start_player_block_excavation_active;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::CapabilityValue;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::{ControlTick, TickSpan};
+use crate::core::time::ControlTick;
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::inventory::{
     ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
@@ -24,9 +25,7 @@ use crate::labor::{
     BlockExcavationOutputCustody, BlockExcavationWork, PlayerWork, PlayerWorkCommitError,
     PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start_control_rate,
 };
-use crate::logistics::{
-    PlayerActiveSelection, PlayerEquipmentAccessError, validate_player_equipment_access,
-};
+use crate::logistics::{PlayerEquipmentAccessError, validate_player_equipment_access};
 use crate::material::{CommodityKey, MaterialLotSpec};
 use crate::mining::{MiningMethodId, MiningPhysicsError, resolve_mining_physics};
 use crate::registry::Registries;
@@ -538,144 +537,4 @@ fn validate_start_player_block_excavation_targeted(
         work,
         player_work,
     })
-}
-
-#[derive(Clone, Copy)]
-struct DirectExcavationCandidate {
-    method: MiningMethodId,
-    mass: Mass,
-    duration: TickSpan,
-}
-
-fn candidate_is_faster(
-    candidate: DirectExcavationCandidate,
-    current: DirectExcavationCandidate,
-) -> bool {
-    let candidate_rate =
-        u128::from(candidate.mass.milligrams()) * u128::from(current.duration.value());
-    let current_rate =
-        u128::from(current.mass.milligrams()) * u128::from(candidate.duration.value());
-    candidate_rate > current_rate
-        || (candidate_rate == current_rate && candidate.method < current.method)
-}
-
-/// Resolves one familiar held-tool block action entirely from the active carried equipment and
-/// pointed world target. Exact method/equipment selection remains available through
-/// [`BlockExcavationRequest`] for planning surfaces that intentionally expose those details.
-pub(crate) fn validate_start_player_block_excavation_active(
-    registries: &Registries,
-    state: &AppState,
-    direction: ViewDirection,
-) -> Result<ValidatedPlayerBlockExcavationStart, BlockExcavationError> {
-    let equipment = match state.logistics().active_selection() {
-        Some(PlayerActiveSelection::Equipment(equipment)) => equipment,
-        Some(PlayerActiveSelection::Material(commodity)) => {
-            return Err(BlockExcavationError::ActiveSelectionNotEquipment { commodity });
-        }
-        None => return Err(BlockExcavationError::NoActiveEquipment),
-    };
-    let target = raycast_player_block(registries, state, direction)
-        .map_err(BlockExcavationError::Target)?
-        .ok_or(BlockExcavationError::NoTarget)?;
-    let block = registries
-        .world()
-        .block_for_state(target.state())
-        .unwrap_or_else(|| unreachable!("targeted block state is registered"));
-    let excavation = block
-        .excavation()
-        .ok_or(BlockExcavationError::TargetNotExcavatable {
-            target: target.voxel(),
-        })?;
-    let source_mass = state
-        .world()
-        .represented_mass_at(registries.world(), target.voxel())
-        .unwrap_or_else(|| unreachable!("target ray established generated world truth"));
-    validate_player_equipment_access(state, equipment)
-        .map_err(BlockExcavationError::EquipmentAccess)?;
-    let provider = resolve_available_equipment_provider(registries, state, equipment)
-        .map_err(BlockExcavationError::Equipment)?;
-
-    let mut best: Option<(
-        DirectExcavationCandidate,
-        ValidatedPlayerBlockExcavationStart,
-    )> = None;
-    let mut best_rejection: Option<(DirectExcavationCandidate, BlockExcavationError)> = None;
-    let mut first_physics_failure = None;
-    for method in registries.mining().definitions() {
-        let Some(CapabilityValue::MassFlow(flow)) =
-            provider.get_capability(method.mass_flow_capability())
-        else {
-            continue;
-        };
-        let Some(CapabilityValue::Mass(maximum_batch)) =
-            provider.get_capability(method.max_batch_mass_capability())
-        else {
-            continue;
-        };
-        let Some(CapabilityValue::Pressure(maximum_hardness)) =
-            provider.get_capability(method.max_hardness_capability())
-        else {
-            continue;
-        };
-        if flow.is_zero() || maximum_batch.is_zero() || maximum_hardness.is_zero() {
-            continue;
-        }
-        let mass = std::cmp::min(maximum_batch, source_mass);
-        match resolve_mining_physics(
-            registries.core().physical_tick_duration(),
-            method,
-            provider.definition(),
-            provider.condition(),
-            excavation.hardness(),
-            mass,
-        ) {
-            Ok(physics) => {
-                let candidate = DirectExcavationCandidate {
-                    method: method.id(),
-                    mass,
-                    duration: physics.duration(),
-                };
-                // Throughput is the preference, not authorization. A fast method may need more
-                // energy, hydration, revision headroom, or output custody than a slower one.
-                // Resolve every supported method through the same canonical admission as an
-                // explicitly selected excavation before choosing a viable candidate.
-                match validate_start_player_block_excavation_targeted(
-                    registries,
-                    state,
-                    BlockExcavationRequest::new(direction, method.id(), equipment, mass),
-                    target,
-                ) {
-                    Ok(authorized) => {
-                        if best
-                            .as_ref()
-                            .is_none_or(|(current, _)| candidate_is_faster(candidate, *current))
-                        {
-                            best = Some((candidate, authorized));
-                        }
-                    }
-                    Err(error) => {
-                        if best_rejection
-                            .as_ref()
-                            .is_none_or(|(current, _)| candidate_is_faster(candidate, *current))
-                        {
-                            best_rejection = Some((candidate, error));
-                        }
-                    }
-                }
-            }
-            Err(error) => {
-                first_physics_failure.get_or_insert(error);
-            }
-        }
-    }
-    if let Some((_, authorized)) = best {
-        return Ok(authorized);
-    }
-    if let Some((_, error)) = best_rejection {
-        return Err(error);
-    }
-    if let Some(error) = first_physics_failure {
-        return Err(BlockExcavationError::Physics(error));
-    }
-    Err(BlockExcavationError::NoApplicableMethod { equipment })
 }

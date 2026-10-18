@@ -359,6 +359,7 @@ fn adjacent_walk_projection_matches_control_execution_and_boundary_cost() {
         .copied()
         .unwrap_or_else(|| panic!("walk projection survival player disappeared"));
     let mut actual_control_ticks = 0_u64;
+    let mut passive_braking_translation_ticks = 0_u64;
     for destination in path {
         let movement = PlayerControlInput::new(
             HorizontalControlInput::new(1_000_000, 0)
@@ -377,15 +378,32 @@ fn adjacent_walk_projection_matches_control_execution_and_boundary_cost() {
             let velocity = player.body().horizontal_velocity();
             velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
         }) {
+            let before = state
+                .logistics()
+                .player()
+                .unwrap_or_else(|| panic!("braking player disappeared"))
+                .body()
+                .foot_position();
             let _ = advance_control_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("walk projection braking failed: {error}"));
             actual_control_ticks += 1;
+            let after = state
+                .logistics()
+                .player()
+                .unwrap_or_else(|| panic!("braking player disappeared"))
+                .body()
+                .foot_position();
+            passive_braking_translation_ticks += u64::from(before != after);
             assert_eq!(
                 state.logistics().player().map(|player| player.position()),
                 Some(destination)
             );
         }
     }
+    assert!(
+        passive_braking_translation_ticks > 0,
+        "test route must exercise passive braking displacement without charged locomotion"
+    );
     assert_eq!(actual_control_ticks, projection.control_ticks());
     while state.tick() == SimulationTick::new(0) {
         let _ = advance_control_tick(&registries, &mut state)
@@ -408,6 +426,35 @@ fn adjacent_walk_projection_matches_control_execution_and_boundary_cost() {
             .checked_sub(survival_after.hydration()),
         Some(projection.resource_budget().hydration())
     );
+}
+
+#[test]
+fn dead_player_walk_projection_reports_player_state_before_route_physics() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let before = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("dead-walk player missing"));
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::ZERO,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    let unchanged = state.clone();
+    assert_eq!(
+        project_player_walk_path(&registries, &state, &[VoxelCoord::new(1, floor_y, 0)]),
+        Err(PlayerWalkProjectionError::PlayerDead)
+    );
+    assert_eq!(state, unchanged);
 }
 
 #[test]

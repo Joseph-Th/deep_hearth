@@ -8,6 +8,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Mass, Speed};
 use crate::core::state::AppState;
 use crate::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
+use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::{
     HorizontalVelocity, NANOMETERS_PER_VOXEL, VerticalVelocity, VoxelCoord, WorldPoint,
@@ -67,6 +68,7 @@ pub enum PlayerWalkProjectionError {
         capacity: Mass,
     },
     PlayerNotAdmitted,
+    PlayerDead,
     RequiresSimulationBoundary,
     PlayerBusy,
     PlayerNotStanding,
@@ -103,6 +105,7 @@ impl Display for PlayerWalkProjectionError {
                 capacity.milligrams()
             ),
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerDead => formatter.write_str("dead player cannot project a walk"),
             Self::RequiresSimulationBoundary => {
                 formatter.write_str("walk projection requires a settled simulation boundary")
             }
@@ -244,27 +247,23 @@ pub fn project_player_walk_path_for_load(
         .ok_or(PlayerWalkProjectionError::PathEmpty)?;
     let player = validate_walk_projection_start(registries, state)?;
     let origin = player.position();
-    let mut projected_body = player.body();
-    let mut projected_exertion = player.locomotion_exertion();
-    let mut control_ticks = 0_u64;
-    let maximum_control_ticks = CONTROL_TICKS_PER_SIMULATION_TICK - 1;
+    let mut projection = WalkProjectionCursor {
+        registries,
+        state,
+        player,
+        body: player.body(),
+        exertion: player.locomotion_exertion(),
+        control_ticks: 0,
+        maximum_control_ticks: CONTROL_TICKS_PER_SIMULATION_TICK - 1,
+        carried,
+        capacity,
+    };
 
     for &destination in destinations {
-        project_walk_leg(
-            registries,
-            state,
-            player,
-            &mut projected_body,
-            destination,
-            &mut control_ticks,
-            maximum_control_ticks,
-            carried,
-            capacity,
-            &mut projected_exertion,
-        )?;
+        project_walk_leg(&mut projection, destination)?;
     }
 
-    let locomotion_exertion = projected_exertion.pending();
+    let locomotion_exertion = projection.exertion.pending();
     let resource_budget = project_survival_resource_budget(
         registries.survival().physiology(),
         locomotion_exertion,
@@ -274,7 +273,7 @@ pub fn project_player_walk_path_for_load(
     Ok(PlayerWalkProjection {
         origin,
         destination,
-        control_ticks,
+        control_ticks: projection.control_ticks,
         locomotion_exertion,
         resource_budget,
     })
@@ -284,6 +283,12 @@ fn validate_walk_projection_start(
     registries: &Registries,
     state: &AppState,
 ) -> Result<PlayerLogisticsRecord, PlayerWalkProjectionError> {
+    validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => {
+            PlayerWalkProjectionError::PlayerNotAdmitted
+        }
+        PlayerActionValidationError::PlayerDead => PlayerWalkProjectionError::PlayerDead,
+    })?;
     let player = state
         .logistics()
         .player()
@@ -315,19 +320,25 @@ fn validate_walk_projection_start(
     Ok(player)
 }
 
-fn project_walk_leg(
-    registries: &Registries,
-    state: &AppState,
+/// Ephemeral replay state shared by commanded movement and passive braking. Only commanded
+/// horizontal motion accrues active exertion, matching the authoritative control owner.
+struct WalkProjectionCursor<'a> {
+    registries: &'a Registries,
+    state: &'a AppState,
     player: PlayerLogisticsRecord,
-    projected_body: &mut PlayerBodyState,
-    destination: VoxelCoord,
-    control_ticks: &mut u64,
+    body: PlayerBodyState,
+    exertion: LocomotionExertionAccumulator,
+    control_ticks: u64,
     maximum_control_ticks: u64,
     carried: Mass,
     capacity: Mass,
-    projected_exertion: &mut LocomotionExertionAccumulator,
+}
+
+fn project_walk_leg(
+    projection: &mut WalkProjectionCursor<'_>,
+    destination: VoxelCoord,
 ) -> Result<(), PlayerWalkProjectionError> {
-    let leg_origin = projected_body.voxel_position();
+    let leg_origin = projection.body.voxel_position();
     if !leg_origin.is_face_adjacent_to(destination) || leg_origin.y() != destination.y() {
         return Err(
             PlayerWalkProjectionError::DestinationNotHorizontalAdjacent {
@@ -337,16 +348,22 @@ fn project_walk_leg(
         );
     }
     let movement = adjacent_walk_input(leg_origin, destination);
-    while projected_body.voxel_position() != destination {
+    while projection.body.voxel_position() != destination {
         ensure_walk_tick_available(
-            *control_ticks,
-            maximum_control_ticks,
+            projection.control_ticks,
+            projection.maximum_control_ticks,
             leg_origin,
             destination,
         )?;
-        let before = *projected_body;
-        let after = project_player_walk_body_tick(registries, state, player, before, movement)
-            .map_err(PlayerWalkProjectionError::BodyMotion)?;
+        let before = projection.body;
+        let after = project_player_walk_body_tick(
+            projection.registries,
+            projection.state,
+            projection.player,
+            before,
+            movement,
+        )
+        .map_err(PlayerWalkProjectionError::BodyMotion)?;
         if after == before {
             return Err(
                 PlayerWalkProjectionError::DestinationUnreachableBeforeBoundary {
@@ -355,17 +372,17 @@ fn project_walk_leg(
                 },
             );
         }
-        *projected_body = after;
+        projection.body = after;
         accrue_projected_walk_exertion(
-            registries,
+            projection.registries,
             before,
             after,
-            carried,
-            capacity,
-            projected_exertion,
+            projection.carried,
+            projection.capacity,
+            &mut projection.exertion,
         )?;
-        *control_ticks += 1;
-        let actual = projected_body.voxel_position();
+        projection.control_ticks += 1;
+        let actual = projection.body.voxel_position();
         if actual != leg_origin && actual != destination {
             return Err(PlayerWalkProjectionError::DestinationOvershot {
                 destination,
@@ -373,16 +390,7 @@ fn project_walk_leg(
             });
         }
     }
-    settle_projected_walk_velocity(
-        registries,
-        state,
-        player,
-        projected_body,
-        leg_origin,
-        destination,
-        control_ticks,
-        maximum_control_ticks,
-    )
+    settle_projected_walk_velocity(projection, leg_origin, destination)
 }
 
 fn accrue_projected_walk_exertion(
@@ -419,38 +427,35 @@ fn accrue_projected_walk_exertion(
 }
 
 fn settle_projected_walk_velocity(
-    registries: &Registries,
-    state: &AppState,
-    player: PlayerLogisticsRecord,
-    projected_body: &mut PlayerBodyState,
+    projection: &mut WalkProjectionCursor<'_>,
     leg_origin: VoxelCoord,
     destination: VoxelCoord,
-    control_ticks: &mut u64,
-    maximum_control_ticks: u64,
 ) -> Result<(), PlayerWalkProjectionError> {
     loop {
-        let body = *projected_body;
+        let body = projection.body;
         let horizontal = body.horizontal_velocity();
         if horizontal.x_nanometers_per_second() == 0 && horizontal.z_nanometers_per_second() == 0 {
             return Ok(());
         }
         ensure_walk_tick_available(
-            *control_ticks,
-            maximum_control_ticks,
+            projection.control_ticks,
+            projection.maximum_control_ticks,
             leg_origin,
             destination,
         )?;
         let after = project_player_walk_body_tick(
-            registries,
-            state,
-            player,
+            projection.registries,
+            projection.state,
+            projection.player,
             body,
             PlayerControlInput::NEUTRAL,
         )
         .map_err(PlayerWalkProjectionError::BodyMotion)?;
-        *projected_body = after;
-        *control_ticks += 1;
-        let actual = projected_body.voxel_position();
+        projection.body = after;
+        // The authoritative control owner does not charge locomotion for neutral-input
+        // braking, even when inertia displaces the body. Replay the motion but not exertion.
+        projection.control_ticks += 1;
+        let actual = projection.body.voxel_position();
         if actual != destination {
             return Err(PlayerWalkProjectionError::DestinationOvershot {
                 destination,

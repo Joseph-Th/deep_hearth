@@ -115,10 +115,18 @@ fn ordinary_drop_pickup_fills_remaining_capacity_and_leaves_conserved_remainder(
     let matter_before_pickup = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("world-drop gameplay matter baseline failed: {error}"));
 
-    for _ in 0..40 {
+    // Pickup becomes eligible exactly two seconds (40 control steps) after the drop.
+    // The boundary step itself may transfer matter, not the step after it.
+    for _ in 0..39 {
         let outcome = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("world-drop gameplay delay tick failed: {error}"));
         assert_eq!(outcome.surface_drop_pickup(), None);
+        assert!(
+            !available_player_world_drops(&state)
+                .next()
+                .unwrap_or_else(|| panic!("delayed drop disappeared"))
+                .automatic_pickup_ready()
+        );
     }
     let outcome = advance_control_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("world-drop gameplay pickup tick failed: {error}"));

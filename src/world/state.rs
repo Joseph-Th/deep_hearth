@@ -96,7 +96,7 @@ pub(crate) fn set_generated_block_for_test(
         .binary_search_by_key(&coord, WorldChunk::coord)
         .unwrap_or_else(|_| panic!("test block mutation lost generated chunk"));
     world.chunks[index].set_block(voxel, block_state, previous_mass, new_mass);
-    world.chunks[index].canonicalize_sections();
+    world.chunks[index].canonicalize_section_at(voxel);
     world.revision = next_revision;
 }
 
@@ -299,36 +299,41 @@ impl WorldSection {
         if self.palette.len() <= 1 {
             return;
         }
-        let states = (0..SECTION_CELL_COUNT)
-            .map(|index| {
-                self.state_at_index(index).unwrap_or_else(|| {
-                    panic!("trusted section cell must resolve before compaction")
-                })
-            })
-            .collect::<Vec<_>>();
-        let used = self
-            .palette
-            .iter()
-            .copied()
-            .filter(|state| states.contains(state))
-            .collect::<Vec<_>>();
-        if used.len() == self.palette.len() {
+        let old_bits = bits_for_palette(self.palette.len());
+        let mut used = vec![false; self.palette.len()];
+        for cell in 0..SECTION_CELL_COUNT {
+            let old_index = read_packed_index(&self.words, old_bits, cell)
+                .unwrap_or_else(|| panic!("trusted section cell must resolve before compaction"));
+            *used
+                .get_mut(old_index)
+                .unwrap_or_else(|| panic!("trusted section palette index must resolve")) = true;
+        }
+        if used.iter().all(|present| *present) {
             return;
         }
-        self.palette = used;
-        let bits = bits_for_palette(self.palette.len());
-        self.words = vec![0; packed_word_count(bits)];
-        if bits == 0 {
-            return;
+        // Keep the original palette order while assigning a dense index to each live state.
+        // Scanning packed indices directly avoids a cell-by-palette quadratic search.
+        let mut remap = vec![0; self.palette.len()];
+        let mut palette = Vec::with_capacity(used.iter().filter(|present| **present).count());
+        for (old_index, state) in self.palette.iter().copied().enumerate() {
+            if used[old_index] {
+                remap[old_index] = palette.len();
+                palette.push(state);
+            }
         }
-        for (index, state) in states.into_iter().enumerate() {
-            let palette_index = self
-                .palette
-                .iter()
-                .position(|candidate| *candidate == state)
-                .unwrap_or_else(|| panic!("compacted palette lost a used block state"));
-            write_packed_index(&mut self.words, bits, index, palette_index);
+        let bits = bits_for_palette(palette.len());
+        let mut words = vec![0; packed_word_count(bits)];
+        if bits > 0 {
+            for cell in 0..SECTION_CELL_COUNT {
+                let old_index =
+                    read_packed_index(&self.words, old_bits, cell).unwrap_or_else(|| {
+                        panic!("trusted section cell must resolve before compaction")
+                    });
+                write_packed_index(&mut words, bits, cell, remap[old_index]);
+            }
         }
+        self.palette = palette;
+        self.words = words;
     }
 
     pub(crate) fn validate_storage(&self) -> Result<(), super::WorldValidationError> {
@@ -501,6 +506,15 @@ impl WorldChunk {
             section.canonicalize_palette();
         }
     }
+
+    pub(crate) fn canonicalize_section_at(&mut self, voxel: VoxelCoord) {
+        if let Ok(index) = self
+            .sections
+            .binary_search_by_key(&section_y(voxel.y()), WorldSection::y)
+        {
+            self.sections[index].canonicalize_palette();
+        }
+    }
 }
 
 /// Authoritative generated block-world storage. Chunk absence means not generated/loaded as world
@@ -641,7 +655,7 @@ impl WorldState {
         );
         if remaining_mass.is_zero() {
             self.chunks[chunk_index].set_block(voxel, BlockStateId::AIR, default_mass, Mass::ZERO);
-            self.chunks[chunk_index].canonicalize_sections();
+            self.chunks[chunk_index].canonicalize_section_at(voxel);
         } else {
             self.chunks[chunk_index].sections[section_index].set_mass_override_at_index(
                 local_index(voxel),
