@@ -726,6 +726,17 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
                 break
         else:
             ordinary_digests.append(specialization)
+    # The broad report preserves the lived result without repeating a long receipt.
+    # Scoped wilderness exploration retains the full executed meal and finite-source evidence.
+    nutrition_witness = next(
+        (line for line in lines if line.startswith("WILDERNESS NUTRITION ")),
+        None,
+    )
+    if nutrition_witness is not None and not scoped_ordinary:
+        for index, digest in enumerate(ordinary_digests):
+            if digest.startswith("GAMEPLAY wilderness "):
+                ordinary_digests[index] = f"{digest} diet=mixed"
+                break
     selected.extend(ordinary_digests)
     # Outcome totals conceal the lived cost of a wrong but rational decision. Show the
     # maintained expedition's observation, capital commitment, delayed output, and response
@@ -737,6 +748,8 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     # Keep one lived, need-triggered adaptation alongside the opening digest. Aggregate choice
     # counts cannot show whether an initially sensible restraint can later become useful action.
     if any(digest.startswith("GAMEPLAY wilderness ") for digest in ordinary_digests):
+        if scoped_ordinary and nutrition_witness is not None:
+            selected.append(nutrition_witness)
         selected.extend(
             line for line in lines if line.startswith("PLAYER ADAPTATION opening=stay-mobile ")
         )

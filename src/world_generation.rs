@@ -10,7 +10,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::content::{
-    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE,
+    MATERIAL_WILD_NUTS, MATERIAL_WOOD,
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
@@ -51,6 +52,10 @@ const TIMBER_VARIATION_MG: u64 = 10_000_000;
 // forced back into subsistence every few in-game hours.
 const BERRIES_BASE_MASS_MG: u64 = 4_000_000;
 const BERRIES_VARIATION_MG: u64 = 2_000_000;
+// A small optional second food group at the existing work junction, without another
+// mandatory route leg or a bottomless food source.
+const WILD_NUTS_BASE_MASS_MG: u64 = 750_000;
+const WILD_NUTS_VARIATION_MG: u64 = 750_000;
 const OPENING_WATER_BASE_VOLUME_UL: u64 = 4_000_000;
 const OPENING_WATER_VARIATION_UL: u64 = 2_000_000;
 const OPENING_WATER_VOLUME_SALT: u64 = 0x5741_5445_525F_5350;
@@ -411,7 +416,8 @@ fn player_initialization_flags(state: &AppState) -> (bool, bool) {
 ///
 /// This establishes one short connected horizontal opening graph. Forage is one step from spawn;
 /// from there the actor may branch to finite non-refilling drinkable water or continue to a work
-/// junction whose two adjacent leaves hold loose stone/timber in seed-selected order. Persisted
+/// junction with optional wild-nut forage; its two adjacent leaves hold loose stone/timber in
+/// seed-selected order. Persisted
 /// traversal edges authorize only that graph. This does not generate terrain geometry, pathfinding,
 /// routes beyond the generated graph, flow,
 /// recharge, groundwater, shelter, fire, or ecology. The caller supplies the explicit seed and
@@ -499,6 +505,17 @@ pub fn validate_generate_initial_wilderness(
                 BERRIES_VARIATION_MG,
             ),
         ),
+        generated_spec(
+            layout.junction,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            generated_mass(
+                seed,
+                spawn,
+                0x4E55_5453_5F53_504E,
+                WILD_NUTS_BASE_MASS_MG,
+                WILD_NUTS_VARIATION_MG,
+            ),
+        ),
     ];
     let specs = specs
         .into_iter()
@@ -509,7 +526,7 @@ pub fn validate_generate_initial_wilderness(
     let surface_generation = validate_create_surface_resources(registries, state, specs).map_err(
         |error| match error {
             SurfaceResourceCreationError::Empty => {
-                unreachable!("built-in wilderness generation always emits three resources")
+                unreachable!("built-in wilderness generation always emits four resources")
             }
             SurfaceResourceCreationError::IdExhausted => {
                 InitialWildernessGenerationError::SurfaceIdExhausted

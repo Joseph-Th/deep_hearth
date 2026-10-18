@@ -23,7 +23,7 @@ use super::equipment::{
 };
 use super::{
     FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_STONE,
-    MATERIAL_WOOD,
+    MATERIAL_WILD_NUTS, MATERIAL_WOOD,
 };
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
@@ -37,6 +37,8 @@ pub const SURFACE_GATHERING_HAND_COLLECT_CLAY: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(4);
 pub const SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(5);
+pub const SURFACE_GATHERING_HAND_FORAGE_NUTS: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(6);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
 pub const MANUAL_POWER_TREADLE_DYNAMO: ManualPowerMethodId = ManualPowerMethodId::new(4);
@@ -117,6 +119,19 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_000_000_000_000),
                     Volume::from_microliters(250),
+                ),
+            ),
+            // Protein-rich nuts ask for slightly more foraging attention than berries and
+            // can be deliberately secured for later trips instead of harvested by default.
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_FORAGE_NUTS,
+                CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+                Mass::from_milligrams(500_000),
+                Mass::from_milligrams(250_000),
+                TickSpan::new(55),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(850_000_000_000),
+                    Volume::from_microliters(230),
                 ),
             ),
         ],

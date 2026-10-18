@@ -36,6 +36,8 @@ mod batch_admission;
 mod excavation_selection;
 #[path = "world_tests/palette.rs"]
 mod palette;
+#[path = "world_tests/progression.rs"]
+mod progression;
 
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xD33F_4845_4152_5448);
 

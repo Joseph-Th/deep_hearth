@@ -17,7 +17,7 @@ use deep_hearth::content::{
     BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, CAMPFIRE_FUEL_MASS,
     CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_WOODWORKING_ADZE,
     FORM_BOARD, FORM_FOOD, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_TOOL, MATERIAL_BERRIES,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
     STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
@@ -75,9 +75,10 @@ use deep_hearth::surface::{
     validate_start_player_surface_gathering_option,
 };
 use deep_hearth::survival::{
-    AdjacentDrinkSource, SurvivalExertion, SurvivalResourceBudget, ThermalComfortState,
-    assess_survival, available_adjacent_drink_sources, available_local_drink_sources,
-    project_survival_resource_budget, validate_drink_store_to_hydration_target,
+    AdjacentDrinkSource, FoodStackPortion, SurvivalExertion, SurvivalResourceBudget,
+    ThermalComfortState, assess_survival, available_adjacent_drink_sources,
+    available_local_drink_sources, project_survival_resource_budget,
+    validate_drink_store_to_hydration_target, validate_eat_stack_portions,
     validate_eat_stack_to_metabolic_target,
 };
 use deep_hearth::world::{
@@ -2492,11 +2493,15 @@ fn evaluate_generated_wilderness_opening_internal(
         .unwrap_or_else(|_| panic!("wilderness forage-step choice count exceeds u64"));
     max_step_choices = max_step_choices.max(forage_step_choices);
     let adjacent_water = adjacent_drinkable_source(&registries, &state);
-    assert!(
-        available_adjacent_surface_resources(&state)
-            .next()
-            .is_none(),
-        "stone/timber should remain one decision deeper than the forage waypoint"
+    let next_resources = available_adjacent_surface_resources(&state).collect::<Vec<_>>();
+    assert_eq!(
+        next_resources.len(),
+        1,
+        "the next waypoint should expose one optional food alternative but not reveal stone or timber leaves"
+    );
+    assert_eq!(
+        next_resources[0].commodity(),
+        CommodityKey::new(deep_hearth::content::MATERIAL_WILD_NUTS, FORM_FOOD)
     );
     let junctions = forage_steps
         .iter()
@@ -4182,8 +4187,144 @@ fn organic_camp_goal(behavior_root: u64, index: usize) -> WildernessCampGoal {
     }
 }
 
+/// A lived, optional protein route within the same ordinary five-edge opening.
+fn exercise_opening_two_food_ration(report: bool) {
+    let registries = build_registries();
+    let seed = WILDERNESS_WORLD_SEED;
+    let mut state = AppState::new();
+    let spawn = generated_wilderness_surface_spawn(&registries, &mut state, seed);
+    validate_generate_initial_wilderness(&registries, &state, seed, spawn)
+        .unwrap_or_else(|error| panic!("two-food generation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("two-food generation commit failed: {error}"));
+    let carried =
+        admit_player_at_hunger_warning_boundary(&registries, &mut state, spawn).carried_stockpile();
+    if let Some(demand) = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap_or_else(|error| panic!("two-food terrain demand failed: {error}"))
+    {
+        demand
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("two-food terrain commit failed: {error}"));
+    }
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("two-food initial accounting failed: {error}"))
+        .total();
+    let berry = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let nuts = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);
+    let forage = adjacent_surface_resource(&state, berry);
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        forage.position(),
+        "two-food berry approach",
+    );
+    let berry_resource = local_surface_resource(&state, berry);
+    gather(
+        &registries,
+        &mut state,
+        berry_resource,
+        Mass::from_milligrams(250_000),
+        "two-food berry portion",
+    );
+    let next_food = available_adjacent_surface_resources(&state)
+        .find(|resource| resource.commodity() == nuts)
+        .unwrap_or_else(|| panic!("two-food actor cannot see optional local protein"));
+    let nut_position = next_food.position();
+    let nut_resource = next_food.resource();
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        nut_position,
+        "two-food junction approach",
+    );
+    let before_nuts = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == nut_resource)
+        .unwrap_or_else(|| panic!("two-food local nuts disappeared"))
+        .remaining_mass();
+    let collected = Mass::from_milligrams(250_000);
+    gather(
+        &registries,
+        &mut state,
+        nut_resource,
+        collected,
+        "two-food nut portion",
+    );
+    let after_nuts = before_nuts
+        .checked_sub(collected)
+        .unwrap_or_else(|| unreachable!("generated nut source funds its first quarter kilogram"));
+    assert_eq!(
+        state
+            .available_surface_resources()
+            .find(|resource| resource.id() == nut_resource)
+            .map(|resource| resource.remaining_mass()),
+        Some(after_nuts),
+        "uncollected protein remains conserved and available at its world source"
+    );
+    let berries = carried_material_stack(&registries, &state, berry, "two-food berry stack");
+    let nuts_stack = carried_material_stack(&registries, &state, nuts, "two-food nut stack");
+    assert_eq!(berries.stockpile(), carried);
+    assert_eq!(nuts_stack.stockpile(), carried);
+    let before_meal = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("two-food pre-meal survival missing"));
+    let portion = Mass::from_milligrams(150_000);
+    let meal = validate_eat_stack_portions(
+        &registries,
+        &state,
+        &[
+            FoodStackPortion::new(&berries, portion),
+            FoodStackPortion::new(&nuts_stack, portion),
+        ],
+    )
+    .unwrap_or_else(|error| panic!("two-food mixed stack meal rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("two-food meal commit failed: {error}"));
+    let duration = meal.completes_at().value() - state.tick().value();
+    advance_to(
+        &registries,
+        &mut state,
+        meal.completes_at(),
+        TickEventAllowance::default(),
+        "two-food meal",
+    );
+    assert!(
+        assess_survival(&registries, &state).is_some_and(|assessment| assessment
+            .metabolic_energy()
+            > before_meal.metabolic_energy()),
+        "the protein-and-fruit meal must actually restore metabolic energy"
+    );
+    for commodity in [berry, nuts] {
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(carried)
+                .map(|stock| stock.get_mass(commodity)),
+            Some(Mass::from_milligrams(100_000)),
+            "both chosen food categories must be partly consumed"
+        );
+    }
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("two-food completed accounting failed: {error}"))
+            .total(),
+        matter_before,
+        "world, carried, and consumed matter must be conserved"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("two-food final state failed validation: {error}"));
+    if report {
+        std::println!(
+            "WILDERNESS NUTRITION seed=0x{:016X} episode=coverage/hunger-pressure/two-food-ration evidence=generated-exact-local path=forage->junction choice=fruit-and-protein gather=[berries:250000mg nuts:250000mg] meal=[berries:150000mg nuts:150000mg duration:{}t] energy-replenished=true nuts-left={}mg matter=conserved",
+            seed.value(),
+            duration,
+            after_nuts.milligrams(),
+        );
+    }
+}
+
 pub(super) fn run_wilderness_report() {
     assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
+    exercise_opening_two_food_ration(true);
     const ORGANIC_SAMPLES: usize = 4;
     let world_root = configured_root(
         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
@@ -4278,6 +4419,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         run_wilderness_report();
     } else {
         assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);
+        exercise_opening_two_food_ration(false);
         let _ = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,

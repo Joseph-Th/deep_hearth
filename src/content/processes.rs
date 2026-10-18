@@ -73,6 +73,7 @@ pub const PROCESS_RECONDITION_CLAY_BINDER: ProcessId = ProcessId::new(62);
 pub const PROCESS_HAND_GRIND_CRUSHED_ORE: ProcessId = ProcessId::new(63);
 pub const PROCESS_KNAP_STONE_CRUSHER_JAW_FACE: ProcessId = ProcessId::new(64);
 pub const PROCESS_SHAPE_STONE_CRUSHER_BLOCK: ProcessId = ProcessId::new(65);
+pub const PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL: ProcessId = ProcessId::new(66);
 
 mod fabrication;
 mod ore;

@@ -17,6 +17,7 @@ pub const MATERIAL_MEAT: MaterialId = MaterialId::new(8);
 pub const MATERIAL_STONE: MaterialId = MaterialId::new(9);
 pub const MATERIAL_CLAY: MaterialId = MaterialId::new(10);
 pub const MATERIAL_LEGUMES: MaterialId = MaterialId::new(11);
+pub const MATERIAL_WILD_NUTS: MaterialId = MaterialId::new(12);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 pub(crate) const WATER_MELTING_POINT: Temperature = Temperature::from_millikelvin(273_150);
 pub(crate) const WATER_LATENT_HEAT_OF_FUSION_J_PER_KG: u32 = 333_550;
@@ -254,6 +255,11 @@ fn register_materials(registry: &mut MaterialRegistry) {
             "roasted legumes",
             MaterialProperties::new(800, ThermalProperties::new(1_600, None), None),
         ),
+        MaterialDefinition::new(
+            MATERIAL_WILD_NUTS,
+            "wild nuts",
+            MaterialProperties::new(650, ThermalProperties::new(1_800, None), None),
+        ),
     ] {
         registry.register_material(definition);
     }
@@ -354,6 +360,10 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         (CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD), "grain"),
         (CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD), "berries"),
         (CommodityKey::new(MATERIAL_MEAT, FORM_FOOD), "meat"),
+        (
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            "wild nuts",
+        ),
         (
             CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD),
             "roasted legumes",

@@ -15,9 +15,10 @@ use super::{
     PROCESS_SHAPE_STONE_DRAWPLATE, PROCESS_SHAPE_STONE_FLYWHEEL,
     PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL, PROCESS_SHAPE_TIMBER_FLYWHEEL,
     PROCESS_SHAPE_TIMBER_RIDDLE_PANEL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 27] {
+pub(super) fn definitions() -> [ProcessDefinition; 28] {
     [
         ProcessDefinition::new(
             PROCESS_REKNAP_STONE_SCRAP_TOOL,
@@ -25,6 +26,11 @@ pub(super) fn definitions() -> [ProcessDefinition; 27] {
             Vec::new(),
         ),
         ProcessDefinition::new(PROCESS_KNAP_STONE_TOOL, "knap stone tool", Vec::new()),
+        ProcessDefinition::new(
+            PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL,
+            "sort and knap excavated stone fragments",
+            Vec::new(),
+        ),
         ProcessDefinition::new(
             PROCESS_KNAP_STONE_CRUSHER_JAW_FACE,
             "knap stone crusher jaw face",

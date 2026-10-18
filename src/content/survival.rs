@@ -16,7 +16,7 @@ use crate::survival::{
 
 use super::{
     DEFAULT_TICKS_PER_DAY, FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN,
-    MATERIAL_LEGUMES, MATERIAL_MEAT,
+    MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_WILD_NUTS,
 };
 
 const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
@@ -125,7 +125,7 @@ fn physiology() -> PhysiologyDefinition {
     )
 }
 
-fn foods() -> [FoodDefinition; 4] {
+fn foods() -> [FoodDefinition; 5] {
     [
         FoodDefinition::new(
             CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
@@ -157,6 +157,16 @@ fn foods() -> [FoodDefinition; 4] {
             MassSpecificEnergy::from_nanojoules_per_milligram(8_000_000_000),
             0,
             TickSpan::new(DEFAULT_TICKS_PER_DAY * 24),
+            direct_consumption_temperature(),
+        ),
+        // A dense but finite wild protein source. Nuts supply no hydration; berries still
+        // have a place when the player needs water as well as calories.
+        FoodDefinition::new(
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            FoodCategory::Protein,
+            MassSpecificEnergy::from_nanojoules_per_milligram(7_000_000_000),
+            0,
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 10),
             direct_consumption_temperature(),
         ),
     ]

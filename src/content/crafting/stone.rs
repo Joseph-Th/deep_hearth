@@ -24,11 +24,13 @@ use crate::content::processes::{
     PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY, PROCESS_SHAPE_STONE_CRUSHER_BLOCK,
     PROCESS_SHAPE_STONE_DRAWPLATE, PROCESS_SHAPE_STONE_FLYWHEEL,
     PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
+    PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 13] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 14] {
     [
         knap_stone_tool(),
+        sort_and_knap_stone_chip_tool(),
         shape_stone_crusher_block(),
         knap_stone_crusher_jaw_face(),
         knap_stone_drill_bit(),
@@ -42,6 +44,28 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 13] {
         shape_stone_provisions_crock(),
         salvage_stone_provisions_crock_body(),
     ]
+}
+
+/// Salvages useful large flakes from excavation debris. Intact stone remains quicker to work,
+/// but a player can make a new basic head from material they already broke out of terrain.
+fn sort_and_knap_stone_chip_tool() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(1_000_000),
+        TickSpan::new(65),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(200_000),
+            ),
+        ],
+    )
 }
 
 fn knap_stone_crusher_jaw_face() -> ManualCraftDefinition {

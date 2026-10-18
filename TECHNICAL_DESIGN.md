@@ -444,6 +444,13 @@ evidence remains observation-time evidence rather than a live reserve oracle.
 
 ### Prospecting and mining
 
+Opening world generation also places a finite seed-varied wild-nut opportunity at the existing
+work junction, without a new route edge. The normal gathering catalog, carried-stack meal
+action, and survival nutrition owner handle a mixed fruit/protein ration; this is not farming
+or wildlife simulation. Stone excavated into chips can be recovered through ordinary surface
+custody and reknapped through a slower, conserving manual craft into tool-head stock. The
+faster intact-lump recipe remains a reason to collect loose rock.
+
 Prospecting is exclusive player work over an authored method and bounded region. Completion may inspect hidden
 geology only to produce method-bounded observations; in-progress work persists through `PlayerWorkState`.
 One-point hand sampling produces a coarse 5 kg reserve band. A player who already owns a stone

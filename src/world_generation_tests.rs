@@ -2,7 +2,7 @@
 
 use crate::content::{
     BLOCK_STATE_STONE, FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
-    MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};
@@ -141,7 +141,7 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
 
     let layout = generated_opening_layout(seed, spawn);
     let profile = generated_profile(&first);
-    assert_eq!(profile.len(), 3);
+    assert_eq!(profile.len(), 4);
     assert_eq!(
         first.logistics().traversable_edges().count(),
         INITIAL_WILDERNESS_ACCESS_EDGES
@@ -209,6 +209,11 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
             ..=Mass::from_milligrams(BERRIES_BASE_MASS_MG + BERRIES_VARIATION_MG))
             .contains(&mass_for(CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)))
     );
+    assert!(
+        (Mass::from_milligrams(WILD_NUTS_BASE_MASS_MG)
+            ..=Mass::from_milligrams(WILD_NUTS_BASE_MASS_MG + WILD_NUTS_VARIATION_MG))
+            .contains(&mass_for(CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD)))
+    );
     let position_for = |commodity| {
         profile
             .iter()
@@ -219,6 +224,11 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
     assert_eq!(
         position_for(CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)),
         layout.forage
+    );
+    assert_eq!(
+        position_for(CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD)),
+        layout.junction,
+        "the optional protein supply should be discoverable at the worksite without a detour"
     );
     let stone_position = position_for(CommodityKey::new(MATERIAL_STONE, FORM_LUMP));
     let timber_position = position_for(CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
