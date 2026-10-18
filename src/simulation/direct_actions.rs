@@ -652,57 +652,54 @@ fn validate_direct_placement_position(
     Ok(())
 }
 
-fn attempt_supported_timber_placement(
+fn structural_placement_error(error: DirectPlacementTargetError) -> SecondaryActionOutcome {
+    match error {
+        DirectPlacementTargetError::Target(error) => {
+            SecondaryActionOutcome::StructuralTargetRejected(error)
+        }
+        DirectPlacementTargetError::NoTarget => SecondaryActionOutcome::NoStructuralPlacementTarget,
+        DirectPlacementTargetError::CoordinateOverflow => {
+            SecondaryActionOutcome::StructuralPlacementCoordinateOverflow
+        }
+        DirectPlacementTargetError::WorldUnavailable { position } => {
+            SecondaryActionOutcome::StructuralPlacementWorldUnavailable { position }
+        }
+        DirectPlacementTargetError::Occupied { position, state } => {
+            SecondaryActionOutcome::StructuralPlacementOccupied { position, state }
+        }
+        DirectPlacementTargetError::IntersectsPlayer { position } => {
+            SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }
+        }
+        DirectPlacementTargetError::LocationOccupied { position } => {
+            SecondaryActionOutcome::StructuralPlacementLocationOccupied { position }
+        }
+    }
+}
+
+/// Resolves shared pointed structural support and adjacent free geometry for timber members.
+/// Absence is retained so logs can fall back to terrain, while boards require a member target.
+fn resolve_supported_timber_target(
     registries: &Registries,
-    state: &mut AppState,
-    stack: &crate::inventory::MaterialStackProjection,
+    state: &AppState,
     direction: ViewDirection,
-) -> Option<SecondaryActionOutcome> {
+) -> Result<Option<(VoxelBounds, Vec<StructuralElementId>)>, SecondaryActionOutcome> {
     let target = match resolve_direct_structural_face_target(registries, state, direction) {
         Ok(Some(target)) => target,
-        Ok(None) | Err(DirectStructuralTargetError::TargetUnavailable) => return None,
-        Err(DirectStructuralTargetError::NoTarget) => return None,
+        Ok(None)
+        | Err(DirectStructuralTargetError::TargetUnavailable)
+        | Err(DirectStructuralTargetError::NoTarget) => return Ok(None),
         Err(DirectStructuralTargetError::Ambiguous { count }) => {
-            return Some(SecondaryActionOutcome::AmbiguousStructuralPlacementTarget { count });
+            return Err(SecondaryActionOutcome::AmbiguousStructuralPlacementTarget { count });
         }
     };
-    let Some(position) = target.face.adjacent_voxel(target.voxel) else {
-        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
-    };
-    if let Err(error) = validate_direct_placement_position(registries, state, position) {
-        return Some(match error {
-            DirectPlacementTargetError::Target(error) => {
-                SecondaryActionOutcome::StructuralTargetRejected(error)
-            }
-            DirectPlacementTargetError::NoTarget => {
-                SecondaryActionOutcome::NoStructuralPlacementTarget
-            }
-            DirectPlacementTargetError::CoordinateOverflow => {
-                SecondaryActionOutcome::StructuralPlacementCoordinateOverflow
-            }
-            DirectPlacementTargetError::WorldUnavailable { position } => {
-                SecondaryActionOutcome::StructuralPlacementWorldUnavailable { position }
-            }
-            DirectPlacementTargetError::Occupied { position, state } => {
-                SecondaryActionOutcome::StructuralPlacementOccupied { position, state }
-            }
-            DirectPlacementTargetError::IntersectsPlayer { position } => {
-                SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }
-            }
-            DirectPlacementTargetError::LocationOccupied { position } => {
-                SecondaryActionOutcome::StructuralPlacementLocationOccupied { position }
-            }
-        });
-    }
-    let Some(bounds) = single_voxel_bounds(position) else {
-        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
-    };
-    let geometry = StructuralElementGeometry::new(
-        bounds,
-        BASIC_TIMBER_POST_LENGTH,
-        BASIC_TIMBER_POST_CROSS_SECTION,
-    )
-    .unwrap_or_else(|error| panic!("built-in supported timber geometry is invalid: {error}"));
+    let position = target
+        .face
+        .adjacent_voxel(target.voxel)
+        .ok_or(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow)?;
+    validate_direct_placement_position(registries, state, position)
+        .map_err(structural_placement_error)?;
+    let bounds = single_voxel_bounds(position)
+        .ok_or(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow)?;
     let supports = state
         .structures()
         .elements()
@@ -711,7 +708,27 @@ fn attempt_supported_timber_placement(
                 && bounds.has_face_contact(record.bounds())
         })
         .map(|record| record.id())
-        .collect::<Vec<_>>();
+        .collect();
+    Ok(Some((bounds, supports)))
+}
+
+fn attempt_supported_timber_placement(
+    registries: &Registries,
+    state: &mut AppState,
+    stack: &crate::inventory::MaterialStackProjection,
+    direction: ViewDirection,
+) -> Option<SecondaryActionOutcome> {
+    let (bounds, supports) = match resolve_supported_timber_target(registries, state, direction) {
+        Ok(Some(target)) => target,
+        Ok(None) => return None,
+        Err(error) => return Some(error),
+    };
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap_or_else(|error| panic!("built-in supported timber geometry is invalid: {error}"));
     let plan = MultiSupportedStructuralElementPlan::new(
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
@@ -844,48 +861,10 @@ fn attempt_selected_timber_cover_placement(
             });
         }
     };
-    let target = match resolve_direct_structural_face_target(registries, state, direction) {
+    let (bounds, supports) = match resolve_supported_timber_target(registries, state, direction) {
         Ok(Some(target)) => target,
-        Ok(None) | Err(DirectStructuralTargetError::TargetUnavailable) => {
-            return Some(SecondaryActionOutcome::NoStructuralPlacementTarget);
-        }
-        Err(DirectStructuralTargetError::NoTarget) => {
-            return Some(SecondaryActionOutcome::NoStructuralPlacementTarget);
-        }
-        Err(DirectStructuralTargetError::Ambiguous { count }) => {
-            return Some(SecondaryActionOutcome::AmbiguousStructuralPlacementTarget { count });
-        }
-    };
-    let Some(position) = target.face.adjacent_voxel(target.voxel) else {
-        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
-    };
-    if let Err(error) = validate_direct_placement_position(registries, state, position) {
-        return Some(match error {
-            DirectPlacementTargetError::Target(error) => {
-                SecondaryActionOutcome::StructuralTargetRejected(error)
-            }
-            DirectPlacementTargetError::NoTarget => {
-                SecondaryActionOutcome::NoStructuralPlacementTarget
-            }
-            DirectPlacementTargetError::CoordinateOverflow => {
-                SecondaryActionOutcome::StructuralPlacementCoordinateOverflow
-            }
-            DirectPlacementTargetError::WorldUnavailable { position } => {
-                SecondaryActionOutcome::StructuralPlacementWorldUnavailable { position }
-            }
-            DirectPlacementTargetError::Occupied { position, state } => {
-                SecondaryActionOutcome::StructuralPlacementOccupied { position, state }
-            }
-            DirectPlacementTargetError::IntersectsPlayer { position } => {
-                SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }
-            }
-            DirectPlacementTargetError::LocationOccupied { position } => {
-                SecondaryActionOutcome::StructuralPlacementLocationOccupied { position }
-            }
-        });
-    }
-    let Some(bounds) = single_voxel_bounds(position) else {
-        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
+        Ok(None) => return Some(SecondaryActionOutcome::NoStructuralPlacementTarget),
+        Err(error) => return Some(error),
     };
     let geometry = StructuralElementGeometry::new(
         bounds,
@@ -893,15 +872,6 @@ fn attempt_selected_timber_cover_placement(
         BASIC_TIMBER_COVER_PANEL_AREA,
     )
     .unwrap_or_else(|error| panic!("built-in timber cover-panel geometry is invalid: {error}"));
-    let supports = state
-        .structures()
-        .elements()
-        .filter(|record| {
-            record.lifecycle() == crate::structural::StructuralLifecycle::Active
-                && bounds.has_face_contact(record.bounds())
-        })
-        .map(|record| record.id())
-        .collect::<Vec<_>>();
     let plan = MultiSupportedStructuralElementPlan::new(
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
@@ -969,27 +939,7 @@ fn attempt_selected_timber_placement(
     }
     let (face, position) = match resolve_direct_placement_target(registries, state, direction) {
         Ok(target) => target,
-        Err(DirectPlacementTargetError::Target(error)) => {
-            return Some(SecondaryActionOutcome::StructuralTargetRejected(error));
-        }
-        Err(DirectPlacementTargetError::NoTarget) => {
-            return Some(SecondaryActionOutcome::NoStructuralPlacementTarget);
-        }
-        Err(DirectPlacementTargetError::CoordinateOverflow) => {
-            return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
-        }
-        Err(DirectPlacementTargetError::WorldUnavailable { position }) => {
-            return Some(SecondaryActionOutcome::StructuralPlacementWorldUnavailable { position });
-        }
-        Err(DirectPlacementTargetError::Occupied { position, state }) => {
-            return Some(SecondaryActionOutcome::StructuralPlacementOccupied { position, state });
-        }
-        Err(DirectPlacementTargetError::IntersectsPlayer { position }) => {
-            return Some(SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position });
-        }
-        Err(DirectPlacementTargetError::LocationOccupied { position }) => {
-            return Some(SecondaryActionOutcome::StructuralPlacementLocationOccupied { position });
-        }
+        Err(error) => return Some(structural_placement_error(error)),
     };
     if face != CubeFace::Top {
         return Some(SecondaryActionOutcome::StructuralPlacementRequiresTopFace { face });
