@@ -5,7 +5,7 @@
 //! newly available choice, not a prediction drawn from hidden geological truth.
 
 use deep_hearth::content::MATERIAL_COPPER;
-use deep_hearth::core::state::AppState;
+use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceKind, ResourceMassEstimate,
@@ -16,6 +16,7 @@ use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelBounds;
 
 use super::super::prospecting_timing::complete_prospecting_work;
+use super::survey::{FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, search_target};
 
 pub(super) fn observe_extended_hand_assay(
     registries: &Registries,
@@ -23,6 +24,7 @@ pub(super) fn observe_extended_hand_assay(
     hammer: EquipmentId,
     site: VoxelBounds,
     coarse: ResourceMassEstimate,
+    channel_voxels: i64,
     seed: u64,
 ) {
     let hammer_definition = state
@@ -99,8 +101,46 @@ pub(super) fn observe_extended_hand_assay(
     // Upper bands, not omniscient ground truth, let a player defer committing mining capital.
     let poor_site =
         u128::from(observed.upper().milligrams()) * 5 <= u128::from(coarse.upper().milligrams());
+    // The alternate actor executes the first move justified by the new evidence. A nearby
+    // search can be barren; it must not silently guarantee the player a replacement deposit.
+    let next_site = if poor_site {
+        let started = branch.tick();
+        let localized = search_target(
+            registries,
+            &mut branch,
+            hammer,
+            channel_voxels,
+            SECONDARY_CHANNEL_START_X,
+            FieldworkSurveyStrategy::PointSearch,
+        );
+        let spent = branch
+            .tick()
+            .checked_duration_since(started)
+            .unwrap_or_else(|| panic!("assay followup search ended before it began"));
+        let site = localized.map_or_else(
+            || "barren".to_owned(),
+            |site| {
+                format!(
+                    "located:{}..{}mg",
+                    site.resource_mass.lower().milligrams(),
+                    site.resource_mass.upper().milligrams()
+                )
+            },
+        );
+        format!("searched:{}t:{site}", spent.value())
+    } else {
+        "not-executed".to_owned()
+    };
+    assert_eq!(
+        calculate_matter_accounting(&branch)
+            .unwrap_or_else(|error| panic!("extended assay followup matter audit failed: {error}"))
+            .total(),
+        initial_matter
+    );
+    validate_loaded_state(registries, &branch)
+        .unwrap_or_else(|error| panic!("extended assay followup state invalid: {error}"));
     reviewln!(
-        "FIELDWORK OPTIONAL ASSAY seed=0x{seed:016X} basis=matched-actor-state evidence=executed-ordinary-system-spatial-proxy instrument=existing-stone-hammer choice=additional-hand-sampling extra-attention={}t visible-before={}..{}mg visible-after={}..{}mg suggested-next-action={} followup=not-executed tool-preparation=not-started matter=conserved original-expedition=unchanged",
+        "FIELDWORK OPTIONAL ASSAY seed=0x{seed:016X} basis=matched-actor-state evidence=executed-ordinary-system-spatial-proxy instrument=existing-stone-hammer choice=additional-hand-sampling extra-attention={}t visible-before={}..{}mg visible-after={}..{}mg selected-next-action={} followup={} tool-preparation=not-started matter=conserved original-expedition=unchanged",
         elapsed.value(),
         coarse.lower().milligrams(),
         coarse.upper().milligrams(),
@@ -110,6 +150,7 @@ pub(super) fn observe_extended_hand_assay(
             "seek-other-seam-before-investment"
         } else {
             "reassess-local-extraction"
-        }
+        },
+        next_site,
     );
 }

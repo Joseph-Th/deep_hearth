@@ -152,12 +152,12 @@ pub(super) fn run_provisioning_case(
         .map(|food| food.category())
         .collect::<BTreeSet<_>>()
         .len();
+    // Any actual dietary contribution can improve recovery, even when wilderness supply lacks
+    // one group. A complete diet should still yield a definite quality improvement.
+    assert!(after.diet_quality_ppm() >= baseline_after.diet_quality_ppm());
+    assert!(recovery_rate_after >= baseline_recovery_rate);
     if selected_categories.len() == authored_category_count {
         assert!(after.diet_quality_ppm() > baseline_after.diet_quality_ppm());
-        assert!(recovery_rate_after >= baseline_recovery_rate);
-    } else {
-        assert_eq!(after.diet_quality_ppm(), baseline_after.diet_quality_ppm());
-        assert_eq!(recovery_rate_after, baseline_recovery_rate);
     }
     assert_eq!(
         calculate_matter_accounting(&state)

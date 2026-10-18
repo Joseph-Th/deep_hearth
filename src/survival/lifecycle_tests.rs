@@ -6,7 +6,7 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::time::SimulationTick;
 use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
-use crate::survival::{SurvivalExertion, assess_survival};
+use crate::survival::{FoodCategory, SurvivalExertion, assess_survival};
 
 fn next_tick(state: &AppState) -> SimulationTick {
     SimulationTick::new(
@@ -203,18 +203,73 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
         balanced_after.vitality().parts_per_million(),
         500_000 + balanced_before.diet_supported_vitality_recovery_ppm_per_tick()
     );
-    assert_eq!(one_category_after.vitality().parts_per_million(), 500_000);
+    assert_eq!(one_category_after.vitality().parts_per_million(), 500_001);
     assert!(balanced_after.diet_quality_ppm() > one_category_after.diet_quality_ppm());
     assert_eq!(balanced_after.diet_quality_ppm(), 299_995);
-    assert_eq!(one_category_after.diet_quality_ppm(), 0);
+    assert_eq!(one_category_after.diet_quality_ppm(), 149_999);
     assert_eq!(
         balanced_after.diet_supported_vitality_recovery_ppm_per_tick(),
         3
     );
     assert_eq!(
         one_category_after.diet_supported_vitality_recovery_ppm_per_tick(),
-        0
+        1
     );
+}
+
+#[test]
+fn fruit_protein_reserves_support_recovery_without_grain_after_save_load() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("forager admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("forager admission commit failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            Vitality::from_parts_per_million_unchecked(500_000),
+            NutritionReserves::from_parts_per_million(0, 600_000, 600_000),
+            0,
+        ),
+    );
+    let before = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("forager assessment missing"));
+    assert_eq!(before.diet_quality_ppm(), 200_000);
+    assert_eq!(before.diet_supported_vitality_recovery_ppm_per_tick(), 2);
+
+    // The fixture establishes the injured player's current reserves. Subsequent neutral
+    // simulation ticks, with no additional fixture mutation, must support recovery without grain.
+    for _ in 0..20 {
+        let _ = crate::simulation::advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("forager continuation failed: {error}"));
+    }
+    let after = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("forager continuation lost survival"));
+    assert_eq!(after.nutrition().get(FoodCategory::Grain), 0);
+    assert!(after.vitality().parts_per_million() > 500_000);
+    assert!(after.diet_quality_ppm() < before.diet_quality_ppm());
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("forager save failed: {error}"));
+    let envelope: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("forager decode failed: {error}"));
+    let mut restored = envelope
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("forager trusted load failed: {error}"));
+    let mut original = state;
+    for _ in 0..20 {
+        let expected = crate::simulation::advance_tick(&registries, &mut original)
+            .unwrap_or_else(|error| panic!("forager original continuation failed: {error}"));
+        let actual = crate::simulation::advance_tick(&registries, &mut restored)
+            .unwrap_or_else(|error| panic!("forager loaded continuation failed: {error}"));
+        assert_eq!(expected, actual);
+    }
+    assert_eq!(original, restored);
 }
 
 #[test]

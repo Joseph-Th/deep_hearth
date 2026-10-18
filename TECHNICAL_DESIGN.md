@@ -594,7 +594,9 @@ allocation. Basal/exertion expenditure happens before same-tick intake capacity 
 that tick's deficit and only residual benefit refills reserve. If work is interrupted by terminal survival state,
 unearned pending benefit is not released.
 
-Diet quality is limited by the weakest tracked food-group reserve. Fractional vitality-recovery carry persists so
+Diet quality combines the average reserve of three broad food groups with the weakest reserve,
+weighted equally. Missing one category slows natural vitality recovery instead of preventing it;
+balanced intake retains the highest benefit. Fractional vitality-recovery carry persists so
 continuation does not depend on tick partitioning.
 
 ### Energy and fluids

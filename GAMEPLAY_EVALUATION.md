@@ -181,11 +181,16 @@ the distribution of outcomes: acquired reserve interval, intended order, selecte
 search and tool preparation before first ore, realized output, and any multi-site response.
 These are actor observations and executed consequences, not the evaluator's hidden deposit
 diagnostic. One maintained episode demonstrates what occurred there, not how often it occurs.
-An optional, longer hand assay may be replayed from that same actor-visible pre-investment state;
+A longer hand assay is replayed from that same actor-visible pre-investment state;
 it must use the ordinary prospecting catalog and live work validator, charge the extra attention
 and tool wear, and report whether the reserve interval actually narrows. Keep the comparison
-branch separate from the original decision, and label any proposed search/deferred build as
-unexecuted intent, not a recovered ore outcome.
+branch separate from the original decision. When the narrower upper bound disqualifies the site,
+the alternate actor searches another bounded site. That search may be barren; unexecuted
+extraction never counts as recovered ore.
+Concise reports retain one maintained exact-local wilderness player's first provisions,
+restraint, carried burden, remaining finite sources, and elapsed time. A separately executed
+cold-response continuation shows how that restraint changes when comfort becomes scarce.
+Neither witness is a population estimate or a guaranteed resource opportunity.
 For long exploratory output, a focused verbose seed selects one world's tagged events, not
 necessarily a single actor history. Wilderness runs can reuse a seed under different goals and
 physiological starts; an explicit sample/start/goal episode key is required to claim one witness.

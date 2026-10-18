@@ -528,6 +528,7 @@ fn run_fieldwork_with_supply(
             hammer,
             target_region,
             observed_resource_mass,
+            channel_voxels,
             case.seed(),
         );
     }

@@ -12,7 +12,10 @@ from tools.gameplay_summary.fieldwork import fieldwork_summary
 from tools.gameplay_summary.foundry_bootstrap import foundry_bootstrap_summary
 from tools.gameplay_summary.liberation import liberation_summary
 from tools.gameplay_summary.loop import player_loop_evidence
-from tools.gameplay_summary.player_experience import fieldwork_player_experience
+from tools.gameplay_summary.player_experience import (
+    fieldwork_player_experience,
+    wilderness_player_experience,
+)
 from tools.gameplay_summary.power import power_provider_summary
 from tools.gameplay_summary.progression import progression_summary
 from tools.gameplay_summary.settlement import settlement_summary
@@ -752,6 +755,9 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     # Keep one lived, need-triggered adaptation alongside the opening digest. Aggregate choice
     # counts cannot show whether an initially sensible restraint can later become useful action.
     if any(digest.startswith("GAMEPLAY wilderness ") for digest in ordinary_digests):
+        opening = wilderness_player_experience(lines)
+        if opening is not None:
+            selected.append(opening)
         if scoped_ordinary and nutrition_witness is not None:
             selected.append(nutrition_witness)
         if scoped_ordinary and casting_bed_witness is not None:
