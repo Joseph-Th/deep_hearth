@@ -85,7 +85,7 @@ Foundational blockers:
 - no graphics backend, section mesher, visibility system, audio, input adapter, or save-file storage adapter.
 
 The first compact block-world storage/generation slice now exists, so the practical conclusion has narrowed:
-Deep Hearth should stop using the bounded five-edge opening graph as the shape of future world interaction. It
+Deep Hearth should stop using the bounded six-edge opening graph as the shape of future world interaction. It
 remains useful evidence for existing owner interactions, but ordinary play still needs adapter residency,
 direct block actions, and the first-person presentation/input shell over generated cells. Deeper industrial work should build on that substrate, not
 continue to get farther ahead of it.

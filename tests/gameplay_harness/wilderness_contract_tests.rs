@@ -96,6 +96,8 @@ use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
 const SETTLED_ADJACENT_LEG_SLOW_TICKS: u64 = 1;
 
+#[path = "wilderness_clay_progression.rs"]
+mod clay_progression;
 #[path = "wilderness_mobile_continuation.rs"]
 mod mobile_continuation;
 
@@ -576,7 +578,7 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
             .map(|store| store.stored_volume())
             .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
         std::println!(
-            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/5 control-ticks:{}] known-path-projection=[edges:2 control-ticks:{} matched:true] material-choice=[stone+timber:2 visited:2] haul=[timber:{}mg carried:{}mg/{}mg return:{}ct] body-effort=[jump-load:{}mg vertical:{}nm/s energy:{}nJ>{}nJ-idle hydration:{}uL>{}uL-idle settle:{}ct] input=one-shot-empty-hand-secondary queue=[forage:{}ct drink:{}ct timber:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/6 control-ticks:{}] known-path-projection=[edges:2 control-ticks:{} matched:true] material-choice=[stone+timber:2 visited:2] haul=[timber:{}mg carried:{}mg/{}mg return:{}ct] body-effort=[jump-load:{}mg vertical:{}nm/s energy:{}nJ>{}nJ-idle hydration:{}uL>{}uL-idle settle:{}ct] input=one-shot-empty-hand-secondary queue=[forage:{}ct drink:{}ct timber:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
             WILDERNESS_WORLD_SEED.value(),
             route_control_ticks,
             return_projection.control_ticks(),
@@ -2497,7 +2499,7 @@ fn evaluate_generated_wilderness_opening_internal(
     assert_eq!(
         next_resources.len(),
         1,
-        "the next waypoint should expose one optional food alternative but not reveal stone or timber leaves"
+        "forage should reveal only the work-junction protein, while water-side clay is another leg away"
     );
     assert_eq!(
         next_resources[0].commodity(),
@@ -4102,7 +4104,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         );
     }
     std::println!(
-        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} episode={} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges body:continuous legs:{} choices:{}-{} graph-unadvertised:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] warmth={} camp-project={} crafting=[storage-via-player-catalog:{}] storage-choice={} tool-choice={} material-choice={}",
+        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} episode={} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:6-edges body:continuous legs:{} choices:{}-{} graph-unadvertised:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] warmth={} camp-project={} crafting=[storage-via-player-catalog:{}] storage-choice={} tool-choice={} material-choice={}",
         sample,
         review.seed,
         format!(
@@ -4187,7 +4189,7 @@ fn organic_camp_goal(behavior_root: u64, index: usize) -> WildernessCampGoal {
     }
 }
 
-/// A lived, optional protein route within the same ordinary five-edge opening.
+/// A lived, optional protein route within the same ordinary six-edge opening.
 fn exercise_opening_two_food_ration(report: bool) {
     let registries = build_registries();
     let seed = WILDERNESS_WORLD_SEED;
@@ -4325,6 +4327,7 @@ fn exercise_opening_two_food_ration(report: bool) {
 pub(super) fn run_wilderness_report() {
     assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
     exercise_opening_two_food_ration(true);
+    clay_progression::exercise_generated_clay_casting_bed(true);
     const ORGANIC_SAMPLES: usize = 4;
     let world_root = configured_root(
         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
@@ -4420,6 +4423,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
     } else {
         assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);
         exercise_opening_two_food_ration(false);
+        clay_progression::exercise_generated_clay_casting_bed(false);
         let _ = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,
             WildernessStartProfile::Rested,

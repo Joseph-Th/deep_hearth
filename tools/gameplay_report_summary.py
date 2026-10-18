@@ -732,6 +732,10 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         (line for line in lines if line.startswith("WILDERNESS NUTRITION ")),
         None,
     )
+    casting_bed_witness = next(
+        (line for line in lines if line.startswith("WILDERNESS CASTING BED ")),
+        None,
+    )
     if nutrition_witness is not None and not scoped_ordinary:
         for index, digest in enumerate(ordinary_digests):
             if digest.startswith("GAMEPLAY wilderness "):
@@ -750,6 +754,8 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     if any(digest.startswith("GAMEPLAY wilderness ") for digest in ordinary_digests):
         if scoped_ordinary and nutrition_witness is not None:
             selected.append(nutrition_witness)
+        if scoped_ordinary and casting_bed_witness is not None:
+            selected.append(casting_bed_witness)
         selected.extend(
             line for line in lines if line.startswith("PLAYER ADAPTATION opening=stay-mobile ")
         )

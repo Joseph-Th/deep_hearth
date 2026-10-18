@@ -10,7 +10,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::content::{
-    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE,
+    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_STONE,
     MATERIAL_WILD_NUTS, MATERIAL_WOOD,
 };
 use crate::core::quantity::{Mass, Temperature};
@@ -38,8 +38,14 @@ use opening::{
 };
 
 const WILDERNESS_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
-const STONE_BASE_MASS_MG: u64 = 3_000_000;
-const STONE_VARIATION_MG: u64 = 1_500_000;
+// The first clay-faced casting bed needs six kilograms of whole stone, leaving a reserve for
+// toolmaking and other projects rather than forcing an artificial either/or deficit.
+const STONE_BASE_MASS_MG: u64 = 8_000_000;
+const STONE_VARIATION_MG: u64 = 3_000_000;
+// Clay-rich earth beside the finite water branch supports binder preparation and replacement
+// facings, and stays finite rather than refilling when visited.
+const CLAY_BASE_MASS_MG: u64 = 8_000_000;
+const CLAY_VARIATION_MG: u64 = 4_000_000;
 // One local fallen-timber opportunity should be a reserve, not a pocket-sized pickup. The player
 // can still harvest only the amount current work justifies, but even the smallest discovered stand
 // exceeds the unaided body-carrying envelope so storage, repeated hauling, and later woodworking
@@ -61,7 +67,7 @@ const OPENING_WATER_VARIATION_UL: u64 = 2_000_000;
 const OPENING_WATER_VOLUME_SALT: u64 = 0x5741_5445_525F_5350;
 
 /// Number of persisted traversal edges in the built-in opening opportunity graph.
-pub const INITIAL_WILDERNESS_ACCESS_EDGES: usize = 5;
+pub const INITIAL_WILDERNESS_ACCESS_EDGES: usize = 6;
 /// Minimum opening-graph legs to visit both material leaves from spawn and return to spawn.
 ///
 /// The optional water branch is not part of this material-acquisition route.
@@ -415,9 +421,9 @@ fn player_initialization_flags(state: &AppState) -> (bool, bool) {
 /// Validates one deterministic opening opportunity for a fresh built-in world.
 ///
 /// This establishes one short connected horizontal opening graph. Forage is one step from spawn;
-/// from there the actor may branch to finite non-refilling drinkable water or continue to a work
-/// junction with optional wild-nut forage; its two adjacent leaves hold loose stone/timber in
-/// seed-selected order. Persisted
+/// from there the actor may branch to finite non-refilling drinkable water (with a distinct
+/// clay outcrop one further leg away) or continue to a work junction with optional wild-nut forage;
+/// its two adjacent leaves hold loose stone/timber in seed-selected order. Persisted
 /// traversal edges authorize only that graph. This does not generate terrain geometry, pathfinding,
 /// routes beyond the generated graph, flow,
 /// recharge, groundwater, shelter, fire, or ecology. The caller supplies the explicit seed and
@@ -516,6 +522,17 @@ pub fn validate_generate_initial_wilderness(
                 WILD_NUTS_VARIATION_MG,
             ),
         ),
+        generated_spec(
+            layout.clay,
+            CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+            generated_mass(
+                seed,
+                spawn,
+                0x434C_4159_5F53_504E,
+                CLAY_BASE_MASS_MG,
+                CLAY_VARIATION_MG,
+            ),
+        ),
     ];
     let specs = specs
         .into_iter()
@@ -526,7 +543,7 @@ pub fn validate_generate_initial_wilderness(
     let surface_generation = validate_create_surface_resources(registries, state, specs).map_err(
         |error| match error {
             SurfaceResourceCreationError::Empty => {
-                unreachable!("built-in wilderness generation always emits four resources")
+                unreachable!("built-in wilderness generation always emits five resources")
             }
             SurfaceResourceCreationError::IdExhausted => {
                 InitialWildernessGenerationError::SurfaceIdExhausted

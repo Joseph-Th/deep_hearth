@@ -175,7 +175,7 @@ Logistics still owns placement, carrying/haulage, delivery, access, path cost, a
 inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and
 movement capability rather than requiring hand-authored traversal edges.
 
-Fresh world generation authors a short five-edge opening opportunity graph used for bounded local orientation and
+Fresh world generation authors a short six-edge opening opportunity graph used for bounded local orientation and
 planning. `AppState::available_adjacent_traversal_destinations` exposes only graph neighbors from the actor's current
 voxel, and immediate opening-source observation is gated by those same persisted logistics edges. Continuous 20 Hz
 body motion remains the sole ordinary player locomotion authority and derives legality from generated world geometry,
@@ -204,9 +204,13 @@ crafting, equipment, storage, survival, fluid, thermal, and structural owners. F
 the entry point; exact physical consequences should remain consequences of those actions rather than
 prerequisites for learning a special interaction language.
 
-The current explicit-seed opening generator closes a bounded five-edge horizontal opportunity graph. Forage
+The current explicit-seed opening generator closes a bounded six-edge horizontal opportunity graph. Forage
 appears one step from spawn. From forage, a finite non-refilling water branch competes with a continuation to a
-material junction, where loose stone and timber are simultaneously visible on two adjacent leaves. The lived
+material junction, where loose stone and timber are simultaneously visible on two adjacent leaves.
+The water branch has a separate reachable clay outcrop one leg beyond the drinkable source,
+so taking water does not ambiguously gather earth. Ordinary gathering, binder and board shaping,
+and player equipment assembly can build the clay-faced casting bed from a clean start without
+granting copper, stored melting energy, or a complete foundry. The lived
 wilderness episode proves that current physiology changes route choice: a rested actor skips the water detour,
 while a hydration-pressure actor chooses it and drinks before returning to the work path. Both reach the material
 junction through traversal-gated immediate observation and pay every load-sensitive step. Generated forage and

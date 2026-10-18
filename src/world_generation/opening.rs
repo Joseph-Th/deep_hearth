@@ -15,27 +15,30 @@ pub(super) struct GeneratedOpeningLayout {
     pub(super) forage: VoxelCoord,
     pub(super) junction: VoxelCoord,
     pub(super) water: VoxelCoord,
+    pub(super) clay: VoxelCoord,
     pub(super) material_forward: VoxelCoord,
     pub(super) material_branch: VoxelCoord,
 }
 
 impl GeneratedOpeningLayout {
-    pub(super) fn edge_pairs(self) -> [(VoxelCoord, VoxelCoord); 5] {
+    pub(super) fn edge_pairs(self) -> [(VoxelCoord, VoxelCoord); 6] {
         [
             (self.spawn, self.forage),
             (self.forage, self.junction),
             (self.forage, self.water),
+            (self.water, self.clay),
             (self.junction, self.material_forward),
             (self.junction, self.material_branch),
         ]
     }
 
-    pub(super) fn positions(self) -> [VoxelCoord; 6] {
+    pub(super) fn positions(self) -> [VoxelCoord; 7] {
         [
             self.spawn,
             self.forage,
             self.junction,
             self.water,
+            self.clay,
             self.material_forward,
             self.material_branch,
         ]
@@ -110,12 +113,14 @@ fn opening_layout_for_directions(
     let junction = horizontal_step(forage, main_direction)?;
     let material_forward = horizontal_step(junction, main_direction)?;
     let water = horizontal_step(forage, branch)?;
+    let clay = horizontal_step(water, branch)?;
     let material_branch = horizontal_step(junction, branch)?;
     Some(GeneratedOpeningLayout {
         spawn,
         forage,
         junction,
         water,
+        clay,
         material_forward,
         material_branch,
     })
