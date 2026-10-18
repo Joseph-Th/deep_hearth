@@ -3202,6 +3202,40 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("tool-policy=[short-cache-projects:1 first-box-adze-deferred:1/1 long-stay-adze:1/1 crossover:5batches]", summary)
 
+    def test_fieldwork_player_experience_reports_actor_risk_and_delayed_consequence(self) -> None:
+        lines = [
+            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor observed-resource-mass=0..5000000mg",
+            "FIELDWORK DECISION seed=0x1 selected=copper-hard-pick requested=33000000mg observed-resource-mass=0..5000000mg",
+            "FIELDWORK PACING seed=0x1 search=78t/4.6m sampling-tool=80t/4.8m extraction-tool=120t/7.2m extraction=9t/32.4s first-ore=281t/16.8m output=776403mg",
+            "FIELDWORK SUPPLY seed=0x1 shortfall=32223597mg stop=short-claim",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x1 sites-visited=6 search=324t/19.4m fulfilled=17115917mg remaining=15884083mg terminal=local-search-area-exhausted",
+            "FIELDWORK OPTIONAL ASSAY seed=0x1 extra-attention=60t visible-before=0..5000000mg visible-after=0..1000000mg suggested-next-action=seek-other-seam-before-investment",
+            # Diagnostic truth must not leak into the actor's choice or summarized experience.
+            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 initial-reserve=776403mg policy-input=false",
+        ]
+        experience = gameplay_report_summary.fieldwork_player_experience(lines)
+        self.assertIsNotNone(experience)
+        assert experience is not None
+        self.assertIn("witness=maintained-anchor mode=spatial-proxy", experience)
+        self.assertIn("observed-reserve:0..5000000mg", experience)
+        self.assertIn("first-ore=[after:281t/16.8m", experience)
+        self.assertIn("recovered:0.78kg", experience)
+        self.assertIn("shortfall:32.22kg", experience)
+        self.assertIn("outcome:local-search-area-exhausted", experience)
+        self.assertIn("alternative=[matched-executed-hand-assay extra:60t", experience)
+        self.assertIn("reserve:0..5000000mg->0..1000000mg", experience)
+        self.assertIn("followup:not-executed", experience)
+        self.assertNotIn("initial-reserve", experience)
+        self.assertIsNone(
+            gameplay_report_summary.fieldwork_player_experience(
+                [lines[0], lines[2]]
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate FIELDWORK DECISION"):
+            gameplay_report_summary.fieldwork_player_experience(
+                [*lines, lines[1]]
+            )
+
     def test_default_gameplay_report_keeps_compact_semantic_summaries_only(self) -> None:
         lines = [
             "SIMULATION TIME physical-tick-us=3600000",
@@ -3947,9 +3981,89 @@ class GameplayReportContractTests(unittest.TestCase):
 
     def test_report_verbose_flag_is_explicit_and_report_only(self) -> None:
         self.assertTrue(ci.parse_args(["report", "--verbose"]).verbose)
+        focused = ci.parse_args(
+            ["report", "--scope", "fieldwork", "--verbose", "--focus-seed", "0x1"]
+        )
+        self.assertEqual(focused.focus_seed, "0x0000000000000001")
+        episode = ci.parse_args(
+            ["report", "--scope", "wilderness", "--verbose", "--focus-seed", "0x1",
+             "--focus-episode", "maintained/rested/stay-mobile"]
+        )
+        self.assertEqual(episode.focus_episode, "maintained/rested/stay-mobile")
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 ci.parse_args(["gate", "--verbose"])
+            with self.assertRaises(SystemExit):
+                ci.parse_args(["report", "--scope", "fieldwork", "--focus-seed", "0x1"])
+            with self.assertRaises(SystemExit):
+                ci.parse_args(
+                    ["report", "--scope", "fieldwork", "--verbose", "--focus-seed", "0x1",
+                     "--focus-episode", "maintained/rested/stay-mobile"]
+                )
+
+    def test_focused_verbose_gameplay_preserves_only_seeded_actor_evidence(self) -> None:
+        stdout = "\n".join(
+            (
+                "SIMULATION TIME physical-tick-us=3600000",
+                "PROBE INPUT name=fieldwork mode=explore samples=3",
+                "FIELDWORK DECISION seed=0x0000000000000001 selected=stone-pick",
+                "FIELDWORK SUPPLY seed=0x2 extracted=300000mg",
+                "FIELDWORK PACING seed=0x1 first-ore=16.8m",
+                "FIELDWORK TOOL MARKET phase=acquired-evidence selected=stone-pick",
+                "FIELDWORK FIXTURE DIAGNOSTIC seed=0x2 hidden-resource=123mg",
+                "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 hidden-resource=777mg",
+                "running 1 test",
+                "test result: ok. 1 passed; 0 failed",
+            )
+        )
+        focused = gameplay_report_summary.concise_gameplay_report(
+            stdout,
+            {
+                "DEEP_HEARTH_GAMEPLAY_VERBOSE": "1",
+                "DEEP_HEARTH_GAMEPLAY_FOCUS_SEED": "0x0000000000000001",
+            },
+        )
+        self.assertIn("PLAYER REPLAY focus-seed=0x0000000000000001", focused)
+        self.assertIn("FIELDWORK DECISION seed=0x0000000000000001", focused)
+        self.assertIn("FIELDWORK PACING seed=0x1", focused)
+        self.assertIn("SIMULATION TIME physical-tick-us=3600000", focused)
+        self.assertNotIn("FIELDWORK SUPPLY seed=0x2", focused)
+        self.assertNotIn("FIELDWORK TOOL MARKET", focused)
+        self.assertNotIn("hidden-resource", focused)
+        self.assertNotIn("test result:", focused)
+        with self.assertRaisesRegex(ValueError, "no seeded player evidence"):
+            gameplay_report_summary.concise_gameplay_report(
+                stdout,
+                {
+                    "DEEP_HEARTH_GAMEPLAY_VERBOSE": "1",
+                    "DEEP_HEARTH_GAMEPLAY_FOCUS_SEED": "0xDEAD",
+                },
+            )
+
+    def test_focused_wilderness_episode_does_not_merge_goals_from_one_seed(self) -> None:
+        stdout = "\n".join(
+            (
+                "PROBE INPUT name=wilderness mode=explore",
+                "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile goal=stay-mobile initial=rested",
+                "WILDERNESS EXPERIENCE sample=maintained seed=0x1 episode=maintained/rested/stay-mobile start=rested goal=stay-mobile",
+                "PLAYER JOURNEY seed=0x1 episode=coverage/rested/long-stay-shelter goal=long-stay-shelter initial=rested",
+                "WILDERNESS EXPERIENCE sample=coverage seed=0x1 episode=coverage/rested/long-stay-shelter start=rested goal=long-stay-shelter",
+            )
+        )
+        environment = {
+            "DEEP_HEARTH_GAMEPLAY_VERBOSE": "1",
+            "DEEP_HEARTH_GAMEPLAY_FOCUS_SEED": "0x0000000000000001",
+            "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "maintained/rested/stay-mobile",
+        }
+        focused = gameplay_report_summary.concise_gameplay_report(stdout, environment)
+        self.assertIn("continuity=one-wilderness-episode", focused)
+        self.assertIn("goal=stay-mobile", focused)
+        self.assertNotIn("long-stay-shelter", focused)
+        with self.assertRaisesRegex(ValueError, "expected one wilderness witness"):
+            gameplay_report_summary.concise_gameplay_report(
+                stdout,
+                {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},
+            )
 
     def test_woodworking_summary_preserves_no_tool_choice(self) -> None:
         summary = gameplay_report_summary.concise_gameplay_report(

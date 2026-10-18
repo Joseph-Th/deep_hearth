@@ -3770,10 +3770,12 @@ fn format_megajoules_tenths(nanojoules: u128) -> String {
     format!("{}.{:01}", tenths / 10, tenths % 10)
 }
 
-fn print_player_journey(registries: &Registries, review: WildernessOpeningReview) {
+fn print_player_journey(registries: &Registries, review: WildernessOpeningReview, sample: &str) {
+    let seed = review.seed;
     let goal = review.camp_goal.label();
+    let episode = format!("{sample}/{}/{goal}", review.start_profile.label());
     std::println!(
-        "PLAYER JOURNEY goal={goal} initial={} first-provisions=[{}g berries in {} patch-left:{}g] water=[adjacent:known quantity-before-visit:unknown choice:{} consumed:{}mL]",
+        "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} initial={} first-provisions=[{}g berries in {} patch-left:{}g] water=[adjacent:known quantity-before-visit:unknown choice:{} consumed:{}mL]",
         review.start_profile.label(),
         review.gathered_food_mass_mg / 1_000,
         physical_minutes_tenths(registries, review.food_secured_ticks),
@@ -3787,10 +3789,10 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
     );
     match review.camp_goal {
         WildernessCampGoal::StayMobile => std::println!(
-            "PLAYER JOURNEY goal={goal} junction=[stone,timber] action=leave-unneeded-resources outcome=travel-light-with-food",
+            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} junction=[stone,timber] action=leave-unneeded-resources outcome=travel-light-with-food",
         ),
         WildernessCampGoal::WorksiteCache | WildernessCampGoal::LongStayShelter => std::println!(
-            "PLAYER JOURNEY goal={goal} junction=[stone,timber] action=haul-timber-build-field-box-and-support outcome=[cached:{}g staged-timber:{}g fabrication-residue:{}g fire:{} charge-runway:{}]",
+            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} junction=[stone,timber] action=haul-timber-build-field-box-and-support outcome=[cached:{}g staged-timber:{}g fabrication-residue:{}g fire:{} charge-runway:{}]",
             review.cached_total_mass_mg / 1_000,
             review.staged_worksite_timber_mg / 1_000,
             review.worksite_construction_residue_mg / 1_000,
@@ -3798,7 +3800,7 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
             physical_minutes_tenths(registries, review.campfire_single_charge_runway_ticks),
         ),
         WildernessCampGoal::PreserveProvisions => std::println!(
-            "PLAYER JOURNEY goal={goal} junction=[stone,timber] action=haul-stone-build-crock outcome=[cached-food:{}g shelf:{}d vs-field-box:{}d]",
+            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} junction=[stone,timber] action=haul-stone-build-crock outcome=[cached-food:{}g shelf:{}d vs-field-box:{}d]",
             review.cached_food_mass_mg / 1_000,
             review.stone_crock_food_shelf_ticks / registries.core().calendar().ticks_per_day(),
             review.field_box_food_shelf_ticks / registries.core().calendar().ticks_per_day(),
@@ -3806,7 +3808,7 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
     }
     if let Some(shelter) = review.shelter {
         std::println!(
-            "PLAYER JOURNEY goal={goal} decision=make-adze-for-roof consequence=[posts:{} cover:{}g attention-saved:{} less-exposure:{}ppm/t]",
+            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} decision=make-adze-for-roof consequence=[posts:{} cover:{}g attention-saved:{} less-exposure:{}ppm/t]",
             shelter.support_count,
             shelter.panel_mass_mg / 1_000,
             physical_minutes_tenths(registries, shelter.saved_ticks),
@@ -3822,7 +3824,7 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
             "not-compared-no-refuel-needed".to_owned()
         };
         std::println!(
-            "PLAYER JOURNEY goal={goal} new-need=another-hour-at-camp observed-fire-runway:{} choice={} response=[fuel-haul:{} material:{}g fire-runway-after:{} source-remaining:{}g] matched-hour-comfort={later_comfort}",
+            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} new-need=another-hour-at-camp observed-fire-runway:{} choice={} response=[fuel-haul:{} material:{}g fire-runway-after:{} source-remaining:{}g] matched-hour-comfort={later_comfort}",
             physical_minutes_tenths(registries, review.campfire_runway_before_refuel_ticks),
             if review.campfire_refueled {
                 "resupply-from-known-timber"
@@ -3855,7 +3857,7 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
         "final"
     };
     std::println!(
-        "PLAYER JOURNEY goal={goal} {conclusion}=[elapsed:{} peak-load:{}g/{}g warning-safe:{} comfort:{}ppm{remaining_fire}] mode=single-continuous-world",
+        "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} {conclusion}=[elapsed:{} peak-load:{}g/{}g warning-safe:{} comfort:{}ppm{remaining_fire}] mode=single-continuous-world",
         physical_minutes_tenths(registries, review.camp_ticks),
         review.peak_carried_mass_mg / 1_000,
         review.carried_capacity_mg / 1_000,
@@ -3876,7 +3878,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
                     | WildernessCampGoal::PreserveProvisions
             ))
     {
-        print_player_journey(&registries, review);
+        print_player_journey(&registries, review, sample);
     }
     if let Some(adaptation) = review.mobile_adaptation {
         mobile_continuation::print_mobile_cold_response(&registries, adaptation);
@@ -4095,9 +4097,14 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         );
     }
     std::println!(
-        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges body:continuous legs:{} choices:{}-{} graph-unadvertised:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] warmth={} camp-project={} crafting=[storage-via-player-catalog:{}] storage-choice={} tool-choice={} material-choice={}",
+        "WILDERNESS EXPERIENCE sample={} seed=0x{:016X} episode={} start={} goal={} evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:5-edges body:continuous legs:{} choices:{}-{} graph-unadvertised:{}/1 water-branch:{} material-junction:reached material-choices:{}] timing=[food-secured:{}t/{} stable:{}t/{}] forage=[opportunity:{}mg secured:{}mg left:{}mg rest-runway:{}] provisioning=[carried:{}mg cached:{}mg meal:{} consumed:{}mg warning-safe:{}] carrying=[peak:{}mg capacity:{}mg utilization:{}ppm] water=[observed:{} visited:{} {} consumed:{}uL decision:{}] warmth={} camp-project={} crafting=[storage-via-player-catalog:{}] storage-choice={} tool-choice={} material-choice={}",
         sample,
         review.seed,
+        format!(
+            "{sample}/{}/{}",
+            review.start_profile.label(),
+            review.camp_goal.label()
+        ),
         review.start_profile.label(),
         review.camp_goal.label(),
         review.total_legs,

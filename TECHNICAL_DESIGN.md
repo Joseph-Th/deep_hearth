@@ -446,6 +446,14 @@ evidence remains observation-time evidence rather than a live reserve oracle.
 
 Prospecting is exclusive player work over an authored method and bounded region. Completion may inspect hidden
 geology only to produce method-bounded observations; in-progress work persists through `PlayerWorkState`.
+One-point hand sampling produces a coarse 5 kg reserve band. A player who already owns a stone
+geological hammer can instead commit 60 slow ticks and extra instrument wear to an extended
+chip assay with a 1 kg band, before fabricating a mining tool. The copper indexed-channel method
+also resolves 1 kg bands across a wider footprint; the expensive core drill still provides the
+most precise 0.25 kg band. All of these are catalogued choices with different costs, not
+automatic confidence upgrades or extractions. A matched fieldwork witness executes the
+extended assay from the same pre-tool decision snapshot and reports its narrower evidence
+without claiming the unexecuted subsequent search as a completed outcome.
 
 `resolve_mining_target` turns sufficiently localized, compatible acquired evidence into opaque extraction
 authorization without exposing deposit identity. Acquired hardness evidence uses its conservative upper bound for

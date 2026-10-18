@@ -880,6 +880,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="run one exploratory gameplay family (default: all)",
     )
     report.add_argument("--verbose", action="store_true", help="print the complete replay transcript")
+    report.add_argument(
+        "--focus-seed",
+        type=parse_replay_seed,
+        help="with --verbose, show events for one world seed; episodes may still differ",
+    )
+    report.add_argument(
+        "--focus-episode",
+        help="with --scope wilderness and --focus-seed, select a sample/start/goal episode",
+    )
     add_replay_options(report)
     add_dry_run(report)
 
@@ -917,6 +926,8 @@ def normalize_args(args: argparse.Namespace) -> argparse.Namespace:
         "path": [],
         "hotspots": False,
         "verbose": False,
+        "focus_seed": None,
+        "focus_episode": None,
         "scope": "all",
         "variation_seed": None,
         "behavior_seed": None,
@@ -928,6 +939,13 @@ def normalize_args(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.preset == "report" and args.focus_seed is not None and not args.verbose:
+        parser.error("--focus-seed requires --verbose for actor-level replay evidence")
+    if args.preset == "report" and args.focus_episode is not None:
+        if args.scope != "wilderness" or args.focus_seed is None or not args.verbose:
+            parser.error("--focus-episode requires wilderness --verbose and --focus-seed")
+        if not args.focus_episode or any(character.isspace() for character in args.focus_episode):
+            parser.error("--focus-episode must be one nonempty sample/start/goal token")
     if args.preset == "report" and args.behavior_seed is not None and args.scope not in REPORT_BEHAVIOR_SCOPES:
         parser.error(
             f"report scope {args.scope!r} does not consume actor-policy variation; omit --behavior-seed"
@@ -959,6 +977,10 @@ def main() -> int:
     if args.preset == "report":
         if args.verbose:
             os.environ["DEEP_HEARTH_GAMEPLAY_VERBOSE"] = "1"
+        if args.focus_seed is not None:
+            os.environ["DEEP_HEARTH_GAMEPLAY_FOCUS_SEED"] = args.focus_seed
+        if args.focus_episode is not None:
+            os.environ["DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE"] = args.focus_episode
     plan = plan_for(args)
     if args.dry_run:
         for label, command in plan:

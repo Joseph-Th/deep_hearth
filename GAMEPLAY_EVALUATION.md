@@ -176,6 +176,22 @@ important immediate/delayed consequences.
 Diagnostic truth may explain a decision after the fact but must not feed back into that decision. Keep committed
 runtime values distinct from projected next-decision values.
 
+The concise fieldwork report must include a maintained, seed-bound player experience alongside
+the distribution of outcomes: acquired reserve interval, intended order, selected tool, elapsed
+search and tool preparation before first ore, realized output, and any multi-site response.
+These are actor observations and executed consequences, not the evaluator's hidden deposit
+diagnostic. One maintained episode demonstrates what occurred there, not how often it occurs.
+An optional, longer hand assay may be replayed from that same actor-visible pre-investment state;
+it must use the ordinary prospecting catalog and live work validator, charge the extra attention
+and tool wear, and report whether the reserve interval actually narrows. Keep the comparison
+branch separate from the original decision, and label any proposed search/deferred build as
+unexecuted intent, not a recovered ore outcome.
+For long exploratory output, a focused verbose seed selects one world's tagged events, not
+necessarily a single actor history. Wilderness runs can reuse a seed under different goals and
+physiological starts; an explicit sample/start/goal episode key is required to claim one witness.
+Filtering may suppress untagged lines but must not reduce simulation coverage or silently
+attribute another episode's events to the selected actor.
+
 Keep hidden fixture truth in a separate diagnostic representation from actor-playable state. Player-facing
 decision and experience evidence contains only legitimately observable state, acquired evidence, and explicit
 policy. Exact hidden reserve, grade, hardness, generated role identity, or other fixture truth may be retained for

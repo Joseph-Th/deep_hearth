@@ -547,6 +547,14 @@ fn wire_drawbench_and_shallow_core_drill_are_specialist_settlement_investments()
         .labor()
         .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
         .unwrap_or_else(|| panic!("detailed field survey disappeared"));
+    let indexed = registries
+        .labor()
+        .get_prospecting(PROSPECTING_INDEXED_CHANNEL_SURVEY)
+        .unwrap_or_else(|| panic!("indexed channel survey disappeared"));
+    let extended = registries
+        .labor()
+        .get_prospecting(PROSPECTING_EXTENDED_CHIP_ASSAY)
+        .unwrap_or_else(|| panic!("extended chip assay disappeared"));
     let channel = registries
         .labor()
         .get_prospecting(PROSPECTING_CHANNEL_COMPOSITE_SURVEY)
@@ -566,6 +574,28 @@ fn wire_drawbench_and_shallow_core_drill_are_specialist_settlement_investments()
     assert!(core.abundance_uncertainty_ppm() < channel.abundance_uncertainty_ppm());
     assert!(core.excavation_hardness_resolution() < detailed.excavation_hardness_resolution());
     assert!(core.resource_mass_resolution() < detailed.resource_mass_resolution());
+    assert!(
+        indexed.resource_mass_resolution() < detailed.resource_mass_resolution(),
+        "specialist indexed surveying must narrow local reserve uncertainty before tool investment"
+    );
+    assert!(
+        core.resource_mass_resolution() < indexed.resource_mass_resolution(),
+        "capital-intensive core drilling must still buy a more precise local reserve measurement"
+    );
+    assert!(indexed.maximum_region_voxels() > detailed.maximum_region_voxels());
+    assert_eq!(extended.maximum_region_voxels(), 1);
+    assert!(extended.duration() > detailed.duration());
+    assert!(extended.resource_mass_resolution() < detailed.resource_mass_resolution());
+    assert_eq!(
+        extended.resource_mass_resolution(),
+        indexed.resource_mass_resolution()
+    );
+    assert!(core.resource_mass_resolution() < extended.resource_mass_resolution());
+    assert_eq!(
+        extended.equipment().map(|profile| profile.primary()),
+        Some(EQUIPMENT_STONE_GEOLOGICAL_HAMMER),
+        "a finer pre-investment local assay should reuse the existing hand sampling kit"
+    );
     let core_instrument = core
         .equipment()
         .unwrap_or_else(|| panic!("shallow-core survey lost its instrument"));

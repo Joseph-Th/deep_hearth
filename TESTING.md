@@ -42,6 +42,8 @@ Use `run_test.py --list <substring>` for build-free discovery and choose the sma
 
 `quick` is build-free, `gate` is one explicit build lane, and `audit` is a checkpoint. Focused gameplay adds one replayable case; broad audits rotate that budget through one scope, while `report` owns exploration. `test-gameplay` belongs only to gameplay targets; core stays feature-minimal and negative feature gating is forbidden. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `full` maps to opt-in `audit --all`.
 
+Use `python ci.py report --scope fieldwork --verbose --focus-seed 0x1` to inspect one world seed. Wilderness seeds can contain multiple goals; add `--focus-episode maintained/rested/stay-mobile` under `--scope wilderness` for one actor episode. All samples execute; untagged events are omitted rather than misattributed.
+
 ## Evidence ladder
 
 Stop at the first level that completely proves the changed claim:

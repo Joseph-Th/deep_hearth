@@ -12,6 +12,7 @@ from tools.gameplay_summary.fieldwork import fieldwork_summary
 from tools.gameplay_summary.foundry_bootstrap import foundry_bootstrap_summary
 from tools.gameplay_summary.liberation import liberation_summary
 from tools.gameplay_summary.loop import player_loop_evidence
+from tools.gameplay_summary.player_experience import fieldwork_player_experience
 from tools.gameplay_summary.power import power_provider_summary
 from tools.gameplay_summary.progression import progression_summary
 from tools.gameplay_summary.settlement import settlement_summary
@@ -636,6 +637,60 @@ def _without_cargo_test_wrapper(stdout: str) -> str:
     return "\n".join(line for line in lines if not is_wrapper_line(line)).strip()
 
 
+def _focused_verbose_gameplay_report(
+    stdout: str, seed: str, episode: str | None = None
+) -> str:
+    """Read one world seed or one explicit episode without mixing unkeyed events.
+
+    All scenarios still run and validate normally. This is output selection, not a reduced
+    test workload; global run/context markers remain visible for reproducibility.
+    """
+
+    selected = []
+    matching_events = 0
+    episode_witnesses = 0
+    for line in _without_cargo_test_wrapper(stdout).splitlines():
+        # A focused *player* replay must not quietly inject evaluator-only geological truth.
+        # Full verbose diagnostics are still available when investigating implementation faults.
+        if "FIXTURE DIAGNOSTIC" in line:
+            continue
+        event_seed = field(line, "seed")
+        if event_seed is not None:
+            if event_seed.startswith("0x") and int(event_seed, 16) == int(seed, 16):
+                if episode is not None and field(line, "episode") != episode:
+                    continue
+                matching_events += 1
+                episode_witnesses += int(line.startswith("WILDERNESS EXPERIENCE "))
+                selected.append(line)
+            continue
+        if line.startswith(
+            ("SIMULATION TIME ", "PROBE INPUT ", "EVALUATION SCOPE ", "DESIGN TARGET ")
+        ):
+            selected.append(line)
+    if episode is not None and episode_witnesses != 1:
+        raise ValueError(
+            f"expected one wilderness witness for {seed} episode={episode}, "
+            f"found {episode_witnesses}"
+        )
+    if matching_events == 0:
+        raise ValueError(f"no seeded player evidence found for {seed}")
+    selected.insert(
+        0,
+        f"PLAYER REPLAY focus-seed={seed} "
+        + (f"episode={episode} " if episode is not None else "")
+        + "evidence=seeded-events-only "
+        f"events={matching_events} all-samples-executed=true "
+        + (
+            "continuity=one-wilderness-episode "
+            if episode is not None
+            else "continuity=not-guaranteed-across-episodes "
+        )
+        + "diagnostics=excluded "
+        "unkeyed-sample-events=omitted",
+    )
+    return "\n".join(selected)
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
     """Return a decision-oriented digest; verbose retains every gameplay evidence line."""
 
@@ -643,6 +698,11 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     if environment.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is not None or environment.get(
         "DEEP_HEARTH_GAMEPLAY_TRACE"
     ) is not None:
+        focused_seed = environment.get("DEEP_HEARTH_GAMEPLAY_FOCUS_SEED")
+        if focused_seed is not None:
+            return _focused_verbose_gameplay_report(
+                stdout, focused_seed, environment.get("DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE")
+            )
         return _without_cargo_test_wrapper(stdout)
     lines = stdout.splitlines()
     selected = [line for line in lines if line.startswith("SIMULATION TIME ")]
@@ -667,6 +727,13 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         else:
             ordinary_digests.append(specialization)
     selected.extend(ordinary_digests)
+    # Outcome totals conceal the lived cost of a wrong but rational decision. Show the
+    # maintained expedition's observation, capital commitment, delayed output, and response
+    # next to its aggregate fieldwork metrics, without treating it as a representative seed.
+    if any(digest.startswith("GAMEPLAY fieldwork") for digest in ordinary_digests):
+        expedition = fieldwork_player_experience(lines)
+        if expedition is not None:
+            selected.append(expedition)
     # Keep one lived, need-triggered adaptation alongside the opening digest. Aggregate choice
     # counts cannot show whether an initially sensible restraint can later become useful action.
     if any(digest.startswith("GAMEPLAY wilderness ") for digest in ordinary_digests):

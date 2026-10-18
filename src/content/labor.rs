@@ -47,6 +47,7 @@ pub const PROSPECTING_LOCAL_TRANSECT: ProspectingMethodId = ProspectingMethodId:
 pub const PROSPECTING_INDEXED_CHANNEL_SURVEY: ProspectingMethodId = ProspectingMethodId::new(5);
 pub const PROSPECTING_CHANNEL_COMPOSITE_SURVEY: ProspectingMethodId = ProspectingMethodId::new(6);
 pub const PROSPECTING_SHALLOW_CORE_SURVEY: ProspectingMethodId = ProspectingMethodId::new(7);
+pub const PROSPECTING_EXTENDED_CHIP_ASSAY: ProspectingMethodId = ProspectingMethodId::new(8);
 pub const STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER: StructuralConstructionMethodId =
     StructuralConstructionMethodId::new(1);
 
@@ -202,10 +203,28 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                     .with_alternative(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, 120),
             )
             .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
-            // A hand-dug sample can establish local scale, but not settlement-capital reserve
-            // confidence. Keep it deliberately coarser than core drilling so better information
-            // can change a tool investment instead of only changing a printed number.
+            // Hand sampling gives a useful local scale but cannot resolve a capital-investment
+            // crossover hidden inside a five-kilogram band. Drilling remains the precision route.
             .with_resource_mass_resolution(Mass::from_milligrams(5_000_000)),
+            // When a coarse sample suggests a marginal seam, the actor can spend more labor
+            // and consumable hammer life on a focused local assay before fabricating a heavy
+            // extraction tool. Unlike an indexed channel pass it studies only one location;
+            // unlike the tripod core, it requires no new machine capital.
+            ProspectingDefinition::new_with_equipment(
+                PROSPECTING_EXTENDED_CHIP_ASSAY,
+                GeologicalEvidenceKind::ExcavationSample,
+                TickSpan::new(60),
+                1,
+                25_000,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_500_000_000_000),
+                    Volume::from_microliters(380),
+                ),
+                ProspectingEquipmentProfile::new(EQUIPMENT_STONE_GEOLOGICAL_HAMMER, 300)
+                    .with_alternative(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, 180),
+            )
+            .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
+            .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
             ProspectingDefinition::new(
                 PROSPECTING_REGIONAL_RECONNAISSANCE,
                 GeologicalEvidenceKind::LooseIndicator,
@@ -248,7 +267,10 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             )
             .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel)
             .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
-            .with_resource_mass_resolution(Mass::from_milligrams(5_000_000)),
+            // Indexed copper tooling earns more than fewer separate point visits: it also
+            // reveals trace seams that a coarse hand sample reports only as 0..5 kg. The
+            // quarter-kilogram core result remains the highest-fidelity local evidence.
+            .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
             // A gridded sampling frame buys a different information product rather than replacing
             // the geological hammer. It screens a broader exposure with tighter abundance
             // uncertainty but produces one composite observation with no hardness or resource-scale

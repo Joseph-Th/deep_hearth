@@ -41,6 +41,8 @@ const FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_BATCHES: u64 = 56;
 const FIELDWORK_RESERVE_SCALE_COVERAGE_SEED: u64 = 6;
 const FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES: u64 = 64;
 
+#[path = "fieldwork_probe/assay.rs"]
+mod assay;
 #[path = "fieldwork_probe/campaign.rs"]
 mod campaign;
 use campaign::{
@@ -519,6 +521,16 @@ fn run_fieldwork_with_supply(
     .unwrap_or_else(|| {
         panic!("fieldwork bounded raw-tool family has no candidate for the acquired evidence")
     });
+    if case.role() == FocusedProbeRole::MaintainedAnchor {
+        assay::observe_extended_hand_assay(
+            registries,
+            &state,
+            hammer,
+            target_region,
+            observed_resource_mass,
+            case.seed(),
+        );
+    }
     let full_order_tool_label = full_order_estimate.as_ref().map_or_else(
         || "none".to_owned(),
         |candidate| fieldwork_tool_label(candidate.tool),
