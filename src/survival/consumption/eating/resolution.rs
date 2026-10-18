@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::core::arithmetic::checked_mul_div_with_remainder;
-use crate::core::quantity::{AggregateMass, AggregateVolume, Energy};
+use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass};
 use crate::core::state::AppState;
 use crate::inventory::{ConsumedMaterialTrace, ConsumptionSelection, MaterialLotSelection};
 use crate::material::MaterialId;
@@ -16,7 +16,7 @@ use super::super::{FoodFreshness, FoodFreshnessError, assess_food_freshness};
 use super::{EatError, EatPortionOutcome, NutritionGain};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct NutritionEnergy {
+struct NutritionMass {
     grain: u128,
     fruit: u128,
     protein: u128,
@@ -43,14 +43,14 @@ impl EatingAbsorptionOffer {
     }
 }
 
-impl NutritionEnergy {
-    fn checked_add(&mut self, category: FoodCategory, energy: u128) -> Option<()> {
+impl NutritionMass {
+    fn checked_add(&mut self, category: FoodCategory, mass_mg: u128) -> Option<()> {
         let target = match category {
             FoodCategory::Grain => &mut self.grain,
             FoodCategory::Fruit => &mut self.fruit,
             FoodCategory::Protein => &mut self.protein,
         };
-        *target = target.checked_add(energy)?;
+        *target = target.checked_add(mass_mg)?;
         Some(())
     }
 
@@ -68,33 +68,28 @@ impl NutritionEnergy {
 }
 
 fn resolve_nutrition_offer(
-    offered_energy: Energy,
-    maximum_metabolic_energy: Energy,
-    category_energy: NutritionEnergy,
+    category_mass: NutritionMass,
+    full_reserve_food_mass: Mass,
 ) -> Result<NutritionGain, EatError> {
     let nutrition_gain_ppm =
-        normalized_nutrition_gain_ppm(offered_energy, maximum_metabolic_energy)?;
-    Ok(allocate_nutrition(nutrition_gain_ppm, category_energy))
+        normalized_nutrition_gain_ppm(category_mass.total(), full_reserve_food_mass)?;
+    Ok(allocate_nutrition(nutrition_gain_ppm, category_mass))
 }
 
 pub(super) fn meal_absorption_offer(
     offer: &MealOffer,
-    maximum_metabolic_energy: Energy,
+    full_reserve_food_mass: Mass,
 ) -> Result<EatingAbsorptionOffer, EatError> {
     Ok(EatingAbsorptionOffer {
         energy: offer.offered_energy,
         hydration: offer.offered_hydration,
-        nutrition: resolve_nutrition_offer(
-            offer.offered_energy,
-            maximum_metabolic_energy,
-            offer.category_energy,
-        )?,
+        nutrition: resolve_nutrition_offer(offer.category_mass, full_reserve_food_mass)?,
     })
 }
 
 fn accumulate_offer_energy(
     offered_energy_nj: &mut u128,
-    category_energy: &mut NutritionEnergy,
+    category_mass: &mut NutritionMass,
     mass_mg: u64,
     food: FoodDefinition,
 ) -> Result<(), EatError> {
@@ -104,8 +99,8 @@ fn accumulate_offer_energy(
     *offered_energy_nj = offered_energy_nj
         .checked_add(energy_nj)
         .ok_or(EatError::MetabolicEnergyOverflow)?;
-    category_energy
-        .checked_add(food.category(), energy_nj)
+    category_mass
+        .checked_add(food.category(), u128::from(mass_mg))
         .ok_or(EatError::NutritionOverflow)?;
     Ok(())
 }
@@ -115,7 +110,7 @@ pub(crate) fn trace_absorption_offer<'a>(
     traces: impl ExactSizeIterator<Item = &'a ConsumedMaterialTrace>,
 ) -> EatingAbsorptionOffer {
     let mut offered_energy_nj = 0_u128;
-    let mut category_energy = NutritionEnergy::default();
+    let mut category_mass = NutritionMass::default();
     let mut hydration_portions = Vec::with_capacity(traces.len());
     for trace in traces {
         let commodity = trace.profile().commodity();
@@ -127,7 +122,7 @@ pub(crate) fn trace_absorption_offer<'a>(
         });
         accumulate_offer_energy(
             &mut offered_energy_nj,
-            &mut category_energy,
+            &mut category_mass,
             trace.mass().milligrams(),
             *food,
         )
@@ -138,12 +133,12 @@ pub(crate) fn trace_absorption_offer<'a>(
         .unwrap_or_else(|| panic!("validated pending meal hydration overflowed at runtime"));
     let energy = Energy::from_nanojoules(offered_energy_nj);
     let nutrition = resolve_nutrition_offer(
-        energy,
+        category_mass,
         registries
             .survival()
             .physiology()
-            .maximum_metabolic_energy(),
-        category_energy,
+            .nutrition()
+            .full_reserve_food_mass(),
     )
     .unwrap_or_else(|error| panic!("validated pending meal nutrition failed at runtime: {error}"));
     EatingAbsorptionOffer {
@@ -153,7 +148,7 @@ pub(crate) fn trace_absorption_offer<'a>(
     }
 }
 
-fn allocate_nutrition(total_ppm: u128, offered: NutritionEnergy) -> NutritionGain {
+fn allocate_nutrition(total_ppm: u128, offered: NutritionMass) -> NutritionGain {
     let offered_total = offered.total();
     if offered_total == 0 {
         return NutritionGain::default();
@@ -192,12 +187,15 @@ fn allocate_nutrition(total_ppm: u128, offered: NutritionEnergy) -> NutritionGai
     }
 }
 
-fn normalized_nutrition_gain_ppm(offered: Energy, maximum: Energy) -> Result<u128, EatError> {
-    debug_assert!(!maximum.is_zero());
+fn normalized_nutrition_gain_ppm(
+    offered_mass_mg: u128,
+    full_reserve_food_mass: Mass,
+) -> Result<u128, EatError> {
+    debug_assert!(!full_reserve_food_mass.is_zero());
     let (gain, _) = checked_mul_div_with_remainder(
-        offered.nanojoules(),
+        offered_mass_mg,
         u128::from(NUTRITION_PARTS_PER_MILLION),
-        maximum.nanojoules(),
+        u128::from(full_reserve_food_mass.milligrams()),
         0,
     )
     .ok_or(EatError::NutritionOverflow)?;
@@ -217,7 +215,7 @@ pub(super) struct MealOffer {
     pub(super) portions: Vec<EatPortionOutcome>,
     pub(super) offered_energy: Energy,
     offered_hydration: AggregateVolume,
-    category_energy: NutritionEnergy,
+    category_mass: NutritionMass,
     pub(super) consumed_additions: BTreeMap<MaterialId, AggregateMass>,
 }
 
@@ -295,7 +293,7 @@ pub(super) fn resolve_meal_offer(
 ) -> Result<MealOffer, EatError> {
     let selections = selection.lot_selections();
     let mut offered_energy_nj = 0_u128;
-    let mut category_energy = NutritionEnergy::default();
+    let mut category_mass = NutritionMass::default();
     let mut consumed_additions = BTreeMap::<MaterialId, AggregateMass>::new();
     let mut portions = Vec::with_capacity(selections.len());
     let mut hydration_portions = Vec::with_capacity(selections.len());
@@ -305,8 +303,11 @@ pub(super) fn resolve_meal_offer(
         offered_energy_nj = offered_energy_nj
             .checked_add(resolved.energy_nj)
             .ok_or(EatError::MetabolicEnergyOverflow)?;
-        category_energy
-            .checked_add(resolved.outcome.category, resolved.energy_nj)
+        category_mass
+            .checked_add(
+                resolved.outcome.category,
+                u128::from(resolved.outcome.mass.milligrams()),
+            )
             .ok_or(EatError::NutritionOverflow)?;
         let current = consumed_additions
             .get(&resolved.material)
@@ -331,7 +332,7 @@ pub(super) fn resolve_meal_offer(
         portions,
         offered_energy: Energy::from_nanojoules(offered_energy_nj),
         offered_hydration,
-        category_energy,
+        category_mass,
         consumed_additions,
     })
 }

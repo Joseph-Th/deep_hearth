@@ -139,6 +139,27 @@ fn survival_initialization_and_tick_are_deterministic_and_visible() {
 }
 
 #[test]
+fn a_day_of_unreplenished_diet_exposes_a_useful_recovery_choice() {
+    let registries = build_registries();
+    let nutrition = registries.survival().physiology().nutrition();
+    let day = registries.core().calendar().ticks_per_day();
+    let daily_decay = u32::try_from(u64::from(nutrition.decay_ppm_per_tick()) * day)
+        .unwrap_or_else(|_| panic!("authored daily nutrition decay exceeds u32"));
+    // Recent diet must influence a sustained expedition. The previous multi-day reserve
+    // barely changed across a player's entire initial recovery and hid food-group choices.
+    assert_eq!(daily_decay, 600_000);
+    let depleted = NutritionReserves::FULL.decay(daily_decay);
+    assert_eq!(depleted.quality_ppm(), 400_000);
+    let (fruit_refed, gained) = depleted.add(FoodCategory::Fruit, 600_000);
+    assert_eq!(gained, 600_000);
+    assert!(fruit_refed.quality_ppm() > depleted.quality_ppm());
+    let (grain_refed, _) = fruit_refed.add(FoodCategory::Grain, 600_000);
+    let (balanced, _) = grain_refed.add(FoodCategory::Protein, 600_000);
+    assert_eq!(balanced.quality_ppm(), 1_000_000);
+    assert!(balanced.quality_ppm() > fruit_refed.quality_ppm());
+}
+
+#[test]
 fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
     let registries = build_registries();
     let mut balanced = AppState::new();
@@ -205,8 +226,8 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
     );
     assert_eq!(one_category_after.vitality().parts_per_million(), 500_001);
     assert!(balanced_after.diet_quality_ppm() > one_category_after.diet_quality_ppm());
-    assert_eq!(balanced_after.diet_quality_ppm(), 299_995);
-    assert_eq!(one_category_after.diet_quality_ppm(), 149_999);
+    assert_eq!(balanced_after.diet_quality_ppm(), 299_975);
+    assert_eq!(one_category_after.diet_quality_ppm(), 149_995);
     assert_eq!(
         balanced_after.diet_supported_vitality_recovery_ppm_per_tick(),
         3

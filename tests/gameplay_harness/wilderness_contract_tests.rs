@@ -75,7 +75,7 @@ use deep_hearth::surface::{
     validate_start_player_surface_gathering_option,
 };
 use deep_hearth::survival::{
-    AdjacentDrinkSource, FoodStackPortion, SurvivalExertion, SurvivalResourceBudget,
+    AdjacentDrinkSource, FoodCategory, FoodStackPortion, SurvivalExertion, SurvivalResourceBudget,
     ThermalComfortState, assess_survival, available_adjacent_drink_sources,
     available_local_drink_sources, project_survival_resource_budget,
     validate_drink_store_to_hydration_target, validate_eat_stack_portions,
@@ -4282,6 +4282,13 @@ fn exercise_opening_two_food_ration(report: bool) {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("two-food meal commit failed: {error}"));
     let duration = meal.completes_at().value() - state.tick().value();
+    let fruit_nutrition = meal.nutrition_offered().get(FoodCategory::Fruit);
+    let protein_nutrition = meal.nutrition_offered().get(FoodCategory::Protein);
+    assert_eq!(
+        (fruit_nutrition, protein_nutrition),
+        (300_000, 300_000),
+        "equally sized fruit and protein portions must replenish the same amount of dietary reserve despite different calories"
+    );
     advance_to(
         &registries,
         &mut state,
@@ -4316,7 +4323,7 @@ fn exercise_opening_two_food_ration(report: bool) {
         .unwrap_or_else(|error| panic!("two-food final state failed validation: {error}"));
     if report {
         std::println!(
-            "WILDERNESS NUTRITION seed=0x{:016X} episode=coverage/hunger-pressure/two-food-ration evidence=generated-exact-local path=forage->junction choice=fruit-and-protein gather=[berries:250000mg nuts:250000mg] meal=[berries:150000mg nuts:150000mg duration:{}t] energy-replenished=true nuts-left={}mg matter=conserved",
+            "WILDERNESS NUTRITION seed=0x{:016X} episode=coverage/hunger-pressure/two-food-ration evidence=generated-exact-local path=forage->junction choice=fruit-and-protein gather=[berries:250000mg nuts:250000mg] meal=[berries:150000mg nuts:150000mg duration:{}t] energy-replenished=true nutrition-offered=[fruit:{fruit_nutrition}ppm protein:{protein_nutrition}ppm] nuts-left={}mg matter=conserved",
             seed.value(),
             duration,
             after_nuts.milligrams(),

@@ -18,7 +18,7 @@ fn physiology(
     PhysiologyDefinition::new(
         MetabolismDefinition::new(maximum_energy, Energy::ZERO, basal_energy),
         HydrationDefinition::new(maximum_hydration, Volume::ZERO, hydration_loss),
-        NutritionDefinition::new(1, 1),
+        NutritionDefinition::new(1, 1, Mass::from_milligrams(1)),
         DirectConsumptionDefinition::new(
             Mass::from_milligrams(1),
             Mass::from_milligrams(1),

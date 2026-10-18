@@ -739,11 +739,26 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         (line for line in lines if line.startswith("WILDERNESS CASTING BED ")),
         None,
     )
-    if nutrition_witness is not None and not scoped_ordinary:
-        for index, digest in enumerate(ordinary_digests):
-            if digest.startswith("GAMEPLAY wilderness "):
-                ordinary_digests[index] = f"{digest} diet=mixed"
-                break
+    if nutrition_witness is not None:
+        nutrition = re.search(
+            r"nutrition-offered=\[fruit:(\d+)ppm protein:(\d+)ppm\]",
+            nutrition_witness,
+        )
+        if nutrition is None:
+            raise ValueError("wilderness mixed meal lost its dietary contribution evidence")
+        offered_fruit = int(nutrition.group(1))
+        offered_protein = int(nutrition.group(2))
+        if offered_fruit <= 0 or offered_protein <= 0:
+            raise ValueError("wilderness mixed meal made no useful nutrition offer")
+        if not scoped_ordinary:
+            for index, digest in enumerate(ordinary_digests):
+                if digest.startswith("GAMEPLAY wilderness "):
+                    ordinary_digests[index] = (
+                        f"{digest} diet=mixed nutrition-offered=["
+                        f"fruit:{(offered_fruit + 5_000) // 10_000}% "
+                        f"protein:{(offered_protein + 5_000) // 10_000}%]"
+                    )
+                    break
     selected.extend(ordinary_digests)
     # Outcome totals conceal the lived cost of a wrong but rational decision. Show the
     # maintained expedition's observation, capital commitment, delayed output, and response

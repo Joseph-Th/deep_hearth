@@ -594,6 +594,12 @@ allocation. Basal/exertion expenditure happens before same-tick intake capacity 
 that tick's deficit and only residual benefit refills reserve. If work is interrupted by terminal survival state,
 unearned pending benefit is not released.
 
+Dietary contribution is independent of metabolic calories: each food category gains reserve
+from its consumed mass relative to an authored full-reserve serving (500 g in built-in content).
+Thus 150 g of berries restores the same fraction of fruit nutrition as 150 g of grain restores
+of grain nutrition, while energy and hydration still depend on the actual food. Unreplenished
+dietary reserves lose 600,000 ppm per authored day in built-in physiology.
+
 Diet quality combines the average reserve of three broad food groups with the weakest reserve,
 weighted equally. Missing one category slows natural vitality recovery instead of preventing it;
 balanced intake retains the highest benefit. Fractional vitality-recovery carry persists so

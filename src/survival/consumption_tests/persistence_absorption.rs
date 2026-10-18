@@ -484,6 +484,83 @@ fn eating_at_full_reserves_absorbs_as_basal_cost_creates_capacity() {
 }
 
 #[test]
+fn same_mass_of_branched_foods_replenishes_equal_nutrition_despite_calorie_difference() {
+    let registries = build_registries();
+    let mass = Mass::from_milligrams(150_000);
+    let nutrition_full_mass = registries
+        .survival()
+        .physiology()
+        .nutrition()
+        .full_reserve_food_mass();
+    let expected_gain = u32::try_from(
+        u128::from(mass.milligrams()) * u128::from(NUTRITION_PARTS_PER_MILLION)
+            / u128::from(nutrition_full_mass.milligrams()),
+    )
+    .unwrap_or_else(|_| panic!("bounded food portion gain exceeds normalized nutrition"));
+    let mut energies = Vec::new();
+
+    for (material, category) in [
+        (MATERIAL_GRAIN, FoodCategory::Grain),
+        (MATERIAL_BERRIES, FoodCategory::Fruit),
+    ] {
+        let mut state = AppState::new();
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("category comparison survival failed: {error}"));
+        let physiology = registries.survival().physiology();
+        let revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            revision,
+            revision + 1,
+            player_record(
+                physiology.maximum_metabolic_energy(),
+                physiology.maximum_hydration(),
+                Vitality::MAXIMUM,
+                NutritionReserves::from_parts_per_million(0, 0, 0),
+                0,
+            ),
+        );
+        let stockpile = add_solid_stockpile_for_test(&mut state, mass)
+            .unwrap_or_else(|error| panic!("category comparison stockpile failed: {error}"));
+        let food = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(material, FORM_FOOD),
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("category comparison food failed: {error}"));
+        let started = validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(food, mass)],
+        )
+        .unwrap_or_else(|error| panic!("category comparison meal rejected: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("category comparison meal commit failed: {error}"));
+        assert_eq!(started.nutrition_offered().get(category), expected_gain);
+        energies.push(started.energy_offered());
+        let ticks = finish_direct_consumption(&registries, &mut state);
+        let decay = physiology.nutrition().decay_ppm_per_tick()
+            * u32::try_from(ticks).unwrap_or_else(|_| panic!("meal duration exceeds u32"));
+        assert_eq!(
+            assess_survival(&registries, &state)
+                .unwrap_or_else(|| panic!("category comparison lost survival"))
+                .nutrition()
+                .get(category),
+            expected_gain.saturating_sub(decay)
+        );
+        validate_loaded_state(&registries, &state)
+            .unwrap_or_else(|error| panic!("category comparison state invalid: {error}"));
+    }
+    assert_ne!(
+        energies[0], energies[1],
+        "fruit and grain must retain different calories"
+    );
+}
+
+#[test]
 fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -161,7 +161,7 @@ fn minimum_drink_projection_reports_canonical_resource_budget_overflow() {
             Volume::ZERO,
             Volume::from_microliters(u64::MAX / 2 + 1),
         ),
-        NutritionDefinition::new(1, 1),
+        NutritionDefinition::new(1, 1, Mass::from_milligrams(1)),
         DirectConsumptionDefinition::new(
             Mass::from_milligrams(1),
             Mass::from_milligrams(1),

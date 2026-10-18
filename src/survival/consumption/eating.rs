@@ -328,7 +328,8 @@ pub fn validate_eat(
     let (expected_survival_revision, next_survival_revision) =
         direct_consumption_survival_revisions(state, duration)
             .ok_or(EatError::SurvivalRevisionExhausted)?;
-    let absorption_offer = meal_absorption_offer(&offer, physiology.maximum_metabolic_energy())?;
+    let absorption_offer =
+        meal_absorption_offer(&offer, physiology.nutrition().full_reserve_food_mass())?;
     let consumed_accounting = resolve_consumed_mass_accounting(state, offer.consumed_additions)?;
     let pending = PendingEating::new(
         pending_consumed,

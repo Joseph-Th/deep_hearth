@@ -66,7 +66,9 @@ fn physiology() -> PhysiologyDefinition {
             Volume::from_microliters(1_000_000),
             Volume::from_microliters(125),
         ),
-        NutritionDefinition::new(5, 10),
+        // Recent diet is a roughly two-day reserve, not an eight-day immunity to food choice.
+        // This makes a varied meal a relevant recovery decision during sustained field projects.
+        NutritionDefinition::new(25, 10, Mass::from_milligrams(500_000)),
         DirectConsumptionDefinition::new(
             Mass::from_milligrams(MINIMUM_MEAL_MASS_MG),
             Mass::from_milligrams(MAXIMUM_MEAL_MASS_MG),

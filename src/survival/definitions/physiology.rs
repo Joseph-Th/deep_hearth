@@ -653,11 +653,16 @@ fn scale_exertion(
 pub struct NutritionDefinition {
     decay_ppm_per_tick: u32,
     vitality_recovery_ppm_per_tick: u32,
+    full_reserve_food_mass: Mass,
 }
 
 impl NutritionDefinition {
     #[must_use]
-    pub fn new(decay_ppm_per_tick: u32, vitality_recovery_ppm_per_tick: u32) -> Self {
+    pub fn new(
+        decay_ppm_per_tick: u32,
+        vitality_recovery_ppm_per_tick: u32,
+        full_reserve_food_mass: Mass,
+    ) -> Self {
         assert!(decay_ppm_per_tick > 0, "nutrition decay must be nonzero");
         assert!(
             decay_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
@@ -671,9 +676,14 @@ impl NutritionDefinition {
             vitality_recovery_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
             "nutrition-supported vitality recovery cannot exceed normalized vitality"
         );
+        assert!(
+            !full_reserve_food_mass.is_zero(),
+            "full dietary reserve food mass must be nonzero"
+        );
         Self {
             decay_ppm_per_tick,
             vitality_recovery_ppm_per_tick,
+            full_reserve_food_mass,
         }
     }
 
@@ -685,6 +695,13 @@ impl NutritionDefinition {
     #[must_use]
     pub const fn vitality_recovery_ppm_per_tick(self) -> u32 {
         self.vitality_recovery_ppm_per_tick
+    }
+
+    /// Mass of a given food category that replenishes its full recent dietary reserve.
+    /// Metabolic calories and nutrition quality are intentionally distinct benefits.
+    #[must_use]
+    pub const fn full_reserve_food_mass(self) -> Mass {
+        self.full_reserve_food_mass
     }
 }
 

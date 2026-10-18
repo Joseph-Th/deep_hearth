@@ -3318,7 +3318,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated:179t conditional-on-open-cover] trigger=chilly/799000ppm after:179t/10.7m reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:1t fueled:199t comfort:818000ppm no-fire:778000ppm] planned=[start:158t fueled:178t comfort:1000000ppm fire-runway:1089t vs-reactive:1110t] custody=[timber-left:31130g matter-conserved:true] mode=same-generated-world"
         )
         lines.append(
-            "WILDERNESS NUTRITION seed=0x1 episode=coverage/hunger-pressure/two-food-ration evidence=generated-exact-local path=forage->junction choice=fruit-and-protein gather=[berries:250000mg nuts:250000mg] meal=[berries:150000mg nuts:150000mg duration:30t] energy-replenished=true nuts-left=500000mg matter=conserved"
+            "WILDERNESS NUTRITION seed=0x1 episode=coverage/hunger-pressure/two-food-ration evidence=generated-exact-local path=forage->junction choice=fruit-and-protein gather=[berries:250000mg nuts:250000mg] meal=[berries:150000mg nuts:150000mg duration:30t] energy-replenished=true nutrition-offered=[fruit:300000ppm protein:300000ppm] nuts-left=500000mg matter=conserved"
         )
         output = "\n".join(lines)
         concise = gameplay_report_summary.concise_gameplay_report(output, {})
@@ -3371,7 +3371,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "processing-market=[short-manual:1/1 attention-crossover:3..3cycles capital:5.4..5.4kg/prepared-owned long-mechanized:1/1]",
             concise,
         )
-        self.assertIn("diet=mixed", concise)
+        self.assertIn("diet=mixed nutrition-offered=[fruit:30% protein:30%]", concise)
         self.assertIn(
             "GAMEPLAY wilderness-direct-use [route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct q[f/d/t]=63/61/43ct use=one-shot gather=[before:4210752mg batch:500000mg remaining:3710752mg] water=[before:5078082uL serving:750000uL remaining:4328082uL] hydration=[before:978622uL after:1726247uL] timed=true]",
             concise,

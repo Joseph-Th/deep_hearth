@@ -191,6 +191,9 @@ Concise reports retain one maintained exact-local wilderness player's first prov
 restraint, carried burden, remaining finite sources, and elapsed time. A separately executed
 cold-response continuation shows how that restraint changes when comfort becomes scarce.
 Neither witness is a population estimate or a guaranteed resource opportunity.
+The generated two-food wilderness meal reports the live fruit and protein nutrition offered
+by its actual carried-stack portions. Broad reports summarize those offers in percentages,
+separately from caloric restoration; do not infer nutrition from food energy density.
 For long exploratory output, a focused verbose seed selects one world's tagged events, not
 necessarily a single actor history. Wilderness runs can reuse a seed under different goals and
 physiological starts; an explicit sample/start/goal episode key is required to claim one witness.
