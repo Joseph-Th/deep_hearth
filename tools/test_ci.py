@@ -3258,16 +3258,19 @@ class GameplayReportContractTests(unittest.TestCase):
             "POWER BUILD BILL seed=0x1 noisy-detail",
             "FIELDWORK PACING seed=0x1 noisy-detail",
         ]
+        lines.append(
+            "PLAYER ADAPTATION opening=stay-mobile initial=comfortable/no-camp forecast=[unheated:179t conditional-on-open-cover] trigger=chilly/799000ppm after:179t/10.7m response=[stone-ring:built finite-timber-fuel:1000g local-trips:2 illumination:7] result=[recovery:1t recovery-start:199t warm:818000ppm matched-without-fire:778000ppm] custody=[timber-left:31130g matter-conserved:true] mode=same-generated-world+physical-time"
+        )
         output = "\n".join(lines)
         concise = gameplay_report_summary.concise_gameplay_report(output, {})
         concise_lines = concise.splitlines()
         self.assertLessEqual(
             len(concise_lines),
-            20,
+            21,
             "default gameplay digest must stay reviewable while preserving direct-use, wilderness, fantasy, and world-interaction evidence",
         )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
-        self.assertLess(len(concise.encode()), 6_900)
+        self.assertLess(len(concise.encode()), 7_200)
         for prefix in (
             "SIMULATION TIME ",
             "GAMEPLAY primitive-progression scope=spatial-proxy ",
@@ -3280,6 +3283,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "GAMEPLAY survival ",
             "GAMEPLAY wilderness ",
             "GAMEPLAY wilderness-direct-use ",
+            "PLAYER ADAPTATION opening=stay-mobile ",
             "GAMEPLAY fantasy ",
             "GAMEPLAY world-interaction ",
             "GAMEPLAY loop ",

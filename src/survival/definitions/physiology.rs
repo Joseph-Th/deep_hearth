@@ -1002,6 +1002,32 @@ impl ThermalComfortDefinition {
         }
     }
 
+    /// Earliest slow tick when the player ceases to be comfortable if the specified cover
+    /// stays unchanged and there is no local heat. This is a conditional planning estimate,
+    /// not a promise about the future environment or fuel supply.
+    ///
+    /// The threshold is strict: comfort exactly at the warning is still comfortable. When the
+    /// authored warning is zero, the zero-comfort Cold band is the first adverse state.
+    #[must_use]
+    pub fn ticks_until_unheated_discomfort(
+        self,
+        current_comfort_ppm: u32,
+        exposure: ThermalExposure,
+    ) -> TickSpan {
+        assert!(
+            current_comfort_ppm <= NORMALIZED_PARTS_PER_MILLION,
+            "thermal-comfort projection requires normalized player comfort"
+        );
+        let comfortable_floor = self.warning_below_ppm.max(1);
+        if current_comfort_ppm < comfortable_floor {
+            return TickSpan::ZERO;
+        }
+        let reserve_to_spend = current_comfort_ppm - comfortable_floor + 1;
+        TickSpan::new(u64::from(
+            reserve_to_spend.div_ceil(self.exposure_loss_ppm_per_tick(exposure)),
+        ))
+    }
+
     #[must_use]
     pub const fn cold_vitality_loss_ppm_per_tick(self) -> u32 {
         self.cold_vitality_loss_ppm_per_tick

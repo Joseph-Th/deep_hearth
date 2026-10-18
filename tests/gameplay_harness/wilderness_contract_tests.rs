@@ -95,6 +95,9 @@ use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
 const SETTLED_ADJACENT_LEG_SLOW_TICKS: u64 = 1;
 
+#[path = "wilderness_mobile_continuation.rs"]
+mod mobile_continuation;
+
 fn project_continuous_body_path_budget_for_load(
     registries: &Registries,
     state: &AppState,
@@ -738,6 +741,7 @@ pub(super) struct WildernessOpeningReview {
     pub(super) adze_board_ticks: u64,
     pub(super) adze_crossover_batches: u64,
     pub(super) shelter: Option<WildernessShelterReview>,
+    pub(super) mobile_adaptation: Option<mobile_continuation::MobileColdResponse>,
     pub(super) final_warning_safe: bool,
 }
 
@@ -3593,6 +3597,22 @@ fn evaluate_generated_wilderness_opening_internal(
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("wilderness final state invalid: {error}"));
+    let mobile_adaptation = if seed == WILDERNESS_WORLD_SEED
+        && start_profile == WildernessStartProfile::Rested
+        && camp_goal == WildernessCampGoal::StayMobile
+    {
+        // A short, sensible opening must not be mistaken for a complete survival experience.
+        // Continue this same world after the goal-free mobile decision, then respond to the
+        // first *observed* change in comfort without an evaluator-supplied construction goal.
+        Some(mobile_continuation::evaluate_mobile_cold_response(
+            &registries,
+            &state,
+            junction,
+            matter_before,
+        ))
+    } else {
+        None
+    };
     let final_survival = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("wilderness player disappeared at final review"));
     let campfire_heat_at_end_nj = campfire_id.map_or(0, |campfire| {
@@ -3712,6 +3732,7 @@ fn evaluate_generated_wilderness_opening_internal(
         adze_board_ticks,
         adze_crossover_batches,
         shelter,
+        mobile_adaptation,
         final_warning_safe,
     }
 }
@@ -3828,8 +3849,13 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
     } else {
         String::new()
     };
+    let conclusion = if review.mobile_adaptation.is_some() {
+        "opening-snapshot"
+    } else {
+        "final"
+    };
     std::println!(
-        "PLAYER JOURNEY goal={goal} final=[elapsed:{} peak-load:{}g/{}g warning-safe:{} comfort:{}ppm{remaining_fire}] mode=single-continuous-world",
+        "PLAYER JOURNEY goal={goal} {conclusion}=[elapsed:{} peak-load:{}g/{}g warning-safe:{} comfort:{}ppm{remaining_fire}] mode=single-continuous-world",
         physical_minutes_tenths(registries, review.camp_ticks),
         review.peak_carried_mass_mg / 1_000,
         review.carried_capacity_mg / 1_000,
@@ -3851,6 +3877,9 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             ))
     {
         print_player_journey(&registries, review);
+    }
+    if let Some(adaptation) = review.mobile_adaptation {
+        mobile_continuation::print_mobile_cold_response(&registries, adaptation);
     }
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     let water_decision = if review.water_visited {

@@ -83,6 +83,49 @@ fn thermal_comfort_local_heat_scaling_remains_exact_at_full_width() {
     );
 }
 
+#[test]
+fn unheated_discomfort_projection_honors_strict_warning_and_roof_exposure() {
+    let thermal =
+        ThermalComfortDefinition::new(800_000, 1_000, 500, 10_000, Energy::from_nanojoules(1), 1);
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(978_000, ThermalExposure::Open),
+        TickSpan::new(179)
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(978_000, ThermalExposure::OverheadCover),
+        TickSpan::new(357)
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(800_000, ThermalExposure::Open),
+        TickSpan::new(1)
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(799_999, ThermalExposure::Open),
+        TickSpan::ZERO
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(0, ThermalExposure::Open),
+        TickSpan::ZERO
+    );
+}
+
+#[test]
+fn zero_thermal_warning_projects_to_cold_instead_of_an_unreachable_chilly_band() {
+    let thermal = ThermalComfortDefinition::new(0, 2, 1, 1, Energy::from_nanojoules(1), 1);
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(1, ThermalExposure::Open),
+        TickSpan::new(1)
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(4, ThermalExposure::Open),
+        TickSpan::new(2)
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(0, ThermalExposure::OverheadCover),
+        TickSpan::ZERO
+    );
+}
+
 fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
     physiology_with_carry(Mass::from_milligrams(1), starvation_loss, dehydration_loss)
 }

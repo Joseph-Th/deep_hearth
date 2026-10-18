@@ -667,6 +667,12 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         else:
             ordinary_digests.append(specialization)
     selected.extend(ordinary_digests)
+    # Keep one lived, need-triggered adaptation alongside the opening digest. Aggregate choice
+    # counts cannot show whether an initially sensible restraint can later become useful action.
+    if any(digest.startswith("GAMEPLAY wilderness ") for digest in ordinary_digests):
+        selected.extend(
+            line for line in lines if line.startswith("PLAYER ADAPTATION opening=stay-mobile ")
+        )
     # The player-loop digest is cross-system evidence. A scoped report intentionally omits
     # unrelated probe families, so synthesizing the loop from partial evidence would fill it with
     # misleading zero/n/a sections. Emit it only when every ordinary probe family is present.
