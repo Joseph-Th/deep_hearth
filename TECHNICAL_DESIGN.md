@@ -537,6 +537,14 @@ owned machinery, compatible finite energy stores, material batch availability, r
 condition-adjusted processing time. It distinguishes missing stock and missing charge, but a
 selected option is not authority: `validate_start_player_powered_craft_option` reselects exact
 physical lots and validates current access, energy, wear, reservations and output custody.
+The first-foundry continuation also permits reinvesting one 80 g cast into the inherited treadle
+hammer: an observed finite 3 kg fallen-timber source is gathered through player-owned surface
+work, shaped through the existing frame saw and handle recipes, and combined with 20 g of cast-
+stock copper reinforcement to add the helve upgrade. The upgraded, identical equipment can then
+form a 54 g winding from the remaining 60 g ingot charge using the inherited hand-cranked
+flywheel. That actual winding is then installed to expand the existing electrical buffer from
+15 kJ to 30 kJ. This is a matched alternate use of the same cast, not extra copper or an
+unearned machine awarded by the fixture.
 
 ### Physical resolvers
 

@@ -61,6 +61,51 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         raise ValueError(
             "foundry output lost its executed cast-stock manufacturing continuation"
         )
+    helve = [
+        line for line in lines
+        if line.startswith("FIRST FOUNDRY HELVE REINVESTMENT ")
+    ]
+    if len(helve) != settlement_executed:
+        raise ValueError(
+            "first foundry lost the executed finite-timber-to-powered-hammer continuation"
+        )
+    helve_gather = _values(helve, r"\bgather-attention:(\d+)t")
+    helve_board_mass = _values(helve, r"\bboard:(\d+)mg attention:")
+    helve_boards = _values(helve, r"\bboard:\d+mg attention:(\d+)t")
+    helve_handles = _values(helve, r"\bhandles:400000mg attention:(\d+)t")
+    helve_bearing = _values(helve, r"\bcopper-bearing:20000mg attention:(\d+)t")
+    helve_charge = _values(helve, r"\bcharge-attention:(\d+)t")
+    helve_automated = _values(helve, r"\bautonomous:(\d+)t")
+    helve_elapsed = _values(helve, r"\belapsed:(\d+)t")
+    helve_manual = _values(helve, r"\bcomparison=\[manual-winding:(\d+)t")
+    helve_matched_elapsed = _values(
+        helve, r"\bcomparison=\[[^\]]*\bacquired-helve:(\d+)t"
+    )
+    if (
+        any(
+            len(values) != len(helve)
+            for values in (
+                helve_gather, helve_board_mass, helve_boards, helve_handles, helve_bearing,
+                helve_charge, helve_automated, helve_elapsed,
+                helve_manual, helve_matched_elapsed,
+            )
+        )
+        or any(
+            "continuity=one-exact-local-body" not in line
+            or "source=[cast:80000mg finite-timber:3000000mg]" not in line
+            or "acquired=[timber:3000000mg " not in line
+            or "upgraded:treadle-to-helve identity:preserved" not in line
+            or "production=[winding:54000mg " not in line
+            or "cast-remains:0mg" not in line
+            or "electrical=[upgrade:plate-to-wound identity:preserved capacity:" not in line
+            or "matter=conserved" not in line
+            for line in helve
+        )
+        or any(not 800_000 <= mass <= 3_000_000 for mass in helve_board_mass)
+        or any(ticks <= 0 for ticks in helve_gather + helve_automated + helve_elapsed)
+        or any(first != matched for first, matched in zip(helve_elapsed, helve_matched_elapsed))
+    ):
+        raise ValueError("foundry-to-powered reinvestment lost executed player evidence")
     cast_saw_ticks = _values(cast_stock, r"\bspare-saw-blade:54000mg attention:(\d+)t")
     cast_winding_ticks = _values(cast_stock, r"\bdynamo-winding:54000mg attention:(\d+)t")
     if len(cast_saw_ticks) != len(cast_stock) or len(cast_winding_ticks) != len(cast_stock):
@@ -202,6 +247,16 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         f"selected:blade-54g/{_span(cast_saw_ticks, 't')} "
         f"alternative:winding-54g/{_span(cast_winding_ticks, 't')} "
         "cost:60g-ingot/6g-recoverable-scrap/20g-left] "
+        f"owned-helve=[executed:{len(helve)}/{settlement_executed} "
+        f"timber:3kg gathered:{_span(helve_gather, 't')} "
+        f"fabrication:[boards:{_span(helve_boards, 't')} "
+        f"handles:{_span(helve_handles, 't')} "
+        f"bearing:{_span(helve_bearing, 't')}] "
+        f"charge:{_span(helve_charge, 't')} "
+        f"automated:{_span(helve_automated, 't')} "
+        f"elapsed:{_span(helve_elapsed, 't')} electrical:plate->wound "
+        f"comparison=[manual:{_span(helve_manual, 't')} "
+        f"acquired:{_span(helve_elapsed, 't')}]] "
         f"winding-buffer=[upgraded:{len(wound_charge)}/{len(cast_stock)} "
         f"capacity:{scaled_span(wound_capacity_before, 1_000_000_000_000, 'kJ')}"
         f"->{scaled_span(wound_capacity_after, 1_000_000_000_000, 'kJ')} "

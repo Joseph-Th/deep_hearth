@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use deep_hearth::content::gameplay_fixture::{
     seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_composed_lot, seed_lot,
-    seed_preused_assembled_equipment_at, seed_stockpile,
+    seed_preused_assembled_equipment_at, seed_stockpile, seed_surface_resource,
 };
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
@@ -12,13 +12,14 @@ use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
     EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
-    EQUIPMENT_TIMBER_TREADLE_DYNAMO, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_ELECTRICAL_WINDING,
-    FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT,
-    FORM_SAW_BLADE, FORM_SCRAP, MANUAL_POWER_HAND_CRANK, MANUAL_POWER_TREADLE_DYNAMO,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER,
-    PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE, PROCESS_COLD_WORK_CAST_COPPER_WINDING,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER,
+    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_HELVE_HAMMER,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+    EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_ELECTRICAL_WINDING, FORM_INGOT, FORM_LOG, FORM_LUMP,
+    FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP,
+    MANUAL_POWER_HAND_CRANK, MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER, PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE,
+    PROCESS_COLD_WORK_CAST_COPPER_WINDING, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -58,6 +59,8 @@ use super::production_timing::finish_uninterrupted_production_job;
 use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 #[path = "first_foundry_probe/casting.rs"]
 mod casting;
+#[path = "first_foundry_probe/powered_reinvestment.rs"]
+mod powered_reinvestment;
 #[path = "first_foundry_probe/recovery.rs"]
 mod recovery;
 
@@ -313,6 +316,18 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
 
     let mut state = AppState::new();
     let prior_workshop = seed_prior_settlement_workshop(registries, &mut state, case);
+    // A finite, physical fallen-timber source is available at the workshop site, but the
+    // player must notice and gather it before expanding the metalworking station. It remains
+    // untouched in the original manual and winding-buffer decisions.
+    seed_surface_resource(
+        registries,
+        &mut state,
+        STATIONARY_PLAYER_ORIGIN,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(3_000_000),
+        ROOM_TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_WOOD),
+    );
     let fixture_processing_line = InheritedProcessingLine {
         crusher: prior_workshop.crusher,
         separator: prior_workshop.separator,
@@ -1168,6 +1183,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         }
 
         let mut winding_alternative = state.clone();
+        let mut helve_alternative = state.clone();
         let offered_buffer_option = |state: &AppState| {
             let catalog = player_energy_store_upgrade_options(registries, state, parts)
                 .unwrap_or_else(|error| panic!("first foundry buffer catalog failed: {error}"));
@@ -1262,6 +1278,33 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             winding_stock,
             PROCESS_COLD_WORK_CAST_COPPER_WINDING,
         );
+        powered_reinvestment::execute_powered_reinvestment(
+            registries,
+            &mut helve_alternative,
+            settlement_output,
+            parts,
+            frame_saw,
+            treadle_hammer,
+            processing_line.provider,
+            processing_line.drive,
+            electrical,
+            matter_before,
+            case.seed(),
+            winding_ticks,
+        );
+        for untouched in [&state, &winding_alternative] {
+            assert_eq!(
+                untouched
+                    .available_surface_resources()
+                    .filter(|resource| {
+                        resource.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+                    })
+                    .map(|resource| resource.remaining_mass())
+                    .collect::<Vec<_>>(),
+                vec![Mass::from_milligrams(3_000_000)],
+                "counterfactual acquisition must not spend timber in another player branch",
+            );
+        }
         // One cast cannot supply the double-wound generator's two 54 g coils.
         // It can now expand the EXISTING finite electrical store through its additive
         // single-winding stage. Prove that the extra capacity changes a legal action, not just
