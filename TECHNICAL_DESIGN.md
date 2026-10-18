@@ -538,10 +538,14 @@ condition-adjusted processing time. It distinguishes missing stock and missing c
 selected option is not authority: `validate_start_player_powered_craft_option` reselects exact
 physical lots and validates current access, energy, wear, reservations and output custody.
 The first-foundry continuation also permits reinvesting one 80 g cast into the inherited treadle
-hammer: an observed finite 3 kg fallen-timber source is gathered through player-owned surface
-work, shaped through the existing frame saw and handle recipes, and combined with 20 g of cast-
-stock copper reinforcement to add the helve upgrade. The upgraded, identical equipment can then
-form a 54 g winding from the remaining 60 g ingot charge using the inherited hand-cranked
+hammer: an observed finite 2 kg fallen-timber source is gathered through player-owned surface
+work and sawn into 1.8 kg boards. Cutting 500 g of those boards yields 400 g handles and 100 g
+chips. After the 800 g helve frame investment, 500 g boards remain. The fabricated parts and
+20 g of cast-stock copper reinforcement add the helve upgrade, saving 1 kg of fallen timber
+compared with individually turning two whole logs into handles. Both the hand-crafting owner
+and the existing powered-lathe family can cut these same board handles, with identical 400 g
+handle and 100 g chip yields; the latter consumes finite mechanical work and machine condition.
+The upgraded, identical helve equipment can then form a 54 g winding from the remaining 60 g ingot charge using the inherited hand-cranked
 flywheel. That actual winding is then installed to expand the existing electrical buffer from
 15 kJ to 30 kJ. This is a matched alternate use of the same cast, not extra copper or an
 unearned machine awarded by the fixture.

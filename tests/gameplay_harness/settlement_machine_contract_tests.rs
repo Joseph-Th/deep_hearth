@@ -961,3 +961,151 @@ pub(super) fn run_toolroom_grindstone_delegation_experience() {
 fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
     run_toolroom_grindstone_delegation_experience();
 }
+
+#[test]
+fn powered_lathe_cuts_prepared_board_handles_with_finite_work_and_exact_offcuts() {
+    use deep_hearth::content::{
+        FORM_HANDLE, PROCESS_CUT_BOARD_HANDLES, PROCESS_POWER_TURN_BOARD_HANDLES,
+    };
+    use deep_hearth::crafting::{
+        player_powered_craft_options, validate_start_player_powered_craft_option,
+    };
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let prior = super::settlement_fixture::seed_inherited_workshop_package(
+        &registries,
+        &mut state,
+        &[EQUIPMENT_TIMBER_FLYWHEEL_LATHE, EQUIPMENT_STONE_HAND_CRANK],
+        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[],
+        "dressed board lathe",
+    );
+    let source = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(500_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    seed_material(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        Mass::from_milligrams(500_000),
+    );
+    let output = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(500_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[prior, source, output],
+        &[],
+        "dressed board lathe",
+    );
+    let lathe =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_TIMBER_FLYWHEEL_LATHE, prior)
+            .unwrap_or_else(|error| panic!("dressed board lathe assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("dressed board lathe commit failed: {error}"));
+    let crank = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_HAND_CRANK, prior)
+        .unwrap_or_else(|error| panic!("dressed board crank assembly failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dressed board crank commit failed: {error}"));
+    let drive =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, prior)
+            .unwrap_or_else(|error| panic!("dressed board flywheel assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("dressed board flywheel commit failed: {error}"));
+    let initial_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("dressed board mass audit failed: {error}"))
+        .total();
+    let select_option = |state: &AppState| {
+        let catalog =
+            player_powered_craft_options(&registries, state, source, PROCESS_CUT_BOARD_HANDLES)
+                .unwrap_or_else(|error| panic!("dressed board powered catalog failed: {error}"));
+        let matching = catalog
+            .into_iter()
+            .filter(|option| {
+                option.process() == PROCESS_POWER_TURN_BOARD_HANDLES
+                    && option.equipment() == lathe
+                    && option.energy_store() == drive
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matching.len(), 1, "one available board-fed lathe route");
+        matching[0]
+    };
+    let uncharged = select_option(&state);
+    assert_eq!(uncharged.batch_mass(), Mass::from_milligrams(500_000));
+    assert_eq!(uncharged.available_batches(), 1);
+    assert!(!uncharged.charge_ready());
+    assert!(
+        validate_start_player_powered_craft_option(&registries, &state, uncharged, output,)
+            .is_err(),
+        "board machining cannot create free work",
+    );
+    let charge = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            drive,
+            uncharged.required_energy(),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("dressed board lathe charging failed: {error}"));
+    let charge_work = charge.work();
+    charge
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dressed board charge commit failed: {error}"));
+    let attention = finish_manual_power_work(
+        &registries,
+        &mut state,
+        charge_work,
+        "dressed board lathe charging",
+    );
+    assert!(attention > 0);
+    let ready = select_option(&state);
+    assert!(ready.charge_ready());
+    let job = validate_start_player_powered_craft_option(&registries, &state, ready, output)
+        .unwrap_or_else(|error| panic!("dressed board powered start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dressed board powered commit failed: {error}"));
+    assert_eq!(state.player_work().active(), None);
+    finish_uninterrupted_production_job(
+        &registries,
+        &mut state,
+        job,
+        "dressed board lathe autonomous cutting",
+    );
+    let finished = state
+        .inventory()
+        .get_stockpile(output)
+        .unwrap_or_else(|| panic!("dressed board output disappeared"));
+    assert_eq!(
+        finished.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE)),
+        Mass::from_milligrams(400_000),
+    );
+    assert_eq!(
+        finished.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
+        Mass::from_milligrams(100_000),
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .unwrap_or_else(|| panic!("dressed board source disappeared"))
+            .stored_mass(),
+        Mass::ZERO,
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("dressed board final matter audit failed: {error}"))
+            .total(),
+        initial_matter,
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("dressed board final state invalid: {error}"));
+}

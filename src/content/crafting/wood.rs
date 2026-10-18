@@ -15,8 +15,8 @@ use crate::content::materials::{
     MATERIAL_WOOD,
 };
 use crate::content::processes::{
-    PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_TIMBER_FLYWHEEL, PROCESS_SHAPE_TIMBER_RIDDLE_PANEL,
-    PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    PROCESS_CUT_BOARD_HANDLES, PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_TIMBER_FLYWHEEL,
+    PROCESS_SHAPE_TIMBER_RIDDLE_PANEL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
 };
 
 mod recovery;
@@ -29,6 +29,7 @@ pub(super) fn definitions() -> Vec<ManualCraftDefinition> {
             shape_wood_boards(),
             saw_wood_boards(),
             shape_wood_handle(),
+            cut_board_handles(),
             shape_timber_flywheel(),
             shape_timber_riddle_panel(),
         ])
@@ -138,6 +139,33 @@ fn shape_wood_boards() -> ManualCraftDefinition {
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
                 Mass::from_milligrams(200_000),
+            ),
+        ],
+    )
+    .with_equipment_profile(ManualCraftEquipmentProfile::new(
+        CAPABILITY_WOODWORKING_FLOW,
+        1_000,
+    ))
+}
+
+/// Dressed straight-grained boards supply short handles with a small, accounted kerf. The saw
+/// already paid its own conversion loss. This is an efficient follow-up for a player who owns a
+/// frame saw rather than shaping every short handle from a whole log.
+fn cut_board_handles() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_CUT_BOARD_HANDLES,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        Mass::from_milligrams(500_000),
+        TickSpan::new(55),
+        wood_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+                Mass::from_milligrams(100_000),
             ),
         ],
     )

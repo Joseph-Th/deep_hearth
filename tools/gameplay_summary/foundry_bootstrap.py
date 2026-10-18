@@ -92,8 +92,8 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         )
         or any(
             "continuity=one-exact-local-body" not in line
-            or "source=[cast:80000mg finite-timber:3000000mg]" not in line
-            or "acquired=[timber:3000000mg " not in line
+            or "source=[cast:80000mg finite-timber:2000000mg]" not in line
+            or "acquired=[timber:2000000mg " not in line
             or "upgraded:treadle-to-helve identity:preserved" not in line
             or "production=[winding:54000mg " not in line
             or "cast-remains:0mg" not in line
@@ -101,7 +101,7 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
             or "matter=conserved" not in line
             for line in helve
         )
-        or any(not 800_000 <= mass <= 3_000_000 for mass in helve_board_mass)
+        or any(mass != 1_800_000 for mass in helve_board_mass)
         or any(ticks <= 0 for ticks in helve_gather + helve_automated + helve_elapsed)
         or any(first != matched for first, matched in zip(helve_elapsed, helve_matched_elapsed))
     ):
@@ -248,7 +248,7 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         f"alternative:winding-54g/{_span(cast_winding_ticks, 't')} "
         "cost:60g-ingot/6g-recoverable-scrap/20g-left] "
         f"owned-helve=[executed:{len(helve)}/{settlement_executed} "
-        f"timber:3kg gathered:{_span(helve_gather, 't')} "
+        f"timber:2kg gathered:{_span(helve_gather, 't')} "
         f"fabrication:[boards:{_span(helve_boards, 't')} "
         f"handles:{_span(helve_handles, 't')} "
         f"bearing:{_span(helve_bearing, 't')}] "

@@ -4,6 +4,77 @@ use super::*;
 use crate::crafting::ManualCraftOutput;
 
 #[test]
+fn dressed_board_handles_retain_material_and_save_fresh_timber() {
+    let registries = build_registries();
+    let board_handles = registries
+        .crafting()
+        .get_manual(PROCESS_CUT_BOARD_HANDLES)
+        .unwrap_or_else(|| panic!("board-to-handle process missing"));
+    assert_eq!(
+        board_handles.input(),
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)
+    );
+    assert_eq!(board_handles.input_mass(), Mass::from_milligrams(500_000));
+    assert_eq!(board_handles.outputs().len(), 2);
+    assert_eq!(
+        board_handles
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE))
+            .map(|output| output.mass()),
+        Some(Mass::from_milligrams(400_000)),
+    );
+    assert_eq!(
+        board_handles
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))
+            .map(|output| output.mass()),
+        Some(Mass::from_milligrams(100_000)),
+    );
+    assert_eq!(
+        board_handles
+            .outputs()
+            .iter()
+            .map(|output| output.mass().milligrams())
+            .sum::<u64>(),
+        board_handles.input_mass().milligrams(),
+    );
+    let sawing = registries
+        .crafting()
+        .get_manual(PROCESS_SAW_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("frame-saw boards missing"));
+    let dressed = sawing
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+        .unwrap_or_else(|| panic!("frame saw no longer outputs boards"))
+        .mass();
+    assert!(
+        dressed
+            .checked_add(dressed)
+            .is_some_and(|stock| stock >= Mass::from_milligrams(1_300_000)),
+        "two logs must supply the helve's 800 g boards plus a 500 g handle blank"
+    );
+    let log_handle = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_HANDLE)
+        .unwrap_or_else(|| panic!("direct log handle recipe missing"));
+    assert!(
+        log_handle.input_mass().milligrams() * 2 + sawing.input_mass().milligrams()
+            > sawing.input_mass().milligrams() * 2,
+        "800 g boards plus 400 g handles must cost less timber via prepared stock"
+    );
+    let powered = registries
+        .crafting()
+        .get_powered(PROCESS_POWER_TURN_BOARD_HANDLES)
+        .unwrap_or_else(|| panic!("powered lathe lost the dressed-board handle route"));
+    assert_eq!(powered.transform(), PROCESS_CUT_BOARD_HANDLES);
+    assert_eq!(powered.energy_carrier(), EnergyCarrier::Mechanical);
+    assert!(powered.specific_energy().nanojoules_per_milligram() > 0);
+}
+
+#[test]
 fn powered_sawing_reduces_repetitive_blade_wear_without_removing_maintenance() {
     let registries = build_registries();
     let powered = registries

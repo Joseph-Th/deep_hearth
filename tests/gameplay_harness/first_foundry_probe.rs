@@ -324,7 +324,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         &mut state,
         STATIONARY_PLAYER_ORIGIN,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(3_000_000),
+        Mass::from_milligrams(2_000_000),
         ROOM_TEMPERATURE,
         MaterialComposition::pure(MATERIAL_WOOD),
     );
@@ -1301,7 +1301,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
                     })
                     .map(|resource| resource.remaining_mass())
                     .collect::<Vec<_>>(),
-                vec![Mass::from_milligrams(3_000_000)],
+                vec![Mass::from_milligrams(2_000_000)],
                 "counterfactual acquisition must not spend timber in another player branch",
             );
         }

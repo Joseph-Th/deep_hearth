@@ -82,6 +82,9 @@ pub const PROCESS_PIERCE_CAST_COPPER_SCREEN_PLATE: ProcessId = ProcessId::new(69
 pub const PROCESS_POWER_HAMMER_CAST_COPPER_SAW_BLADE: ProcessId = ProcessId::new(70);
 pub const PROCESS_POWER_HAMMER_CAST_COPPER_WINDING: ProcessId = ProcessId::new(71);
 pub const PROCESS_POWER_DRILL_CAST_COPPER_SCREEN_PLATE: ProcessId = ProcessId::new(72);
+/// Rip prepared board stock into short handle blanks with explicit offcuts.
+pub const PROCESS_CUT_BOARD_HANDLES: ProcessId = ProcessId::new(73);
+pub const PROCESS_POWER_TURN_BOARD_HANDLES: ProcessId = ProcessId::new(74);
 
 mod fabrication;
 mod ore;

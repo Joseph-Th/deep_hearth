@@ -1,7 +1,9 @@
 //! Same-world reinvestment from cast copper into an owned, operating helve hammer.
 
 use super::*;
-use deep_hearth::content::{FORM_BOARD, FORM_HANDLE, PROCESS_POWER_HAMMER_CAST_COPPER_WINDING};
+use deep_hearth::content::{
+    FORM_BOARD, FORM_HANDLE, PROCESS_CUT_BOARD_HANDLES, PROCESS_POWER_HAMMER_CAST_COPPER_WINDING,
+};
 use deep_hearth::crafting::{
     player_powered_craft_options, validate_start_player_powered_craft_option,
 };
@@ -62,7 +64,7 @@ pub(super) fn execute_powered_reinvestment(
         "one local fallen-timber deposit must be visible"
     );
     let opportunity = timber_options[0];
-    let raw_timber = Mass::from_milligrams(3_000_000);
+    let raw_timber = Mass::from_milligrams(2_000_000);
     assert_eq!(opportunity.source_mass(), raw_timber);
     assert!(opportunity.maximum_batch_mass() >= raw_timber);
     validate_start_player_surface_gathering_option(registries, state, opportunity, raw_timber)
@@ -116,7 +118,7 @@ pub(super) fn execute_powered_reinvestment(
         &[carried],
         &[frame_saw],
         board,
-        Mass::from_milligrams(800_000),
+        Mass::from_milligrams(1_300_000),
         "helve reinforcement boards",
     );
     let boards_ticks =
@@ -128,15 +130,20 @@ pub(super) fn execute_powered_reinvestment(
         .get_mass(board)
         .checked_sub(board_before)
         .unwrap_or_else(|| panic!("helve board shaping lost inventory matter"));
-    assert!(board_gained >= Mass::from_milligrams(800_000));
+    assert_eq!(board_gained, Mass::from_milligrams(1_800_000));
     let (handles, _) = manual_craft_plan_with_available_equipment(
         registries,
         state,
-        &[carried],
-        &[frame_saw],
+        &[parts],
+        &[],
         CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
         Mass::from_milligrams(400_000),
         "helve reinforcement handles",
+    );
+    assert_eq!(
+        handles.process(),
+        PROCESS_CUT_BOARD_HANDLES,
+        "an established saw must make economical handles from its prepared boards"
     );
     let handles_ticks = execute_manual_craft(
         registries,
@@ -263,7 +270,7 @@ pub(super) fn execute_powered_reinvestment(
     assert!(
         output.get_mass(board)
             >= board_gained
-                .checked_sub(Mass::from_milligrams(800_000))
+                .checked_sub(Mass::from_milligrams(1_300_000))
                 .unwrap_or_else(|| unreachable!("board production covers assembly"))
     );
     let installed_before = state
@@ -320,7 +327,7 @@ pub(super) fn execute_powered_reinvestment(
         .nanojoules();
     assert!(upgraded_capacity > base_capacity);
     reviewln!(
-        "FIRST FOUNDRY HELVE REINVESTMENT seed=0x{seed:016X} continuity=one-exact-local-body source=[cast:80000mg finite-timber:3000000mg] acquired=[timber:3000000mg gather-attention:{gathering_ticks}t] fabricated=[board:{}mg attention:{boards_ticks}t handles:400000mg attention:{handles_ticks}t copper-bearing:20000mg attention:{bearing_ticks}t] capital=[upgraded:treadle-to-helve identity:preserved] production=[winding:54000mg charge-attention:{charge_ticks}t autonomous:{machine_ticks}t cast-remains:0mg] electrical=[upgrade:plate-to-wound identity:preserved capacity:{base_capacity}->{upgraded_capacity}nJ] comparison=[manual-winding:{manual_winding_ticks}t acquired-helve:{}t] elapsed:{}t matter=conserved",
+        "FIRST FOUNDRY HELVE REINVESTMENT seed=0x{seed:016X} continuity=one-exact-local-body source=[cast:80000mg finite-timber:2000000mg] acquired=[timber:2000000mg gather-attention:{gathering_ticks}t] fabricated=[board:{}mg attention:{boards_ticks}t handles:400000mg attention:{handles_ticks}t copper-bearing:20000mg attention:{bearing_ticks}t] capital=[upgraded:treadle-to-helve identity:preserved] production=[winding:54000mg charge-attention:{charge_ticks}t autonomous:{machine_ticks}t cast-remains:0mg] electrical=[upgrade:plate-to-wound identity:preserved capacity:{base_capacity}->{upgraded_capacity}nJ] comparison=[manual-winding:{manual_winding_ticks}t acquired-helve:{}t] elapsed:{}t matter=conserved",
         board_gained.milligrams(),
         state.tick().value() - started_at,
         state.tick().value() - started_at,

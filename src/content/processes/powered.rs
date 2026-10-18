@@ -15,12 +15,17 @@ use super::{
     PROCESS_POWER_HAMMER_CAST_COPPER_WINDING, PROCESS_POWER_HAMMER_COPPER_ELECTRICAL_WINDING,
     PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT, PROCESS_POWER_HAMMER_COPPER_SAW_BLADE,
     PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT, PROCESS_POWER_SAW_WOOD_BOARDS,
-    PROCESS_POWER_TURN_TIMBER_FLYWHEEL, PROCESS_POWER_TURN_WOOD_HANDLE,
-    single_mass_flow_requirement,
+    PROCESS_POWER_TURN_BOARD_HANDLES, PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+    PROCESS_POWER_TURN_WOOD_HANDLE, single_mass_flow_requirement,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 14] {
+pub(super) fn definitions() -> [ProcessDefinition; 15] {
     [
+        ProcessDefinition::new(
+            PROCESS_POWER_TURN_BOARD_HANDLES,
+            "power-turn handles from dressed boards",
+            single_mass_flow_requirement(CAPABILITY_POWERED_WOOD_TURNING_FLOW),
+        ),
         ProcessDefinition::new(
             PROCESS_POWER_HAMMER_CAST_COPPER_SAW_BLADE,
             "power-hammer cast copper saw blade",
