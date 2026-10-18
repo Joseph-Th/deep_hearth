@@ -185,6 +185,10 @@ pub fn advance_control_tick_with_direct_input(
     let fall_vitality_loss_ppm = settlement_plan
         .as_ref()
         .map_or(0, |plan| plan.settled_fall_vitality_loss_ppm());
+    // The slow tick may be fatal. Record buffered intent before the death transition clears it:
+    // the outer control step still owes the actor an observable rejection.
+    let has_pending_primary = state.logistics().pending_primary_break().is_some();
+    let has_pending_secondary = state.logistics().pending_secondary_use().is_some();
     let simulation = advance_simulation_tick(
         registries,
         state,
@@ -192,8 +196,10 @@ pub fn advance_control_tick_with_direct_input(
         locomotion_exertion,
         fall_vitality_loss_ppm,
     )?;
-    let has_pending_primary = state.logistics().pending_primary_break().is_some();
-    let has_pending_secondary = state.logistics().pending_secondary_use().is_some();
+    let player_dead = state
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() == crate::survival::Vitality::ZERO);
     let preserve_pending_context = (has_pending_primary && input.primary().is_none())
         || (has_pending_secondary && input.secondary().is_none());
     let body_input = if preserve_pending_context {
@@ -207,13 +213,23 @@ pub fn advance_control_tick_with_direct_input(
     let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
         .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
     let quick_access = attempt_quick_access_selection(state, input.quick_access_slot());
-    let pending_primary = if has_pending_primary && input.primary().is_some() {
+    let pending_primary = if has_pending_primary && player_dead {
+        input
+            .primary()
+            .is_none()
+            .then_some(PrimaryActionOutcome::PlayerDead)
+    } else if has_pending_primary && input.primary().is_some() {
         let _ = crate::logistics::take_player_pending_primary_break(state);
         None
     } else {
         attempt_pending_primary_break(registries, state)
     };
-    let pending_secondary = if has_pending_secondary && input.secondary().is_some() {
+    let pending_secondary = if has_pending_secondary && player_dead {
+        input
+            .secondary()
+            .is_none()
+            .then_some(SecondaryActionOutcome::PlayerDead)
+    } else if has_pending_secondary && input.secondary().is_some() {
         let _ = crate::logistics::take_player_pending_secondary_use(state);
         None
     } else {
@@ -534,6 +550,12 @@ fn advance_simulation_tick(
     apply_player_work_tick(state, player_work_plan);
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
+    if player_dead_after_tick {
+        // Buffered actions are only valid for a living player. Clear them inside the slow
+        // transaction, before its invariant check and any subsequent save can observe death.
+        let _ = crate::logistics::take_player_pending_primary_break(state);
+        let _ = crate::logistics::take_player_pending_secondary_use(state);
+    }
     apply_clock_advance(state, next_tick);
 
     debug_assert_runtime_invariants(registries, state, world_revision_before);

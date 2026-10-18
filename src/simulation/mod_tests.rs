@@ -22,14 +22,197 @@ use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::registry::Registries;
-use crate::spatial::{NANOMETERS_PER_VOXEL, VoxelCoord};
-use crate::survival::{SurvivalAssessment, Vitality, initialize_player_survival, player_record};
+use crate::spatial::{
+    NANOMETERS_PER_VOXEL, VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord,
+};
+use crate::survival::{
+    SurvivalAssessment, Vitality, initialize_player_survival, player_record,
+    player_record_with_thermal_comfort,
+};
 use crate::world::{
     BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
     set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 
 const DISSIPATIVE_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(510_001);
+
+#[test]
+fn direct_interactions_reject_missing_and_dead_player_before_context_resolution() {
+    let registries = build_registries();
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
+        .unwrap_or_else(|error| panic!("direct interaction view is invalid: {error}"));
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(direction))
+        .with_primary(PrimaryControlIntent::break_target(direction))
+        .with_drop_active_selection();
+
+    let mut absent = AppState::new();
+    let absent_before = absent.clone();
+    let absent_action = advance_control_tick_with_direct_input(&registries, &mut absent, input)
+        .unwrap_or_else(|error| panic!("unadmitted contextual-use control failed: {error}"));
+    assert_eq!(
+        absent_action.secondary_action(),
+        Some(&SecondaryActionOutcome::PlayerNotAdmitted)
+    );
+    assert_eq!(
+        absent_action.primary_action(),
+        Some(&PrimaryActionOutcome::PlayerNotAdmitted)
+    );
+    assert_eq!(
+        absent_action.active_selection_drop(),
+        Some(&ActiveSelectionDropOutcome::PlayerNotAdmitted)
+    );
+    assert_eq!(absent.control_tick(), absent_action.control_tick());
+    assert!(absent.logistics().player().is_none());
+    assert_eq!(absent.inventory(), absent_before.inventory());
+    assert_eq!(absent.survival(), absent_before.survival());
+    assert_eq!(absent.player_work(), absent_before.player_work());
+
+    let mut dead = AppState::new();
+    let _ = validate_admit_player(&registries, &dead, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("dead contextual-use admission failed: {error}"))
+        .commit(&mut dead)
+        .unwrap_or_else(|error| panic!("dead contextual-use admission commit failed: {error}"));
+    let before = dead
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("dead contextual-use player missing"));
+    let revision = dead.survival().revision();
+    dead.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::ZERO,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    let dead_before = dead.clone();
+    let dead_action = advance_control_tick_with_direct_input(&registries, &mut dead, input)
+        .unwrap_or_else(|error| panic!("dead contextual-use control failed: {error}"));
+    assert_eq!(
+        dead_action.secondary_action(),
+        Some(&SecondaryActionOutcome::PlayerDead)
+    );
+    assert_eq!(
+        dead_action.primary_action(),
+        Some(&PrimaryActionOutcome::PlayerDead)
+    );
+    assert_eq!(
+        dead_action.active_selection_drop(),
+        Some(&ActiveSelectionDropOutcome::PlayerDead)
+    );
+    assert_eq!(dead.player_work().active(), None);
+    assert!(!dead.logistics().has_pending_direct_action());
+    assert_eq!(dead.inventory(), dead_before.inventory());
+    assert_eq!(dead.survival(), dead_before.survival());
+    assert_eq!(dead.player_work(), dead_before.player_work());
+}
+
+#[test]
+fn fatal_simulation_boundary_clears_buffered_direct_actions_before_state_validation() {
+    use crate::logistics::{
+        validate_buffer_player_primary_break, validate_buffer_player_secondary_use,
+    };
+    use crate::structural::StructuralElementId;
+
+    let registries = build_registries();
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
+        .unwrap_or_else(|error| panic!("fatal-buffer direction invalid: {error}"));
+    for primary in [false, true] {
+        let mut state = AppState::new();
+        let _ = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+            .unwrap_or_else(|error| panic!("fatal-buffer admission rejected: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("fatal-buffer admission commit failed: {error}"));
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fatal-buffer off-boundary setup failed: {error}"));
+        if primary {
+            validate_buffer_player_primary_break(&state, StructuralElementId::new(1), direction)
+                .unwrap_or_else(|error| panic!("primary buffering failed: {error}"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| panic!("primary buffering commit failed: {error}"));
+        } else {
+            validate_buffer_player_secondary_use(&state, direction)
+                .unwrap_or_else(|error| panic!("secondary buffering failed: {error}"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| panic!("secondary buffering commit failed: {error}"));
+        }
+        let before = state
+            .survival()
+            .player()
+            .copied()
+            .unwrap_or_else(|| panic!("fatal-buffer survival player missing"));
+        let revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            revision,
+            revision + 1,
+            player_record_with_thermal_comfort(
+                Energy::ZERO,
+                before.hydration(),
+                Vitality::from_parts_per_million_unchecked(
+                    registries
+                        .survival()
+                        .physiology()
+                        .starvation_vitality_loss_ppm_per_tick(),
+                ),
+                before.nutrition(),
+                before.vitality_recovery_remainder(),
+                before.thermal_comfort_ppm(),
+            ),
+        );
+        assert_eq!(
+            crate::core::state::validate_loaded_state(&registries, &state),
+            Ok(())
+        );
+
+        let mut boundary = None;
+        for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+            boundary = Some(
+                advance_control_tick(&registries, &mut state)
+                    .unwrap_or_else(|error| panic!("fatal-buffer control failed: {error}")),
+            );
+        }
+        let boundary = boundary.unwrap_or_else(|| panic!("fatal-buffer boundary not reached"));
+        assert!(boundary.simulation().is_some());
+        assert_eq!(
+            state.survival().player().map(|player| player.vitality()),
+            Some(Vitality::ZERO)
+        );
+        assert!(!state.logistics().has_pending_direct_action());
+        if primary {
+            assert_eq!(
+                boundary.primary_action(),
+                Some(&PrimaryActionOutcome::PlayerDead)
+            );
+            assert_eq!(boundary.secondary_action(), None);
+        } else {
+            assert_eq!(
+                boundary.secondary_action(),
+                Some(&SecondaryActionOutcome::PlayerDead)
+            );
+            assert_eq!(boundary.primary_action(), None);
+        }
+        assert_eq!(
+            crate::core::state::validate_loaded_state(&registries, &state),
+            Ok(())
+        );
+        let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("fatal-buffer serialization failed: {error}"));
+        let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+            .unwrap_or_else(|error| panic!("fatal-buffer decoding failed: {error}"));
+        assert_eq!(
+            loaded
+                .into_state(&registries)
+                .unwrap_or_else(|error| panic!("fatal-buffer trusted load failed: {error}")),
+            state
+        );
+    }
+}
 
 fn passive_dissipation_registries() -> Registries {
     make_test_registries_with_energy_store(

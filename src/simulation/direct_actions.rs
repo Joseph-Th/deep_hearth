@@ -17,6 +17,7 @@ use crate::logistics::{
     validate_select_quick_access_slot,
 };
 use crate::material::CommodityKey;
+use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{
@@ -113,6 +114,15 @@ fn attempt_primary_action(
     intent: Option<PrimaryControlIntent>,
 ) -> Option<PrimaryActionOutcome> {
     let intent = intent?;
+    match validate_player_action(state) {
+        Ok(_) => {}
+        Err(PlayerActionValidationError::PlayerNotAdmitted) => {
+            return Some(PrimaryActionOutcome::PlayerNotAdmitted);
+        }
+        Err(PlayerActionValidationError::PlayerDead) => {
+            return Some(PrimaryActionOutcome::PlayerDead);
+        }
+    }
     match intent {
         PrimaryControlIntent::BreakTarget { direction } => {
             Some(attempt_primary_break(registries, state, direction))
@@ -154,6 +164,15 @@ fn attempt_secondary_action_now(
     state: &mut AppState,
     direction: ViewDirection,
 ) -> SecondaryActionOutcome {
+    match validate_player_action(state) {
+        Ok(_) => {}
+        Err(PlayerActionValidationError::PlayerNotAdmitted) => {
+            return SecondaryActionOutcome::PlayerNotAdmitted;
+        }
+        Err(PlayerActionValidationError::PlayerDead) => {
+            return SecondaryActionOutcome::PlayerDead;
+        }
+    }
     match state.logistics().active_selection() {
         None => attempt_empty_hand_secondary_action(registries, state),
         Some(selection) => {
@@ -1068,6 +1087,15 @@ fn attempt_active_selection_drop(
 ) -> Option<ActiveSelectionDropOutcome> {
     if !requested {
         return None;
+    }
+    match validate_player_action(state) {
+        Ok(_) => {}
+        Err(PlayerActionValidationError::PlayerNotAdmitted) => {
+            return Some(ActiveSelectionDropOutcome::PlayerNotAdmitted);
+        }
+        Err(PlayerActionValidationError::PlayerDead) => {
+            return Some(ActiveSelectionDropOutcome::PlayerDead);
+        }
     }
     let Some(selection) = state.logistics().active_selection() else {
         return Some(ActiveSelectionDropOutcome::NoActiveSelection);

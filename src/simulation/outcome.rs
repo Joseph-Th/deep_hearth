@@ -39,6 +39,8 @@ use crate::world::{
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PrimaryActionOutcome {
+    PlayerNotAdmitted,
+    PlayerDead,
     BlockExcavationStarted(BlockExcavationStartOutcome),
     BlockExcavationRejected(BlockExcavationError),
     StructuralDismantlingStarted(StructuralDismantlingStartOutcome),
@@ -139,6 +141,8 @@ pub enum SecondaryActionOutcome {
     BufferedContextChanged,
     BufferRejected(PlayerPendingSecondaryUseError),
     DeferredUntilSimulationBoundary,
+    PlayerNotAdmitted,
+    PlayerDead,
     NoActiveSelection,
     ActiveEquipmentNotContextual,
     MaterialUnavailable,
@@ -177,6 +181,8 @@ pub enum SecondaryActionOutcome {
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActiveSelectionDropOutcome {
+    PlayerNotAdmitted,
+    PlayerDead,
     EquipmentDropped {
         equipment: EquipmentId,
         position: VoxelCoord,
