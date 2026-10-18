@@ -74,6 +74,10 @@ pub const PROCESS_HAND_GRIND_CRUSHED_ORE: ProcessId = ProcessId::new(63);
 pub const PROCESS_KNAP_STONE_CRUSHER_JAW_FACE: ProcessId = ProcessId::new(64);
 pub const PROCESS_SHAPE_STONE_CRUSHER_BLOCK: ProcessId = ProcessId::new(65);
 pub const PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL: ProcessId = ProcessId::new(66);
+/// Cast stock feeds higher-value metalwork without first being converted into native copper.
+pub const PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE: ProcessId = ProcessId::new(67);
+pub const PROCESS_COLD_WORK_CAST_COPPER_WINDING: ProcessId = ProcessId::new(68);
+pub const PROCESS_PIERCE_CAST_COPPER_SCREEN_PLATE: ProcessId = ProcessId::new(69);
 
 mod fabrication;
 mod ore;

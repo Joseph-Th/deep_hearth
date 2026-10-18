@@ -10,12 +10,15 @@ use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
     ENERGY_STONE_THERMAL_SINK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-    EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
-    EQUIPMENT_TIMBER_TREADLE_DYNAMO, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_INGOT, FORM_LOG,
-    FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK,
-    MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_CAST_PURE_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER,
+    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
+    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
+    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_TREADLE_DYNAMO, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_ELECTRICAL_WINDING,
+    FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT,
+    FORM_SAW_BLADE, FORM_SCRAP, MANUAL_POWER_HAND_CRANK, MANUAL_POWER_TREADLE_DYNAMO,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER,
+    PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE, PROCESS_COLD_WORK_CAST_COPPER_WINDING,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -1136,6 +1139,108 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         );
     }
 
+    // The foundry must create useful inputs for subsequent workshop work, not merely a bigger
+    // mold. Both proposed jobs start from the same real 80 g cast with no additional copper.
+    // A second branch is a counterfactual, never credited to the selected player's inventory.
+    let mut cast_stock_attention = 0_u64;
+    if settlement_batch_executed {
+        let saw_stock = CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE);
+        let winding_stock = CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING);
+        for (target_equipment, component) in [
+            (EQUIPMENT_TIMBER_FRAME_SAW_BENCH, saw_stock),
+            (EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, winding_stock),
+        ] {
+            let assembly = registries
+                .equipment()
+                .get_equipment(target_equipment)
+                .and_then(|definition| definition.assembly_profile())
+                .unwrap_or_else(|| panic!("downstream cast-stock equipment assembly disappeared"));
+            assert!(
+                assembly
+                    .inputs()
+                    .iter()
+                    .any(|input| input.commodity() == component),
+                "cast-stock output must be an actual workshop component"
+            );
+        }
+
+        let mut winding_alternative = state.clone();
+        let fabricate = |branch: &mut AppState, component: CommodityKey, expected_process| {
+            let (plan, _) = manual_craft_plan_with_available_equipment(
+                registries,
+                branch,
+                &[settlement_output],
+                &workshop_tools,
+                component,
+                Mass::from_milligrams(54_000),
+                "first foundry cast-stock workshop choice",
+            );
+            assert_eq!(
+                plan.process(),
+                expected_process,
+                "post-foundry player must select direct cast-stock fabrication, not a synthetic shortcut"
+            );
+            let scrap = CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP);
+            let initial_scrap = branch
+                .inventory()
+                .get_stockpile(parts)
+                .unwrap_or_else(|| panic!("post-foundry parts stockpile disappeared"))
+                .get_mass(scrap);
+            let ticks = execute_manual_craft(
+                registries,
+                branch,
+                plan,
+                parts,
+                "first foundry cast-stock fabrication",
+            );
+            let source = branch
+                .inventory()
+                .get_stockpile(settlement_output)
+                .unwrap_or_else(|| panic!("post-foundry cast-stock source disappeared"));
+            let destination = branch
+                .inventory()
+                .get_stockpile(parts)
+                .unwrap_or_else(|| panic!("post-foundry workshop output disappeared"));
+            assert_eq!(
+                source.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)),
+                Mass::from_milligrams(20_000),
+                "each workshop option must retain the same useful 20 g of unspent cast copper"
+            );
+            assert!(destination.get_mass(component) >= Mass::from_milligrams(54_000));
+            assert_eq!(
+                destination.get_mass(scrap).checked_sub(initial_scrap),
+                Some(Mass::from_milligrams(6_000)),
+                "cast-stock fabrication must retain the exact copper offcuts"
+            );
+            assert_eq!(
+                calculate_matter_accounting(branch)
+                    .unwrap_or_else(|error| panic!("post-foundry matter audit failed: {error}"))
+                    .total(),
+                matter_before,
+            );
+            validate_loaded_state(registries, branch)
+                .unwrap_or_else(|error| panic!("post-foundry state invalid: {error}"));
+            ticks.value()
+        };
+        let saw_ticks = fabricate(
+            &mut state,
+            saw_stock,
+            PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE,
+        );
+        let winding_ticks = fabricate(
+            &mut winding_alternative,
+            winding_stock,
+            PROCESS_COLD_WORK_CAST_COPPER_WINDING,
+        );
+        cast_stock_attention = saw_ticks;
+        reviewln!(
+            "FIRST FOUNDRY CAST-STOCK seed=0x{:016X} evidence=matched-ordinary-actor-branches source=real-settlement-size-cast source-mass=80000mg selected=[spare-saw-blade:54000mg attention:{}t] alternative=[dynamo-winding:54000mg attention:{}t] shared-cost=[ingot:60000mg offcuts:6000mg retained-ingot:20000mg] destinations=[frame-saw:existing-component double-wound-dynamo:existing-component] matter=conserved state=validated",
+            case.seed(),
+            saw_ticks,
+            winding_ticks,
+        );
+    }
+
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("first foundry final state invalid: {error}"));
     assert_eq!(
@@ -1155,6 +1260,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let total_player_attention = direct_native_ticks
         .checked_add(recovery_attention)
         .and_then(|ticks| ticks.checked_add(active_foundry_ticks))
+        .and_then(|ticks| ticks.checked_add(cast_stock_attention))
         .unwrap_or_else(|| panic!("first foundry total player attention overflowed"));
     let bootstrap_autonomous_ticks = melt_ticks
         .checked_add(cast_ticks)

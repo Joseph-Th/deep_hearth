@@ -8,16 +8,16 @@ Use [`README.md`](README.md) for routing, [`GAME_DESIGN.md`](GAME_DESIGN.md) for
 
 Progression:
 
-`local clues -> prospecting -> mining -> native-copper dressing -> primitive mechanization -> copper upgrades -> settlement mechanization -> first foundry -> settlement batch foundry`
+`local clues -> prospecting -> mining -> native-copper dressing -> primitive mechanization -> copper upgrades -> settlement mechanization -> first foundry -> settlement batch foundry -> cast components`
 
 | Area | Reachable capability |
 | --- | --- |
-| Survival and labor | Metabolism, hydration, vitality, nutrition, perishability, timed stack-aware intake, exertion, preservation, cover-sensitive warmth, and exclusive work. |
+| Survival and labor | Metabolism, hydration, vitality, diet, spoilage, timed intake, exertion, preservation, warmth and exclusive work. |
 | Materials and inventory | Typed commodities, exact lots, finite stockpiles/reservations, provenance, temperature, storage effects, and matter accounting. |
 | Prospecting and mining | Player-facing survey choices, bounded evidence, tool-dependent extraction, and inventory claim. Hidden reserves remain non-public. |
-| Crafting and equipment | Manual shaping, wear, service, primitive machines, copper upgrades, field instruments, wire drawing, and workshop upgrades. |
+| Crafting and equipment | Manual shaping, tool wear/service, primitive machines, field instruments and copper/workshop upgrades. |
 | Power | Human-powered providers, finite mechanical stores, direct treadle generation, and finite electrical storage. Generic power networks are absent. |
-| Processing | Crushing, grinding, sizing, concentration, scavenging, native-copper cleanup, copper forming, and first/settlement foundry routes. Compound-ore reduction is absent. |
+| Processing | Ore dressing, copper forming, first/batch casting and cast ingot-to-blade/winding/screen fabrication. Ore reduction is absent. |
 | Opening wilderness acquisition | Berry/nut/water/clay/stone/timber graph, continuous-body proof, finite fire/light, and a same-state camp/refuge route. General pathfinding, enclosure, and weather are absent. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 

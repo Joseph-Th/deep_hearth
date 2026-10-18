@@ -521,7 +521,11 @@ the remaining cohort distribution at whole-milligram precision, so crafting neit
 free temperature separation. Powered crafting delegates the same material/yield transform. Optional equipment may
 reduce attention through canonical condition-adjusted throughput; required equipment rejects the equipment-free
 route. Equipment changes throughput/wear, not recipe yield. Scrap/chip outputs remain represented matter until an
-explicit authored recovery process consumes them.
+explicit authored recovery process consumes them. Cast copper ingots also feed three direct
+manual-work routes: a 60 g ingot becomes a 54 g saw blade or electrical winding plus 6 g scrap,
+and a 20 g ingot becomes an 18 g pierced sizing plate plus 2 g scrap. They retain the existing
+component forms, equipment requirements, and embodied downstream consumers instead of a
+parallel foundry-only parts vocabulary; the original native/reinforcement routes remain available.
 
 ### Physical resolvers
 

@@ -56,6 +56,15 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
     mold_from = _values(builds, r"\bmold-upgrade=\[(\d+)mg->")
     mold_to = _values(builds, r"\bmold-upgrade=\[\d+mg->(\d+)mg\]")
     settlement_executed = sum(" settlement-cast=[executed:true " in line for line in builds)
+    cast_stock = [line for line in lines if line.startswith("FIRST FOUNDRY CAST-STOCK ")]
+    if len(cast_stock) != settlement_executed:
+        raise ValueError(
+            "foundry output lost its executed cast-stock manufacturing continuation"
+        )
+    cast_saw_ticks = _values(cast_stock, r"\bspare-saw-blade:54000mg attention:(\d+)t")
+    cast_winding_ticks = _values(cast_stock, r"\bdynamo-winding:54000mg attention:(\d+)t")
+    if len(cast_saw_ticks) != len(cast_stock) or len(cast_winding_ticks) != len(cast_stock):
+        raise ValueError("foundry cast-stock branch lost measurable fabrication work")
     settlement_shortfall = _values(
         builds, r"\bsettlement-cast=\[[^\]]*\bsupply-shortfall:(\d+)mg"
     )
@@ -158,6 +167,10 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         f"settlement-batch=[executed:{settlement_executed}/{len(builds)} "
         f"supply-shortfall:{scaled_span(settlement_shortfall, 1_000, 'g')} "
         f"cooldown:{_span(settlement_cooldown, 't')}] "
+        f"cast-stock=[executed:{len(cast_stock)}/{settlement_executed} "
+        f"selected:blade-54g/{_span(cast_saw_ticks, 't')} "
+        f"alternative:winding-54g/{_span(cast_winding_ticks, 't')} "
+        "cost:60g-ingot/6g-recoverable-scrap/20g-left] "
         f"rhythm=[bootstrap-cooldown:{_span(cooldown, 't')} "
         f"bootstrap-autonomous:{_span(autonomous, 't')}] "
         f"attention=[build:{_span(build_attention, 't')} defer:{_span(defer_attention, 't')}] "

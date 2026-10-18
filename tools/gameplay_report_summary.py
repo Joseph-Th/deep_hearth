@@ -229,6 +229,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "electrical-transition",
         "workshop-reuse",
         "settlement-batch",
+        "cast-stock",
     ),
     "survival": (
         "pressure",

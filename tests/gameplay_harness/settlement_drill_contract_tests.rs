@@ -30,6 +30,115 @@ use super::settlement_workshop_investment::{
     PoweredProjectPlan, execute_powered_project, project_powered_project,
 };
 
+#[test]
+fn cast_copper_stock_pierces_into_a_real_screen_plate_with_owned_drill() {
+    let registries = build_registries();
+    let pump_profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("ordinary pump drill assembly disappeared"));
+    let mut state = AppState::new();
+    let components = seed_stockpile(
+        &mut state,
+        pump_profile.input_mass(),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    for input in pump_profile.inputs() {
+        seed_material(
+            &registries,
+            &mut state,
+            components,
+            input.commodity(),
+            input.mass(),
+        );
+    }
+    let ingots = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(20_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    seed_material(
+        &registries,
+        &mut state,
+        ingots,
+        CommodityKey::new(MATERIAL_COPPER, deep_hearth::content::FORM_INGOT),
+        Mass::from_milligrams(20_000),
+    );
+    let output = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(20_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[components, ingots, output],
+        &[],
+        "cast copper plate workshop",
+    );
+    let initial_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("cast plate matter setup invalid: {error}"))
+        .total();
+    let pump = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+        components,
+    )
+    .unwrap_or_else(|error| panic!("cast plate drill assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("cast plate drill commit failed: {error}"));
+
+    let bare_request = select_manual_craft_request(
+        &registries,
+        &state,
+        deep_hearth::content::PROCESS_PIERCE_CAST_COPPER_SCREEN_PLATE,
+        ingots,
+        1,
+        "cast copper sizing plate",
+    );
+    let before_rejection = state.clone();
+    assert!(
+        resolve_manual_craft(&registries, &state, &bare_request).is_err(),
+        "casting stock does not eliminate the need for a physical piercing drill"
+    );
+    assert_eq!(state, before_rejection);
+    let request = bare_request.with_equipment(pump);
+    let _ = execute_manual_craft(
+        &registries,
+        &mut state,
+        request,
+        output,
+        "cast copper sizing plate",
+    );
+    let remaining = state
+        .inventory()
+        .get_stockpile(ingots)
+        .unwrap_or_else(|| panic!("cast plate ingot supply disappeared"));
+    assert_eq!(remaining.stored_mass(), Mass::ZERO);
+    let finished = state
+        .inventory()
+        .get_stockpile(output)
+        .unwrap_or_else(|| panic!("cast plate output disappeared"));
+    assert_eq!(
+        finished.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE)),
+        Mass::from_milligrams(18_000)
+    );
+    assert_eq!(
+        finished.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+        Mass::from_milligrams(2_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("cast plate matter audit failed: {error}"))
+            .total(),
+        initial_matter
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("cast plate persistent state invalid: {error}"));
+}
+
 const SPINDLE_DEMAND_SALT: u64 = 0x5350_494E_444C_4544;
 
 fn seed_material(

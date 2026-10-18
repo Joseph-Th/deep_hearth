@@ -19,13 +19,14 @@ use crate::content::materials::{
     FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE, MATERIAL_COPPER,
 };
 use crate::content::processes::{
+    PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE, PROCESS_COLD_WORK_CAST_COPPER_WINDING,
     PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING, PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT,
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
     PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
-    PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+    PROCESS_PIERCE_CAST_COPPER_SCREEN_PLATE, PROCESS_PIERCE_COPPER_SCREEN_PLATE,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 7] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 10] {
     [
         cold_work_native_copper(),
         cold_work_cast_copper(),
@@ -34,7 +35,82 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 7] {
         cold_work_copper_saw_blade(),
         cold_work_copper_electrical_winding(),
         draw_copper_electrical_winding(),
+        cold_work_cast_saw_blade(),
+        cold_work_cast_winding(),
+        pierce_cast_screen_plate(),
     ]
+}
+
+/// Foundry output can become a saw blade directly without reclassifying cast stock as
+/// native copper. Offcuts remain recoverable; the shared blade form fits existing machinery.
+fn cold_work_cast_saw_blade() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE,
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        Mass::from_milligrams(60_000),
+        TickSpan::new(70),
+        copper_work_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
+                COPPER_SAW_BLADE_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                Mass::from_milligrams(6_000),
+            ),
+        ],
+    )
+    .with_equipment_profile(treadle_hammer_profile())
+}
+
+/// Direct post-foundry conductor forming is faster than making separate reinforcement strips
+/// first. It supplies the same winding used in the upgraded dynamo, retaining the offcuts.
+fn cold_work_cast_winding() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_COLD_WORK_CAST_COPPER_WINDING,
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        Mass::from_milligrams(60_000),
+        TickSpan::new(80),
+        copper_work_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+                COPPER_ELECTRICAL_WINDING_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                Mass::from_milligrams(6_000),
+            ),
+        ],
+    )
+    .with_equipment_profile(treadle_hammer_profile())
+}
+
+/// The existing piercer can work flat cast stock in one operation; native copper still needs
+/// preliminary strip formation. Screen plate dimensions and recoverable offcut mass are unchanged.
+fn pierce_cast_screen_plate() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_PIERCE_CAST_COPPER_SCREEN_PLATE,
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        COPPER_REINFORCEMENT_MASS,
+        TickSpan::new(40),
+        copper_work_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
+                COPPER_SCREEN_PLATE_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                Mass::from_milligrams(2_000),
+            ),
+        ],
+    )
+    .with_equipment_profile(ManualCraftEquipmentProfile::new_required(
+        CAPABILITY_COPPER_PIERCING_FLOW,
+        500,
+    ))
 }
 
 fn cold_work_cast_copper() -> ManualCraftDefinition {
