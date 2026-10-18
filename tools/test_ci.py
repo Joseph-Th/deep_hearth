@@ -3259,7 +3259,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIELDWORK PACING seed=0x1 noisy-detail",
         ]
         lines.append(
-            "PLAYER ADAPTATION opening=stay-mobile initial=comfortable/no-camp forecast=[unheated:179t conditional-on-open-cover] trigger=chilly/799000ppm after:179t/10.7m response=[stone-ring:built finite-timber-fuel:1000g local-trips:2 illumination:7] result=[recovery:1t recovery-start:199t warm:818000ppm matched-without-fire:778000ppm] custody=[timber-left:31130g matter-conserved:true] mode=same-generated-world+physical-time"
+            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated:179t conditional-on-open-cover] trigger=chilly/799000ppm after:179t/10.7m reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:1t fueled:199t comfort:818000ppm no-fire:778000ppm] planned=[start:158t fueled:178t comfort:1000000ppm fire-runway:1089t vs-reactive:1110t] custody=[timber-left:31130g matter-conserved:true] mode=same-generated-world"
         )
         output = "\n".join(lines)
         concise = gameplay_report_summary.concise_gameplay_report(output, {})

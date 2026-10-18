@@ -14,6 +14,11 @@ pub(crate) struct MobileColdResponse {
     pub(super) without_fire_comfort_ppm: u32,
     pub(super) timber_remaining_mg: u64,
     pub(super) light_level: u8,
+    pub(super) planned_start_tick: u64,
+    pub(super) planned_fueled_tick: u64,
+    pub(super) planned_comfort_ppm: u32,
+    pub(super) planned_fuel_runway_ticks: u64,
+    pub(super) reactive_fuel_runway_ticks: u64,
 }
 
 fn settle_direct_action_control_interval(
@@ -26,6 +31,146 @@ fn settle_direct_action_control_interval(
     while !state.control_tick().is_simulation_boundary() {
         let _ = advance_control_tick(registries, state)
             .unwrap_or_else(|error| panic!("adaptive {context} control settle failed: {error}"));
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FireActionOutcome {
+    fire: EnergyStoreId,
+    timber_remaining_mg: u64,
+    light_level: u8,
+}
+
+fn build_campfire_from_observed_local_sources(
+    registries: &Registries,
+    state: &mut AppState,
+    junction: VoxelCoord,
+) -> FireActionOutcome {
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let assembly = registries
+        .energy()
+        .get_store(ENERGY_STONE_RING_CAMPFIRE)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("mobile response has no authored fire assembly"));
+    let inputs = assembly.inputs();
+    assert_eq!(inputs.len(), 1);
+    assert_eq!(inputs[0].commodity(), stone);
+
+    // Use only the still-visible adjacent stone and timber sources. No starter cache,
+    // extra resources, teleport, or privileged search from the fixture is permitted.
+    let stone_option = adjacent_surface_resource(&state, stone);
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        state,
+        stone_option.position(),
+        "adaptive fire stone approach",
+    );
+    let stone_resource = local_surface_resource(&state, stone);
+    gather(
+        registries,
+        state,
+        stone_resource,
+        inputs[0].mass(),
+        "adaptive fire stone collection",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        state,
+        junction,
+        "adaptive fire stone return",
+    );
+    validate_set_active_selection(
+        registries,
+        &state,
+        Some(PlayerActiveSelection::material(stone)),
+    )
+    .unwrap_or_else(|error| panic!("adaptive fire stone selection failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("adaptive fire stone selection commit failed: {error}"));
+    let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
+        .unwrap_or_else(|error| panic!("adaptive fire direction failed: {error}"));
+    let assembled = advance_control_tick_with_direct_input(
+        registries,
+        state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(upward)),
+    )
+    .unwrap_or_else(|error| panic!("adaptive direct fire assembly failed: {error}"));
+    let fire = match assembled.secondary_action() {
+        Some(SecondaryActionOutcome::EnergyStoreAssembled { definition, store }) => {
+            assert_eq!(*definition, ENERGY_STONE_RING_CAMPFIRE);
+            *store
+        }
+        other => panic!("adaptive stone selection did not assemble fire: {other:?}"),
+    };
+    settle_direct_action_control_interval(registries, state, "after stone assembly");
+    assert_eq!(
+        state.energy().get_store(fire).map(|store| store.stored()),
+        Some(Energy::ZERO),
+        "an unfueled stone ring must not already provide heat"
+    );
+
+    let timber_option = adjacent_surface_resource(&state, timber);
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        state,
+        timber_option.position(),
+        "adaptive fuel collection approach",
+    );
+    let timber_resource = local_surface_resource(&state, timber);
+    let timber_before = state
+        .available_surface_resources()
+        .find(|record| record.id() == timber_resource)
+        .unwrap_or_else(|| panic!("adaptive timber opportunity disappeared"))
+        .remaining_mass();
+    gather(
+        registries,
+        state,
+        timber_resource,
+        CAMPFIRE_FUEL_MASS,
+        "adaptive campfire fuel",
+    );
+    let timber_after = state
+        .available_surface_resources()
+        .find(|record| record.id() == timber_resource)
+        .unwrap_or_else(|| panic!("adaptive fuel source disappeared after gathering"))
+        .remaining_mass();
+    walk_continuous_body_adjacent_and_settle(registries, state, junction, "adaptive fuel return");
+    validate_set_active_selection(
+        registries,
+        &state,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap_or_else(|error| panic!("adaptive fire fuel selection failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("adaptive fire fuel selection commit failed: {error}"));
+    let fueled = advance_control_tick_with_direct_input(
+        registries,
+        state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(upward)),
+    )
+    .unwrap_or_else(|error| panic!("adaptive direct fueling failed: {error}"));
+    assert_eq!(
+        fueled.secondary_action(),
+        Some(&SecondaryActionOutcome::CombustionFuelAdded {
+            store: fire,
+            released: CAMPFIRE_FUEL_THERMAL_ENERGY,
+        })
+    );
+    settle_direct_action_control_interval(registries, state, "after fueling");
+    let light = assess_local_illumination(registries, &state, junction);
+    assert_eq!(light.strongest_source(), Some(fire));
+    assert!(light.level() > 0);
+    assert_eq!(
+        timber_before.checked_sub(CAMPFIRE_FUEL_MASS),
+        Some(timber_after)
+    );
+    FireActionOutcome {
+        fire,
+        timber_remaining_mg: timber_after.milligrams(),
+        light_level: light.level(),
     }
 }
 
@@ -96,128 +241,7 @@ pub(super) fn evaluate_mobile_cold_response(
     assert!(cold.thermal_comfort_ppm() < warning);
     let cold_comfort = cold.thermal_comfort_ppm();
     let before_intervention = state.clone();
-    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
-    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
-    let assembly = registries
-        .energy()
-        .get_store(ENERGY_STONE_RING_CAMPFIRE)
-        .and_then(|definition| definition.assembly_profile())
-        .unwrap_or_else(|| panic!("mobile response has no authored fire assembly"));
-    let inputs = assembly.inputs();
-    assert_eq!(inputs.len(), 1);
-    assert_eq!(inputs[0].commodity(), stone);
-
-    // Use only the still-visible adjacent stone and timber sources. No starter cache,
-    // extra resources, teleport, or privileged search from the fixture is permitted.
-    let stone_option = adjacent_surface_resource(&state, stone);
-    walk_continuous_body_adjacent_and_settle(
-        registries,
-        &mut state,
-        stone_option.position(),
-        "adaptive fire stone approach",
-    );
-    let stone_resource = local_surface_resource(&state, stone);
-    gather(
-        registries,
-        &mut state,
-        stone_resource,
-        inputs[0].mass(),
-        "adaptive fire stone collection",
-    );
-    walk_continuous_body_adjacent_and_settle(
-        registries,
-        &mut state,
-        junction,
-        "adaptive fire stone return",
-    );
-    validate_set_active_selection(
-        registries,
-        &state,
-        Some(PlayerActiveSelection::material(stone)),
-    )
-    .unwrap_or_else(|error| panic!("adaptive fire stone selection failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("adaptive fire stone selection commit failed: {error}"));
-    let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
-        .unwrap_or_else(|error| panic!("adaptive fire direction failed: {error}"));
-    let assembled = advance_control_tick_with_direct_input(
-        registries,
-        &mut state,
-        PlayerDirectControlInput::NEUTRAL
-            .with_secondary(SecondaryControlIntent::use_active(upward)),
-    )
-    .unwrap_or_else(|error| panic!("adaptive direct fire assembly failed: {error}"));
-    let fire = match assembled.secondary_action() {
-        Some(SecondaryActionOutcome::EnergyStoreAssembled { definition, store }) => {
-            assert_eq!(*definition, ENERGY_STONE_RING_CAMPFIRE);
-            *store
-        }
-        other => panic!("adaptive stone selection did not assemble fire: {other:?}"),
-    };
-    settle_direct_action_control_interval(registries, &mut state, "after stone assembly");
-    assert_eq!(
-        state.energy().get_store(fire).map(|store| store.stored()),
-        Some(Energy::ZERO),
-        "an unfueled stone ring must not already provide heat"
-    );
-
-    let timber_option = adjacent_surface_resource(&state, timber);
-    walk_continuous_body_adjacent_and_settle(
-        registries,
-        &mut state,
-        timber_option.position(),
-        "adaptive fuel collection approach",
-    );
-    let timber_resource = local_surface_resource(&state, timber);
-    let timber_before = state
-        .available_surface_resources()
-        .find(|record| record.id() == timber_resource)
-        .unwrap_or_else(|| panic!("adaptive timber opportunity disappeared"))
-        .remaining_mass();
-    gather(
-        registries,
-        &mut state,
-        timber_resource,
-        CAMPFIRE_FUEL_MASS,
-        "adaptive campfire fuel",
-    );
-    let timber_after = state
-        .available_surface_resources()
-        .find(|record| record.id() == timber_resource)
-        .unwrap_or_else(|| panic!("adaptive fuel source disappeared after gathering"))
-        .remaining_mass();
-    walk_continuous_body_adjacent_and_settle(
-        registries,
-        &mut state,
-        junction,
-        "adaptive fuel return",
-    );
-    validate_set_active_selection(
-        registries,
-        &state,
-        Some(PlayerActiveSelection::material(timber)),
-    )
-    .unwrap_or_else(|error| panic!("adaptive fire fuel selection failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("adaptive fire fuel selection commit failed: {error}"));
-    let fueled = advance_control_tick_with_direct_input(
-        registries,
-        &mut state,
-        PlayerDirectControlInput::NEUTRAL
-            .with_secondary(SecondaryControlIntent::use_active(upward)),
-    )
-    .unwrap_or_else(|error| panic!("adaptive direct fueling failed: {error}"));
-    assert_eq!(
-        fueled.secondary_action(),
-        Some(&SecondaryActionOutcome::CombustionFuelAdded {
-            store: fire,
-            released: CAMPFIRE_FUEL_THERMAL_ENERGY,
-        })
-    );
-    settle_direct_action_control_interval(registries, &mut state, "after fueling");
-    let light = assess_local_illumination(registries, &state, junction);
-    assert_eq!(light.strongest_source(), Some(fire));
-    assert!(light.level() > 0);
+    let built = build_campfire_from_observed_local_sources(registries, &mut state, junction);
     let after_fuel = state.tick();
     let mut recovery_ticks = 0_u64;
     while assess_survival(registries, &state)
@@ -253,16 +277,117 @@ pub(super) fn evaluate_mobile_cold_response(
     assert!(after.thermal_comfort_ppm() >= warning);
     assert_eq!(declined.tick(), state.tick());
     assert_eq!(
-        timber_before.checked_sub(CAMPFIRE_FUEL_MASS),
-        Some(timber_after)
-    );
-    assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("adaptive fire matter accounting failed: {error}"))
             .total(),
         initial_matter
     );
     assert_eq!(validate_loaded_state(registries, &state), Ok(()));
+
+    // A second actor begins from the same unbuilt camp and uses only present information:
+    // current comfort and cover, the authored fire recipe and gathering durations, and the
+    // four already-visible short material legs. Leave one slow-tick contingency for direct-use
+    // settlement. This is a forward plan, not a peek at how long the reactive attempt took.
+    let stone_mass = registries
+        .energy()
+        .get_store(ENERGY_STONE_RING_CAMPFIRE)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("planned fire recipe disappeared"))
+        .inputs()[0]
+        .mass();
+    let planned_stone_ticks = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_STONE)
+        .unwrap_or_else(|| panic!("planned stone gathering method disappeared"))
+        .duration_for_mass(stone_mass)
+        .unwrap_or_else(|| panic!("planned stone input cannot be gathered"))
+        .value();
+    let planned_timber_ticks = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_COLLECT_TIMBER)
+        .unwrap_or_else(|| panic!("planned timber gathering method disappeared"))
+        .duration_for_mass(CAMPFIRE_FUEL_MASS)
+        .unwrap_or_else(|| panic!("planned fire fuel cannot be gathered"))
+        .value();
+    let projected_fire_response_ticks = planned_stone_ticks
+        .checked_add(planned_timber_ticks)
+        .and_then(|ticks| ticks.checked_add(4 * SETTLED_ADJACENT_LEG_SLOW_TICKS))
+        .and_then(|ticks| ticks.checked_add(3))
+        .unwrap_or_else(|| panic!("planned fire-response budget overflowed"));
+    let planned_start_tick = predicted_discomfort
+        .value()
+        .saturating_sub(projected_fire_response_ticks);
+    let mut planned = mobile_state.clone();
+    let planned_start = started
+        .checked_add_span(TickSpan::new(planned_start_tick))
+        .unwrap_or_else(|| panic!("planned response start overflowed"));
+    advance_to(
+        registries,
+        &mut planned,
+        planned_start,
+        TickEventAllowance::default(),
+        "warmth-aware scheduled response",
+    );
+    assert_eq!(
+        assess_survival(registries, &planned).map(|assessment| assessment.thermal_comfort_state()),
+        Some(ThermalComfortState::Comfortable),
+        "a forecast-driven player should still be comfortable when preparing the fire"
+    );
+    let planned_built =
+        build_campfire_from_observed_local_sources(registries, &mut planned, junction);
+    let planned_fueled_tick = planned
+        .tick()
+        .checked_duration_since(started)
+        .unwrap_or_else(|| panic!("planned fire fuel time reversed"))
+        .value();
+    assert!(
+        planned_fueled_tick < exposed_ticks,
+        "a conservative ordinary-action fire budget should beat the forecasted warning"
+    );
+    assert!(
+        assess_survival(registries, &planned).is_some_and(|assessment| assessment
+            .thermal_comfort_state()
+            == ThermalComfortState::Comfortable),
+        "using the forecast should prevent becoming chilly instead of waiting for a warning"
+    );
+    advance_to(
+        registries,
+        &mut planned,
+        recovery_end,
+        TickEventAllowance::default(),
+        "matched forward-planned fire continuation",
+    );
+    let planned_assessment = assess_survival(registries, &planned)
+        .unwrap_or_else(|| panic!("planned warm player disappeared"));
+    assert!(
+        planned_assessment.thermal_comfort_ppm() > after.thermal_comfort_ppm(),
+        "anticipatory fire preparation should leave the player warmer than late reaction"
+    );
+    let remaining_fire_ticks = |state: &AppState, fire: EnergyStoreId| {
+        let remaining = state
+            .energy()
+            .get_store(fire)
+            .unwrap_or_else(|| panic!("planned comparison lost the campfire"))
+            .stored();
+        passive_dissipation_ticks_until_empty(registries, ENERGY_STONE_RING_CAMPFIRE, remaining)
+            .unwrap_or_else(|error| panic!("fire comparison runway failed: {error}"))
+            .unwrap_or_else(|| panic!("fire comparison needs finite dissipation"))
+            .value()
+    };
+    let reactive_fuel_runway_ticks = remaining_fire_ticks(&state, built.fire);
+    let planned_fuel_runway_ticks = remaining_fire_ticks(&planned, planned_built.fire);
+    assert!(
+        planned_fuel_runway_ticks < reactive_fuel_runway_ticks,
+        "an early fire must consume more of the same finite fuel by the matched endpoint"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&planned)
+            .unwrap_or_else(|error| panic!("planned fire matter accounting failed: {error}"))
+            .total(),
+        initial_matter
+    );
+    validate_loaded_state(registries, &planned)
+        .unwrap_or_else(|error| panic!("planned fire state invalid: {error}"));
     MobileColdResponse {
         exposed_ticks,
         projected_unheated_ticks: predicted_discomfort.value(),
@@ -274,14 +399,19 @@ pub(super) fn evaluate_mobile_cold_response(
         recovery_ticks,
         warm_comfort_ppm: after.thermal_comfort_ppm(),
         without_fire_comfort_ppm: without_fire.thermal_comfort_ppm(),
-        timber_remaining_mg: timber_after.milligrams(),
-        light_level: light.level(),
+        timber_remaining_mg: built.timber_remaining_mg,
+        light_level: built.light_level,
+        planned_start_tick,
+        planned_fueled_tick,
+        planned_comfort_ppm: planned_assessment.thermal_comfort_ppm(),
+        planned_fuel_runway_ticks,
+        reactive_fuel_runway_ticks,
     }
 }
 
 pub(super) fn print_mobile_cold_response(registries: &Registries, review: MobileColdResponse) {
     std::println!(
-        "PLAYER ADAPTATION opening=stay-mobile initial=comfortable/no-camp forecast=[unheated:{}t conditional-on-open-cover] trigger=chilly/{}ppm after:{}t/{} response=[stone-ring:built finite-timber-fuel:{}g local-trips:2 illumination:{}] result=[recovery:{}t recovery-start:{}t warm:{}ppm matched-without-fire:{}ppm] custody=[timber-left:{}g matter-conserved:true] mode=same-generated-world+physical-time",
+        "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated:{}t conditional-on-open-cover] trigger=chilly/{}ppm after:{}t/{} reactive=[stone-ring:built fuel:{}g trips:2 light:{} recovered:{}t fueled:{}t comfort:{}ppm no-fire:{}ppm] planned=[start:{}t fueled:{}t comfort:{}ppm fire-runway:{}t vs-reactive:{}t] custody=[timber-left:{}g matter-conserved:true] mode=same-generated-world",
         review.projected_unheated_ticks,
         review.cold_comfort_ppm,
         review.exposed_ticks,
@@ -292,6 +422,11 @@ pub(super) fn print_mobile_cold_response(registries: &Registries, review: Mobile
         review.first_fueled_tick,
         review.warm_comfort_ppm,
         review.without_fire_comfort_ppm,
+        review.planned_start_tick,
+        review.planned_fueled_tick,
+        review.planned_comfort_ppm,
+        review.planned_fuel_runway_ticks,
+        review.reactive_fuel_runway_ticks,
         review.timber_remaining_mg / 1_000,
     );
 }
