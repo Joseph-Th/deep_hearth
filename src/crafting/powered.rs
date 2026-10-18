@@ -34,9 +34,14 @@ use super::batch::{build_manual_craft_outputs, validate_manual_craft_batch};
 use super::definitions::{ManualCraftDefinition, PoweredCraftDefinition};
 
 mod errors;
+mod player_options;
 
 use errors::batch_error;
 pub use errors::{PoweredCraftError, StartPoweredCraftError};
+pub use player_options::{
+    PlayerPoweredCraftOption, PlayerPoweredCraftOptionError, player_powered_craft_options,
+    validate_start_player_powered_craft_option,
+};
 
 /// Exact powered crafting request with explicit matter, machine, and finite-work source.
 #[derive(Clone, Debug, PartialEq, Eq)]

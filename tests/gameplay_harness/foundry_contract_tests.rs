@@ -19,7 +19,10 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::crafting::{PoweredCraftRequest, validate_start_powered_craft};
+use deep_hearth::crafting::{
+    PlayerPoweredCraftOptionError, player_powered_craft_options,
+    validate_start_player_powered_craft_option,
+};
 use deep_hearth::energy::{
     calculate_mass_specific_energy, validate_assemble_energy_store, validate_upgrade_energy_store,
 };
@@ -163,6 +166,16 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
         &mut state,
         settlement_cast_mass,
         StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let blade_transform = registries
+        .crafting()
+        .get_powered(PROCESS_POWER_HAMMER_CAST_COPPER_SAW_BLADE)
+        .unwrap_or_else(|| panic!("cast blade machine definition disappeared"))
+        .transform();
+    assert_eq!(
+        player_powered_craft_options(&registries, &state, cast, blade_transform).err(),
+        Some(PlayerPoweredCraftOptionError::PlayerNotAdmitted),
+        "pre-admission callers cannot inspect the player's workshop choices"
     );
     admit_stationary_player(
         &registries,
@@ -388,6 +401,12 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
             .map(|stockpile| stockpile.stored_mass()),
         Some(settlement_cast_mass)
     );
+    assert!(
+        player_powered_craft_options(&registries, &state, cast, blade_transform)
+            .unwrap_or_else(|error| panic!("pre-workshop cast options failed: {error}"))
+            .is_empty(),
+        "ingots alone must not grant machining without an owned powered metalworking station"
+    );
     // The same physical cast now supplies a workshop with a choice between replacement
     // saw stock and electrical winding. Both use actual mechanically powered forging, then
     // the remaining 20 g can become a drilled sizing plate. The machinery and flywheel are
@@ -438,22 +457,37 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
             let input_mass = transform.input_mass();
             let work = calculate_mass_specific_energy(input_mass, powered.specific_energy());
             assert_eq!(input_mass, expected_input);
+            // The actor discovers the machine path by its known material transform, without
+            // supplying a hidden machine-process ID or inventory-lot IDs to the start action.
+            let visible =
+                player_powered_craft_options(&registries, &branch, cast, powered.transform())
+                    .unwrap_or_else(|error| panic!("{name} workshop discovery failed: {error}"));
+            let matches = visible
+                .into_iter()
+                .filter(|option| option.equipment() == machine && option.energy_store() == flywheel)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                matches.len(),
+                1,
+                "{name} should have one available owned machine path"
+            );
+            let before_charge = matches[0];
+            assert_eq!(before_charge.process(), process);
+            assert_eq!(before_charge.available_batches(), 1);
+            assert_eq!(before_charge.required_energy(), work);
+            assert!(!before_charge.charge_ready(), "flywheel starts empty");
+            let unchanged = branch.clone();
             assert!(
-                validate_start_powered_craft(
+                validate_start_player_powered_craft_option(
                     &registries,
                     &branch,
-                    PoweredCraftRequest::new(
-                        process,
-                        cast,
-                        select_stockpile_mass(&branch, cast, input_mass, name),
-                        machine,
-                        flywheel,
-                    ),
-                    finished,
+                    before_charge,
+                    finished
                 )
                 .is_err(),
                 "the powered cast-stock route must require real stored mechanical energy"
             );
+            assert_eq!(branch, unchanged);
             let charging = validate_start_manual_power(
                 &registries,
                 &branch,
@@ -466,21 +500,22 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
                 .unwrap_or_else(|error| panic!("{name} charge commit rejected: {error}"));
             player_charge_ticks +=
                 finish_manual_power_work(&registries, &mut branch, charge_work, name);
-            let started = validate_start_powered_craft(
-                &registries,
-                &branch,
-                PoweredCraftRequest::new(
-                    process,
-                    cast,
-                    select_stockpile_mass(&branch, cast, input_mass, name),
-                    machine,
-                    flywheel,
-                ),
-                finished,
-            )
-            .unwrap_or_else(|error| panic!("{name} powered start rejected: {error}"))
-            .commit(&mut branch)
-            .unwrap_or_else(|error| panic!("{name} powered commit rejected: {error}"));
+            let ready =
+                player_powered_craft_options(&registries, &branch, cast, powered.transform())
+                    .unwrap_or_else(|error| {
+                        panic!("{name} refreshed workshop catalog failed: {error}")
+                    })
+                    .into_iter()
+                    .find(|option| {
+                        option.equipment() == machine && option.energy_store() == flywheel
+                    })
+                    .unwrap_or_else(|| panic!("{name} machine option disappeared after charging"));
+            assert!(ready.charge_ready());
+            let started =
+                validate_start_player_powered_craft_option(&registries, &branch, ready, finished)
+                    .unwrap_or_else(|error| panic!("{name} powered start rejected: {error}"))
+                    .commit(&mut branch)
+                    .unwrap_or_else(|error| panic!("{name} powered commit rejected: {error}"));
             assert_eq!(
                 branch.player_work().active(),
                 None,
@@ -493,6 +528,13 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
                 .active_duration()
                 .value();
             finish_uninterrupted_production_job(&registries, &mut branch, started, name);
+            let after_work = branch.clone();
+            assert!(
+                validate_start_player_powered_craft_option(&registries, &branch, ready, finished)
+                    .is_err(),
+                "{name} consumed the selected batch and its energy, so the old row must not replay"
+            );
+            assert_eq!(branch, after_work);
         }
         assert!(player_charge_ticks > 0);
         assert!(

@@ -15,7 +15,7 @@ Progression:
 | Survival and labor | Metabolism, hydration, vitality, diet, spoilage, timed intake, exertion, preservation, warmth and exclusive work. |
 | Materials and inventory | Typed commodities, exact lots, finite stockpiles/reservations, provenance, temperature, storage effects, and matter accounting. |
 | Prospecting and mining | Player-facing survey choices, bounded evidence, tool-dependent extraction, and inventory claim. Hidden reserves remain non-public. |
-| Crafting and equipment | Manual shaping, tool wear/service, primitive machines, field instruments and copper/workshop upgrades. |
+| Crafting and equipment | Manual shaping, tool wear/service, primitive machines, field instruments and copper/workshop upgrades; exact-local powered recipe choices with charge and stock readiness. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing, copper forming, first/batch casting and manual or mechanically delegated cast-ingot blade/winding/screen fabrication. Ore reduction is absent. |
 | Opening wilderness acquisition | Berry/nut/water/clay/stone/timber graph, continuous-body proof, finite fire/light, and a same-state camp/refuge route. General pathfinding, enclosure, and weather are absent. |

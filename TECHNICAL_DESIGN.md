@@ -531,7 +531,12 @@ transforms with finite mechanical energy; the powered spindle drill similarly de
 screen-plate piercing. Each consumes the exact manual input and produces identical products and
 recoverable offcuts. Powered work requires an assembled, accessible machine, charged energy
 store, and consumes mechanical energy and equipment condition; no additional casting route or
-free processing bypass exists.
+free processing bypass exists. Player-facing powered-work discovery now groups local machine
+variants under each known manual transform: `player_powered_craft_options` combines the exact-local
+owned machinery, compatible finite energy stores, material batch availability, required work, and
+condition-adjusted processing time. It distinguishes missing stock and missing charge, but a
+selected option is not authority: `validate_start_player_powered_craft_option` reselects exact
+physical lots and validates current access, energy, wear, reservations and output custody.
 
 ### Physical resolvers
 
