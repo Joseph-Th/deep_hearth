@@ -19,6 +19,8 @@ use crate::structural::StructuralElementId;
 mod allocation;
 mod transfer;
 
+pub(super) use transfer::validate_ground_access;
+
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use allocation::validate_allocate_ground_stockpile;
 pub(crate) use allocation::validate_allocate_player_ground_stockpile_at;

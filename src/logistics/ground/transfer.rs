@@ -158,7 +158,7 @@ impl ValidatedGroundMaterialTransfer {
     }
 }
 
-fn validate_ground_access(
+pub(in crate::logistics) fn validate_ground_access(
     state: &AppState,
     ground_stockpile: StockpileId,
 ) -> Result<(PlayerLogisticsRecord, PlayerActionGuard), GroundMaterialTransferError> {

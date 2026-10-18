@@ -8,6 +8,7 @@ use crate::core::state::AppState;
 use crate::inventory::{MaterialStackProjection, StockpileId};
 use crate::registry::Registries;
 
+use super::ground::validate_ground_access;
 use super::{
     GroundMaterialTransferCommitError, GroundMaterialTransferError,
     ValidatedGroundMaterialTransfer, validate_drop_stack_to_ground,
@@ -153,6 +154,14 @@ pub fn validate_quick_move_player_stack(
             });
         }
     };
+    // Authorize the ground endpoint before consulting its capacity. Otherwise a remote
+    // or dead-player request could reveal container fullness instead of the canonical
+    // locality/liveness rejection returned by the transfer owner.
+    let ground = match direction {
+        QuickMoveDirection::Pickup => source,
+        QuickMoveDirection::Drop => destination,
+    };
+    let _ = validate_ground_access(state, ground).map_err(PlayerQuickMoveError::Transfer)?;
     let destination_record = state.inventory().get_stockpile(destination).ok_or(
         PlayerQuickMoveError::UnknownDestination {
             stockpile: destination,
@@ -192,3 +201,7 @@ enum QuickMoveDirection {
 #[cfg(test)]
 #[path = "quick_move_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "quick_move_access_tests.rs"]
+mod access_tests;
