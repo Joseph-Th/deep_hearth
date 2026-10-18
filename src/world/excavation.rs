@@ -32,7 +32,7 @@ use crate::mining::{MiningMethodId, MiningPhysicsError, resolve_mining_physics};
 use crate::registry::Registries;
 use crate::spatial::{ViewDirection, VoxelCoord};
 
-use super::{BlockStateId, PlayerBlockTargetError, raycast_player_block};
+use super::{BlockStateId, PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BlockExcavationRequest {
@@ -384,6 +384,17 @@ pub fn validate_start_player_block_excavation(
     let target = raycast_player_block(registries, state, request.direction)
         .map_err(BlockExcavationError::Target)?
         .ok_or(BlockExcavationError::NoTarget)?;
+    validate_start_player_block_excavation_targeted(registries, state, request, target)
+}
+
+/// The target was already resolved against this immutable state; never retrace it for each
+/// supported mining method when choosing an admissible direct-action plan.
+fn validate_start_player_block_excavation_targeted(
+    registries: &Registries,
+    state: &AppState,
+    request: BlockExcavationRequest,
+    target: PlayerBlockTarget,
+) -> Result<ValidatedPlayerBlockExcavationStart, BlockExcavationError> {
     let block = registries
         .world()
         .block_for_state(target.state())
@@ -628,10 +639,11 @@ pub(crate) fn validate_start_player_block_excavation_active(
                 // energy, hydration, revision headroom, or output custody than a slower one.
                 // Resolve every supported method through the same canonical admission as an
                 // explicitly selected excavation before choosing a viable candidate.
-                match validate_start_player_block_excavation(
+                match validate_start_player_block_excavation_targeted(
                     registries,
                     state,
                     BlockExcavationRequest::new(direction, method.id(), equipment, mass),
+                    target,
                 ) {
                     Ok(authorized) => {
                         if best
