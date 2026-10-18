@@ -207,6 +207,79 @@ fn clay_infrastructure_adds_copper_sparing_storage_and_casting_with_reclaimable_
 }
 
 #[test]
+fn mechanized_cast_copper_finishing_preserves_the_hand_transforms_and_offcuts() {
+    let registries = build_registries();
+    for (powered, hand, input_mass, finished, scrap_mass) in [
+        (
+            PROCESS_POWER_HAMMER_CAST_COPPER_SAW_BLADE,
+            PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE,
+            60_000,
+            FORM_SAW_BLADE,
+            6_000,
+        ),
+        (
+            PROCESS_POWER_HAMMER_CAST_COPPER_WINDING,
+            PROCESS_COLD_WORK_CAST_COPPER_WINDING,
+            60_000,
+            FORM_ELECTRICAL_WINDING,
+            6_000,
+        ),
+        (
+            PROCESS_POWER_DRILL_CAST_COPPER_SCREEN_PLATE,
+            PROCESS_PIERCE_CAST_COPPER_SCREEN_PLATE,
+            20_000,
+            FORM_SCREEN_PLATE,
+            2_000,
+        ),
+    ] {
+        let machine = registries
+            .crafting()
+            .get_powered(powered)
+            .unwrap_or_else(|| panic!("cast-metal mechanical operation vanished"));
+        assert_eq!(
+            machine.transform(),
+            hand,
+            "machine must use the exact hand material law"
+        );
+        assert_eq!(machine.energy_carrier(), EnergyCarrier::Mechanical);
+        let transform = registries
+            .crafting()
+            .get_manual(hand)
+            .unwrap_or_else(|| panic!("cast-metal manual transform vanished"));
+        assert_eq!(
+            transform.input(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
+        );
+        assert_eq!(transform.input_mass(), Mass::from_milligrams(input_mass));
+        assert_eq!(
+            transform
+                .outputs()
+                .iter()
+                .map(|out| out.mass().milligrams())
+                .sum::<u64>(),
+            input_mass,
+            "mechanization must not create or destroy copper"
+        );
+        assert_eq!(
+            transform
+                .outputs()
+                .iter()
+                .find(|out| out.commodity() == CommodityKey::new(MATERIAL_COPPER, finished))
+                .map(|out| out.mass()),
+            Some(Mass::from_milligrams(input_mass - scrap_mass)),
+        );
+        assert_eq!(
+            transform
+                .outputs()
+                .iter()
+                .find(|out| out.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
+                .map(|out| out.mass()),
+            Some(Mass::from_milligrams(scrap_mass)),
+        );
+    }
+}
+
+#[test]
 fn settlement_batch_foundry_and_channel_sampling_add_distinct_connected_progression() {
     let registries = build_registries();
 

@@ -78,6 +78,10 @@ pub const PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL: ProcessId = ProcessId::new(66);
 pub const PROCESS_COLD_WORK_CAST_COPPER_SAW_BLADE: ProcessId = ProcessId::new(67);
 pub const PROCESS_COLD_WORK_CAST_COPPER_WINDING: ProcessId = ProcessId::new(68);
 pub const PROCESS_PIERCE_CAST_COPPER_SCREEN_PLATE: ProcessId = ProcessId::new(69);
+/// The established settlement machines can repeat cast-stock finishing with finite stored work.
+pub const PROCESS_POWER_HAMMER_CAST_COPPER_SAW_BLADE: ProcessId = ProcessId::new(70);
+pub const PROCESS_POWER_HAMMER_CAST_COPPER_WINDING: ProcessId = ProcessId::new(71);
+pub const PROCESS_POWER_DRILL_CAST_COPPER_SCREEN_PLATE: ProcessId = ProcessId::new(72);
 
 mod fabrication;
 mod ore;

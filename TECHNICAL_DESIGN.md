@@ -526,6 +526,12 @@ manual-work routes: a 60 g ingot becomes a 54 g saw blade or electrical winding 
 and a 20 g ingot becomes an 18 g pierced sizing plate plus 2 g scrap. They retain the existing
 component forms, equipment requirements, and embodied downstream consumers instead of a
 parallel foundry-only parts vocabulary; the original native/reinforcement routes remain available.
+Settlement helve hammers can delegate the same cast-ingot-to-blade and cast-ingot-to-winding
+transforms with finite mechanical energy; the powered spindle drill similarly delegates cast
+screen-plate piercing. Each consumes the exact manual input and produces identical products and
+recoverable offcuts. Powered work requires an assembled, accessible machine, charged energy
+store, and consumes mechanical energy and equipment condition; no additional casting route or
+free processing bypass exists.
 
 ### Physical resolvers
 

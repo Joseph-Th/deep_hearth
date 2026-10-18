@@ -6,15 +6,23 @@ use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_THERMAL_SINK, ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
     ENERGY_COPPER_RACK_ELECTRICAL_BUFFER, ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER,
-    ENERGY_STONE_THERMAL_SINK, EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
-    EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
-    EQUIPMENT_TIMBER_TREADLE_DYNAMO, FORM_SCRAP, MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER,
-    PROCESS_CAST_PURE_COPPER, PROCESS_MELT_PURE_COPPER, build_registries,
+    ENERGY_STONE_THERMAL_SINK, ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
+    EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_HELVE_HAMMER, EQUIPMENT_TIMBER_SPINDLE_DRILL,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO, FORM_ELECTRICAL_WINDING,
+    FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE, MANUAL_POWER_FOOT_TREADLE,
+    MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, PROCESS_CAST_PURE_COPPER,
+    PROCESS_MELT_PURE_COPPER, PROCESS_POWER_DRILL_CAST_COPPER_SCREEN_PLATE,
+    PROCESS_POWER_HAMMER_CAST_COPPER_SAW_BLADE, PROCESS_POWER_HAMMER_CAST_COPPER_WINDING,
+    build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::energy::{validate_assemble_energy_store, validate_upgrade_energy_store};
+use deep_hearth::crafting::{PoweredCraftRequest, validate_start_powered_craft};
+use deep_hearth::energy::{
+    calculate_mass_specific_energy, validate_assemble_energy_store, validate_upgrade_energy_store,
+};
 use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
@@ -63,6 +71,9 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
         EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
         EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE,
         EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        EQUIPMENT_TIMBER_HELVE_HAMMER,
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
     ] {
         let profile = registries
             .equipment()
@@ -81,6 +92,7 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
     for store in [
         ENERGY_COPPER_RACK_ELECTRICAL_BUFFER,
         ENERGY_COPPER_BANDED_STONE_THERMAL_SINK,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
     ] {
         let profile = registries
             .energy()
@@ -147,10 +159,15 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
         settlement_cast_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
+    let finished = seed_stockpile(
+        &mut state,
+        settlement_cast_mass,
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
     admit_stationary_player(
         &registries,
         &mut state,
-        &[parts, feed, molten, cast],
+        &[parts, feed, molten, cast, finished],
         &[],
         "settlement foundry",
     );
@@ -371,6 +388,159 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
             .map(|stockpile| stockpile.stored_mass()),
         Some(settlement_cast_mass)
     );
+    // The same physical cast now supplies a workshop with a choice between replacement
+    // saw stock and electrical winding. Both use actual mechanically powered forging, then
+    // the remaining 20 g can become a drilled sizing plate. The machinery and flywheel are
+    // disclosed prior-workshop capital assembled from represented material, not free machines.
+    let treadle = assemble_equipment(&mut state, EQUIPMENT_TIMBER_TREADLE_DRIVE);
+    let hammer = assemble_equipment(&mut state, EQUIPMENT_TIMBER_HELVE_HAMMER);
+    let drill = assemble_equipment(&mut state, EQUIPMENT_TIMBER_SPINDLE_DRILL);
+    let flywheel = validate_assemble_energy_store(
+        &registries,
+        &state,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        parts,
+    )
+    .unwrap_or_else(|error| panic!("post-cast flywheel assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("post-cast flywheel commit failed: {error}"));
+    for (first_process, first_output, name) in [
+        (
+            PROCESS_POWER_HAMMER_CAST_COPPER_SAW_BLADE,
+            FORM_SAW_BLADE,
+            "powered-cast-saw",
+        ),
+        (
+            PROCESS_POWER_HAMMER_CAST_COPPER_WINDING,
+            FORM_ELECTRICAL_WINDING,
+            "powered-cast-winding",
+        ),
+    ] {
+        let mut branch = state.clone();
+        let mut player_charge_ticks = 0_u64;
+        let mut delegated_ticks = 0_u64;
+        for (process, machine, expected_input) in [
+            (first_process, hammer, Mass::from_milligrams(60_000)),
+            (
+                PROCESS_POWER_DRILL_CAST_COPPER_SCREEN_PLATE,
+                drill,
+                Mass::from_milligrams(20_000),
+            ),
+        ] {
+            let powered = registries
+                .crafting()
+                .get_powered(process)
+                .unwrap_or_else(|| panic!("{name} powered transform disappeared"));
+            let transform = registries
+                .crafting()
+                .get_manual(powered.transform())
+                .unwrap_or_else(|| panic!("{name} material transform disappeared"));
+            let input_mass = transform.input_mass();
+            let work = calculate_mass_specific_energy(input_mass, powered.specific_energy());
+            assert_eq!(input_mass, expected_input);
+            assert!(
+                validate_start_powered_craft(
+                    &registries,
+                    &branch,
+                    PoweredCraftRequest::new(
+                        process,
+                        cast,
+                        select_stockpile_mass(&branch, cast, input_mass, name),
+                        machine,
+                        flywheel,
+                    ),
+                    finished,
+                )
+                .is_err(),
+                "the powered cast-stock route must require real stored mechanical energy"
+            );
+            let charging = validate_start_manual_power(
+                &registries,
+                &branch,
+                ManualPowerRequest::new(MANUAL_POWER_FOOT_TREADLE, treadle, flywheel, work),
+            )
+            .unwrap_or_else(|error| panic!("{name} charge rejected: {error}"));
+            let charge_work = charging.work();
+            charging
+                .commit(&mut branch)
+                .unwrap_or_else(|error| panic!("{name} charge commit rejected: {error}"));
+            player_charge_ticks +=
+                finish_manual_power_work(&registries, &mut branch, charge_work, name);
+            let started = validate_start_powered_craft(
+                &registries,
+                &branch,
+                PoweredCraftRequest::new(
+                    process,
+                    cast,
+                    select_stockpile_mass(&branch, cast, input_mass, name),
+                    machine,
+                    flywheel,
+                ),
+                finished,
+            )
+            .unwrap_or_else(|error| panic!("{name} powered start rejected: {error}"))
+            .commit(&mut branch)
+            .unwrap_or_else(|error| panic!("{name} powered commit rejected: {error}"));
+            assert_eq!(
+                branch.player_work().active(),
+                None,
+                "the cast-stock machine must release the player during autonomous processing"
+            );
+            delegated_ticks += branch
+                .production()
+                .get_job(started)
+                .unwrap_or_else(|| panic!("{name} started job disappeared"))
+                .active_duration()
+                .value();
+            finish_uninterrupted_production_job(&registries, &mut branch, started, name);
+        }
+        assert!(player_charge_ticks > 0);
+        assert!(
+            delegated_ticks > player_charge_ticks,
+            "{name} must actually delegate more machine time than human charging attention"
+        );
+        assert!(
+            branch
+                .energy()
+                .get_store(flywheel)
+                .is_some_and(|store| store.stored().is_zero()),
+            "{name} must spend its charged mechanical work rather than create a persistent free reserve"
+        );
+        let outputs = branch
+            .inventory()
+            .get_stockpile(finished)
+            .unwrap_or_else(|| panic!("{name} finished-stockpile disappeared"));
+        assert_eq!(
+            outputs.get_mass(CommodityKey::new(MATERIAL_COPPER, first_output)),
+            Mass::from_milligrams(54_000)
+        );
+        assert_eq!(
+            outputs.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE)),
+            Mass::from_milligrams(18_000)
+        );
+        assert_eq!(
+            outputs.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+            Mass::from_milligrams(8_000),
+            "powered finishing must recover all cast-stock offcuts"
+        );
+        assert_eq!(
+            branch
+                .inventory()
+                .get_stockpile(cast)
+                .map(|record| record.stored_mass()),
+            Some(Mass::ZERO),
+            "both real powered processes together must use exactly one 80 g cast"
+        );
+        validate_loaded_state(&registries, &branch)
+            .unwrap_or_else(|error| panic!("{name} post-fabrication state invalid: {error}"));
+        assert_eq!(
+            calculate_matter_accounting(&branch)
+                .unwrap_or_else(|error| panic!("{name} matter audit failed: {error}"))
+                .total(),
+            matter_before,
+            "mechanized foundry finishing must preserve all embodied and loose matter"
+        );
+    }
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("settlement foundry final state invalid: {error}"));
     assert_eq!(
