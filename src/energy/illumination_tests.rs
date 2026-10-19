@@ -1,13 +1,14 @@
 //! Contracts for finite renderer-neutral local illumination.
 
 use crate::content::{
-    BLOCK_STATE_STONE, CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG, FORM_LUMP,
-    MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    BLOCK_STATE_STONE, CAMPFIRE_CHIP_FUEL_MASS, CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE,
+    FORM_CHIP, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::energy::{
     passive_dissipation_ticks_until_empty, validate_assemble_energy_store, validate_combust_fuel,
+    validate_combust_selected_fuel,
 };
 use crate::inventory::deposit_bulk_for_test;
 use crate::material::CommodityKey;
@@ -164,9 +165,25 @@ fn finite_campfire_light_appears_only_while_stored_heat_exists() {
             .unwrap_or_else(|| {
                 panic!("campfire light source must have finite passive dissipation")
             });
-    for _ in 0..horizon.value() {
+    let halfway = horizon.value() / 2;
+    for tick in 1..=horizon.value() {
         let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("campfire light burn-down tick failed: {error}"));
+        if tick == halfway {
+            let dimmed = assess_local_illumination(&registries, &state, origin);
+            assert!(dimmed.level() > 0 && dimmed.level() < at_fire.level());
+            let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+                .unwrap_or_else(|error| panic!("dim fire save failed: {error}"));
+            let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+                .unwrap_or_else(|error| panic!("dim fire decode failed: {error}"));
+            let loaded = decoded
+                .into_state(&registries)
+                .unwrap_or_else(|error| panic!("dim fire load failed: {error}"));
+            assert_eq!(
+                assess_local_illumination(&registries, &loaded, origin),
+                dimmed
+            );
+        }
     }
     assert!(
         state
@@ -178,5 +195,33 @@ fn finite_campfire_light_appears_only_while_stored_heat_exists() {
     assert_eq!(
         assess_local_illumination(&registries, &state, origin).level(),
         0
+    );
+
+    // Recoverable fabrication chips produce a shorter, dimmer but still useful light
+    // source, rather than the same full-brightness flame as an intact log charge.
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+        CAMPFIRE_CHIP_FUEL_MASS,
+    )
+    .unwrap_or_else(|error| panic!("chip-light fuel material failed: {error}"));
+    validate_combust_selected_fuel(
+        &registries,
+        &state,
+        fire,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+    )
+    .unwrap_or_else(|error| panic!("chip-light fuel validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("chip-light fuel commit failed: {error}"));
+    let chip_light = assess_local_illumination(&registries, &state, origin);
+    assert_eq!(chip_light.strongest_source(), Some(fire));
+    assert!(chip_light.level() > 0 && chip_light.level() < at_fire.level());
+    assert_eq!(
+        project_local_light_sources(&registries, &state)[0].level(),
+        chip_light.level()
     );
 }

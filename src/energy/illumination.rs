@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::core::arithmetic::checked_mul_div_ceil;
 use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, VoxelCoord};
@@ -83,8 +84,26 @@ fn active_local_light_sources<'a>(
                 .unwrap_or_else(|| {
                     panic!("runtime invariant broken: energy definition disappeared")
                 });
-            let level = definition.local_light_level();
-            (level != 0).then_some(LocalLightSourceProjection {
+            let maximum_level = definition.local_light_level();
+            if maximum_level == 0 {
+                return None;
+            }
+            // A combustion emitter fades as its finite heat charge is spent. A smaller
+            // alternative fuel charge (e.g. woodworking chips) starts dimmer instead of
+            // producing a full-strength fire for a shorter, invisible burn horizon.
+            // The primary authored fuel charge defines full brightness; stacked fuel
+            // remains capped at that brightness. Noncombustion emitters use their capacity.
+            let full_brightness_energy = definition
+                .combustion_profile()
+                .map_or(definition.capacity(), |profile| profile.released_energy());
+            let level = checked_mul_div_ceil(
+                record.stored().min(full_brightness_energy).nanojoules(),
+                u128::from(maximum_level),
+                full_brightness_energy.nanojoules(),
+            )
+            .and_then(|scaled| u8::try_from(scaled).ok())
+            .unwrap_or_else(|| unreachable!("bounded finite emission fits authored light level"));
+            Some(LocalLightSourceProjection {
                 store,
                 position,
                 level,
@@ -106,6 +125,8 @@ pub fn project_local_light_sources(
 
 /// Returns current bounded local illumination from nonempty located authored light sources.
 ///
+/// Burning sources dim with remaining finite energy relative to their authored primary fuel
+/// charge, so smaller alternative fuel and approaching burnout have observable consequences.
 /// Source levels fall by one per face-adjacent generated non-opaque voxel. Opaque blocks and missing
 /// world truth stop propagation. Overlapping sources use the strongest current contribution; equal
 /// contributions retain the lowest stable store ID because logistics iterates locations in

@@ -743,6 +743,8 @@ pub(super) struct WildernessOpeningReview {
     pub(super) campfire_one_hour_comfort_with_refuel_ppm: u32,
     pub(super) campfire_one_hour_comfort_without_refuel_ppm: u32,
     pub(super) campfire_light_level: u8,
+    pub(super) fire_light_before_refuel: u8,
+    pub(super) fire_light_after_refuel: u8,
     pub(super) final_thermal_comfort_ppm: u32,
     pub(super) selected_source_opportunity_mg: u64,
     pub(super) selected_source_remaining_mg: u64,
@@ -2751,6 +2753,8 @@ fn evaluate_generated_wilderness_opening_internal(
     let mut campfire_one_hour_comfort_with_refuel_ppm = 0_u32;
     let mut campfire_one_hour_comfort_without_refuel_ppm = 0_u32;
     let mut campfire_light_level = 0_u8;
+    let mut fire_light_before_refuel = 0_u8;
+    let mut fire_light_after_refuel = 0_u8;
     let mut selected_source_opportunity_mg = 0_u64;
     let mut selected_source_remaining_mg = 0_u64;
     let mut camp_logistics_steps = 0_u64;
@@ -3679,6 +3683,8 @@ fn evaluate_generated_wilderness_opening_internal(
                     });
                     let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
                         .unwrap_or_else(|error| panic!("long-stay refuel view failed: {error}"));
+                    fire_light_before_refuel =
+                        assess_local_illumination(&registries, &state, junction).level();
                     let heat_before_charge = state
                         .energy()
                         .get_store(campfire)
@@ -3721,6 +3727,16 @@ fn evaluate_generated_wilderness_opening_internal(
                             Mass::ZERO
                         }),
                         "long-stay refueling must consume only the selected physical charge"
+                    );
+                    fire_light_after_refuel =
+                        assess_local_illumination(&registries, &state, junction).level();
+                    assert!(
+                        fire_light_after_refuel > fire_light_before_refuel,
+                        "the chosen physical fuel should restore visible light, not only hidden heat"
+                    );
+                    assert!(
+                        fire_light_after_refuel <= campfire_light_level,
+                        "additional fuel must not exceed the authored source's maximum brightness"
                     );
                     campfire_fuel_mg += fuel_charge.milligrams();
                     if burn_chips {
@@ -3948,6 +3964,8 @@ fn evaluate_generated_wilderness_opening_internal(
         campfire_one_hour_comfort_with_refuel_ppm,
         campfire_one_hour_comfort_without_refuel_ppm,
         campfire_light_level,
+        fire_light_before_refuel,
+        fire_light_after_refuel,
         final_thermal_comfort_ppm: final_survival.thermal_comfort_ppm(),
         selected_source_opportunity_mg,
         selected_source_remaining_mg,
@@ -4072,7 +4090,7 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
             "not-compared-no-refuel-needed".to_owned()
         };
         std::println!(
-            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} new-need=another-hour-at-camp observed-fire-runway:{} choice={} response=[fuel-haul:{} material:{}g recovered-chips:{}g fire-runway-after:{} source-remaining:{}g] matched-hour-comfort={later_comfort}",
+            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} new-need=another-hour-at-camp observed-fire-runway:{} choice={} response=[fuel-haul:{} material:{}g recovered-chips:{}g fire-runway-after:{} source-remaining:{}g light-before:{} light-after:{} initial-light:{}] matched-hour-comfort={later_comfort}",
             physical_minutes_tenths(registries, review.campfire_runway_before_refuel_ticks),
             if review.campfire_refueled {
                 if review.campfire_recycled_chips_mg > 0 {
@@ -4092,6 +4110,9 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
             review.campfire_recycled_chips_mg / 1_000,
             physical_minutes_tenths(registries, review.campfire_runway_at_end_ticks),
             review.selected_source_remaining_mg / 1_000,
+            review.fire_light_before_refuel,
+            review.fire_light_after_refuel,
+            review.campfire_light_level,
         );
     }
     let remaining_fire = if review.campfire_built {
@@ -4134,6 +4155,24 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         print_player_journey(&registries, review, sample);
     }
     if let Some(adaptation) = review.mobile_adaptation {
+        // Retain the same actor's later, organically triggered decision in episode-filtered
+        // replays. The original aggregate adaptation record has no episode key and is omitted
+        // by design when the reader asks for one continuous player experience.
+        std::println!(
+            "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=observed-chill after:{} response=[reactive-fire:{}t recovered:{}t comfort:{}ppm no-fire:{}ppm] alternative=[prepare-at:{}t comfort:{}ppm remaining-fuel:{}t vs-reactive:{}t] tradeoff=prepare-early-for-warmth-or-react-later-to-save-fuel",
+            review.seed,
+            review.start_profile.label(),
+            review.camp_goal.label(),
+            physical_minutes_tenths(&registries, adaptation.exposed_ticks),
+            adaptation.first_fueled_tick,
+            adaptation.recovery_ticks,
+            adaptation.warm_comfort_ppm,
+            adaptation.without_fire_comfort_ppm,
+            adaptation.planned_start_tick,
+            adaptation.planned_comfort_ppm,
+            adaptation.planned_fuel_runway_ticks,
+            adaptation.reactive_fuel_runway_ticks,
+        );
         mobile_continuation::print_mobile_cold_response(&registries, adaptation);
     }
     let ticks_per_day = registries.core().calendar().ticks_per_day();
@@ -4740,6 +4779,9 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
             Some(STORAGE_ROUGH_TIMBER_FIELD_BOX)
         );
         assert!(long_stay.campfire_built);
+        assert!(long_stay.campfire_refueled);
+        assert!(long_stay.fire_light_after_refuel > long_stay.fire_light_before_refuel);
+        assert!(long_stay.fire_light_after_refuel <= long_stay.campfire_light_level);
         let shelter = long_stay
             .shelter
             .unwrap_or_else(|| panic!("long-stay opening lost integrated shelter evidence"));

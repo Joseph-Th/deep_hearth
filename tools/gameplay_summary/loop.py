@@ -317,126 +317,6 @@ def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
     return f"thermal-bootstrap={batch_foundry}/{foundry_builds}"
 
 
-def _fantasy_evidence(evidence: _LoopEvidenceLines) -> str:
-    self_sufficient_camps = sum(
-        " warning-safe:true]" in line
-        and " water=[observed:" in line
-        and " provisioning=[" in line
-        for line in evidence.wilderness
-    )
-    mobile_wilderness = [
-        line for line in evidence.wilderness if " goal=stay-mobile " in line
-    ]
-    rational_mobility = sum(
-        " storage-choice=[selected:defer " in line
-        and " tool-choice=[selected:defer " in line
-        for line in mobile_wilderness
-    )
-    camp_projects = [
-        line for line in evidence.wilderness if " goal=stay-mobile " not in line
-    ]
-    camp_leverage = 0
-    for line in camp_projects:
-        project = re.search(
-            r"\bcamp-project=\[.*?\blogistics-legs:(\d+) "
-            r"source:(\d+)mg->(\d+)mg",
-            line,
-        )
-        if project is None:
-            continue
-        logistics_legs = int(project.group(1))
-        source_before = int(project.group(2))
-        source_after = int(project.group(3))
-        if logistics_legs > 0 and source_before > source_after:
-            camp_leverage += 1
-    worksite_projects = [
-        line for line in evidence.wilderness if " goal=worksite-cache " in line
-    ]
-    worksite_construction = sum(
-        re.search(
-            r"\bcamp-project=\[.*?\bgrounded-support:true:(\d+)mg/(\d+)t\]",
-            line,
-        )
-        is not None
-        for line in worksite_projects
-    )
-    worksite_construction_evidence = (
-        f"worksite-construction:{worksite_construction}/{len(worksite_projects)} "
-        if worksite_projects
-        else ""
-    )
-    worksite_warmth = 0
-    for line in worksite_projects:
-        warmth = re.search(
-            r"\bwarmth=\[fire:true .*?comfort:(\d+)->(\d+)ppm heat-remaining:(\d+)nJ(?: light:\d+)?\]",
-            line,
-        )
-        if (
-            warmth is not None
-            and int(warmth.group(2)) > int(warmth.group(1))
-            and int(warmth.group(3)) > 0
-        ):
-            worksite_warmth += 1
-    worksite_warmth_evidence = (
-        f"camp-warmth:{worksite_warmth}/{len(worksite_projects)} "
-        if worksite_projects
-        else ""
-    )
-    shelter_resilience = 0
-    for line in evidence.wilderness_shelter:
-        exposure = re.search(
-            r"\bexposure=\[open:(\d+)ppm/t covered:(\d+)ppm/t observed:(\d+)ppm/t\]",
-            line,
-        )
-        attention = re.search(r"\battention=\[.*? saved:(\d+)t\]", line)
-        if (
-            exposure is not None
-            and attention is not None
-            and int(exposure.group(2)) < int(exposure.group(1))
-            and int(exposure.group(3)) == int(exposure.group(2))
-            and int(attention.group(1)) > 0
-            and " matter-conserved=true" in line
-        ):
-            shelter_resilience += 1
-    shelter_evidence = (
-        f"shelter-resilience:{shelter_resilience}/{len(evidence.wilderness_shelter)} "
-        if evidence.wilderness_shelter
-        else ""
-    )
-    workload_sensitive_processing = sum(
-        " processing-market=[one-cycle:manual " in line
-        and " disclosed:mechanized]" in line
-        for line in evidence.progression
-    )
-    mechanized_settlement = [
-        line
-        for line in evidence.settlement
-        if " choice:sash-sawmill " in line or " route:sash-sawmill " in line
-    ]
-    delegated_orders = sum(
-        any(int(value) > 0 for value in re.findall(r"\bdelegated:(\d+)t", line))
-        for line in mechanized_settlement
-    )
-    electrical_foundries = sum(
-        " foundry-build=true " in line
-        and "electrical-prime-mover=[base:treadle-built conversion:treadle-dynamo]" in line
-        for line in evidence.first_foundry
-    )
-    foundry_builds = sum(" foundry-build=true " in line for line in evidence.first_foundry)
-    return (
-        "fantasy-evidence=["
-        f"local-stability:{self_sufficient_camps}/{len(evidence.wilderness)} "
-        f"rational-restraint:{_conditional_ratio(rational_mobility, len(mobile_wilderness))} "
-        f"material-leverage:{_conditional_ratio(camp_leverage, len(camp_projects))} "
-        f"{worksite_construction_evidence}"
-        f"{worksite_warmth_evidence}"
-        f"{shelter_evidence}"
-        f"earned-mechanization:{workload_sensitive_processing}/{len(evidence.progression)} "
-        f"delegated-attention:{_conditional_ratio(delegated_orders, len(mechanized_settlement))} "
-        f"electrical-foundry:{_conditional_ratio(electrical_foundries, foundry_builds)}]"
-    )
-
-
 def _reserve_knowledge_changed_plan(fieldwork: list[str]) -> int:
     changed = 0
     for line in fieldwork:
@@ -889,7 +769,6 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         "PLAYER LOOP EVIDENCE "
         "role=self-reliant-field-engineer "
         f"{_evidence_shape(evidence)} "
-        f"{_fantasy_evidence(evidence)} "
         f"{_continuity_evidence(evidence)} "
         f"{_bootstrap_boundary_evidence(evidence.wilderness, evidence.liberation_kit)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "

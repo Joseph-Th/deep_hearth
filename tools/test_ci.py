@@ -3472,7 +3472,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("GAMEPLAY loop-dynamics ", concise)
         self.assertIn("thermal-bootstrap=1/1", concise)
         self.assertIn(
-            "GAMEPLAY fantasy role=self-reliant-field-engineer fantasy-evidence=[local-stability:3/3 rational-restraint:2/2 material-leverage:1/1 shelter-resilience:1/1 earned-mechanization:1/1",
+            "GAMEPLAY fantasy role=self-reliant-field-engineer evidence-shape=[wilderness:3 shelter:1 single-state-progression:",
             concise,
         )
         self.assertIn(
@@ -4092,6 +4092,7 @@ class GameplayReportContractTests(unittest.TestCase):
             (
                 "PROBE INPUT name=wilderness mode=explore",
                 "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile goal=stay-mobile initial=rested",
+                "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile phase=observed-chill tradeoff=react-then-refuel",
                 "WILDERNESS EXPERIENCE sample=maintained seed=0x1 episode=maintained/rested/stay-mobile start=rested goal=stay-mobile",
                 "PLAYER JOURNEY seed=0x1 episode=coverage/rested/long-stay-shelter goal=long-stay-shelter initial=rested",
                 "WILDERNESS EXPERIENCE sample=coverage seed=0x1 episode=coverage/rested/long-stay-shelter start=rested goal=long-stay-shelter",
@@ -4105,6 +4106,7 @@ class GameplayReportContractTests(unittest.TestCase):
         focused = gameplay_report_summary.concise_gameplay_report(stdout, environment)
         self.assertIn("continuity=one-wilderness-episode", focused)
         self.assertIn("goal=stay-mobile", focused)
+        self.assertIn("phase=observed-chill tradeoff=react-then-refuel", focused)
         self.assertNotIn("long-stay-shelter", focused)
         with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(

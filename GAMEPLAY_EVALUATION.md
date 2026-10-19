@@ -198,7 +198,14 @@ For long exploratory output, a focused verbose seed selects one world's tagged e
 necessarily a single actor history. Wilderness runs can reuse a seed under different goals and
 physiological starts; an explicit sample/start/goal episode key is required to claim one witness.
 Filtering may suppress untagged lines but must not reduce simulation coverage or silently
-attribute another episode's events to the selected actor.
+attribute another episode's events to the selected actor. When the same actor continues after
+the initial opening, that continuation retains the original episode key so a focused replay
+shows the new need, chosen intervention, and consequences alongside the initial decision.
+
+Broad cross-domain summaries identify the player role and evidence modes represented; they are
+not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
+contracts cannot establish whether an individual experienced an interesting tradeoff. Inspect
+seed-bound causal journeys and competing production outcomes before making gameplay claims.
 
 Keep hidden fixture truth in a separate diagnostic representation from actor-playable state. Player-facing
 decision and experience evidence contains only legitimately observable state, acquired evidence, and explicit
