@@ -731,6 +731,28 @@ pub(super) fn evaluate_diet_recovery_consequence(
         registries, &mut state, campfire, food_store,
     ));
     let thermal_warning = physiology.thermal_comfort().warning_below_ppm();
+    let initial_heat = state
+        .energy()
+        .get_store(campfire)
+        .unwrap_or_else(|| panic!("diet-recovery fire disappeared before warming"))
+        .stored();
+    let open_heat_gain = physiology
+        .thermal_comfort()
+        .local_heat_gain_ppm(initial_heat);
+    let warming_rate = open_heat_gain
+        .checked_sub(physiology.thermal_comfort().unsheltered_loss_ppm_per_tick())
+        .unwrap_or_else(|| panic!("diet-recovery fire cannot overcome open exposure"));
+    assert!(
+        warming_rate > 0,
+        "diet-recovery fire must offer positive local warming"
+    );
+    // Start with a conservative physical bound for fully cold open exposure, rather than
+    // baking in the old warmth tuning. Actual heat decays while the player waits, so allow
+    // a second projection-length for that finite combustion consequence.
+    let projected_warmup = u64::from(thermal_warning).div_ceil(u64::from(warming_rate));
+    let warmup_limit = projected_warmup
+        .checked_mul(2)
+        .unwrap_or_else(|| panic!("diet-recovery warmup horizon overflowed"));
     let mut fire_warmup_ticks = 0_u64;
     while assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("diet-recovery player disappeared during fire warmup"))
@@ -740,8 +762,8 @@ pub(super) fn evaluate_diet_recovery_consequence(
         advance_idle_ticks(registries, &mut state, 1, "diet-recovery fire warmup");
         fire_warmup_ticks += 1;
         assert!(
-            fire_warmup_ticks < 100,
-            "diet-recovery campfire failed to restore recovery-capable warmth"
+            fire_warmup_ticks <= warmup_limit,
+            "diet-recovery campfire failed to restore recovery-capable warmth within the observed heat budget"
         );
     }
 

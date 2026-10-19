@@ -249,6 +249,11 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
     let forage_queue_ticks = forage_started_at
         .checked_steps_since(forage_queued.control_tick())
         .unwrap_or_else(|| panic!("direct-use forage start preceded queued input"));
+    assert_eq!(
+        forage_queued.queued_action_wait_control_ticks(),
+        Some(forage_queue_ticks),
+        "the input-tick wait projection must predict actual forage admission"
+    );
     assert_eq!(gathering.resource(), forage.resource());
     assert!(!gathering.gathered_mass().is_zero());
     advance_to(
@@ -326,6 +331,11 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
     let water_queue_ticks = water_started_at
         .checked_steps_since(water_queued.control_tick())
         .unwrap_or_else(|| panic!("direct-water start preceded queued input"));
+    assert_eq!(
+        water_queued.queued_action_wait_control_ticks(),
+        Some(water_queue_ticks),
+        "the input-tick wait projection must predict actual drinking admission"
+    );
     assert_eq!(started.store(), water.store());
     assert!(!started.volume().is_zero());
     assert_eq!(
@@ -438,6 +448,11 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
     let timber_queue_ticks = timber_started_at
         .checked_steps_since(timber_queued.control_tick())
         .unwrap_or_else(|| panic!("direct-use timber start preceded queued input"));
+    assert_eq!(
+        timber_queued.queued_action_wait_control_ticks(),
+        Some(timber_queue_ticks),
+        "the input-tick wait projection must predict actual timber admission"
+    );
     assert_eq!(timber_direct.resource(), timber.resource());
     advance_to(
         &registries,

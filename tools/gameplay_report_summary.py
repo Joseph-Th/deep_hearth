@@ -658,6 +658,8 @@ def _focused_verbose_gameplay_report(
     selected = []
     matching_events = 0
     episode_witnesses = 0
+    available_seeds = set()
+    available_episodes = set()
     for line in _without_cargo_test_wrapper(stdout).splitlines():
         # A focused *player* replay must not quietly inject evaluator-only geological truth.
         # Full verbose diagnostics are still available when investigating implementation faults.
@@ -665,6 +667,12 @@ def _focused_verbose_gameplay_report(
             continue
         event_seed = field(line, "seed")
         if event_seed is not None:
+            if event_seed.startswith("0x"):
+                available_seeds.add(f"0x{int(event_seed, 16):016X}")
+                if int(event_seed, 16) == int(seed, 16):
+                    witnessed_episode = field(line, "episode")
+                    if witnessed_episode is not None:
+                        available_episodes.add(witnessed_episode)
             if event_seed.startswith("0x") and int(event_seed, 16) == int(seed, 16):
                 if episode is not None and field(line, "episode") != episode:
                     continue
@@ -679,10 +687,15 @@ def _focused_verbose_gameplay_report(
     if episode is not None and episode_witnesses != 1:
         raise ValueError(
             f"expected one wilderness witness for {seed} episode={episode}, "
-            f"found {episode_witnesses}"
+            f"found {episode_witnesses}; available episodes for this seed: "
+            f"{', '.join(sorted(available_episodes)[:12]) or 'none'}"
         )
     if matching_events == 0:
-        raise ValueError(f"no seeded player evidence found for {seed}")
+        raise ValueError(
+            f"no seeded player evidence found for {seed}; "
+            f"available sampled seeds: {', '.join(sorted(available_seeds)[:12]) or 'none'}; "
+            "rerun with --focus-seed set to one of these seeds"
+        )
     selected.insert(
         0,
         f"PLAYER REPLAY focus-seed={seed} "

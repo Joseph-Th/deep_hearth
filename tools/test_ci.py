@@ -3195,7 +3195,7 @@ class GameplayReportContractTests(unittest.TestCase):
             gameplay_report_summary.wilderness_player_experience([*lines, lines[2]])
         self.assertIn("sample-shape=[maintained:1 coverage:2 organic:2]", summary)
         self.assertIn(
-            "direct-use=[route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct q[f/d/t]=63/61/43ct use=one-shot gather=[before:4000000mg batch:500000mg remaining:3500000mg] water=[before:5000000uL serving:500000uL remaining:4500000uL] hydration=[before:3000000uL after:3500000uL] timed=true]",
+            "direct-use=[route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct lag=3.15/3.05/2.15s use=one-shot gather=[before:4000000mg batch:500000mg remaining:3500000mg] water=[before:5000000uL serving:500000uL remaining:4500000uL] hydration=[before:3000000uL after:3500000uL] timed=true]",
             summary,
         )
         self.assertIn(
@@ -3378,7 +3378,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("diet=mixed nutrition-offered=[fruit:30% protein:30%]", concise)
         self.assertIn(
-            "GAMEPLAY wilderness-direct-use [route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct q[f/d/t]=63/61/43ct use=one-shot gather=[before:4210752mg batch:500000mg remaining:3710752mg] water=[before:5078082uL serving:750000uL remaining:4328082uL] hydration=[before:978622uL after:1726247uL] timed=true]",
+            "GAMEPLAY wilderness-direct-use [route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct lag=3.15/3.05/2.15s use=one-shot gather=[before:4210752mg batch:500000mg remaining:3710752mg] water=[before:5078082uL serving:750000uL remaining:4328082uL] hydration=[before:978622uL after:1726247uL] timed=true]",
             concise,
         )
         self.assertIn(
@@ -4063,7 +4063,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertNotIn("FIELDWORK TOOL MARKET", focused)
         self.assertNotIn("hidden-resource", focused)
         self.assertNotIn("test result:", focused)
-        with self.assertRaisesRegex(ValueError, "no seeded player evidence"):
+        with self.assertRaisesRegex(ValueError, "available sampled seeds: 0x0000000000000001, 0x0000000000000002"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {
@@ -4091,7 +4091,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("continuity=one-wilderness-episode", focused)
         self.assertIn("goal=stay-mobile", focused)
         self.assertNotIn("long-stay-shelter", focused)
-        with self.assertRaisesRegex(ValueError, "expected one wilderness witness"):
+        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},

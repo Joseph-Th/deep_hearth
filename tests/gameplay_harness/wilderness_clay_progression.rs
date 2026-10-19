@@ -260,12 +260,16 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
             .checked_sub(final_reserves.hydration())
             .unwrap_or_else(|| panic!("clay project gained unexplained hydration"));
         std::println!(
-            "WILDERNESS CASTING BED seed=0x{:016X} evidence=generated-exact-local path=[forage>water>clay>fork>junction>stone>junction>timber>junction] elapsed={}t/{} survival=[energy:{}nJ hydration:{}uL] materials=[clay:{}mg stone:{}mg timber:{}mg] craft=[binder:{}b boards:{}b] assembled=true clay-left={}mg matter=conserved",
+            "WILDERNESS CASTING BED seed=0x{:016X} evidence=generated-exact-local path=[forage>water>clay>fork>junction>stone>junction>timber>junction] elapsed={}t/{} survival-spent=[energy:{}nJ hydration:{}uL] reserves-left=[energy:{}nJ hydration:{}uL] pressure=[hungry:{} thirsty:{}] materials=[clay:{}mg stone:{}mg timber:{}mg] craft=[binder:{}b boards:{}b] assembled=true clay-left={}mg matter=conserved",
             seed.value(),
             elapsed,
             physical_minutes_tenths(&registries, elapsed),
             energy_used.nanojoules(),
             hydration_used.microliters(),
+            final_reserves.metabolic_energy().nanojoules(),
+            final_reserves.hydration().microliters(),
+            final_reserves.metabolic_energy() <= registries.survival().physiology().hungry_below(),
+            final_reserves.hydration() <= registries.survival().physiology().thirsty_below(),
             binder_mass.milligrams(),
             stone_mass.milligrams(),
             timber_mass.milligrams(),

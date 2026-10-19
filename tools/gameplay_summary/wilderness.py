@@ -78,12 +78,19 @@ def wilderness_summary(lines: list[str]) -> str | None:
             body_effort.group(5)
         ) <= int(body_effort.group(6)):
             raise ValueError("wilderness jump no longer carries a survival cost above idle")
+        # The one-shot action is acknowledged on its input control tick, but the work
+        # cannot begin until a slow boundary. Surface the lived delay in seconds: raw
+        # control-tick counts conceal a multi-second interaction response.
+        queued_seconds = "/".join(
+            f"{int(queue.group(index)) / 20:.2f}"
+            for index in (1, 2, 3)
+        )
         direct_use = (
             f"direct-use=[route={movement.group(2)}/{movement.group(3)}e/{movement.group(4)}ct "
             f"plan={known_path.group(1)}e/{known_path.group(2)}ct "
             f"mats={material_choice.group(2)}/{material_choice.group(1)} "
             f"haul={_mass_kg(int(haul.group(1)))}/{_mass_kg(int(haul.group(2)))}/{_mass_kg(int(haul.group(3)))}kg@{haul.group(4)}ct "
-            f"q[f/d/t]={queue.group(1)}/{queue.group(2)}/{queue.group(3)}ct use=one-shot "
+            f"lag={queued_seconds}s use=one-shot "
             + compact_fields(
                 direct_use_lines[0],
                 ("gather", "water", "hydration", "timed"),

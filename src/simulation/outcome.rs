@@ -1,6 +1,6 @@
 //! Public observable result of one canonical simulation tick.
 
-use crate::core::time::{ControlTick, SimulationTick};
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick, SimulationTick};
 use crate::energy::{
     CombustionError, EnergyStoreAssemblyError, EnergyStoreDefinitionId, EnergyStoreId,
 };
@@ -305,6 +305,27 @@ impl ControlTickOutcome {
     #[must_use]
     pub const fn secondary_action(&self) -> Option<&SecondaryActionOutcome> {
         self.secondary_action.as_ref()
+    }
+
+    /// Earliest control steps until a queued primary or contextual-use request can be retried.
+    ///
+    /// A buffered press is acknowledged immediately, but slow-scheduled work can only be
+    /// admitted on a simulation boundary. This is a bounded wait projection, not a guarantee
+    /// that the target, survival state, or inventory will still authorize the action then.
+    /// Clients can acknowledge a pending use visibly rather than appearing inert for seconds.
+    #[must_use]
+    pub fn queued_action_wait_control_ticks(&self) -> Option<u64> {
+        if !matches!(
+            self.primary_action,
+            Some(PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+        ) && !matches!(
+            self.secondary_action,
+            Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+        ) {
+            return None;
+        }
+        let phase = self.control_tick.value() % CONTROL_TICKS_PER_SIMULATION_TICK;
+        Some((CONTROL_TICKS_PER_SIMULATION_TICK - phase) % CONTROL_TICKS_PER_SIMULATION_TICK)
     }
 
     /// Active quick-access selection drop requested on this control step, if any.

@@ -26,8 +26,9 @@ use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
 pub(super) const STATIONARY_PLAYER_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
 
-/// Generates one deterministic terrain chunk and returns a center-first surface spawn accepted by
-/// the production terrain-aware wilderness layout validator.
+/// Generates nearby deterministic terrain chunks until a surface spawn supports the complete
+/// ordinary wilderness graph. A single rough chunk is not proof that the world seed is unplayable.
+/// The bounded search does not flatten terrain or bypass the production layout validator.
 #[allow(
     dead_code,
     reason = "shared exact-local runtime is included by focused targets that do not generate wilderness terrain"
@@ -37,18 +38,7 @@ pub(super) fn generated_wilderness_surface_spawn(
     state: &mut AppState,
     seed: WorldGenerationSeed,
 ) -> VoxelCoord {
-    let horizontal = VoxelCoord::new(8, 0, 8);
-    let chunk = ChunkCoord::containing(horizontal);
-    validate_generate_chunk(registries, state, seed, chunk, BLOCK_STATE_STONE)
-        .unwrap_or_else(|error| panic!("gameplay wilderness terrain generation failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("gameplay wilderness terrain commit failed: {error}"));
-    let min_x = chunk
-        .world_min_x()
-        .unwrap_or_else(|| panic!("gameplay wilderness initial chunk x coordinate overflowed"));
-    let min_z = chunk
-        .world_min_z()
-        .unwrap_or_else(|| panic!("gameplay wilderness initial chunk z coordinate overflowed"));
+    let origin = ChunkCoord::containing(VoxelCoord::new(8, 0, 8));
     let side =
         i64::try_from(CHUNK_SIDE).unwrap_or_else(|_| unreachable!("authored chunk side fits i64"));
     let center = side / 2;
@@ -62,9 +52,25 @@ pub(super) fn generated_wilderness_surface_spawn(
             local_z,
         )
     });
-    candidates
-        .into_iter()
-        .find_map(|(local_x, local_z)| {
+    let mut nearby = (-1_i64..=1)
+        .flat_map(|dx| (-1_i64..=1).map(move |dz| (dx, dz)))
+        .collect::<Vec<_>>();
+    nearby.sort_unstable_by_key(|&(dx, dz)| (dx.abs() + dz.abs(), dx, dz));
+    for (dx, dz) in nearby {
+        let chunk = ChunkCoord::new(origin.x() + dx, origin.z() + dz);
+        validate_generate_chunk(registries, state, seed, chunk, BLOCK_STATE_STONE)
+            .unwrap_or_else(|error| {
+                panic!("gameplay wilderness terrain generation failed: {error}")
+            })
+            .commit(state)
+            .unwrap_or_else(|error| panic!("gameplay wilderness terrain commit failed: {error}"));
+        let min_x = chunk
+            .world_min_x()
+            .unwrap_or_else(|| panic!("gameplay wilderness chunk x coordinate overflowed"));
+        let min_z = chunk
+            .world_min_z()
+            .unwrap_or_else(|| panic!("gameplay wilderness chunk z coordinate overflowed"));
+        if let Some(spawn) = candidates.iter().find_map(|&(local_x, local_z)| {
             let x = min_x.checked_add(local_x)?;
             let z = min_z.checked_add(local_z)?;
             let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).rev().find(|&y| {
@@ -74,10 +80,11 @@ pub(super) fn generated_wilderness_surface_spawn(
             validate_generate_initial_wilderness(registries, state, seed, spawn)
                 .is_ok()
                 .then_some(spawn)
-        })
-        .unwrap_or_else(|| {
-            panic!("generated initial chunk has no terrain-valid bounded wilderness spawn")
-        })
+        }) {
+            return spawn;
+        }
+    }
+    panic!("nine nearby generated terrain chunks have no valid wilderness opening spawn")
 }
 
 /// Executes one horizontal face-adjacent continuous-body leg and settles its exact locomotion cost.

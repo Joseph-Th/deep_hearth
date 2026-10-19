@@ -119,7 +119,9 @@ fn physiology() -> PhysiologyDefinition {
                 800_000,
                 1_000,
                 500,
-                20_000,
+                // Warming beside a fire should take meaningful time after prolonged exposure,
+                // not erase a cold workday in a handful of 3.6-second simulation ticks.
+                7_500,
                 Energy::from_nanojoules(10_800_000_000_000),
                 25,
             ),
