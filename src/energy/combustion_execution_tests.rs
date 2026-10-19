@@ -1,23 +1,200 @@
 //! Contract tests for material-backed local campfire combustion and warmth.
 
 use crate::content::{
-    CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG,
-    FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    CAMPFIRE_CHIP_FUEL_MASS, CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY, CAMPFIRE_FUEL_MASS,
+    CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE, FORM_BOARD, FORM_CHIP, FORM_LOG,
+    FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::{AppState, validate_loaded_state};
+use crate::crafting::validate_start_player_manual_craft;
 use crate::inventory::deposit_bulk_for_test;
-use crate::logistics::relocate_player_for_test;
+use crate::logistics::{
+    PlayerActiveSelection, relocate_player_for_test, validate_set_active_selection,
+};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
-use crate::simulation::advance_tick;
-use crate::spatial::VoxelCoord;
+use crate::simulation::{
+    PlayerDirectControlInput, SecondaryActionOutcome, SecondaryControlIntent,
+    advance_control_tick_with_direct_input, advance_tick,
+};
+use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
 use crate::survival::player_record_with_thermal_comfort;
+use std::num::NonZeroU64;
 
 use crate::energy::validate_assemble_energy_store;
 
-use super::validate_combust_fuel;
+use super::{CombustionError, validate_combust_fuel, validate_combust_selected_fuel};
+
+#[test]
+fn real_woodworking_chips_can_refuel_camp_without_consuming_reserved_logs() {
+    let (registries, mut state, carried, fire) = campfire_fixture();
+    let logs = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let chips = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        carried,
+        logs,
+        Mass::from_milligrams(3_000_000),
+    )
+    .unwrap_or_else(|error| panic!("extra timber for woodworking rejected: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("chips baseline matter failed: {error}"))
+        .total();
+    let craft = |state: &AppState, batches: u64| {
+        validate_start_player_manual_craft(
+            &registries,
+            state,
+            PROCESS_SHAPE_WOOD_BOARDS,
+            NonZeroU64::new(batches).unwrap_or_else(|| panic!("test batch count must be positive")),
+            None,
+        )
+    };
+    let first = craft(&state, 2)
+        .unwrap_or_else(|error| panic!("two woodworking batches rejected: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("two woodworking batches commit failed: {error}"));
+    let first_end = state
+        .production()
+        .get_job(first)
+        .unwrap_or_else(|| panic!("first woodworking job vanished"))
+        .completes_at();
+    while state.tick() < first_end {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("first woodworking continuation failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap_or_else(|| panic!("carried stockpile vanished"))
+            .get_mass(chips),
+        Mass::from_milligrams(400_000)
+    );
+    let before_rejection = state.clone();
+    assert!(
+        matches!(
+            validate_combust_selected_fuel(&registries, &state, fire, carried, chips),
+            Err(CombustionError::InsufficientFuel { available, required, .. })
+                if available == Mass::from_milligrams(400_000) && required == CAMPFIRE_CHIP_FUEL_MASS
+        ),
+        "insufficient sawdust must not silently burn a log instead"
+    );
+    assert_eq!(state, before_rejection);
+
+    let final_board = craft(&state, 1)
+        .unwrap_or_else(|error| panic!("final woodworking batch rejected: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("final woodworking batch commit failed: {error}"));
+    let second_end = state
+        .production()
+        .get_job(final_board)
+        .unwrap_or_else(|| panic!("final woodworking job vanished"))
+        .completes_at();
+    while state.tick() < second_end {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("final woodworking continuation failed: {error}"));
+    }
+    let before_burn = state
+        .inventory()
+        .get_stockpile(carried)
+        .unwrap_or_else(|| panic!("woodworking carrier disappeared"));
+    assert_eq!(before_burn.get_mass(chips), Mass::from_milligrams(600_000));
+    assert_eq!(
+        before_burn.get_mass(boards),
+        Mass::from_milligrams(2_400_000)
+    );
+    assert_eq!(before_burn.get_mass(logs), CAMPFIRE_FUEL_MASS);
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(chips)),
+    )
+    .unwrap_or_else(|error| panic!("chip quick selection rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("chip quick selection commit failed: {error}"));
+    let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
+        .unwrap_or_else(|error| panic!("campfire view failed: {error}"));
+    let outcome = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(upward)),
+    )
+    .unwrap_or_else(|error| panic!("chip-fired player action failed: {error}"));
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::CombustionFuelAdded {
+            store: fire,
+            released: CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY,
+        })
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap_or_else(|| panic!("chip fuel carrier disappeared"))
+            .get_mass(chips),
+        Mass::from_milligrams(100_000)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap_or_else(|| panic!("remaining firewood carrier disappeared"))
+            .get_mass(logs),
+        CAMPFIRE_FUEL_MASS
+    );
+    assert_eq!(
+        state
+            .energy()
+            .get_store(fire)
+            .unwrap_or_else(|| panic!("chip-fired camp disappeared"))
+            .stored(),
+        CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("chip-fired final matter accounting failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("chip-fired save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&snapshot)
+        .unwrap_or_else(|error| panic!("chip-fired save parse failed: {error}"));
+    state = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("chip-fired load failed: {error}"));
+    // The original log route works after chip burning and save/load, with cumulative finite heat.
+    let log_released = validate_combust_fuel(&registries, &state, fire, carried)
+        .unwrap_or_else(|error| panic!("post-chip log fueling failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("post-chip log commit failed: {error}"));
+    assert_eq!(log_released, CAMPFIRE_FUEL_THERMAL_ENERGY);
+    assert_eq!(
+        state
+            .energy()
+            .get_store(fire)
+            .unwrap_or_else(|| panic!("mixed-fuel camp disappeared"))
+            .stored(),
+        CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY
+            .checked_add(CAMPFIRE_FUEL_THERMAL_ENERGY)
+            .unwrap_or_else(|| panic!("mixed heat exceeds physical range"))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("mixed-fuel matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
 
 fn campfire_fixture() -> (
     crate::registry::Registries,
@@ -121,8 +298,8 @@ fn passive_campfire_heat_warms_only_a_colocated_player() {
             .survival()
             .player()
             .map(|player| player.thermal_comfort_ppm()),
-        Some(719_000),
-        "one local fire tick should gain 20,000 ppm and pay 1,000 ppm unsheltered loss"
+        Some(706_500),
+        "one local fire tick should gain 7,500 ppm and pay 1,000 ppm unsheltered loss"
     );
 
     let remote = VoxelCoord::new(1, 0, 0);

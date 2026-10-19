@@ -148,7 +148,7 @@ impl EnergyRegistry {
         physical_tick_duration: PhysicalTickDuration,
     ) {
         for definition in self.definitions.values() {
-            if let Some(combustion) = definition.combustion_profile() {
+            for combustion in definition.combustion_profiles() {
                 assert!(
                     materials.has_commodity(combustion.fuel()),
                     "energy store definition {} combustion fuel must reference an authored commodity",

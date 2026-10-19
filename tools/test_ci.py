@@ -3223,10 +3223,15 @@ class GameplayReportContractTests(unittest.TestCase):
             summary,
         )
         postfire_lines = lines.copy()
-        postfire_lines[1] += " postfire=[deferred:true covered:843100ppm unbuilt:476833ppm fuel-only:1000000ppm]"
+        postfire_lines[1] += " postfire=[deferred:true covered:843100ppm unbuilt:476833ppm fuel-only:1000000ppm recycled-chips:500000mg]"
         protected_summary = gameplay_report_summary.wilderness_summary(postfire_lines)
         self.assertIn("fuel-free-hour:843k>476kppm", protected_summary)
         self.assertIn("alternative-fire:1000kppm/1kg", protected_summary)
+        self.assertIn("reused-chips:500g", protected_summary)
+        no_reuse = postfire_lines.copy()
+        no_reuse[1] = no_reuse[1].replace("recycled-chips:500000mg", "recycled-chips:0mg")
+        with self.assertRaisesRegex(ValueError, "failed to recover"):
+            gameplay_report_summary.wilderness_summary(no_reuse)
         postfire_lines[1] = postfire_lines[1].replace(
             "covered:843100ppm unbuilt:476833ppm", "covered:476833ppm unbuilt:843100ppm"
         )

@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::content::{
-    FORM_FLYWHEEL, FORM_MOLTEN, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE,
-    build_registries,
+    FORM_CHIP, FORM_FLYWHEEL, FORM_LOG, FORM_MOLTEN, FORM_REINFORCEMENT, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::Mass;
 use crate::material::{CommodityKey, MaterialInputSpec};
@@ -38,6 +38,62 @@ fn registry_rejects_liquid_combustion_fuel() {
     });
 
     assert!(result.is_err());
+}
+
+#[test]
+fn alternative_combustion_requires_unique_solid_fuel_and_bounded_heat() {
+    let registries = build_registries();
+    let base = || {
+        EnergyStoreDefinition::new_combustion_store(
+            EnergyStoreDefinitionId::new(930_021),
+            "two-fuel testing hearth",
+            Energy::from_nanojoules(1_000_000),
+            Power::from_microwatts(1),
+            CombustionProfile::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                Mass::from_milligrams(10),
+                Energy::from_nanojoules(500_000),
+            ),
+        )
+    };
+    let duplicate = std::panic::catch_unwind(|| {
+        base().with_alternative_combustion_profile(CombustionProfile::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(5),
+            Energy::from_nanojoules(200_000),
+        ))
+    });
+    assert!(
+        duplicate.is_err(),
+        "fuel identity cannot denote two incompatible charges"
+    );
+    let excessive = std::panic::catch_unwind(|| {
+        base().with_alternative_combustion_profile(CombustionProfile::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+            Mass::from_milligrams(5),
+            Energy::from_nanojoules(1_000_001),
+        ))
+    });
+    assert!(
+        excessive.is_err(),
+        "alternate fuel cannot exceed finite heat capacity"
+    );
+    let invalid =
+        EnergyRegistry::new([
+            base().with_alternative_combustion_profile(CombustionProfile::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+                Mass::from_milligrams(5),
+                Energy::from_nanojoules(200_000),
+            )),
+        ]);
+    assert!(
+        std::panic::catch_unwind(|| invalid.validate_references(
+            registries.materials(),
+            registries.core().physical_tick_duration()
+        ))
+        .is_err(),
+        "alternative fuels cannot bypass solid-commodity registry checks"
+    );
 }
 
 fn copper_additions() -> MaterialAssemblyProfile {

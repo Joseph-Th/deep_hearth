@@ -551,6 +551,16 @@ remaining physical constituents; segregation does not grant an extra separation 
 defined, but chemical ore reduction and the generation of new smelting slag are not implemented. Environmental
 dispersion, soil/water contamination, spoil heaps, and bulk waste conveyance are not yet simulated.
 
+**Residue as useful fuel:** Campfire combustion supports explicit alternative solid fuel charges,
+not an implicit material substitution. Alongside its original 1 kg log charge (12 MJ usable
+heat), the stone-ring campfire now takes 500 g of wood-processing chips for 5 MJ usable heat.
+`validate_combust_selected_fuel` binds that commodity at admission; selected-material direct use
+chooses the matching charge, while the original `validate_combust_fuel` retains the log default.
+Both paths share finite heat capacity, locality, occupancy, revision checks, structural loads,
+inventory egress and the existing terminal combusted-mass account. A short chip supply rejects
+without consuming logs, and an old log charge can still be added after burning chips. This is
+wood-waste heat recovery, not complete combustion chemistry, air emissions, or modeled ash.
+
 Manual shaping conserves material identity/mass and cannot change phase. Pure durable input lots may span exact
 temperatures: form-only shaping retains every selected thermal cohort and apportions each authored output across
 the remaining cohort distribution at whole-milligram precision, so crafting neither averages heat nor performs

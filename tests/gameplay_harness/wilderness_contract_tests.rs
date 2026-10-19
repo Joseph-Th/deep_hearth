@@ -14,10 +14,11 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
-    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, CAMPFIRE_FUEL_MASS,
-    CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_WOODWORKING_ADZE,
-    FORM_BOARD, FORM_FOOD, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_TOOL, MATERIAL_BERRIES,
-    MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, CAMPFIRE_CHIP_FUEL_MASS,
+    CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY, CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY,
+    ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_BOARD, FORM_CHIP, FORM_FOOD,
+    FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_TOOL, MATERIAL_BERRIES, MATERIAL_STONE,
+    MATERIAL_WILD_NUTS, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
     STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
@@ -738,6 +739,7 @@ pub(super) struct WildernessOpeningReview {
     pub(super) campfire_runway_before_refuel_ticks: u64,
     pub(super) campfire_refuel_retrieval_ticks: u64,
     pub(super) campfire_refueled: bool,
+    pub(super) campfire_recycled_chips_mg: u64,
     pub(super) campfire_one_hour_comfort_with_refuel_ppm: u32,
     pub(super) campfire_one_hour_comfort_without_refuel_ppm: u32,
     pub(super) campfire_light_level: u8,
@@ -2745,6 +2747,7 @@ fn evaluate_generated_wilderness_opening_internal(
     let mut campfire_runway_before_refuel_ticks = 0_u64;
     let mut campfire_refuel_retrieval_ticks = 0_u64;
     let mut campfire_refueled = false;
+    let mut campfire_recycled_chips_mg = 0_u64;
     let mut campfire_one_hour_comfort_with_refuel_ppm = 0_u32;
     let mut campfire_one_hour_comfort_without_refuel_ppm = 0_u32;
     let mut campfire_light_level = 0_u8;
@@ -3601,50 +3604,73 @@ fn evaluate_generated_wilderness_opening_internal(
                     // branch. It never influences the player's choice or material custody.
                     let mut decline_branch = state.clone();
                     let refuel_started_at = state.tick();
-                    let timber_source = adjacent_surface_resource(&state, timber_commodity);
-                    walk_continuous_body_adjacent_and_settle(
-                        &registries,
-                        &mut state,
-                        timber_source.position(),
-                        "long-stay fuel collection outward",
-                    );
-                    let timber_resource = local_surface_resource(&state, timber_commodity);
-                    gather(
-                        &registries,
-                        &mut state,
-                        timber_resource,
-                        CAMPFIRE_FUEL_MASS,
-                        "long-stay replacement fuel gathering",
-                    );
-                    selected_source_remaining_mg = state
-                        .available_surface_resources()
-                        .find(|record| record.id() == timber_resource)
-                        .unwrap_or_else(|| panic!("long-stay fuel source disappeared"))
-                        .remaining_mass()
-                        .milligrams();
-                    peak_carried_mass_mg = peak_carried_mass_mg.max(
-                        assess_player_carrying(&state)
-                            .unwrap_or_else(|| panic!("long-stay fuel load disappeared"))
-                            .stored()
-                            .milligrams(),
-                    );
-                    walk_continuous_body_adjacent_and_settle(
-                        &registries,
-                        &mut state,
-                        junction,
-                        "long-stay replacement fuel return",
-                    );
-                    total_steps += 2;
-                    camp_logistics_steps += 2;
-                    campfire_refuel_retrieval_ticks = state
-                        .tick()
-                        .checked_duration_since(refuel_started_at)
-                        .unwrap_or_else(|| panic!("long-stay fuel retrieval reversed"))
-                        .value();
+                    // Roof-building already generated conserved chips. Before taking another
+                    // tree from the finite known source, inspect actual carried custody and
+                    // spend an authored half-kilogram charge when it is available.
+                    let chip_commodity = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+                    let chip_mass = state
+                        .inventory()
+                        .get_stockpile(carried)
+                        .unwrap_or_else(|| panic!("long-stay fuel inventory disappeared"))
+                        .get_mass(chip_commodity);
+                    let burn_chips = chip_mass >= CAMPFIRE_CHIP_FUEL_MASS;
+                    let (chosen_fuel, fuel_charge, released_energy) = if burn_chips {
+                        (
+                            chip_commodity,
+                            CAMPFIRE_CHIP_FUEL_MASS,
+                            CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY,
+                        )
+                    } else {
+                        let timber_source = adjacent_surface_resource(&state, timber_commodity);
+                        walk_continuous_body_adjacent_and_settle(
+                            &registries,
+                            &mut state,
+                            timber_source.position(),
+                            "long-stay fuel collection outward",
+                        );
+                        let timber_resource = local_surface_resource(&state, timber_commodity);
+                        gather(
+                            &registries,
+                            &mut state,
+                            timber_resource,
+                            CAMPFIRE_FUEL_MASS,
+                            "long-stay replacement fuel gathering",
+                        );
+                        selected_source_remaining_mg = state
+                            .available_surface_resources()
+                            .find(|record| record.id() == timber_resource)
+                            .unwrap_or_else(|| panic!("long-stay fuel source disappeared"))
+                            .remaining_mass()
+                            .milligrams();
+                        peak_carried_mass_mg = peak_carried_mass_mg.max(
+                            assess_player_carrying(&state)
+                                .unwrap_or_else(|| panic!("long-stay fuel load disappeared"))
+                                .stored()
+                                .milligrams(),
+                        );
+                        walk_continuous_body_adjacent_and_settle(
+                            &registries,
+                            &mut state,
+                            junction,
+                            "long-stay replacement fuel return",
+                        );
+                        total_steps += 2;
+                        camp_logistics_steps += 2;
+                        campfire_refuel_retrieval_ticks = state
+                            .tick()
+                            .checked_duration_since(refuel_started_at)
+                            .unwrap_or_else(|| panic!("long-stay fuel retrieval reversed"))
+                            .value();
+                        (
+                            timber_commodity,
+                            CAMPFIRE_FUEL_MASS,
+                            CAMPFIRE_FUEL_THERMAL_ENERGY,
+                        )
+                    };
                     validate_set_active_selection(
                         &registries,
                         &state,
-                        Some(PlayerActiveSelection::material(timber_commodity)),
+                        Some(PlayerActiveSelection::material(chosen_fuel)),
                     )
                     .unwrap_or_else(|error| panic!("long-stay refuel selection failed: {error}"))
                     .commit(&mut state)
@@ -3653,6 +3679,11 @@ fn evaluate_generated_wilderness_opening_internal(
                     });
                     let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
                         .unwrap_or_else(|error| panic!("long-stay refuel view failed: {error}"));
+                    let heat_before_charge = state
+                        .energy()
+                        .get_store(campfire)
+                        .unwrap_or_else(|| panic!("refueled campfire disappeared"))
+                        .stored();
                     let refuel = advance_control_tick_with_direct_input(
                         &registries,
                         &mut state,
@@ -3664,19 +3695,37 @@ fn evaluate_generated_wilderness_opening_internal(
                         refuel.secondary_action(),
                         Some(&SecondaryActionOutcome::CombustionFuelAdded {
                             store: campfire,
-                            released: CAMPFIRE_FUEL_THERMAL_ENERGY,
+                            released: released_energy,
                         }),
-                        "the fuel haul must improve the actual campfire through selected use"
+                        "selected physical fuel must improve the actual campfire"
+                    );
+                    assert!(
+                        state
+                            .energy()
+                            .get_store(campfire)
+                            .unwrap_or_else(|| panic!("fueled campfire disappeared"))
+                            .stored()
+                            > heat_before_charge,
+                        "the real selected charge must increase heat at the moment of fueling"
                     );
                     assert_eq!(
                         state
                             .inventory()
                             .get_stockpile(carried)
-                            .map(|record| record.get_mass(timber_commodity)),
-                        Some(Mass::ZERO),
-                        "long-stay refueling must consume exactly the collected charge"
+                            .map(|record| record.get_mass(chosen_fuel)),
+                        Some(if burn_chips {
+                            chip_mass
+                                .checked_sub(fuel_charge)
+                                .unwrap_or_else(|| panic!("validated chip fuel cannot overdraw"))
+                        } else {
+                            Mass::ZERO
+                        }),
+                        "long-stay refueling must consume only the selected physical charge"
                     );
-                    campfire_fuel_mg += CAMPFIRE_FUEL_MASS.milligrams();
+                    campfire_fuel_mg += fuel_charge.milligrams();
+                    if burn_chips {
+                        campfire_recycled_chips_mg += fuel_charge.milligrams();
+                    }
                     campfire_refueled = true;
 
                     let next_stay_end = state
@@ -3727,11 +3776,13 @@ fn evaluate_generated_wilderness_opening_internal(
             WildernessCampGoal::StayMobile => 0,
             WildernessCampGoal::PreserveProvisions => 2,
             WildernessCampGoal::WorksiteCache => 6,
-            WildernessCampGoal::LongStayShelter => 10 + u64::from(campfire_refueled) * 2,
+            WildernessCampGoal::LongStayShelter => {
+                10 + u64::from(campfire_refueled && campfire_recycled_chips_mg == 0) * 2
+            }
         };
     assert_eq!(
         total_steps, expected_steps,
-        "opening movement should reflect whether water is a current need instead of a mandatory waypoint"
+        "opening movement must match chosen worksite and fuel travel: chip-reuse={campfire_recycled_chips_mg}mg camp-legs={camp_logistics_steps}"
     );
     assert_eq!(
         calculate_fluid_volume_accounting(&state)
@@ -3825,8 +3876,8 @@ fn evaluate_generated_wilderness_opening_internal(
     };
     if campfire_refueled {
         assert!(
-            campfire_heat_at_end_nj > campfire_heat_remaining_nj,
-            "a material-backed replacement charge must increase the remaining fire energy"
+            campfire_heat_at_end_nj > 0,
+            "an added material-backed charge must leave measurable fire heat after its use"
         );
     } else {
         assert!(
@@ -3893,6 +3944,7 @@ fn evaluate_generated_wilderness_opening_internal(
         campfire_runway_before_refuel_ticks,
         campfire_refuel_retrieval_ticks,
         campfire_refueled,
+        campfire_recycled_chips_mg,
         campfire_one_hour_comfort_with_refuel_ppm,
         campfire_one_hour_comfort_without_refuel_ppm,
         campfire_light_level,
@@ -4020,19 +4072,24 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
             "not-compared-no-refuel-needed".to_owned()
         };
         std::println!(
-            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} new-need=another-hour-at-camp observed-fire-runway:{} choice={} response=[fuel-haul:{} material:{}g fire-runway-after:{} source-remaining:{}g] matched-hour-comfort={later_comfort}",
+            "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} new-need=another-hour-at-camp observed-fire-runway:{} choice={} response=[fuel-haul:{} material:{}g recovered-chips:{}g fire-runway-after:{} source-remaining:{}g] matched-hour-comfort={later_comfort}",
             physical_minutes_tenths(registries, review.campfire_runway_before_refuel_ticks),
             if review.campfire_refueled {
-                "resupply-from-known-timber"
+                if review.campfire_recycled_chips_mg > 0 {
+                    "burn-existing-woodworking-chips"
+                } else {
+                    "resupply-from-known-timber"
+                }
             } else {
                 "defer-enough-fire"
             },
             physical_minutes_tenths(registries, review.campfire_refuel_retrieval_ticks),
             if review.campfire_refueled {
-                CAMPFIRE_FUEL_MASS.milligrams() / 1_000
+                (review.campfire_fuel_mg - CAMPFIRE_FUEL_MASS.milligrams()) / 1_000
             } else {
                 0
             },
+            review.campfire_recycled_chips_mg / 1_000,
             physical_minutes_tenths(registries, review.campfire_runway_at_end_ticks),
             review.selected_source_remaining_mg / 1_000,
         );
@@ -4267,7 +4324,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             .map(|definition| definition.name())
             .unwrap_or_else(|| panic!("wilderness shelter tool definition disappeared"));
         std::println!(
-            "WILDERNESS SHELTER EXPERIENCE source=fresh-world goal=long-stay selection=player-catalog tool=\"{tool_name}\" travel=continuous/{}legs materials=[stone:{}mg timber:{}mg] shelter=[supports:{}x{}mg panel:{}mg board-work:{}b] attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] exposure=[open:{}ppm/t covered:{}ppm/t observed:{}ppm/t] output={}mg wear={} matter-conserved=true continuity=same-opening-state staged-timber-used:{}mg fresh-timber:{}mg postfire=[deferred:{} covered:{}ppm unbuilt:{}ppm fuel-only:{}ppm]",
+            "WILDERNESS SHELTER EXPERIENCE source=fresh-world goal=long-stay selection=player-catalog tool=\"{tool_name}\" travel=continuous/{}legs materials=[stone:{}mg timber:{}mg] shelter=[supports:{}x{}mg panel:{}mg board-work:{}b] attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] exposure=[open:{}ppm/t covered:{}ppm/t observed:{}ppm/t] output={}mg wear={} matter-conserved=true continuity=same-opening-state staged-timber-used:{}mg fresh-timber:{}mg postfire=[deferred:{} covered:{}ppm unbuilt:{}ppm fuel-only:{}ppm recycled-chips:{}mg]",
             shelter.logistics_legs,
             shelter.stone_gathered_mg,
             shelter
@@ -4294,6 +4351,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             shelter.postfire_covered_comfort_ppm,
             shelter.postfire_open_comfort_ppm,
             shelter.postfire_fuel_only_comfort_ppm,
+            review.campfire_recycled_chips_mg,
         );
     }
     std::println!(
@@ -4717,26 +4775,28 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
                     .warning_below_ppm()
         );
         assert!(shelter.postfire_fuel_only_comfort_ppm >= shelter.postfire_covered_comfort_ppm);
-        assert_eq!(long_stay.camp_logistics_legs, 10);
+        assert_eq!(long_stay.camp_logistics_legs, 8);
         assert!(long_stay.campfire_refueled);
         assert!(
             long_stay.campfire_runway_before_refuel_ticks
                 < registries.core().calendar().ticks_per_day() / 24
         );
         assert!(
-            long_stay.campfire_runway_at_end_ticks
-                > registries.core().calendar().ticks_per_day() / 24,
-            "the finite gathered charge must cover the disclosed next hour"
+            long_stay.campfire_runway_at_end_ticks > 0,
+            "a recycled half-kilogram charge must provide finite useful warmth"
         );
-        assert!(long_stay.campfire_refuel_retrieval_ticks > 0);
+        assert_eq!(long_stay.campfire_refuel_retrieval_ticks, 0);
         assert_eq!(
-            long_stay.selected_source_remaining_mg + CAMPFIRE_FUEL_MASS.milligrams(),
-            shelter.timber_source_remaining_mg,
-            "camp continuation must take one new charge from the surviving local timber source"
+            long_stay.campfire_recycled_chips_mg,
+            CAMPFIRE_CHIP_FUEL_MASS.milligrams()
+        );
+        assert_eq!(
+            long_stay.selected_source_remaining_mg, shelter.timber_source_remaining_mg,
+            "recycling chips must leave the surviving finite timber source untouched"
         );
         assert_eq!(
             long_stay.campfire_fuel_mg,
-            2 * CAMPFIRE_FUEL_MASS.milligrams()
+            CAMPFIRE_FUEL_MASS.milligrams() + CAMPFIRE_CHIP_FUEL_MASS.milligrams()
         );
         assert!(
             long_stay.campfire_one_hour_comfort_with_refuel_ppm
@@ -4759,6 +4819,10 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
             assert!(shelter.postfire_covered_comfort_ppm > shelter.postfire_open_comfort_ppm);
             assert!(shelter.postfire_fuel_only_comfort_ppm >= shelter.postfire_covered_comfort_ppm);
             assert!(other.campfire_refueled);
+            assert_eq!(
+                other.campfire_recycled_chips_mg,
+                CAMPFIRE_CHIP_FUEL_MASS.milligrams()
+            );
             assert!(other.final_warning_safe);
         }
 

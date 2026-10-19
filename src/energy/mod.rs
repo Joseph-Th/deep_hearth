@@ -22,6 +22,7 @@ pub use accounting::{
 };
 pub use combustion_execution::{
     CombustionCommitError, CombustionError, ValidatedCombustion, validate_combust_fuel,
+    validate_combust_selected_fuel,
 };
 pub use construction_execution::{
     EnergyStoreAssemblyCommitError, EnergyStoreAssemblyError, ValidatedEnergyStoreAssembly,

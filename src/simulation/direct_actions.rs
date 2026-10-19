@@ -6,7 +6,7 @@ use crate::content::{
     STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
 };
 use crate::core::state::AppState;
-use crate::energy::{validate_assemble_energy_store, validate_combust_fuel};
+use crate::energy::{validate_assemble_energy_store, validate_combust_selected_fuel};
 use crate::inventory::{
     StorageDefinitionId, project_material_stacks, validate_place_player_storage_at,
 };
@@ -482,8 +482,7 @@ fn attempt_selected_combustion(
             registries
                 .energy()
                 .get_store(store.definition())
-                .and_then(|definition| definition.combustion_profile())
-                .is_some_and(|profile| profile.fuel() == commodity)
+                .is_some_and(|definition| definition.combustion_profile_for(commodity).is_some())
         })
         .map(|store| store.id())
         .collect::<Vec<_>>();
@@ -498,7 +497,7 @@ fn attempt_selected_combustion(
                     panic!("runtime invariant broken: local combustion store requires player")
                 });
             return Some(
-                match validate_combust_fuel(registries, state, store, source) {
+                match validate_combust_selected_fuel(registries, state, store, source, commodity) {
                     Ok(validated) => {
                         let released = validated.commit(state).unwrap_or_else(|error| {
                         panic!(

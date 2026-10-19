@@ -111,6 +111,7 @@ pub struct EnergyStoreDefinition {
     local_warmth_source: bool,
     local_light_level: u8,
     combustion_profile: Option<CombustionProfile>,
+    alternative_combustion_profiles: Vec<CombustionProfile>,
     assembly_profile: Option<MaterialAssemblyProfile>,
     upgrade_profile: Option<EnergyStoreUpgradeProfile>,
 }
@@ -141,6 +142,7 @@ impl EnergyStoreDefinition {
             local_warmth_source: false,
             local_light_level: 0,
             combustion_profile: Some(profile),
+            alternative_combustion_profiles: Vec::new(),
             assembly_profile: None,
             upgrade_profile: None,
         }
@@ -180,6 +182,7 @@ impl EnergyStoreDefinition {
             local_warmth_source: false,
             local_light_level: 0,
             combustion_profile: None,
+            alternative_combustion_profiles: Vec::new(),
             assembly_profile: None,
             upgrade_profile: None,
         }
@@ -234,6 +237,22 @@ impl EnergyStoreDefinition {
         assert!(self.combustion_profile.is_none());
         assert!(profile.released_energy() <= self.capacity);
         self.combustion_profile = Some(profile);
+        self
+    }
+
+    /// Adds an alternative finite fuel charge without changing the original fuel's canonical
+    /// admission path. The alternatives consume their own authored mass and deliver their own
+    /// bounded heat; selecting one cannot silently fall back to a different commodity.
+    #[must_use]
+    pub fn with_alternative_combustion_profile(mut self, profile: CombustionProfile) -> Self {
+        assert_eq!(self.carrier, EnergyCarrier::Thermal);
+        assert!(self.combustion_profile.is_some());
+        assert!(profile.released_energy() <= self.capacity);
+        assert!(
+            self.combustion_profile_for(profile.fuel()).is_none(),
+            "a combustion store cannot declare duplicate fuel commodities"
+        );
+        self.alternative_combustion_profiles.push(profile);
         self
     }
 
@@ -317,6 +336,24 @@ impl EnergyStoreDefinition {
     #[must_use]
     pub const fn combustion_profile(&self) -> Option<CombustionProfile> {
         self.combustion_profile
+    }
+
+    #[must_use]
+    pub fn combustion_profile_for(&self, fuel: CommodityKey) -> Option<CombustionProfile> {
+        self.combustion_profile
+            .filter(|profile| profile.fuel() == fuel)
+            .or_else(|| {
+                self.alternative_combustion_profiles
+                    .iter()
+                    .copied()
+                    .find(|profile| profile.fuel() == fuel)
+            })
+    }
+
+    pub fn combustion_profiles(&self) -> impl Iterator<Item = CombustionProfile> + '_ {
+        self.combustion_profile
+            .into_iter()
+            .chain(self.alternative_combustion_profiles.iter().copied())
     }
 
     #[must_use]

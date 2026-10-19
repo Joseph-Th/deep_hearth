@@ -139,7 +139,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
     ):
         raise ValueError("wilderness shelter no longer proves earned structural survival leverage")
     postfire = re.search(
-        r"\bpostfire=\[deferred:(true|false) covered:(\d+)ppm unbuilt:(\d+)ppm(?: fuel-only:(\d+)ppm)?\]",
+        r"\bpostfire=\[deferred:(true|false) covered:(\d+)ppm unbuilt:(\d+)ppm(?: fuel-only:(\d+)ppm)?(?: recycled-chips:(\d+)mg)?\]",
         shelter_lines[0],
     )
     fuel_free = ""
@@ -154,6 +154,11 @@ def wilderness_summary(lines: list[str]) -> str | None:
             if fuel_only < protected:
                 raise ValueError("wilderness fuel-only alternative unexpectedly lost short-horizon warmth")
             fuel_free += f" alternative-fire:{fuel_only // 1_000}kppm/1kg"
+        if postfire.group(5) is not None:
+            recycled = int(postfire.group(5))
+            if recycled <= 0:
+                raise ValueError("wilderness post-roof actor failed to recover available woodworking chips")
+            fuel_free += f" reused-chips:{recycled // 1_000}g"
     shelter = (
         "shelter=["
         f"long adze:+{saved}t "

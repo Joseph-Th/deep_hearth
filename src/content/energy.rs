@@ -12,8 +12,8 @@ use super::crafted_parts::{
     TIMBER_FLYWHEEL_MASS,
 };
 use super::materials::{
-    FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP,
-    FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_CHIP, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG,
+    FORM_LUMP, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const ENERGY_MECHANICAL_SMALL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(1);
@@ -45,6 +45,11 @@ pub const CAMPFIRE_FUEL_MASS: Mass = Mass::from_milligrams(1_000_000);
 /// Keep this below dry-wood gross heat while leaving enough real burn runway that a campfire is
 /// sustained camp infrastructure rather than a sub-twenty-minute recovery consumable.
 pub const CAMPFIRE_FUEL_THERMAL_ENERGY: Energy = Energy::from_nanojoules(12_000_000_000_000_000);
+/// A half-kilogram of loose woodworking chips is useful kindling/fuel, but has a lower
+/// recovered heat budget than the same dry timber mass of intact logs.
+pub const CAMPFIRE_CHIP_FUEL_MASS: Mass = Mass::from_milligrams(500_000);
+pub const CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY: Energy =
+    Energy::from_nanojoules(5_000_000_000_000_000);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -405,6 +410,11 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 CAMPFIRE_FUEL_THERMAL_ENERGY,
             ),
         )
+        .with_alternative_combustion_profile(CombustionProfile::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+            CAMPFIRE_CHIP_FUEL_MASS,
+            CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY,
+        ))
         .with_local_warmth_source()
         .with_local_light_source(7)
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(

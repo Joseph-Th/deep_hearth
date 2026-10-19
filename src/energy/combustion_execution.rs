@@ -15,7 +15,7 @@ use crate::logistics::{
     PlayerEnergyStoreAccessError, PlayerStockpileAccessError, validate_player_energy_store_access,
     validate_player_stockpile_access,
 };
-use crate::material::MaterialInputSpec;
+use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -33,6 +33,10 @@ pub enum CombustionError {
     UnknownDefinition,
     NoCombustionProfile {
         store: EnergyStoreId,
+    },
+    UnsupportedFuel {
+        store: EnergyStoreId,
+        fuel: CommodityKey,
     },
     StoreBusy {
         store: EnergyStoreId,
@@ -83,6 +87,13 @@ impl Display for CombustionError {
                 formatter,
                 "energy store {} does not accept solid-fuel combustion",
                 store.value()
+            ),
+            Self::UnsupportedFuel { store, fuel } => write!(
+                formatter,
+                "energy store {} cannot burn material {} form {}",
+                store.value(),
+                fuel.material().value(),
+                fuel.form().value()
             ),
             Self::StoreBusy { store } => {
                 write!(formatter, "energy store {} is occupied", store.value())
@@ -147,6 +158,7 @@ impl Error for CombustionError {
             | Self::UnknownStore { .. }
             | Self::UnknownDefinition
             | Self::NoCombustionProfile { .. }
+            | Self::UnsupportedFuel { .. }
             | Self::StoreBusy { .. }
             | Self::InsufficientFuel { .. }
             | Self::SourceMassOverflow { .. }
@@ -288,6 +300,28 @@ pub fn validate_combust_fuel(
     store: EnergyStoreId,
     source: StockpileId,
 ) -> Result<ValidatedCombustion, CombustionError> {
+    validate_combust_fuel_selected(registries, state, store, source, None)
+}
+
+/// Uses one explicitly selected fuel form. Refuses to substitute logs when chips are insufficient,
+/// so reusing byproduct chips is an actual player decision with a distinct heat budget.
+pub fn validate_combust_selected_fuel(
+    registries: &Registries,
+    state: &AppState,
+    store: EnergyStoreId,
+    source: StockpileId,
+    fuel: CommodityKey,
+) -> Result<ValidatedCombustion, CombustionError> {
+    validate_combust_fuel_selected(registries, state, store, source, Some(fuel))
+}
+
+fn validate_combust_fuel_selected(
+    registries: &Registries,
+    state: &AppState,
+    store: EnergyStoreId,
+    source: StockpileId,
+    selected_fuel: Option<CommodityKey>,
+) -> Result<ValidatedCombustion, CombustionError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| CombustionError::PlayerDead)?;
     let record = state
@@ -303,6 +337,13 @@ pub fn validate_combust_fuel(
     let profile = definition
         .combustion_profile()
         .ok_or(CombustionError::NoCombustionProfile { store })?;
+    let profile = if let Some(fuel) = selected_fuel {
+        definition
+            .combustion_profile_for(fuel)
+            .ok_or(CombustionError::UnsupportedFuel { store, fuel })?
+    } else {
+        profile
+    };
     if energy_store_occupancy(state, store).is_some() {
         return Err(CombustionError::StoreBusy { store });
     }
