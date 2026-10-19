@@ -513,19 +513,20 @@ def wilderness_summary(lines: list[str]) -> str | None:
     if detours:
         witness = re.search(
             r"\bcache-exposed:(\d+)mg detoured:(true|false) carried:(\d+)mg "
-            r"recovered:(\d+)mg remote-omniscience:(true|false) matter-conserved:(true|false)",
+            r"recovered:(\d+)mg remote-omniscience:(true|false) "
+            r"original-patrol-resumed:(true|false) matter-conserved:(true|false)",
             detours[0],
         )
         if (witness is None or int(witness.group(1)) <= 0
                 or int(witness.group(1)) != int(witness.group(3))
                 or int(witness.group(3)) != int(witness.group(4))
                 or witness.group(2) != "true" or witness.group(5) != "false"
-                or witness.group(6) != "true"):
+                or witness.group(6) != "true" or witness.group(7) != "true"):
             raise ValueError("scout branch detour lost identity, custody or local recovery evidence")
         detour = (
             "scout-detour=["
             f"side-cache:{int(witness.group(1))}mg "
-            f"reclaimed:{int(witness.group(4))}mg observed:local]"
+            f"reclaimed:{int(witness.group(4))}mg observed:local baseline:restored]"
         )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:

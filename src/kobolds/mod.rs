@@ -114,8 +114,12 @@ impl KoboldScoutEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct KoboldColony {
-    /// Den and junction stay anchored; the third voxel can follow one nearby exposed cache.
+    /// The three authored patrol voxels never change after wilderness generation.
     route: [VoxelCoord; 3],
+    /// One temporary branch diversion, valid only until the scout returns to the den.
+    /// Its presence in the new save schema is mandatory even when the value is null.
+    #[serde(deserialize_with = "required_optional_detour")]
+    detour: Option<VoxelCoord>,
     scout_step: u8,
     returning: bool,
     next_step_at: SimulationTick,
@@ -124,9 +128,20 @@ struct KoboldColony {
     next_forage_at: Option<SimulationTick>,
 }
 
+fn required_optional_detour<'de, D>(deserializer: D) -> Result<Option<VoxelCoord>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<VoxelCoord>::deserialize(deserializer)
+}
+
 impl KoboldColony {
     fn scout_position(&self) -> VoxelCoord {
-        self.route[usize::from(self.scout_step)]
+        if self.scout_step == 2 {
+            self.detour.unwrap_or(self.route[2])
+        } else {
+            self.route[usize::from(self.scout_step)]
+        }
     }
 
     /// Return toward safety when confronted; otherwise keep the patrol or turn
@@ -143,6 +158,24 @@ impl KoboldColony {
             (1, true) => (0, true),
             _ => unreachable!("trusted colony route step is bounded"),
         }
+    }
+
+    fn apply_step(
+        &mut self,
+        step: u8,
+        returning: bool,
+        detour: Option<VoxelCoord>,
+        carried: Option<SurfaceResourceId>,
+    ) {
+        if step == 2 {
+            self.detour = detour;
+        } else if step == 0 {
+            self.detour = None;
+        }
+        self.scout_step = step;
+        self.returning = returning;
+        // Completing the return leg deposits the same loose parcel at the den.
+        self.scavenged_drop = if step == 0 { None } else { carried };
     }
 
     fn is_near(&self, observer: VoxelCoord) -> bool {
@@ -182,6 +215,7 @@ impl KoboldState {
         assert_ne!(route[0], route[2]);
         self.colony = Some(KoboldColony {
             route,
+            detour: None,
             scout_step: 0,
             returning: false,
             next_step_at: SimulationTick::new(FIRST_SCOUT_TICK),
@@ -250,6 +284,7 @@ fn reachable_side_drop(
     state: &AppState,
     junction: VoxelCoord,
     den: VoxelCoord,
+    authored_tip: VoxelCoord,
     player_position: Option<VoxelCoord>,
     capacity: Mass,
 ) -> Option<VoxelCoord> {
@@ -262,6 +297,7 @@ fn reachable_side_drop(
             && resource.remaining_mass() <= capacity
             && destination != den
             && destination != junction
+            && destination != authored_tip
             && state.logistics().has_traversal_edge(junction, destination)
             && player_position != Some(destination)
             && assess_local_illumination(registries, state, destination).level()
@@ -326,6 +362,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 state,
                 from,
                 colony.route[0],
+                colony.route[2],
                 player_position,
                 den_space,
             )
@@ -430,11 +467,7 @@ pub(crate) fn apply_kobold_scout_tick(
         .as_mut()
         .unwrap_or_else(|| unreachable!("scout decision requires a colony"));
     if can_move {
-        colony.route[2] = side_drop.unwrap_or(colony.route[2]);
-        colony.scout_step = step;
-        colony.returning = returning;
-        // Completing the return leg deposits the same loose parcel at the den.
-        colony.scavenged_drop = if step == 0 { None } else { relocated_drop };
+        colony.apply_step(step, returning, side_drop, relocated_drop);
     }
     if pressured {
         // A trapped scout also relinquishes the parcel, enabling recovery without
@@ -475,6 +508,18 @@ pub(crate) fn validate_loaded_kobolds(state: &AppState) -> Result<(), &'static s
         || colony.route[0] == colony.route[2]
     {
         return Err("invalid kobold patrol route or cursor");
+    }
+    if let Some(detour) = colony.detour {
+        if (colony.scout_step != 2 && !(colony.scout_step == 1 && colony.returning))
+            || detour == colony.route[0]
+            || detour == colony.route[1]
+            || detour == colony.route[2]
+            || !state
+                .logistics()
+                .has_traversal_edge(colony.route[1], detour)
+        {
+            return Err("invalid kobold temporary detour or traversal edge");
+        }
     }
     if let Some(resource) = colony.scavenged_drop {
         let Some(drop) = state.surface().get(resource) else {

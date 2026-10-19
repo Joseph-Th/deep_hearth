@@ -232,9 +232,11 @@ an interrupted return trip. Another generated opening tests a route deviation: a
 gathers a real ration, leaves it on the forage branch off the scout's initial patrol,
 and physically withdraws off-trail. The scout takes one traversable detour toward the
 exposed parcel, carries it one step at a time to the den, and the player later follows
-local material observations to recover the same parcel. The changed route survives a
-trusted save/load, while a separate test proves player proximity still deters theft
-from that branch and oversized parcels cannot lure scouts into false detours.
+local material observations to recover the same parcel. A subsequent observer-local
+sighting proves the scout resumed its originally authored patrol destination instead of
+becoming stuck on the decoy branch. Temporary detour state survives trusted save/load,
+while a separate test proves player proximity still deters theft, missing or tampered
+detour fields fail load, and oversized parcels cannot lure scouts into false detours.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed

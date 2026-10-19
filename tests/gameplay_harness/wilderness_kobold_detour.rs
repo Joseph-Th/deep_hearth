@@ -135,6 +135,17 @@ pub(super) fn exercise_kobold_side_branch_scavenging(print: bool) {
         Mass::ZERO,
     );
 
+    // Remaining off-trail lets the scout complete its return and restart
+    // the unmodified route. The actor verifies the patrol only after
+    // physically approaching again, without reading colony persistence.
+    advance_to(
+        &registries,
+        &mut state,
+        SimulationTick::new(205),
+        TickEventAllowance::default(),
+        "scout resumes its original patrol while the player stays away",
+    );
+    assert!(available_nearby_kobold_scouts(&state).next().is_none());
     walk_body_to_adjacent(&registries, &mut state, spawn, "return to known trail");
     while !state.control_tick().is_simulation_boundary() {
         let _ = advance_control_tick(&registries, &mut state)
@@ -156,10 +167,19 @@ pub(super) fn exercise_kobold_side_branch_scavenging(print: bool) {
         junction,
         "follow scout to patrol fork",
     );
+    let renewed_patrol = available_nearby_kobold_scouts(&state)
+        .next()
+        .expect("the scout should be seen again at the authored outer patrol branch");
+    assert!(
+        renewed_patrol.position().is_face_adjacent_to(junction)
+            && renewed_patrol.position() != berry,
+        "the scout must not remain locked to the formerly baited forage branch"
+    );
     let den = available_adjacent_surface_resources(&state)
         .find(|item| item.resource() == parcel)
         .expect("displaced parcel must become locally discoverable beside the fork")
         .position();
+    assert_ne!(renewed_patrol.position(), den);
     walk_continuous_body_adjacent_and_settle(
         &registries,
         &mut state,
@@ -181,11 +201,11 @@ pub(super) fn exercise_kobold_side_branch_scavenging(print: bool) {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     if print {
         std::println!(
-            "PLAYER JOURNEY seed=0x{:016X} episode=coverage/rested/scavenger-detour phase=side-branch-cache choice=[drop-ration-on-branch withdraw-off-trail] observation=[scout-diverts-local:true remote-return-hidden:true] consequence=[cache-moved-to-den:250000mg] recovery=[same-parcel:250000mg] matter-conserved=true world=ordinary-generated-opening",
+            "PLAYER JOURNEY seed=0x{:016X} episode=coverage/rested/scavenger-detour phase=side-branch-cache choice=[drop-ration-on-branch withdraw-off-trail] observation=[scout-diverts-local:true remote-return-hidden:true original-patrol-resumed:true] consequence=[cache-moved-to-den:250000mg] recovery=[same-parcel:250000mg] matter-conserved=true world=ordinary-generated-opening",
             seed.value(),
         );
         std::println!(
-            "KOBOLD DETOUR EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-detour cache-exposed:250000mg detoured:true carried:250000mg recovered:250000mg remote-omniscience:false matter-conserved:true",
+            "KOBOLD DETOUR EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-detour cache-exposed:250000mg detoured:true carried:250000mg recovered:250000mg remote-omniscience:false original-patrol-resumed:true matter-conserved:true",
             seed.value(),
         );
     }
