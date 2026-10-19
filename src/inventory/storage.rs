@@ -38,6 +38,7 @@ pub struct StorageDefinition {
     assembly_profile: MaterialAssemblyProfile,
     dismantle_duration: TickSpan,
     dismantle_exertion: SurvivalExertion,
+    residual_only: bool,
 }
 
 impl StorageDefinition {
@@ -68,8 +69,8 @@ impl StorageDefinition {
             "constructible stockpile enclosures must remain within the dry-storage containment envelope restored by dismantling"
         );
         assert!(
-            storage_profile.preservation_multiplier_ppm() > AMBIENT_PRESERVATION_MULTIPLIER_PPM,
-            "constructible preservation storage must improve on ambient shelf life"
+            storage_profile.preservation_multiplier_ppm() >= AMBIENT_PRESERVATION_MULTIPLIER_PPM,
+            "constructible storage cannot shorten ambient shelf life"
         );
         assert!(
             !assembly_profile.input_mass().is_zero(),
@@ -88,7 +89,22 @@ impl StorageDefinition {
             assembly_profile,
             dismantle_duration,
             dismantle_exertion,
+            residual_only: false,
         }
+    }
+
+    /// Marks a purpose-built containment site for physical solid residue, not general provisions.
+    /// Its non-preserving ambient environment is appropriate for spoil, chips and scrap.
+    #[must_use]
+    pub fn with_residual_only(mut self) -> Self {
+        assert!(!self.residual_only);
+        self.residual_only = true;
+        self
+    }
+
+    #[must_use]
+    pub const fn residual_only(&self) -> bool {
+        self.residual_only
     }
 
     #[must_use]
@@ -163,6 +179,12 @@ impl StorageRegistry {
 
     pub(crate) fn validate_references(&self, materials: &MaterialRegistry) {
         for definition in self.definitions.values() {
+            assert!(
+                definition.residual_only()
+                    || definition.storage_profile().preservation_multiplier_ppm()
+                        > AMBIENT_PRESERVATION_MULTIPLIER_PPM,
+                "ordinary preservation storage must improve on ambient shelf life"
+            );
             definition
                 .assembly_profile()
                 .validate_infrastructure_references(materials)

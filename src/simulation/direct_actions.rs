@@ -139,7 +139,21 @@ fn attempt_secondary_action(
     if state.logistics().pending_secondary_use().is_some() {
         return Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary);
     }
-    let SecondaryControlIntent::UseActive { direction } = intent;
+    let direction = match intent {
+        SecondaryControlIntent::UseActive { direction } => direction,
+        SecondaryControlIntent::PlaceStorage {
+            definition,
+            direction,
+        } => {
+            return Some(match validate_player_action(state) {
+                Ok(_) => attempt_storage_placement(registries, state, definition, direction),
+                Err(PlayerActionValidationError::PlayerNotAdmitted) => {
+                    SecondaryActionOutcome::PlayerNotAdmitted
+                }
+                Err(PlayerActionValidationError::PlayerDead) => SecondaryActionOutcome::PlayerDead,
+            });
+        }
+    };
     let outcome = attempt_secondary_action_now(registries, state, direction);
     if outcome != SecondaryActionOutcome::DeferredUntilSimulationBoundary {
         return Some(outcome);
@@ -989,28 +1003,41 @@ fn attempt_selected_storage_placement(
             });
         }
     };
+    Some(attempt_storage_placement(
+        registries, state, definition, direction,
+    ))
+}
+
+/// Authoritative pointed placement shared by one-piece selected-material shortcuts and explicit
+/// multi-input storage-plan actions. Both use the same terrain, occupation and construction rules.
+fn attempt_storage_placement(
+    registries: &Registries,
+    state: &mut AppState,
+    definition: StorageDefinitionId,
+    direction: crate::spatial::ViewDirection,
+) -> SecondaryActionOutcome {
     let (_, position) = match resolve_direct_placement_target(registries, state, direction) {
         Ok(target) => target,
         Err(DirectPlacementTargetError::Target(error)) => {
-            return Some(SecondaryActionOutcome::StorageTargetRejected(error));
+            return SecondaryActionOutcome::StorageTargetRejected(error);
         }
         Err(DirectPlacementTargetError::NoTarget) => {
-            return Some(SecondaryActionOutcome::NoStoragePlacementTarget);
+            return SecondaryActionOutcome::NoStoragePlacementTarget;
         }
         Err(DirectPlacementTargetError::CoordinateOverflow) => {
-            return Some(SecondaryActionOutcome::StoragePlacementCoordinateOverflow);
+            return SecondaryActionOutcome::StoragePlacementCoordinateOverflow;
         }
         Err(DirectPlacementTargetError::WorldUnavailable { position }) => {
-            return Some(SecondaryActionOutcome::StoragePlacementWorldUnavailable { position });
+            return SecondaryActionOutcome::StoragePlacementWorldUnavailable { position };
         }
         Err(DirectPlacementTargetError::Occupied { position, state }) => {
-            return Some(SecondaryActionOutcome::StoragePlacementOccupied { position, state });
+            return SecondaryActionOutcome::StoragePlacementOccupied { position, state };
         }
         Err(DirectPlacementTargetError::IntersectsPlayer { position }) => {
-            return Some(SecondaryActionOutcome::StoragePlacementIntersectsPlayer { position });
+            return SecondaryActionOutcome::StoragePlacementIntersectsPlayer { position };
         }
         Err(DirectPlacementTargetError::LocationOccupied { position }) => {
-            return Some(SecondaryActionOutcome::StoragePlacementLocationOccupied { position });
+            return SecondaryActionOutcome::StoragePlacementLocationOccupied { position };
         }
     };
     // Pointed placement must not suspend a freestanding container in empty air. The lower-level
@@ -1027,24 +1054,22 @@ fn attempt_selected_storage_placement(
         .and_then(|block| registries.world().block_for_state(block))
         .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube);
     if !supported {
-        return Some(SecondaryActionOutcome::StoragePlacementUnsupported { position });
+        return SecondaryActionOutcome::StoragePlacementUnsupported { position };
     }
-    Some(
-        match validate_place_player_storage_at(registries, state, definition, position) {
-            Ok(validated) => {
-                let stockpile = validated.commit(state).unwrap_or_else(|error| {
+    match validate_place_player_storage_at(registries, state, definition, position) {
+        Ok(validated) => {
+            let stockpile = validated.commit(state).unwrap_or_else(|error| {
                     panic!(
                         "runtime invariant broken: synchronous selected-storage placement became stale: {error}"
                     )
                 });
-                SecondaryActionOutcome::StoragePlaced {
-                    definition,
-                    stockpile,
-                }
+            SecondaryActionOutcome::StoragePlaced {
+                definition,
+                stockpile,
             }
-            Err(error) => SecondaryActionOutcome::StoragePlacementRejected { definition, error },
-        },
-    )
+        }
+        Err(error) => SecondaryActionOutcome::StoragePlacementRejected { definition, error },
+    }
 }
 
 fn attempt_active_selection_drop(

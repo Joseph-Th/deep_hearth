@@ -9,7 +9,9 @@ use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::storage_validation::validate_stockpile_storage_profile;
+use super::storage_validation::{
+    validate_residual_only_storage, validate_stockpile_storage_profile,
+};
 use super::{
     ConsumedMaterialTrace, ConsumptionSelection, ConsumptionSelectionError, MaterialEgressError,
     StockpileEnclosureRecord, StockpileId, StockpileRecord, StockpileStorageProfile,
@@ -295,7 +297,13 @@ pub fn validate_build_storage_enclosure(
     validate_world_location(state, target, source)?;
     let selection = select_enclosure_material(state, definition_record, source)?;
     let next_profile = definition_record.storage_profile();
-    validate_enclosure_contents(registries, state, target_record, &selection, next_profile)?;
+    validate_enclosure_contents(
+        registries,
+        state,
+        target_record,
+        &selection,
+        definition_record,
+    )?;
     let material_plan = plan_enclosure_materials(registries, state, source, selection)?;
     validate_unreserved_stockpile_structural_load_headroom(
         state,
@@ -444,10 +452,11 @@ fn validate_enclosure_contents(
     state: &AppState,
     target_record: &StockpileRecord,
     selection: &ConsumptionSelection,
-    next_profile: StockpileStorageProfile,
+    definition: &StorageDefinition,
 ) -> Result<(), StorageEnclosureConstructionError> {
     let target = target_record.id();
     let source = selection.source();
+    let next_profile = definition.storage_profile();
     let source_preservation = target_record
         .storage_profile()
         .preservation_multiplier_ppm();
@@ -459,6 +468,14 @@ fn validate_enclosure_contents(
             .unwrap_or_else(|| unreachable!("stockpile lot index references a live lot"));
         if source == target && selection.selected_mass_for_lot(lot) == record.mass() {
             continue;
+        }
+        if definition.residual_only() {
+            validate_residual_only_storage(registries, target, record.commodity()).map_err(
+                |error| StorageEnclosureConstructionError::TargetContentsIncompatible {
+                    lot,
+                    error,
+                },
+            )?;
         }
         validate_stockpile_storage_profile(
             registries,

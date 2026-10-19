@@ -7,11 +7,16 @@ use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialPhaseStateError, ParticleSizeStateError};
 
-use super::super::{StockpileId, StockpileStorageProfile, StorageDefinitionId};
+use super::super::{MaterialLotId, StockpileId, StockpileStorageProfile, StorageDefinitionId};
 
 /// Invalid persisted state for one stockpile's material-backed storage enclosure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureValidationError {
+    NonResidualContents {
+        stockpile: StockpileId,
+        lot: MaterialLotId,
+        commodity: CommodityKey,
+    },
     UnknownDefinition {
         stockpile: StockpileId,
         definition: StorageDefinitionId,
@@ -82,6 +87,18 @@ pub enum StorageEnclosureValidationError {
 impl Display for StorageEnclosureValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NonResidualContents {
+                stockpile,
+                lot,
+                commodity,
+            } => write!(
+                formatter,
+                "spoil bay {} contains non-residual lot {} material {} form {}",
+                stockpile.value(),
+                lot.value(),
+                commodity.material().value(),
+                commodity.form().value()
+            ),
             Self::UnknownDefinition {
                 stockpile,
                 definition,
@@ -217,6 +234,7 @@ impl Error for StorageEnclosureValidationError {
             Self::InvalidEmbodiedPhaseState { error, .. } => Some(error),
             Self::InvalidEmbodiedParticleSizeState { error, .. } => Some(error),
             Self::UnknownDefinition { .. }
+            | Self::NonResidualContents { .. }
             | Self::StorageProfileMismatch { .. }
             | Self::CapacityExceeded { .. }
             | Self::ConstructionInFuture { .. }

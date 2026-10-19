@@ -354,6 +354,21 @@ enclosure. Dismantling is timed player work: the enclosure remains active until 
 checkpointed, ambient storage is restored, and exact enclosure traces land in the reserved recovery destination.
 General demolition is a different, absent authority.
 
+An authored `residual_only` storage enclosure uses the same material-backed stockpile owner and finite inbound
+reservations. The clay-lined spoil bay is an ambient dry-storage site with 80 kg capacity, constructed from a
+3.2 kg timber bulk-crate body and 4 kg packed-clay lining. Unlike preserving food containers, it admits only
+authored residual commodities (including recoverable chips and offcuts). Canonical ingress, relocation, and
+production-output reservation reject ordinary products; enclosure construction checks already-owned contents,
+and trusted load rechecks retained lots against the immutable enclosure definition. It is containment, not
+deletion, treatment, hydrology, leachate control, or a pollution simulation. Recoverable residues can be moved
+back to ordinary storage and fed to existing real recovery processes.
+The explicit `SecondaryControlIntent::place_storage(definition, direction)` resolves a pointed,
+terrain-supported voxel and then performs the same owner-validated, atomic material-backed
+placement as single-body selected-material storage. This is necessary for multi-input structures
+such as the spoil bay: selected material alone cannot distinguish several constructions sharing
+timber and clay inputs. It requires carried construction stock and produces the existing
+`StoragePlaced` or typed placement rejection outcome; no additional material or state is granted.
+
 Supported stockpiles contribute stored matter plus enclosure matter as structural load. Stored-mass and support
 consequences commit atomically.
 

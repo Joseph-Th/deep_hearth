@@ -173,6 +173,23 @@ fn validate_loaded_storage_enclosure(
         },
     )?;
     validate_enclosure_definition_binding(state, stockpile, enclosure, definition)?;
+    if definition.residual_only() {
+        for lot in state.inventory().lot_ids(stockpile.id()) {
+            let record = state.inventory().get_lot(lot).unwrap_or_else(|| {
+                unreachable!("validated stockpile index must reference a live lot")
+            });
+            if !registries
+                .materials()
+                .is_residual_commodity(record.commodity())
+            {
+                return Err(StorageEnclosureValidationError::NonResidualContents {
+                    stockpile: stockpile.id(),
+                    lot,
+                    commodity: record.commodity(),
+                });
+            }
+        }
+    }
     let (traced_mass, traced_by_commodity) =
         collect_validated_enclosure_traces(registries, state, stockpile.id(), enclosure)?;
     validate_enclosure_assembly(stockpile.id(), definition, traced_mass, traced_by_commodity)

@@ -6,10 +6,10 @@ use crate::content::{
     BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE,
     CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FLUID_WATER, FORM_BOARD, FORM_CHIP, FORM_FOOD,
     FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
-    STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, SURFACE_GATHERING_HAND_COLLECT_STONE,
-    SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS, SURFACE_GATHERING_HAND_FORAGE_BERRIES,
-    build_registries,
+    STORAGE_CLAY_LINED_SPOIL_BAY, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+    SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::{
@@ -1750,6 +1750,101 @@ fn secondary_use_places_selected_storage_body_through_canonical_storage_placemen
             position: placement,
         })
     );
+}
+
+#[test]
+fn explicit_multimaterial_spoil_bay_places_in_generated_world_without_losing_material() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap_or_else(|error| panic!("multi-material storage terrain rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("multi-material storage terrain commit failed: {error}"));
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap_or_else(|| panic!("multi-material storage terrain has no surface"));
+    let actor = VoxelCoord::new(0, surface_y + 1, 0);
+    let eye_y = actor.y() + 1;
+    for x in 1..=4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, eye_y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let target = VoxelCoord::new(3, eye_y, 0);
+    set_generated_block_for_test(registries.world(), &mut state, target, BLOCK_STATE_STONE);
+    let placement = VoxelCoord::new(2, eye_y, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(placement.x(), placement.y() - 1, placement.z()),
+        BLOCK_STATE_STONE,
+    );
+    let carried = admit_player(&registries, &mut state, actor);
+    let definition = registries
+        .storage()
+        .get(STORAGE_CLAY_LINED_SPOIL_BAY)
+        .unwrap_or_else(|| panic!("authored spoil-bay definition missing"));
+    assert_eq!(definition.assembly_profile().inputs().len(), 2);
+    for input in definition.assembly_profile().inputs() {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("spoil-bay construction input failed: {error}"));
+    }
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("spoil-bay placement baseline failed: {error}"))
+        .total();
+    let outcome = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::place_storage(
+            STORAGE_CLAY_LINED_SPOIL_BAY,
+            positive_x_view(),
+        )),
+    )
+    .unwrap_or_else(|error| panic!("spoil-bay direct placement failed: {error}"));
+    let stockpile = match outcome.secondary_action() {
+        Some(SecondaryActionOutcome::StoragePlaced {
+            definition,
+            stockpile,
+        }) if *definition == STORAGE_CLAY_LINED_SPOIL_BAY => *stockpile,
+        other => panic!("multi-input spoil bay did not place: {other:?}"),
+    };
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(placement)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(stockpile)
+            .unwrap_or_else(|| panic!("pointed spoil-bay stockpile vanished"))
+            .enclosure()
+            .map(|enclosure| enclosure.definition()),
+        Some(STORAGE_CLAY_LINED_SPOIL_BAY)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("spoil-bay placement matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

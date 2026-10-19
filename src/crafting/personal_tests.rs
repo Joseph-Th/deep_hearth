@@ -4,13 +4,15 @@ use std::num::NonZeroU64;
 
 use super::*;
 use crate::content::{
-    FORM_CHIP, FORM_LOG, FORM_LUMP, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
+    FORM_BOARD, FORM_BULK_CRATE_BODY, FORM_CHIP, FORM_LOG, FORM_LUMP, FORM_PACKED_CLAY_BINDER,
+    FORM_TOOL, MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_SHAPE_WOOD_BOARDS, STORAGE_CLAY_LINED_SPOIL_BAY, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, project_material_stacks,
+    validate_build_storage_enclosure,
 };
 use crate::logistics::validate_place_ground_stockpile;
 use crate::material::CommodityKey;
@@ -22,6 +24,131 @@ use crate::spatial::VoxelCoord;
 
 fn one_batch() -> NonZeroU64 {
     NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one batch is nonzero"))
+}
+
+#[test]
+fn player_woodworking_into_constructed_spoil_bay_requires_output_segregation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("spoil-site actor admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("spoil-site actor admission commit failed: {error}"))
+        .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+            Mass::from_milligrams(3_200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+            Mass::from_milligrams(4_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(1_000_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("spoil-site raw material admission failed: {error}"));
+    }
+    let site = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(80_000_000))
+        .unwrap_or_else(|error| panic!("spoil site target failed: {error}"));
+    validate_place_ground_stockpile(&state, site, position)
+        .unwrap_or_else(|error| panic!("spoil site positioning failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("spoil site positioning commit failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("spoil site before-matter failed: {error}"))
+        .total();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_CLAY_LINED_SPOIL_BAY,
+        site,
+        carried,
+    )
+    .unwrap_or_else(|error| panic!("material-backed spoil construction failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("material-backed spoil commit failed: {error}"));
+
+    let craft = plan_manual_craft_from_stockpile(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        carried,
+        one_batch(),
+    )
+    .unwrap_or_else(|error| panic!("spoil woodworking input plan failed: {error}"));
+    // The ordinary single-stream route would send useful boards to a refuse-only site.
+    let before_rejection = state.clone();
+    assert!(
+        matches!(
+            validate_start_manual_craft(
+                &registries,
+                &state,
+                ManualCraftStartRequest::new(craft, site),
+            ),
+            Err(StartManualCraftError::Process(_))
+        ),
+        "a refuse-only site must reject mixed unsegregated woodworking outputs"
+    );
+    assert_eq!(state, before_rejection);
+
+    let job = validate_start_player_manual_craft_with_residue_destination(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        one_batch(),
+        None,
+        site,
+    )
+    .unwrap_or_else(|error| panic!("segregated woodworking rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("segregated woodworking commit failed: {error}"));
+    let completes_at = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("segregated woodworking job disappeared"))
+        .completes_at();
+    while state.tick() < completes_at {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("spoil woodworking tick failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap_or_else(|| panic!("woodworking carrier disappeared"))
+            .get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
+        Mass::from_milligrams(800_000)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(site)
+            .unwrap_or_else(|| panic!("constructed spoil bay disappeared"))
+            .get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("spoil woodworking matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
 }
 
 #[test]

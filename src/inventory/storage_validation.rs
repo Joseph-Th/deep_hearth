@@ -47,6 +47,10 @@ pub(super) fn validate_commodity_reference(
 /// Failure because a stockpile's physical containment envelope rejects a material lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StockpileStorageError {
+    NonResidualInSpoilBay {
+        stockpile: StockpileId,
+        commodity: CommodityKey,
+    },
     UnknownForm {
         form: FormId,
     },
@@ -69,6 +73,16 @@ pub enum StockpileStorageError {
 impl Display for StockpileStorageError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NonResidualInSpoilBay {
+                stockpile,
+                commodity,
+            } => write!(
+                formatter,
+                "spoil bay {} accepts only residual matter; material {} form {} is usable stock",
+                stockpile.value(),
+                commodity.material().value(),
+                commodity.form().value()
+            ),
             Self::UnknownForm { form } => write!(
                 formatter,
                 "storage compatibility references unknown form {}",
@@ -114,6 +128,7 @@ impl Error for StockpileStorageError {
             Self::InvalidMaterialPhaseState(error) => Some(error),
             Self::InvalidParticleSizeState(error) => Some(error),
             Self::UnknownForm { form: _form } => None,
+            Self::NonResidualInSpoilBay { .. } => None,
             Self::UnsupportedCommodity {
                 commodity: _commodity,
             } => None,
@@ -147,7 +162,29 @@ pub(crate) fn validate_stockpile_storage(
         composition,
         temperature,
         particle_size,
-    )
+    )?;
+    if record
+        .enclosure()
+        .and_then(|enclosure| registries.storage().get(enclosure.definition()))
+        .is_some_and(|definition| definition.residual_only())
+    {
+        validate_residual_only_storage(registries, stockpile, commodity)?;
+    }
+    Ok(())
+}
+
+pub(super) fn validate_residual_only_storage(
+    registries: &Registries,
+    stockpile: StockpileId,
+    commodity: CommodityKey,
+) -> Result<(), StockpileStorageError> {
+    if !registries.materials().is_residual_commodity(commodity) {
+        return Err(StockpileStorageError::NonResidualInSpoilBay {
+            stockpile,
+            commodity,
+        });
+    }
+    Ok(())
 }
 
 pub(super) fn validate_stockpile_storage_profile(

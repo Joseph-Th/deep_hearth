@@ -30,6 +30,8 @@ pub const STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK: StorageDefinitionId =
     StorageDefinitionId::new(7);
 pub const STORAGE_CLAY_DAUBED_TIMBER_PROVISIONS_BIN: StorageDefinitionId =
     StorageDefinitionId::new(8);
+/// Material-backed dry containment for loose industrial offcuts and dressing tailings.
+pub const STORAGE_CLAY_LINED_SPOIL_BAY: StorageDefinitionId = StorageDefinitionId::new(9);
 const PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE: Temperature = Temperature::from_millikelvin(333_150);
 const STORAGE_DISMANTLE_MILLIGRAMS_PER_TICK: u64 = 100_000;
 
@@ -130,6 +132,23 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
     )
     .unwrap_or_else(|error| panic!("clay-daubed provisions bin storage profile failed: {error}"));
     StorageRegistry::new([
+        storage_definition(
+            STORAGE_CLAY_LINED_SPOIL_BAY,
+            "clay-lined spoil bay",
+            Mass::from_milligrams(80_000_000),
+            StockpileStorageProfile::unbounded_solid_only(),
+            MaterialAssemblyProfile::new(vec![
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+                    BULK_TIMBER_PROVISIONS_CRATE_BODY_MASS,
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+                    Mass::from_milligrams(4_000_000),
+                ),
+            ]),
+        )
+        .with_residual_only(),
         storage_definition(
             STORAGE_ROUGH_TIMBER_FIELD_BOX,
             "rough timber field box",

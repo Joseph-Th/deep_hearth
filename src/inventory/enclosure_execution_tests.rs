@@ -10,7 +10,7 @@ use crate::content::{
     MATERIAL_GRAIN, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     STORAGE_BULK_TIMBER_PROVISIONS_CRATE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
-    STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    STORAGE_CLAY_LINED_SPOIL_BAY, STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     STORAGE_TIMBER_PROVISIONS_CHEST, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{AggregateMass, Area, Length, Mass, Temperature};
@@ -21,8 +21,9 @@ use crate::crafting::{
 };
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileStorageError, StorageEnclosureValidationError,
-    add_solid_stockpile_for_test, deposit_lot_for_test, validate_mount_stockpile,
+    MaterialLotId, MaterialLotSelection, MaterialRelocationError, MaterialRelocationTestError,
+    StockpileStorageError, StorageEnclosureValidationError, add_solid_stockpile_for_test,
+    deposit_lot_for_test, validate_material_relocation_for_test, validate_mount_stockpile,
 };
 use crate::logistics::{
     PlayerStockpileAccessError, validate_allocate_ground_stockpile,
@@ -43,6 +44,236 @@ use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_su
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
+
+#[test]
+fn spoil_bay_admits_only_real_residue_and_enforces_finite_capacity_across_load() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let capacity = Mass::from_milligrams(80_000_000);
+    let spoil = add_solid_stockpile_for_test(&mut state, capacity)
+        .unwrap_or_else(|error| panic!("spoil site fixture failed: {error}"));
+    let initial_waste_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        spoil,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(70_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("spoil site waste seed failed: {error}"));
+    let materials = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(7_200_000))
+        .unwrap_or_else(|error| panic!("spoil site construction storage failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+            Mass::from_milligrams(3_200_000),
+        ),
+        (
+            CommodityKey::new(
+                crate::content::MATERIAL_CLAY,
+                crate::content::FORM_PACKED_CLAY_BINDER,
+            ),
+            Mass::from_milligrams(4_000_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            materials,
+            commodity,
+            mass,
+            TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("spoil site structure material seed failed: {error}"));
+    }
+    let invalid = add_solid_stockpile_for_test(&mut state, capacity)
+        .unwrap_or_else(|error| panic!("usable-stock target fixture failed: {error}"));
+    let invalid_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        invalid,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        Mass::from_milligrams(1_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("usable-stock target material failed: {error}"));
+    let before_rejected_construction = state.clone();
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_CLAY_LINED_SPOIL_BAY,
+            invalid,
+            materials,
+        )
+        .err(),
+        Some(
+            StorageEnclosureConstructionError::TargetContentsIncompatible {
+                lot: invalid_lot,
+                error: StockpileStorageError::NonResidualInSpoilBay {
+                    stockpile: invalid,
+                    commodity: CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                },
+            }
+        )
+    );
+    assert_eq!(state, before_rejected_construction);
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("spoil site matter setup failed: {error}"))
+        .total();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_CLAY_LINED_SPOIL_BAY,
+        spoil,
+        materials,
+    )
+    .unwrap_or_else(|error| panic!("spoil bay construction rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("spoil bay construction commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spoil)
+            .unwrap_or_else(|| panic!("spoil bay disappeared"))
+            .enclosure()
+            .map(|enclosure| enclosure.definition()),
+        Some(STORAGE_CLAY_LINED_SPOIL_BAY)
+    );
+    let supply = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_001_000))
+        .unwrap_or_else(|error| panic!("spoil transfer source failed: {error}"));
+    let residue = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    let ordinary = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    for (commodity, mass) in [
+        (residue, Mass::from_milligrams(10_001_000)),
+        (ordinary, Mass::from_milligrams(10_000_000)),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            supply,
+            commodity,
+            mass,
+            TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("spoil transfer feed failed: {error}"));
+    }
+    let before_rejection = state.clone();
+    assert!(matches!(
+        validate_material_relocation_for_test(
+            &registries, &state, supply, spoil, ordinary, Mass::from_milligrams(1_000_000),
+        ),
+        Err(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::DestinationStorage(
+                StockpileStorageError::NonResidualInSpoilBay { stockpile, commodity }
+            )
+        )) if stockpile == spoil && commodity == ordinary
+    ));
+    assert_eq!(state, before_rejection);
+    validate_material_relocation_for_test(
+        &registries,
+        &state,
+        supply,
+        spoil,
+        residue,
+        Mass::from_milligrams(10_000_000),
+    )
+    .unwrap_or_else(|error| panic!("spoil receipt rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("spoil receipt commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spoil)
+            .unwrap_or_else(|| panic!("spoil bay disappeared after receipt"))
+            .stored_mass(),
+        capacity
+    );
+    assert!(
+        matches!(
+            validate_material_relocation_for_test(
+                &registries, &state, supply, spoil, residue, Mass::from_milligrams(1_000),
+            ),
+            Err(MaterialRelocationTestError::Relocation(
+                MaterialRelocationError::DestinationCapacityExceeded {
+                    stockpile, capacity: limit, committed, requested,
+                }
+            )) if stockpile == spoil && limit == capacity && committed == capacity
+                && requested == Mass::from_milligrams(1_000)
+        ),
+        "full spoil bay must reject even legitimate extra residue"
+    );
+    // Waste is retained inventory, not permanently deleted. Recovering stone chips into an
+    // ordinary work stockpile frees real bay capacity for later residue.
+    validate_material_relocation_for_test(
+        &registries,
+        &state,
+        spoil,
+        supply,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("waste reclamation rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("waste reclamation commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spoil)
+            .unwrap_or_else(|| panic!("spoil bay lost after recovery"))
+            .available_capacity(),
+        Mass::from_milligrams(1_000_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("spoil matter audit failed: {error}"))
+            .total(),
+        matter_before
+            .checked_add(crate::core::quantity::AggregateMass::from_mass(
+                Mass::from_milligrams(20_001_000)
+            ))
+            .unwrap_or_else(|| panic!("spoil matter expectation overflowed"))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("spoil save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("spoil save decode failed: {error}"));
+    let replay = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("trusted spoil load rejected: {error}"));
+    assert_eq!(replay, state);
+    // A forged save that reclassifies the existing stone-chip lot as usable stone blocks must
+    // fail even if it also rewrites the stockpile's indexed commodity totals consistently.
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("forged spoil save setup failed: {error}"));
+    let chips = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let blocks = CommodityKey::new(MATERIAL_STONE, crate::content::FORM_BLOCK);
+    forged["state"]["systems"]["inventory"]["lots"][initial_waste_lot.value().to_string()]["profile"]
+        ["commodity"] = serde_json::json!(blocks.value());
+    let contents = forged["state"]["systems"]["inventory"]["stockpiles"][spoil.value().to_string()]
+        ["contents"]
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("spoil stockpile contents were not encoded as an object"));
+    let mass = contents
+        .remove(&chips.value().to_string())
+        .unwrap_or_else(|| panic!("encoded stone chips were lost"));
+    contents.insert(blocks.value().to_string(), mass);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(forged)
+        .unwrap_or_else(|error| panic!("forged spoil state failed to decode: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::StorageEnclosure(
+                StorageEnclosureValidationError::NonResidualContents {
+                    stockpile: spoil,
+                    lot: initial_waste_lot,
+                    commodity: blocks,
+                },
+            )
+        ))
+    );
+}
 
 fn construction_fixture(
     target_capacity: Mass,
