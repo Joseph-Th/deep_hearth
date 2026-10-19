@@ -16,9 +16,12 @@ use crate::surface::{
     SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, SurfaceResourceState,
     relocate_scavenged_drop_step,
 };
+use crate::survival::Vitality;
 
 const FIRST_SCOUT_TICK: u64 = 180;
 const SCOUT_STEP_TICKS: u64 = 5;
+/// One scout moves a portable parcel, not an arbitrarily heavy abandoned bulk pile.
+const SCOUT_CARRY_LIMIT: Mass = Mass::from_milligrams(1_000_000);
 
 /// Player-local observation of a kobold scout; remote dens and patrols are not exposed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +55,8 @@ pub struct KoboldScoutEvent {
     position: VoxelCoord,
     discovered_player_drop: bool,
     relocated_drop: Option<SurfaceResourceId>,
+    fled_player: bool,
+    abandoned_drop: Option<SurfaceResourceId>,
 }
 
 impl KoboldScoutEvent {
@@ -69,6 +74,18 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn relocated_drop(self) -> Option<SurfaceResourceId> {
         self.relocated_drop
+    }
+
+    /// A nearby living player forced this step to retreat rather than scavenge.
+    #[must_use]
+    pub const fn fled_player(self) -> bool {
+        self.fled_player
+    }
+
+    /// Previously carried material left in its existing loose surface custody.
+    #[must_use]
+    pub const fn abandoned_drop(self) -> Option<SurfaceResourceId> {
+        self.abandoned_drop
     }
 }
 
@@ -164,6 +181,10 @@ pub fn available_nearby_kobold_scouts(
         .flat_map(move |position| state.kobold_state().sightings_at(position, state.surface()))
 }
 
+fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord) -> bool {
+    resource.kind() == SurfaceResourceKind::Drop && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+}
+
 /// Deterministic slow-tick patrol with finite, interruptible return-trip scavenging.
 ///
 /// The scout waits one visit before collecting an exposed drop. On retreat it takes one
@@ -178,24 +199,43 @@ pub(crate) fn apply_kobold_scout_tick(
     if colony.next_step_at > next_tick {
         return None;
     }
+    let from = colony.scout_position();
+    let player_position = state.logistics().player().map(|player| player.position());
+    let player_near = player_position.is_some_and(|position| {
+        from.y() == position.y()
+            && from
+                .x()
+                .abs_diff(position.x())
+                .saturating_add(from.z().abs_diff(position.z()))
+                <= 1
+    });
+    let pressured = player_near
+        && state
+            .survival()
+            .player()
+            .is_some_and(|player| player.vitality() != Vitality::ZERO);
     let exposed_at_current = state
         .surface()
-        .available_resources_at(Some(colony.scout_position()))
-        .any(|resource| resource.kind() == SurfaceResourceKind::Drop);
-    let (step, returning) = match (colony.scout_step, colony.returning) {
-        (0, _) => (1, false),
-        // A new exposed drop at the junction changes the patrol: turn home to take
-        // it, rather than walk past the player's vulnerable supplies on a fixed loop.
-        (1, false) if exposed_at_current => (0, true),
-        (1, false) => (2, false),
-        (2, _) => (1, true),
-        (1, true) => (0, true),
-        _ => unreachable!("trusted colony route step is bounded"),
+        .available_resources_at(Some(from))
+        .any(|resource| is_portable_drop(resource));
+    let (step, returning) = if pressured {
+        // Presence is an active noncombat defense. Scouts flee toward the den, or
+        // stay sheltered there, rather than snatching supplies beside the player.
+        (colony.scout_step.saturating_sub(1), true)
+    } else {
+        match (colony.scout_step, colony.returning) {
+            (0, _) => (1, false),
+            // Exposed material at the junction changes the route before its next step.
+            (1, false) if exposed_at_current => (0, true),
+            (1, false) => (2, false),
+            (2, _) => (1, true),
+            (1, true) => (0, true),
+            _ => unreachable!("trusted colony route step is bounded"),
+        }
     };
-    let from = colony.scout_position();
     let position = colony.route[usize::from(step)];
-    let player_position = state.logistics().player().map(|player| player.position());
-    let physically_clear = player_position != Some(position)
+    let physically_clear = step != colony.scout_step
+        && player_position != Some(position)
         && (state.world().generation_profile().is_none()
             || state
                 .world()
@@ -206,10 +246,14 @@ pub(crate) fn apply_kobold_scout_tick(
         state.surface().get(id).is_some_and(|resource| {
             resource.position() == from
                 && resource.lifecycle() == SurfaceResourceLifecycle::Available
-                && resource.kind() == SurfaceResourceKind::Drop
+                && is_portable_drop(resource)
         })
     };
-    let dragged_candidate = returning
+    let abandoned_drop = pressured
+        .then_some(colony.scavenged_drop)
+        .flatten()
+        .filter(|id| available_drop_at(*id));
+    let dragged_candidate = (returning && !pressured)
         .then(|| {
             colony
                 .scavenged_drop
@@ -218,7 +262,7 @@ pub(crate) fn apply_kobold_scout_tick(
                     state
                         .surface()
                         .available_resources_at(Some(from))
-                        .find(|resource| resource.kind() == SurfaceResourceKind::Drop)
+                        .find(|resource| is_portable_drop(resource))
                         .map(|resource| resource.id())
                 })
         })
@@ -233,7 +277,7 @@ pub(crate) fn apply_kobold_scout_tick(
         && state
             .surface()
             .available_resources_at(Some(position))
-            .any(|resource| resource.kind() == SurfaceResourceKind::Drop);
+            .any(|resource| is_portable_drop(resource));
     let relocated_drop = if can_move {
         dragged_candidate.filter(|id| relocate_scavenged_drop_step(state, *id, from, position))
     } else {
@@ -254,13 +298,21 @@ pub(crate) fn apply_kobold_scout_tick(
         // Completing the return leg deposits the same loose parcel at the den.
         colony.scavenged_drop = if step == 0 { None } else { relocated_drop };
     }
+    if pressured {
+        // A trapped scout also relinquishes the parcel, enabling recovery without
+        // inventing inaccessible enemy inventory or a damage/attack verb.
+        colony.scavenged_drop = None;
+    }
     colony.next_step_at = next_step_at;
     colony.noticed_player_drop |= discovered || relocated_drop.is_some();
-    let visible = can_move && player_position.is_some_and(|player| colony.is_near(player));
+    let visible = (can_move || abandoned_drop.is_some())
+        && player_position.is_some_and(|player| colony.is_near(player));
     visible.then_some(KoboldScoutEvent {
-        position,
+        position: colony.scout_position(),
         discovered_player_drop: discovered,
         relocated_drop,
+        fled_player: pressured && can_move,
+        abandoned_drop,
     })
 }
 
@@ -283,7 +335,7 @@ pub(crate) fn validate_loaded_kobolds(state: &AppState) -> Result<(), &'static s
         };
         if colony.scout_step == 0
             || !colony.returning
-            || drop.kind() != SurfaceResourceKind::Drop
+            || !is_portable_drop(drop)
             || drop.position() != colony.scout_position()
         {
             return Err("kobold dragged parcel has invalid route custody");

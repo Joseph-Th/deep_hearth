@@ -204,10 +204,14 @@ shows the new need, chosen intervention, and consequences alongside the initial 
 The scavenger encounter likewise begins with an ordinary gathered and deliberately exposed
 ration in one generated world. It reports only the actor-visible patrol warning, timed opportunity
 to collect the drop, identity-preserving enemy relocation, and physical retrieval from the den.
-A matched branch may choose to return before the next scout step. The evidence must distinguish
-an avoidable loss of local access from destroyed matter, and must not report a patrol observation
-as combat, pursuit, or a wider ecology model. Focused replays accept the seed/episode-tagged
-scavenger experience as a complete witness independently of the opening-survival episodes.
+Matched branches may choose to collect the exposed ration, approach without retrieving it to
+force a scout retreat, or neglect it and later recover the actual displaced parcel. The actor may
+not read a retreat event after the scout leaves local observation; the probe must physically
+re-approach to find its new position and the parcel. A separate core continuation proves that a
+nearby player makes a loaded scout abandon its parcel. The evidence distinguishes an avoidable
+loss of local access from destroyed matter and does not represent deterrence as combat or pursuit.
+Focused replays accept the seed/episode-tagged scavenger experience as a complete witness
+independently of the opening-survival episodes.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed

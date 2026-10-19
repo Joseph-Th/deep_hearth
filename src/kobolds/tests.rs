@@ -156,6 +156,74 @@ fn advance_to_tick(registries: &crate::Registries, state: &mut AppState, tick: u
 }
 
 #[test]
+fn scout_takes_one_portable_parcel_but_cannot_drag_a_heavy_loose_pile() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [_, junction, tip] = colony(&state).route;
+    let heavy_mass = Mass::from_milligrams(2_000_000);
+    let heavy_spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        tip,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        heavy_mass,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .expect("heavy loose stone parcel must be representable");
+    let creation = validate_create_surface_resources(&registries, &state, [heavy_spec])
+        .expect("heavy drop creation failed");
+    let heavy = creation.first_resource_id();
+    creation
+        .commit(&mut state)
+        .expect("heavy drop commit failed");
+    let portable = place_loose_stone_drop(&registries, &mut state, tip);
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .expect("player admission failed")
+        .commit(&mut state)
+        .expect("player commit failed");
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scavenged_drop, Some(portable));
+    assert_eq!(state.surface().get(portable).unwrap().position(), junction);
+    assert_eq!(state.surface().get(heavy).unwrap().position(), tip);
+    assert_eq!(
+        state.surface().get(heavy).unwrap().remaining_mass(),
+        heavy_mass
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+}
+
+#[test]
+fn unliftable_material_at_junction_does_not_fake_a_scavenging_detour() {
+    let (registries, mut state, spawn) = generated_opening();
+    let junction = colony(&state).route[1];
+    let heavy_spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        junction,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(2_000_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [heavy_spec])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), colony(&state).route[2]);
+    assert!(!colony(&state).noticed_player_drop);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn scavenging_moves_one_finite_drop_to_den_without_deleting_or_replacing_it() {
     let (registries, mut state, spawn) = generated_opening();
     let [den, junction, tip] = colony(&state).route;
@@ -283,26 +351,100 @@ fn player_intercepts_scavenged_drop_using_ordinary_local_pickup() {
 }
 
 #[test]
-fn guarding_the_den_blocks_scavenger_and_cargo_without_teleportation() {
+fn guarding_the_den_suppresses_patrol_without_touching_supplies() {
     let (registries, mut state, _) = generated_opening();
-    let [den, junction, tip] = colony(&state).route;
-    let drop = place_loose_stone_drop(&registries, &mut state, tip);
+    let [den, junction, _] = colony(&state).route;
+    let drop = place_loose_stone_drop(&registries, &mut state, junction);
     let _ = validate_admit_player(&registries, &state, den)
         .expect("player can guard the den")
         .commit(&mut state)
         .expect("den guardian should be admitted");
-    advance_to_tick(&registries, &mut state, 190);
-    assert_eq!(state.surface().get(drop).unwrap().position(), junction);
-    assert_eq!(colony(&state).scavenged_drop, Some(drop));
-    let outcome = advance_tick(&registries, &mut state);
-    assert!(
-        outcome.is_ok(),
-        "approaching a guarded den is not a simulation error"
-    );
     advance_to_tick(&registries, &mut state, 195);
-    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert!(!colony(&state).noticed_player_drop);
     assert_eq!(state.surface().get(drop).unwrap().position(), junction);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn approaching_a_loaded_scout_forces_it_to_abandon_recoverable_material() {
+    let (registries, mut state, _) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let drop = place_loose_stone_drop(&registries, &mut state, tip);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 190);
     assert_eq!(colony(&state).scavenged_drop, Some(drop));
+    assert_eq!(state.surface().get(drop).unwrap().position(), junction);
+
+    validate_admit_player(&registries, &state, tip)
+        .expect("player can intercept adjacent to the carrying scout")
+        .commit(&mut state)
+        .expect("interception admission failed");
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let mut replay = loaded
+        .into_state(&registries)
+        .expect("carrying scout saved");
+    for _ in 0..5 {
+        let a = advance_tick(&registries, &mut state).unwrap();
+        let b = advance_tick(&registries, &mut replay).unwrap();
+        assert_eq!(a.kobold_scout(), b.kobold_scout());
+        if state.tick().value() == 195 {
+            let event = a.kobold_scout().expect("retreat is locally observable");
+            assert!(event.fled_player());
+            assert_eq!(event.abandoned_drop(), Some(drop));
+            assert_eq!(event.relocated_drop(), None);
+        }
+    }
+    assert_eq!(state, replay);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(drop).unwrap().position(), junction);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn blocked_flight_releases_material_without_moving_or_multiplying_it() {
+    let (registries, mut state, _) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let drop = place_loose_stone_drop(&registries, &mut state, tip);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scavenged_drop, Some(drop));
+    validate_admit_player(&registries, &state, den)
+        .expect("player can guard the only retreat cell")
+        .commit(&mut state)
+        .expect("guard must enter authoritative world");
+    advance_to_tick(&registries, &mut state, 194);
+    let event = advance_tick(&registries, &mut state)
+        .expect("blocked retreat must still complete slow tick")
+        .kobold_scout()
+        .expect("abandoned cargo should be observable near the player");
+    assert!(
+        !event.fled_player(),
+        "no false movement through the occupied den"
+    );
+    assert_eq!(event.abandoned_drop(), Some(drop));
+    assert_eq!(event.relocated_drop(), None);
+    assert_eq!(event.position(), junction);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(drop).unwrap().position(), junction);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())

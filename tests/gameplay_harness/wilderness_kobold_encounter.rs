@@ -65,6 +65,14 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
         "scout observation withdrawal",
     );
     assert!(available_player_world_drops(&state).next().is_none());
+    // At one-voxel distance the living player can frighten this opportunistic scout.
+    // Wait one further leg away to give the unsecured alternative a real chance to steal.
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        spawn,
+        "scout observation from safe distance",
+    );
     advance_to(
         &registries,
         &mut state,
@@ -85,9 +93,17 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
             .is_some_and(|sighting| sighting.has_noticed_player_drop())
     );
 
-    // The same pre-choice world diverges only because one actor returns for the ration.
+    // Three genuine player choices begin from one saved state: ignore the scout,
+    // recover the ration immediately, or approach just closely enough to scare it off.
     let mut exposed = state.clone();
+    let mut warded = state.clone();
     let mut defended = state;
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut defended,
+        forage,
+        "scout defensive return",
+    );
     walk_continuous_body_adjacent_and_settle(
         &registries,
         &mut defended,
@@ -108,6 +124,28 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
         forage,
         "scout recovery withdrawal",
     );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut warded,
+        forage,
+        "scout nonviolent deterrence",
+    );
+    assert_eq!(
+        warded
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        Mass::ZERO,
+        "warding must defend exposed supplies without fetching them"
+    );
+    advance_to(
+        &registries,
+        &mut warded,
+        SimulationTick::new(184),
+        TickEventAllowance::default(),
+        "scout warded wait",
+    );
     advance_to(
         &registries,
         &mut defended,
@@ -115,26 +153,46 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
         TickEventAllowance::default(),
         "scout defended wait",
     );
-    let unguarded_step = {
-        advance_to(
-            &registries,
-            &mut exposed,
-            SimulationTick::new(184),
-            TickEventAllowance::default(),
-            "scout unsecured wait",
-        );
+    advance_to(
+        &registries,
+        &mut exposed,
+        SimulationTick::new(184),
+        TickEventAllowance::default(),
+        "scout unsecured wait",
+    );
+    assert!(
         advance_tick(&registries, &mut exposed)
             .unwrap_or_else(|error| panic!("scout exposed retreat failed: {error}"))
             .kobold_scout()
-            .unwrap_or_else(|| panic!("scout retreat was not player-visible"))
-    };
+            .is_none(),
+        "the retreat beyond local observation must not reveal the scout's secret position"
+    );
     let defended_step = advance_tick(&registries, &mut defended)
         .unwrap_or_else(|error| panic!("scout defended continuation failed: {error}"))
         .kobold_scout()
         .unwrap_or_else(|| panic!("defended scout movement not visible"));
-    assert_eq!(unguarded_step.relocated_drop(), Some(drop));
+    let warded_step = advance_tick(&registries, &mut warded)
+        .unwrap_or_else(|error| panic!("scout warded continuation failed: {error}"))
+        .kobold_scout()
+        .unwrap_or_else(|| panic!("warded scout retreat not visible"));
     assert_eq!(defended_step.relocated_drop(), None);
-    assert_ne!(unguarded_step.position(), defended_step.position());
+    assert!(defended_step.fled_player());
+    assert_eq!(warded_step.relocated_drop(), None);
+    assert!(warded_step.fled_player());
+    assert_eq!(warded_step.abandoned_drop(), None);
+    assert_eq!(warded_step.position(), defended_step.position());
+    assert!(
+        available_nearby_kobold_scouts(&warded)
+            .next()
+            .is_some_and(|sighting| sighting.scavenged_material().is_none())
+    );
+    assert_eq!(
+        available_adjacent_surface_resources(&warded)
+            .find(|item| item.resource() == drop)
+            .expect("warded player should still see the original exposed drop")
+            .position(),
+        junction
+    );
     assert_eq!(
         defended
             .inventory()
@@ -150,17 +208,53 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
         calculate_matter_accounting(&defended).unwrap().total(),
         conserved,
     );
+    assert_eq!(
+        calculate_matter_accounting(&warded).unwrap().total(),
+        conserved
+    );
     assert_eq!(validate_loaded_state(&registries, &exposed), Ok(()));
     assert_eq!(validate_loaded_state(&registries, &defended), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &warded), Ok(()));
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut warded,
+        junction,
+        "recover ration after scaring away scout",
+    );
+    assert_eq!(
+        warded
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        ration,
+        "deterring a scout must preserve ordinary recovery of the original parcel"
+    );
 
-    // Scavenged matter is not despawned or transferred to inaccessible enemy inventory.
-    // Follow the visible retreat destination and recover the same physical parcel.
-    let den = unguarded_step.position();
+    // The unattended branch receives no omniscient scout result. Return through the
+    // world and discover the new location from a local sighting and adjacent matter.
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut exposed,
+        forage,
+        "scout aftermath reconnaissance",
+    );
+    let den = available_nearby_kobold_scouts(&exposed)
+        .next()
+        .expect("retreating scout must become visible again on approach")
+        .position();
     walk_continuous_body_adjacent_and_settle(
         &registries,
         &mut exposed,
         junction,
         "scout loot recovery approach",
+    );
+    assert_eq!(
+        available_adjacent_surface_resources(&exposed)
+            .find(|item| item.resource() == drop)
+            .expect("the same parcel should be visible near the scout")
+            .position(),
+        den
     );
     walk_continuous_body_adjacent_and_settle(
         &registries,
@@ -185,7 +279,7 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
 
     if print {
         std::println!(
-            "PLAYER JOURNEY seed=0x{:016X} episode=coverage/rested/scavenger-patrol phase=exposed-ration observed=[drop:{}mg left-at-junction:{}t scout-noticed-at:180] choice=[defend:walk-back-and-pickup leave:wait] consequence=[defend:retained-{}mg scout-continues-patrol leave:scout-diverts-home-with-{}mg] recovery=[follow-scout-to-den:reclaimed same-parcel:true] matter-conserved=true mode=matched-generated-world",
+            "PLAYER JOURNEY seed=0x{:016X} episode=coverage/rested/scavenger-patrol phase=exposed-ration observed=[drop:{}mg left-at-junction:{}t scout-noticed-at:180] choice=[fetch:return-and-pickup deter:approach-without-pickup neglect:wait] consequence=[fetch:retained-{}mg scout-flees deter:scout-flees-parcel-stays neglect:scout-diverts-home-with-{}mg] recovery=[follow-scout-to-den:reclaimed same-parcel:true] matter-conserved=true mode=matched-generated-world",
             seed.value(),
             ration.milligrams(),
             dropped_at.value(),
@@ -193,8 +287,9 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
             ration.milligrams(),
         );
         std::println!(
-            "KOBOLD EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-patrol evidence=ordinary-generated-world detection=180t theft=185t unsecured-moved:{}mg guarded-retained:{}mg recovered:{}mg route-changed:true matter-conserved:true",
+            "KOBOLD EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-patrol evidence=ordinary-generated-world detection=180t theft=185t unsecured-moved:{}mg guarded-retained:{}mg recovered:{}mg deterrence=presence-routes-retreat drop-protected:{}mg route-changed:true matter-conserved:true",
             seed.value(),
+            ration.milligrams(),
             ration.milligrams(),
             ration.milligrams(),
             ration.milligrams(),
