@@ -561,6 +561,19 @@ inventory egress and the existing terminal combusted-mass account. A short chip 
 without consuming logs, and an old log charge can still be added after burning chips. This is
 wood-waste heat recovery, not complete combustion chemistry, air emissions, or modeled ash.
 
+**Exposed residue footprint:** Player-created loose solid residue drops retain their exact
+voxel, mass and authored host-material density. Their combined solid-equivalent volume on the
+one-square-metre voxel footprint yields a conservative local layer depth (including across
+distinct material lots); at 25 mm or more, rigid player-placed ground storage refuses the
+unstable footing with its position and estimated depth. Natural gathering opportunities,
+non-residual drops and matter held inside any stockpile do not count as exposed spoil. The
+same canonical storage-placement validator checks this for both local and pointed placement;
+its commit token binds the surface revision, preventing a late spill from validating against
+an obsolete clear site. Real material pickup can restore firm footing without erasing mass,
+and the ordinary interaction reports rejection without consuming construction matter. This
+is one static footprint/contact rule, not simulated particulate scattering, changing terrain,
+generic structural foundations, or soil/water contamination.
+
 Manual shaping conserves material identity/mass and cannot change phase. Pure durable input lots may span exact
 temperatures: form-only shaping retains every selected thermal cohort and apportions each authored output across
 the remaining cohort distribution at whole-milligram precision, so crafting neither averages heat nor performs

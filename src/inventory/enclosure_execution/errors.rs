@@ -93,6 +93,10 @@ pub enum StorageEnclosureConstructionError {
 pub enum PlayerStoragePlacementError {
     Allocation(PlayerGroundStockpileAllocationError),
     Construction(StorageEnclosureConstructionError),
+    LooseResidueFooting {
+        position: VoxelCoord,
+        compact_depth_um: u128,
+    },
 }
 
 impl Display for PlayerStoragePlacementError {
@@ -104,6 +108,18 @@ impl Display for PlayerStoragePlacementError {
             Self::Construction(error) => {
                 write!(formatter, "storage placement construction failed: {error}")
             }
+            Self::LooseResidueFooting {
+                position,
+                compact_depth_um,
+            } => write!(
+                formatter,
+                "storage foundation ({},{},{}) has {}.{} mm of exposed processing residue (solid-equivalent; limit is below 25 mm); clear it or choose another site",
+                position.x(),
+                position.y(),
+                position.z(),
+                compact_depth_um / 1_000,
+                (compact_depth_um % 1_000) / 100,
+            ),
         }
     }
 }
@@ -113,6 +129,7 @@ impl Error for PlayerStoragePlacementError {
         match self {
             Self::Allocation(error) => Some(error),
             Self::Construction(error) => Some(error),
+            Self::LooseResidueFooting { .. } => None,
         }
     }
 }
@@ -121,6 +138,7 @@ impl Error for PlayerStoragePlacementError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerStoragePlacementCommitError {
     Allocation(GroundStockpileAllocationCommitError),
+    SurfaceRevisionChanged { expected: u64, actual: u64 },
 }
 
 impl Display for PlayerStoragePlacementCommitError {
@@ -129,6 +147,10 @@ impl Display for PlayerStoragePlacementCommitError {
             Self::Allocation(error) => {
                 write!(formatter, "storage placement commit failed: {error}")
             }
+            Self::SurfaceRevisionChanged { expected, actual } => write!(
+                formatter,
+                "storage footing changed from surface revision {expected} to {actual} before placement",
+            ),
         }
     }
 }
@@ -137,6 +159,7 @@ impl Error for PlayerStoragePlacementCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Allocation(error) => Some(error),
+            Self::SurfaceRevisionChanged { .. } => None,
         }
     }
 }

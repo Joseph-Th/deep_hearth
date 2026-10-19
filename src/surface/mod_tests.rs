@@ -18,7 +18,10 @@ use crate::core::state::{
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, SimulationTick, TickSpan};
 use crate::energy::validate_assemble_energy_store;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
-use crate::inventory::{StockpileStorageError, deposit_lot_for_test, project_material_stacks};
+use crate::inventory::{
+    PlayerStoragePlacementError, StockpileStorageError, deposit_lot_for_test,
+    project_material_stacks,
+};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput,
@@ -289,6 +292,57 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
     assert_eq!(drops[0].ambient_storage_age_parts(), 0);
     assert_eq!(drops[0].automatic_pickup_available_at(), None);
     assert!(drops[0].automatic_pickup_ready());
+}
+
+#[test]
+fn exposed_residue_footing_counts_distinct_densities_without_treating_nature_as_disposal() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, 0, 5);
+    for (kind, commodity, mass) in [
+        (
+            SurfaceResourceKind::Opportunity,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(200_000_000),
+        ),
+        (
+            SurfaceResourceKind::Drop,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(200_000_000),
+        ),
+        (
+            SurfaceResourceKind::Drop,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(40_000_000),
+        ),
+        (
+            SurfaceResourceKind::Drop,
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+            Mass::from_milligrams(8_000_000),
+        ),
+    ] {
+        let spec = SurfaceResourceSpec::new(
+            kind,
+            at,
+            commodity,
+            mass,
+            TEMPERATURE,
+            MaterialComposition::pure(commodity.material()),
+        )
+        .unwrap_or_else(|error| panic!("mixed-footing input invalid: {error}"));
+        insert_surface_resource_for_test(&registries, &mut state, spec)
+            .unwrap_or_else(|error| panic!("mixed-footing input failed: {error}"));
+    }
+    assert_eq!(
+        exposed_residue_compact_depth_um(&registries, &state, at),
+        27_402,
+        "only dropped residual solids contribute their host-density compact volumes",
+    );
+    assert_eq!(
+        exposed_residue_compact_depth_um(&registries, &state, VoxelCoord::new(6, 0, 5)),
+        0,
+        "a footprint cannot arbitrarily obstruct neighboring terrain",
+    );
 }
 
 #[test]
@@ -1695,6 +1749,66 @@ fn secondary_use_places_selected_storage_body_through_canonical_storage_placemen
         Some(body_mass),
         "structural obstruction must not consume enclosure material"
     );
+
+    // The same ordinary pointed placement path must expose actual piled industrial residue as
+    // a recoverable foundation problem, without turning all scattered chips into solid walls.
+    let residue = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    for (waste_mass, blocked) in [
+        (Mass::from_milligrams(10_000_000), false),
+        (Mass::from_milligrams(20_000_000), true),
+    ] {
+        let mut exposed = state.clone();
+        let drop = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            placement,
+            residue,
+            waste_mass,
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_WOOD),
+        )
+        .unwrap_or_else(|error| panic!("exposed footing fixture failed: {error}"));
+        insert_surface_resource_for_test(&registries, &mut exposed, drop)
+            .unwrap_or_else(|error| panic!("exposed footing generation failed: {error}"));
+        let outcome = advance_control_tick_with_direct_input(
+            &registries,
+            &mut exposed,
+            PlayerDirectControlInput::NEUTRAL
+                .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+        )
+        .unwrap_or_else(|error| panic!("exposed storage use failed: {error}"));
+        if blocked {
+            assert_eq!(
+                outcome.secondary_action(),
+                Some(&SecondaryActionOutcome::StoragePlacementRejected {
+                    definition: STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                    error: PlayerStoragePlacementError::LooseResidueFooting {
+                        position: placement,
+                        compact_depth_um: 30_769,
+                    },
+                }),
+                "deep exposed chips must block real targeted enclosure placement"
+            );
+            assert_eq!(
+                exposed
+                    .inventory()
+                    .get_stockpile(carried)
+                    .map(|record| record.get_mass(commodity)),
+                Some(body_mass),
+                "failed work on a debris-covered site must retain the box body"
+            );
+        } else {
+            assert!(
+                matches!(
+                    outcome.secondary_action(),
+                    Some(SecondaryActionOutcome::StoragePlaced {
+                        definition: STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                        ..
+                    })
+                ),
+                "thin residue must not arbitrarily prohibit ordinary building"
+            );
+        }
+    }
 
     let control = advance_control_tick_with_direct_input(
         &registries,

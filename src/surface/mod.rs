@@ -2,6 +2,7 @@
 
 mod creation;
 mod drop_projection;
+mod footing;
 mod gathering;
 mod material_drop;
 mod observation;
@@ -16,6 +17,7 @@ pub(crate) use creation::{
     validate_create_surface_resources_at,
 };
 pub use drop_projection::{PlayerWorldDropProjection, available_player_world_drops};
+pub(crate) use footing::{OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM, exposed_residue_compact_depth_um};
 pub use gathering::{
     PlayerSurfaceGatheringOption, SurfaceGatheringCommitError, SurfaceGatheringError,
     SurfaceGatheringOutcome, SurfaceGatheringRequest, ValidatedSurfaceGatheringStart,

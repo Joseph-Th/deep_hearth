@@ -49,7 +49,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
 | Crafting | Carried recipe/batch crafting selects exact lots privately; meaningful stack choice stays explicit. |
 | Logistics | Fixed-point body/carrying; 20 Hz locomotion/collision with load-scaled exertion and fall-impact injury; opening-access observation, equipment carry, nine-slot hotbar, one-shot action buffering, local inventory/equipment projection, quick-move, access checks. |
-| Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. |
+| Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. Deep exposed residue layers obstruct ground-storage footing until cleared. |
 | Energy and fluids | Finite typed stores with power/loss limits. Log or chip fuel becomes finite campfire heat with terminal mass accounting; water is locally finite/drinkable. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |

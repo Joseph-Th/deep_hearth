@@ -8,6 +8,7 @@ use crate::logistics::{
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
+use crate::surface::{OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM, exposed_residue_compact_depth_um};
 
 use super::storage_validation::{
     validate_residual_only_storage, validate_stockpile_storage_profile,
@@ -50,6 +51,7 @@ pub struct ValidatedStorageEnclosureConstruction {
 /// ambient stockpile.
 #[must_use]
 pub struct ValidatedPlayerStoragePlacement {
+    expected_surface_revision: u64,
     allocation: ValidatedGroundStockpileAllocation,
     next_inventory_revision: u64,
     next_profile: StockpileStorageProfile,
@@ -76,6 +78,12 @@ impl ValidatedPlayerStoragePlacement {
         self,
         state: &mut AppState,
     ) -> Result<StockpileId, PlayerStoragePlacementCommitError> {
+        if state.surface().revision() != self.expected_surface_revision {
+            return Err(PlayerStoragePlacementCommitError::SurfaceRevisionChanged {
+                expected: self.expected_surface_revision,
+                actual: state.surface().revision(),
+            });
+        }
         let target = self
             .allocation
             .commit(state)
@@ -123,6 +131,13 @@ pub(crate) fn validate_place_player_storage_at(
     validate_player_stockpile_access(state, source)
         .map_err(StorageEnclosureConstructionError::SourceAccess)
         .map_err(PlayerStoragePlacementError::Construction)?;
+    let residue_depth = exposed_residue_compact_depth_um(registries, state, position);
+    if residue_depth >= OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM {
+        return Err(PlayerStoragePlacementError::LooseResidueFooting {
+            position,
+            compact_depth_um: residue_depth,
+        });
+    }
     let allocation = validate_allocate_player_ground_stockpile_at(
         state,
         position,
@@ -159,6 +174,7 @@ pub(crate) fn validate_place_player_storage_at(
         .checked_add(3)
         .unwrap_or_else(|| unreachable!("placement headroom includes all inventory mutations"));
     Ok(ValidatedPlayerStoragePlacement {
+        expected_surface_revision: state.surface().revision(),
         allocation,
         next_inventory_revision,
         next_profile: definition_record.storage_profile(),

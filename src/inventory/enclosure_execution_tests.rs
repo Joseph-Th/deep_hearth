@@ -40,10 +40,150 @@ use crate::structural::{
     calculate_aggregate_weight_force_ceiling, materialize_structural_element_for_test,
     validate_activate_structural_element,
 };
+use crate::surface::{exposed_residue_compact_depth_um, validate_drop_player_material};
 use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_survival};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
+
+#[test]
+fn exposed_woodworking_residue_obstructs_storage_footing_until_player_clears_it() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("footing player physiology failed: {error}"));
+    let position = VoxelCoord::new(2, 0, 3);
+    let carried =
+        validate_initialize_player_logistics(&state, position, Mass::from_milligrams(25_000_000))
+            .unwrap_or_else(|error| panic!("footing player admission failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("footing player admission commit failed: {error}"))
+            .carried_stockpile();
+    let chips = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    let body = CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY);
+    for temperature in [
+        Temperature::from_millikelvin(290_000),
+        Temperature::from_millikelvin(300_000),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            chips,
+            Mass::from_milligrams(10_000_000),
+            temperature,
+        )
+        .unwrap_or_else(|error| panic!("footing real chips failed: {error}"));
+    }
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        body,
+        Mass::from_milligrams(1_600_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("footing box body failed: {error}"));
+    let total_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("footing matter audit failed: {error}"))
+        .total();
+    assert_eq!(
+        exposed_residue_compact_depth_um(&registries, &state, position),
+        0
+    );
+    // Authorize placement while the ground is still clear; a later real drop must invalidate it.
+    let old_token =
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap_or_else(|error| panic!("clear-ground storage plan rejected: {error}"));
+    let dropped = validate_drop_player_material(&registries, &state, chips)
+        .unwrap_or_else(|error| panic!("player chip spill rejected: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("player chip spill commit failed: {error}"));
+    assert_eq!(dropped.resources().len(), 2);
+    let depth = exposed_residue_compact_depth_um(&registries, &state, position);
+    assert_eq!(
+        depth, 30_769,
+        "split wood-chip parcels must share one physical footprint"
+    );
+    let spill_save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("exposed spoil save failed: {error}"));
+    let spill_loaded: LoadedSaveEnvelope = serde_json::from_slice(&spill_save)
+        .unwrap_or_else(|error| panic!("exposed spoil load failed: {error}"));
+    assert_eq!(
+        spill_loaded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("exposed spoil trusted load failed: {error}")),
+        state,
+        "the spilled material and its obstructing footprint must survive save/load"
+    );
+    assert!(matches!(
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX),
+        Err(PlayerStoragePlacementError::LooseResidueFooting { position: at, compact_depth_um })
+            if at == position && compact_depth_um == depth
+    ));
+    let before_stale = state.clone();
+    assert!(matches!(
+        old_token.commit(&mut state),
+        Err(PlayerStoragePlacementCommitError::SurfaceRevisionChanged { .. })
+    ));
+    assert_eq!(
+        state, before_stale,
+        "stale foundation must not consume timber or create storage"
+    );
+    // The canonical drop pickup owns the recovery and waits out the self-pickup delay. Neither
+    // the material nor the physical obstruction disappears simply because placement was refused.
+    for _ in 0..40 {
+        let _ = crate::simulation::advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("footing debris recovery tick failed: {error}"));
+    }
+    assert_eq!(
+        exposed_residue_compact_depth_um(&registries, &state, position),
+        15_384
+    );
+    assert!(
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX).is_ok(),
+        "retrieving one physical lot restores firm footing without deleting the other"
+    );
+    let _ = crate::simulation::advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remaining exposed chip pickup failed: {error}"));
+    assert_eq!(
+        exposed_residue_compact_depth_um(&registries, &state, position),
+        0
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap_or_else(|| panic!("footing carrier disappeared"))
+            .get_mass(chips),
+        Mass::from_milligrams(20_000_000)
+    );
+    let placed = validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|error| panic!("debris-cleared placement still rejected: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("debris-cleared placement commit failed: {error}"));
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(placed),
+        Some(position)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("debris-cleared matter audit failed: {error}"))
+            .total(),
+        total_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("debris-cleared save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&saved)
+        .unwrap_or_else(|error| panic!("debris-cleared load failed: {error}"));
+    assert_eq!(
+        loaded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("debris-cleared restore failed: {error}")),
+        state
+    );
+}
 
 #[test]
 fn spoil_bay_admits_only_real_residue_and_enforces_finite_capacity_across_load() {
