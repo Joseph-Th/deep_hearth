@@ -237,6 +237,15 @@ sighting proves the scout resumed its originally authored patrol destination ins
 becoming stuck on the decoy branch. Temporary detour state survives trusted save/load,
 while a separate test proves player proximity still deters theft, missing or tampered
 detour fields fail load, and oversized parcels cannot lure scouts into false detours.
+An additional generated-world bulk episode collects a real 2 kg stone lot, leaves it at
+the work junction, and compares carrying it securely with abandoning it in loose surface
+custody. The scout takes two separate 250 g daughter parcels to its finite den cache
+without moving the bulk source itself. The actor returns and reclaims both the 1.5 kg
+original remainder and the 0.5 kg den loot through ordinary body movement and pickup;
+remote mass is not inspected during absence. Owner-level replay verifies the split
+transaction retains material profile, age, provenance, exact matter accounting and
+save/load continuation. Enclosed storage, not simply a heavy exposed drop, remains
+the credible defense against ongoing scavenging.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed

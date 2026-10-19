@@ -528,6 +528,31 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"side-cache:{int(witness.group(1))}mg "
             f"reclaimed:{int(witness.group(4))}mg observed:local baseline:restored]"
         )
+    bulk_events = [line for line in lines if line.startswith("KOBOLD BULK EXPERIENCE ")]
+    if len(bulk_events) > 1:
+        raise ValueError("wilderness report has duplicate loose bulk scavenging episodes")
+    bulk = ""
+    if bulk_events:
+        witness = re.search(
+            r"\boriginal:(\d+)mg split:(\d+)mg remaining:(\d+)mg "
+            r"recovered:(\d+)mg guarded:(\d+)mg "
+            r"finite-den=(true|false) matter-conserved=(true|false)",
+            bulk_events[0],
+        )
+        if witness is None:
+            raise ValueError("bulk scavenging lacks actual loose-matter custody evidence")
+        original, split, remaining, recovered, guarded = (
+            int(witness.group(i)) for i in range(1, 6)
+        )
+        if (original - remaining != split or split <= 0
+                or recovered != original or guarded != original
+                or witness.group(6) != "true" or witness.group(7) != "true"):
+            raise ValueError("bulk scavenging must conserve, limit and recover split materials")
+        bulk = (
+            "scout-bulk=["
+            f"source:{_mass_kg(original)}kg split:{_mass_kg(split)}kg "
+            f"remaining:{_mass_kg(remaining)}kg recovered:{_mass_kg(recovered)}kg]"
+        )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:
         sample_shape += f" organic:{len(organic)}"
@@ -548,6 +573,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{natural_contest + ' ' if natural_contest else ''}"
         f"{den_raid + ' ' if den_raid else ''}"
         f"{detour + ' ' if detour else ''}"
+        f"{bulk + ' ' if bulk else ''}"
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"

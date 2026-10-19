@@ -615,7 +615,7 @@ fn advance_to_tick(registries: &crate::Registries, state: &mut AppState, tick: u
 }
 
 #[test]
-fn scout_takes_one_portable_parcel_but_cannot_drag_a_heavy_loose_pile() {
+fn scout_prioritizes_an_intact_portable_parcel_over_splitting_bulk() {
     let (registries, mut state, spawn) = generated_opening();
     let [_, junction, tip] = colony(&state).route;
     let heavy_mass = Mass::from_milligrams(2_000_000);
@@ -652,10 +652,208 @@ fn scout_takes_one_portable_parcel_but_cannot_drag_a_heavy_loose_pile() {
 }
 
 #[test]
-fn unliftable_material_at_junction_does_not_fake_a_scavenging_detour() {
+fn scout_splits_bulky_material_at_junction_into_finite_recoverable_den_parcels() {
     let (registries, mut state, spawn) = generated_opening();
-    let junction = colony(&state).route[1];
+    let [den, junction, tip] = colony(&state).route;
+    let heavy_mass = Mass::from_milligrams(2_000_000);
     let heavy_spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        junction,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        heavy_mass,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [heavy_spec]).unwrap();
+    let heavy = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let original = state.surface().get(heavy).unwrap().clone();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 180);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert!(colony(&state).noticed_player_drop);
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).route[2], tip);
+    let first = state
+        .surface()
+        .available_resources_at(Some(den))
+        .find(|resource| resource.kind() == SurfaceResourceKind::Drop)
+        .unwrap();
+    let first_id = first.id();
+    assert_ne!(first_id, heavy);
+    let portion = Mass::from_milligrams(250_000);
+    assert_eq!(first.remaining_mass(), portion);
+    assert_eq!(first.composition(), original.composition());
+    assert_eq!(first.temperature(), original.temperature());
+    assert_eq!(first.material_provenance(), original.material_provenance());
+    assert_eq!(
+        first.ambient_storage_age_parts_at(state.tick()),
+        original.ambient_storage_age_parts_at(state.tick())
+    );
+    assert_eq!(state.surface().get(heavy).unwrap().position(), junction);
+    assert_eq!(
+        state.surface().get(heavy).unwrap().remaining_mass(),
+        heavy_mass.checked_sub(portion).unwrap()
+    );
+    let envelope = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&envelope).unwrap();
+    let mut restored = loaded
+        .into_state(&registries)
+        .expect("split piles must load");
+    for _ in 0..20 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(state, restored);
+    assert_eq!(
+        state.surface().get(heavy).unwrap().remaining_mass(),
+        heavy_mass
+            .checked_sub(Mass::from_milligrams(500_000))
+            .unwrap()
+    );
+    assert_eq!(super::den_cache_space(&state, den), Mass::ZERO);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn scout_splits_bulky_tip_pile_then_carries_daughter_parcel_one_step_at_a_time() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let large = Mass::from_milligrams(2_000_000);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        tip,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        large,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [spec]).unwrap();
+    let original = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 189);
+    let step = advance_tick(&registries, &mut state).unwrap();
+    let (new_id, mass) = step
+        .kobold_scout()
+        .unwrap()
+        .split_drop()
+        .expect("locally visible split should disclose the created parcel");
+    assert_ne!(new_id, original);
+    assert_eq!(mass, Mass::from_milligrams(250_000));
+    assert_eq!(state.surface().get(original).unwrap().position(), tip);
+    assert_eq!(
+        state.surface().get(original).unwrap().remaining_mass(),
+        large.checked_sub(mass).unwrap()
+    );
+    assert_eq!(state.surface().get(new_id).unwrap().position(), junction);
+    assert_eq!(colony(&state).scavenged_drop, Some(new_id));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let saved: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let mut restored = saved
+        .into_state(&registries)
+        .expect("split cargo must save and load");
+    for _ in 0..5 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(state, restored);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(new_id).unwrap().position(), den);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn bulk_splitting_respects_last_fifty_grams_of_den_capacity() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, _] = colony(&state).route;
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let bulk = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        junction,
+        stone,
+        Mass::from_milligrams(2_000_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let preexisting = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        stone,
+        Mass::from_milligrams(450_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(&registries, &state, [bulk, preexisting]).unwrap();
+    let bulk_id = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 185);
+    let remaining = state.surface().get(bulk_id).unwrap().remaining_mass();
+    assert_eq!(remaining, Mass::from_milligrams(1_950_000));
+    let den_mass = state
+        .surface()
+        .available_resources_at(Some(den))
+        .filter(|item| item.kind() == SurfaceResourceKind::Drop)
+        .map(|item| item.remaining_mass().milligrams())
+        .sum::<u64>();
+    assert_eq!(den_mass, 500_000);
+    assert_eq!(super::den_cache_space(&state, den), Mass::ZERO);
+    advance_to_tick(&registries, &mut state, 225);
+    assert_eq!(
+        state.surface().get(bulk_id).unwrap().remaining_mass(),
+        remaining
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn guarding_exposed_bulk_denies_the_scout_a_split() {
+    let (registries, mut state, _) = generated_opening();
+    let [_, junction, patrol_tip] = colony(&state).route;
+    let heavy = SurfaceResourceSpec::new(
         SurfaceResourceKind::Drop,
         junction,
         CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
@@ -664,18 +862,24 @@ fn unliftable_material_at_junction_does_not_fake_a_scavenging_detour() {
         MaterialComposition::pure(MATERIAL_STONE),
     )
     .unwrap();
-    validate_create_surface_resources(&registries, &state, [heavy_spec])
+    let plan = validate_create_surface_resources(&registries, &state, [heavy]).unwrap();
+    let id = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    validate_admit_player(&registries, &state, patrol_tip)
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    validate_admit_player(&registries, &state, spawn)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
-    advance_to_tick(&registries, &mut state, 185);
-    assert_eq!(colony(&state).scout_position(), colony(&state).route[2]);
-    assert!(!colony(&state).noticed_player_drop);
-    assert_eq!(colony(&state).scavenged_drop, None);
+    advance_to_tick(&registries, &mut state, 205);
+    assert_eq!(
+        state.surface().get(id).unwrap().remaining_mass(),
+        Mass::from_milligrams(2_000_000)
+    );
+    assert!(
+        !state
+            .surface()
+            .resources()
+            .any(|r| r.kind() == SurfaceResourceKind::Drop && r.id() != id)
+    );
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())

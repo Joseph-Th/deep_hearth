@@ -164,6 +164,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "natural-forage",
         "scout-cache",
         "scout-detour",
+        "scout-bulk",
     ),
     "primitive-progression": (
         "generated-exact-local-campaign",
@@ -684,7 +685,7 @@ def _focused_verbose_gameplay_report(
                 episode_witnesses += int(line.startswith((
                     "WILDERNESS EXPERIENCE ", "KOBOLD EXPERIENCE ",
                     "KOBOLD FORAGE EXPERIENCE ", "KOBOLD CACHE EXPERIENCE ",
-                    "KOBOLD DETOUR EXPERIENCE ",
+                    "KOBOLD DETOUR EXPERIENCE ", "KOBOLD BULK EXPERIENCE ",
                 )))
                 selected.append(line)
             continue

@@ -4104,6 +4104,8 @@ class GameplayReportContractTests(unittest.TestCase):
                 "KOBOLD CACHE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-den source-before:835922mg",
                 "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-detour phase=side-branch-cache choice=withdraw",
                 "KOBOLD DETOUR EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-detour cache-exposed:250000mg",
+                "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-bulk phase=exposed-bulk-cache choice=secure",
+                "KOBOLD BULK EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-bulk original:2000000mg",
             )
         )
         environment = {
@@ -4146,7 +4148,14 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("phase=side-branch-cache choice=withdraw", detour_focus)
         self.assertIn("KOBOLD DETOUR EXPERIENCE seed=0x1", detour_focus)
         self.assertNotIn("scavenger-den", detour_focus)
-        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-den, coverage/rested/scavenger-detour, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
+        bulk_focus = gameplay_report_summary.concise_gameplay_report(
+            stdout,
+            {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "coverage/rested/scavenger-bulk"},
+        )
+        self.assertIn("phase=exposed-bulk-cache choice=secure", bulk_focus)
+        self.assertIn("KOBOLD BULK EXPERIENCE seed=0x1", bulk_focus)
+        self.assertNotIn("scavenger-detour", bulk_focus)
+        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-bulk, coverage/rested/scavenger-den, coverage/rested/scavenger-detour, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},

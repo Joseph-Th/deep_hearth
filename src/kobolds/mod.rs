@@ -15,7 +15,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
     SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, SurfaceResourceState,
-    forage_food_to_adjacent_den, relocate_scavenged_drop_step,
+    forage_food_to_adjacent_den, relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
 };
 use crate::survival::Vitality;
 
@@ -26,6 +26,8 @@ const SCOUT_CARRY_LIMIT: Mass = Mass::from_milligrams(1_000_000);
 /// Limited loose staging space at the den; source scarcity alone is not its capacity.
 const DEN_LOOSE_CACHE_LIMIT: Mass = Mass::from_milligrams(500_000);
 const SCOUT_FORAGE_BATCH: Mass = Mass::from_milligrams(100_000);
+/// Scavengers can divide an exposed bulk parcel, but only into small carried lots.
+const SCOUT_BULK_SPLIT_BATCH: Mass = Mass::from_milligrams(250_000);
 /// Avoid stripping a food patch on every 72-second scout circuit.
 const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
 /// A low, dying ember does not repel the same scout as a maintained bright fire.
@@ -67,6 +69,7 @@ pub struct KoboldScoutEvent {
     fled_light: bool,
     abandoned_drop: Option<SurfaceResourceId>,
     foraged_food: Option<(SurfaceResourceId, Mass)>,
+    split_drop: Option<(SurfaceResourceId, Mass)>,
 }
 
 impl KoboldScoutEvent {
@@ -108,6 +111,12 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn foraged_food(self) -> Option<(SurfaceResourceId, Mass)> {
         self.foraged_food
+    }
+
+    /// A loose bulk pile lost this much mass into a new recoverable parcel.
+    #[must_use]
+    pub const fn split_drop(self) -> Option<(SurfaceResourceId, Mass)> {
+        self.split_drop
     }
 }
 
@@ -259,6 +268,13 @@ fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord) -> bool {
     resource.kind() == SurfaceResourceKind::Drop && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
+/// A reachable loose pile is unsafe even if too large to move as one parcel.
+fn is_contestable_drop(resource: &crate::surface::SurfaceResourceRecord, space: Mass) -> bool {
+    resource.kind() == SurfaceResourceKind::Drop
+        && !resource.remaining_mass().is_zero()
+        && !space.is_zero()
+}
+
 /// The den uses ordinary surface custody. Its finite loose storage includes all available
 /// player and scout drops, not just parcels labelled as belonging to the colony.
 fn den_cache_space(state: &AppState, den: VoxelCoord) -> Mass {
@@ -353,7 +369,7 @@ pub(crate) fn apply_kobold_scout_tick(
     let exposed_at_current = state
         .surface()
         .available_resources_at(Some(from))
-        .any(|resource| is_portable_drop(resource) && resource.remaining_mass() <= den_space);
+        .any(|resource| is_contestable_drop(resource, den_space));
     let (step, returning) = colony.next_scout_step(pressured, exposed_at_current);
     let side_drop = (step == 2 && !returning && colony.scout_step == 1)
         .then(|| {
@@ -419,12 +435,37 @@ pub(crate) fn apply_kobold_scout_tick(
         && state
             .surface()
             .available_resources_at(Some(position))
-            .any(|resource| is_portable_drop(resource) && resource.remaining_mass() <= den_space);
+            .any(|resource| is_contestable_drop(resource, den_space));
     let relocated_drop = if can_move {
         dragged_candidate.filter(|id| relocate_scavenged_drop_step(state, *id, from, position))
     } else {
         None
     };
+    // Whole portable parcels retain identity. Oversized exposed piles instead
+    // yield a bounded daughter parcel, leaving the exact remainder at the source.
+    let bulk_source = (can_move && returning && !pressured && relocated_drop.is_none())
+        .then(|| {
+            state
+                .surface()
+                .available_resources_at(Some(from))
+                .find(|resource| {
+                    is_contestable_drop(resource, den_space)
+                        && (!is_portable_drop(resource) || resource.remaining_mass() > den_space)
+                })
+                .map(|resource| resource.id())
+        })
+        .flatten();
+    let split_drop = bulk_source.and_then(|source| {
+        split_bulk_scavenged_drop_step(
+            registries,
+            state,
+            source,
+            from,
+            position,
+            next_tick,
+            SCOUT_BULK_SPLIT_BATCH.min(den_space),
+        )
+    });
     // An unattended food patch is genuine competition even if the player has
     // never dropped inventory. Loose parcels have priority; the scout forages at
     // the junction only while returning to its adjacent den, in one conserved
@@ -433,6 +474,7 @@ pub(crate) fn apply_kobold_scout_tick(
         && returning
         && step == 0
         && relocated_drop.is_none()
+        && split_drop.is_none()
         && !pressured
         && forage_ready)
         .then(|| {
@@ -467,7 +509,12 @@ pub(crate) fn apply_kobold_scout_tick(
         .as_mut()
         .unwrap_or_else(|| unreachable!("scout decision requires a colony"));
     if can_move {
-        colony.apply_step(step, returning, side_drop, relocated_drop);
+        colony.apply_step(
+            step,
+            returning,
+            side_drop,
+            relocated_drop.or(split_drop.map(|(id, _)| id)),
+        );
     }
     if pressured {
         // A trapped scout also relinquishes the parcel, enabling recovery without
@@ -482,7 +529,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 .expect("bounded simulation cannot overflow the next forage opportunity"),
         );
     }
-    colony.noticed_player_drop |= discovered || relocated_drop.is_some();
+    colony.noticed_player_drop |= discovered || relocated_drop.is_some() || split_drop.is_some();
     let visible = (can_move || abandoned_drop.is_some())
         && player_position.is_some_and(|player| colony.is_near(player));
     visible.then_some(KoboldScoutEvent {
@@ -493,6 +540,7 @@ pub(crate) fn apply_kobold_scout_tick(
         fled_light: pressured_by_light && can_move,
         abandoned_drop,
         foraged_food,
+        split_drop,
     })
 }
 

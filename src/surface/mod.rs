@@ -90,28 +90,82 @@ pub(crate) fn forage_food_to_adjacent_den(
     at: crate::core::time::SimulationTick,
     maximum_mass: crate::core::quantity::Mass,
 ) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
-    if !from.is_face_adjacent_to(den) || !state.can_spend_surface_revisions(2) {
+    materialize_scavenged_portion(
+        registries,
+        state,
+        source,
+        from,
+        den,
+        at,
+        maximum_mass,
+        SurfaceResourceKind::Opportunity,
+    )
+}
+
+/// A bulky *loose drop* can be split at the scout's actual adjacent return step.
+/// Unlike an entire portable parcel, its original ID remains at the origin with
+/// reduced mass; the separated recoverable parcel gets a new ID and equal mass.
+pub(crate) fn split_bulk_scavenged_drop_step(
+    registries: &crate::registry::Registries,
+    state: &mut crate::core::state::AppState,
+    source: SurfaceResourceId,
+    from: crate::spatial::VoxelCoord,
+    to: crate::spatial::VoxelCoord,
+    at: crate::core::time::SimulationTick,
+    maximum_mass: crate::core::quantity::Mass,
+) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
+    materialize_scavenged_portion(
+        registries,
+        state,
+        source,
+        from,
+        to,
+        at,
+        maximum_mass,
+        SurfaceResourceKind::Drop,
+    )
+}
+
+/// One surface-owned conserved transaction: materialize the adjacent daughter lot
+/// first and then reduce the source by exactly the amount successfully created.
+fn materialize_scavenged_portion(
+    registries: &crate::registry::Registries,
+    state: &mut crate::core::state::AppState,
+    source: SurfaceResourceId,
+    from: crate::spatial::VoxelCoord,
+    to: crate::spatial::VoxelCoord,
+    at: crate::core::time::SimulationTick,
+    maximum_mass: crate::core::quantity::Mass,
+    source_kind: SurfaceResourceKind,
+) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
+    if !from.is_face_adjacent_to(to) || !state.can_spend_surface_revisions(2) {
         return None;
     }
-    let opportunity = state.surface().get(source)?;
-    if opportunity.kind() != SurfaceResourceKind::Opportunity
-        || opportunity.lifecycle() != SurfaceResourceLifecycle::Available
-        || opportunity.position() != from
-        || opportunity.commodity().form() != crate::content::FORM_FOOD
+    let origin = state.surface().get(source)?;
+    if origin.kind() != source_kind
+        || origin.lifecycle() != SurfaceResourceLifecycle::Available
+        || origin.position() != from
+        || (source_kind == SurfaceResourceKind::Opportunity
+            && origin.commodity().form() != crate::content::FORM_FOOD)
     {
         return None;
     }
-    let mass = opportunity.remaining_mass().min(maximum_mass);
+    let mass = origin.remaining_mass().min(maximum_mass);
+    // Whole portable drops move without new identity; the separation path
+    // must leave a positive remnant at the original location.
+    if source_kind == SurfaceResourceKind::Drop && mass == origin.remaining_mass() {
+        return None;
+    }
     if mass.is_zero() {
         return None;
     }
     let parcel = creation::SurfaceResourceSpec::from_existing_material(
         SurfaceResourceKind::Drop,
-        den,
+        to,
         mass,
-        opportunity.material_profile().clone(),
-        opportunity.material_provenance(),
-        opportunity.ambient_storage_age_parts_at(at)?,
+        origin.material_profile().clone(),
+        origin.material_provenance(),
+        origin.ambient_storage_age_parts_at(at)?,
     )
     .ok()?;
     let creation =
