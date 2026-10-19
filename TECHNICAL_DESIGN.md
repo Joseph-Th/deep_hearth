@@ -485,7 +485,9 @@ labor. Completion extracts the slice and ordinarily settles it directly into the
 returning the exact contribution and merge-aware landing identity through `TickOutcome::mining_output()`. If a
 post-admission structural condition or same-tick inventory owner prevents that landing, the slice remains in
 mining-owned awaiting-settlement custody with its reservation and future headroom until a later tick can retry the
-crate-owned settlement. Carried destinations cannot move during that interval. The recovery phase is durable for
+crate-owned settlement. Retry examines waiting jobs in stable identity order and settles the first physically
+eligible output; an unrepaired structural load on one destination does not hold up independent destinations.
+Carried destinations cannot move during that interval. The recovery phase is durable for
 continuation safety but is not exposed as a separate player action.
 
 ## Production and processing

@@ -763,6 +763,147 @@ fn awaiting_mining_output_waits_for_destination_support_recovery() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
+#[test]
+fn blocked_older_mining_output_does_not_starve_independent_settlement() {
+    let (registries, mut state, deposit, first_destination, pick) =
+        ordinary_unstarted_mining_fixture();
+    let mass = Mass::from_milligrams(100_000);
+    let first = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        first_destination,
+        pick,
+        mass,
+    )
+    .unwrap_or_else(|error| panic!("first mining job admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("first mining job commit failed: {error}"));
+    let _first_support = complete_mining_into_blocked_settlement_state(
+        &registries,
+        &mut state,
+        first,
+        first_destination,
+        "older blocked mining output",
+    );
+
+    let second_destination = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("second mining destination failed: {error}"));
+    let position = state
+        .logistics()
+        .player()
+        .map(|player| player.position())
+        .unwrap_or_else(|| panic!("mining player disappeared"));
+    validate_place_ground_stockpile(&state, second_destination, position)
+        .unwrap_or_else(|error| panic!("second mining destination placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("second mining destination placement commit failed: {error}")
+        });
+    let second = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        second_destination,
+        pick,
+        mass,
+    )
+    .unwrap_or_else(|error| panic!("second mining job admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("second mining job commit failed: {error}"));
+    let _second_support = complete_mining_into_blocked_settlement_state(
+        &registries,
+        &mut state,
+        second,
+        second_destination,
+        "newer blocked mining output",
+    );
+    assert!(
+        state
+            .mining()
+            .get_job(first)
+            .is_some_and(MiningJobRecord::is_awaiting_settlement)
+    );
+    assert!(
+        state
+            .mining()
+            .get_job(second)
+            .is_some_and(MiningJobRecord::is_awaiting_settlement)
+    );
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("two-job matter baseline failed: {error}"))
+        .total();
+    let _ = validate_unmount_stockpile(&registries, &state, second_destination)
+        .unwrap_or_else(|error| panic!("second destination unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("second destination unmount commit failed: {error}"));
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("independent mining settlement failed: {error}"));
+    assert_eq!(
+        outcome.mining_output().map(|receipt| receipt.job()),
+        Some(second)
+    );
+    assert!(
+        state
+            .mining()
+            .get_job(first)
+            .is_some_and(MiningJobRecord::is_awaiting_settlement),
+        "first blocked output must retain its reserved custody"
+    );
+    assert!(state.mining().get_job(second).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(first_destination)
+            .map(|pile| pile.reserved_inbound()),
+        Some(mass)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(second_destination)
+            .map(|pile| (pile.stored_mass(), pile.reserved_inbound())),
+        Some((mass, Mass::ZERO))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("independent settlement matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("two-job continuation save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved)
+        .unwrap_or_else(|error| panic!("two-job continuation decode failed: {error}"));
+    let mut restored = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("two-job continuation validation failed: {error}"));
+    assert_eq!(restored, state);
+    let _ = validate_unmount_stockpile(&registries, &restored, first_destination)
+        .unwrap_or_else(|error| panic!("first destination recovery failed: {error}"))
+        .commit(&mut restored)
+        .unwrap_or_else(|error| panic!("first destination recovery commit failed: {error}"));
+    let recovered = advance_tick(&registries, &mut restored)
+        .unwrap_or_else(|error| panic!("first output recovery tick failed: {error}"));
+    assert_eq!(
+        recovered.mining_output().map(|receipt| receipt.job()),
+        Some(first)
+    );
+    assert!(restored.mining().get_job(first).is_none());
+    assert_eq!(
+        calculate_matter_accounting(&restored)
+            .unwrap_or_else(|error| panic!("two-job recovery matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &restored), Ok(()));
+}
+
 fn blocked_unsettled_mining_with_local_stone(
     context: &'static str,
 ) -> (

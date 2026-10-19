@@ -113,18 +113,36 @@ pub(super) fn decide_automatic_mining_output(
         return Ok(None);
     }
 
-    let planned = if let Some(plan) = mining_plan {
-        validate_due_mining_output_settlement(registries, state, plan, next_tick)
-    } else if let Some(job) = state
+    // A due completion has a distinct mining-revision binding: its output must be planned
+    // against the revision after extraction. Awaiting jobs instead bind the current revision.
+    if let Some(plan) = mining_plan {
+        return available_mining_settlement(
+            validate_due_mining_output_settlement(registries, state, plan, next_tick),
+            structure_owner_busy,
+        );
+    }
+
+    // Failed support can retain one output indefinitely. Its job identity must not prevent
+    // independent, already-extracted outputs from landing in physically available storage.
+    for job in state
         .mining()
         .jobs()
-        .find(|job| job.is_awaiting_settlement())
-        .map(|job| job.id())
+        .filter(|job| job.is_awaiting_settlement())
     {
-        validate_awaiting_mining_output_settlement(registries, state, job, next_tick)
-    } else {
-        return Ok(None);
-    };
+        if let Some(settlement) = available_mining_settlement(
+            validate_awaiting_mining_output_settlement(registries, state, job.id(), next_tick),
+            structure_owner_busy,
+        )? {
+            return Ok(Some(settlement));
+        }
+    }
+    Ok(None)
+}
+
+fn available_mining_settlement(
+    planned: Result<ValidatedMiningSettlement, MiningSettlementError>,
+    structure_owner_busy: bool,
+) -> Result<Option<ValidatedMiningSettlement>, TickError> {
     match planned {
         Ok(settlement) if structure_owner_busy && settlement.mutates_structures() => Ok(None),
         Ok(settlement) => Ok(Some(settlement)),
