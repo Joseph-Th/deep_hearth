@@ -72,6 +72,99 @@ fn kobold_scouts_wait_then_patrol_and_only_report_near_player() {
 }
 
 #[test]
+fn scout_diverts_into_a_traversable_side_branch_but_retreats_when_guarded() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, original_tip] = colony(&state).route;
+    let side = state
+        .logistics()
+        .traversable_destinations(junction)
+        .find(|candidate| *candidate != den && *candidate != original_tip)
+        .expect("generated junction must connect an accessible forage approach");
+    let drop = place_loose_stone_drop(&registries, &mut state, side);
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 180);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(colony(&state).route[2], original_tip);
+
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), side);
+    assert_eq!(colony(&state).route[2], side);
+    assert!(colony(&state).noticed_player_drop);
+    assert_eq!(state.surface().get(drop).unwrap().position(), side);
+
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&save).unwrap();
+    let mut restored = loaded
+        .into_state(&registries)
+        .expect("detour route save must validate");
+    for _ in 0..10 {
+        let original = advance_tick(&registries, &mut state).unwrap();
+        assert_eq!(original, advance_tick(&registries, &mut restored).unwrap());
+        if state.tick().value() == 190 {
+            assert!(
+                original
+                    .kobold_scout()
+                    .is_some_and(|step| step.fled_player()),
+                "the player at spawn can scare the scout off the side branch"
+            );
+            assert_eq!(state.surface().get(drop).unwrap().position(), side);
+        }
+    }
+    assert_eq!(state, restored);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(drop).unwrap().position(), side);
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn scout_does_not_detour_toward_an_overweight_side_branch_drop() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let side = state
+        .logistics()
+        .traversable_destinations(junction)
+        .find(|candidate| *candidate != den && *candidate != tip)
+        .expect("opening junction has one alternative edge");
+    let heavy = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        side,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(2_000_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [heavy]).unwrap();
+    let id = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), tip);
+    assert_eq!(colony(&state).route[2], tip);
+    assert_eq!(state.surface().get(id).unwrap().position(), side);
+    assert_eq!(
+        state.surface().get(id).unwrap().remaining_mass(),
+        Mass::from_milligrams(2_000_000)
+    );
+}
+
+#[test]
 fn kobold_scout_notices_exposed_drop_without_consuming_or_teleporting_matter() {
     let (registries, mut state, spawn) = generated_opening();
     let patrol_junction = colony(&state).route[1];

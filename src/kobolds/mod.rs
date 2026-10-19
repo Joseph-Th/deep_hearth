@@ -114,7 +114,7 @@ impl KoboldScoutEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct KoboldColony {
-    /// A three-voxel route, anchored at a den entrance in the authored opening graph.
+    /// Den and junction stay anchored; the third voxel can follow one nearby exposed cache.
     route: [VoxelCoord; 3],
     scout_step: u8,
     returning: bool,
@@ -240,6 +240,40 @@ fn den_cache_space(state: &AppState, den: VoxelCoord) -> Mass {
     )
 }
 
+/// From the junction, an exposed parcel on a traversable neighboring branch can
+/// displace the routine outer patrol stop. Candidate order is stable surface ID,
+/// and inaccessible, illuminated, occupied, or too-heavy parcels cannot lure a
+/// scout through an obstructed route. This is one physically adjacent detour, not
+/// global knowledge, teleportation, or unrestricted pathfinding.
+fn reachable_side_drop(
+    registries: &Registries,
+    state: &AppState,
+    junction: VoxelCoord,
+    den: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+    capacity: Mass,
+) -> Option<VoxelCoord> {
+    state.surface().resources().find_map(|resource| {
+        let destination = resource.position();
+        (resource.kind() == SurfaceResourceKind::Drop
+            && resource.lifecycle() == SurfaceResourceLifecycle::Available
+            && !resource.remaining_mass().is_zero()
+            && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+            && resource.remaining_mass() <= capacity
+            && destination != den
+            && destination != junction
+            && state.logistics().has_traversal_edge(junction, destination)
+            && player_position != Some(destination)
+            && assess_local_illumination(registries, state, destination).level()
+                < SCOUT_DETERRENT_LIGHT_LEVEL
+            && (state.world().generation_profile().is_none()
+                || state
+                    .world()
+                    .has_standing_clearance(registries.world(), destination)))
+        .then_some(destination)
+    })
+}
+
 fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
     let near = state.logistics().player().is_some_and(|player| {
         let position = player.position();
@@ -285,7 +319,19 @@ pub(crate) fn apply_kobold_scout_tick(
         .available_resources_at(Some(from))
         .any(|resource| is_portable_drop(resource) && resource.remaining_mass() <= den_space);
     let (step, returning) = colony.next_scout_step(pressured, exposed_at_current);
-    let position = colony.route[usize::from(step)];
+    let side_drop = (step == 2 && !returning && colony.scout_step == 1)
+        .then(|| {
+            reachable_side_drop(
+                registries,
+                state,
+                from,
+                colony.route[0],
+                player_position,
+                den_space,
+            )
+        })
+        .flatten();
+    let position = side_drop.unwrap_or(colony.route[usize::from(step)]);
     let illuminated_destination = !returning
         && assess_local_illumination(registries, state, position).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
@@ -384,6 +430,7 @@ pub(crate) fn apply_kobold_scout_tick(
         .as_mut()
         .unwrap_or_else(|| unreachable!("scout decision requires a colony"));
     if can_move {
+        colony.route[2] = side_drop.unwrap_or(colony.route[2]);
         colony.scout_step = step;
         colony.returning = returning;
         // Completing the return leg deposits the same loose parcel at the den.

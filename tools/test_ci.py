@@ -4102,6 +4102,8 @@ class GameplayReportContractTests(unittest.TestCase):
                 "KOBOLD FORAGE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-forage source-before:835922mg",
                 "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-den phase=raid-full-den choice=recover",
                 "KOBOLD CACHE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-den source-before:835922mg",
+                "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-detour phase=side-branch-cache choice=withdraw",
+                "KOBOLD DETOUR EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-detour cache-exposed:250000mg",
             )
         )
         environment = {
@@ -4137,7 +4139,14 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("phase=raid-full-den choice=recover", den_focus)
         self.assertIn("KOBOLD CACHE EXPERIENCE seed=0x1", den_focus)
         self.assertNotIn("scavenger-forage", den_focus)
-        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-den, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
+        detour_focus = gameplay_report_summary.concise_gameplay_report(
+            stdout,
+            {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "coverage/rested/scavenger-detour"},
+        )
+        self.assertIn("phase=side-branch-cache choice=withdraw", detour_focus)
+        self.assertIn("KOBOLD DETOUR EXPERIENCE seed=0x1", detour_focus)
+        self.assertNotIn("scavenger-den", detour_focus)
+        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-den, coverage/rested/scavenger-detour, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},

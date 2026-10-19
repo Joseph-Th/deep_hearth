@@ -506,6 +506,27 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"capacity:{_mass_kg(stored)}kg reclaimed:{_mass_kg(reclaimed)}kg "
             f"reopened:{_mass_kg(reopened)}kg]"
         )
+    detours = [line for line in lines if line.startswith("KOBOLD DETOUR EXPERIENCE ")]
+    if len(detours) > 1:
+        raise ValueError("wilderness report has duplicate scout detour episodes")
+    detour = ""
+    if detours:
+        witness = re.search(
+            r"\bcache-exposed:(\d+)mg detoured:(true|false) carried:(\d+)mg "
+            r"recovered:(\d+)mg remote-omniscience:(true|false) matter-conserved:(true|false)",
+            detours[0],
+        )
+        if (witness is None or int(witness.group(1)) <= 0
+                or int(witness.group(1)) != int(witness.group(3))
+                or int(witness.group(3)) != int(witness.group(4))
+                or witness.group(2) != "true" or witness.group(5) != "false"
+                or witness.group(6) != "true"):
+            raise ValueError("scout branch detour lost identity, custody or local recovery evidence")
+        detour = (
+            "scout-detour=["
+            f"side-cache:{int(witness.group(1))}mg "
+            f"reclaimed:{int(witness.group(4))}mg observed:local]"
+        )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:
         sample_shape += f" organic:{len(organic)}"
@@ -525,6 +546,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{scavenger + ' ' if scavenger else ''}"
         f"{natural_contest + ' ' if natural_contest else ''}"
         f"{den_raid + ' ' if den_raid else ''}"
+        f"{detour + ' ' if detour else ''}"
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"
