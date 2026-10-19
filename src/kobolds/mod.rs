@@ -14,7 +14,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
     SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, SurfaceResourceState,
-    relocate_scavenged_drop_step,
+    forage_food_to_adjacent_den, relocate_scavenged_drop_step,
 };
 use crate::survival::Vitality;
 
@@ -22,6 +22,9 @@ const FIRST_SCOUT_TICK: u64 = 180;
 const SCOUT_STEP_TICKS: u64 = 5;
 /// One scout moves a portable parcel, not an arbitrarily heavy abandoned bulk pile.
 const SCOUT_CARRY_LIMIT: Mass = Mass::from_milligrams(1_000_000);
+const SCOUT_FORAGE_BATCH: Mass = Mass::from_milligrams(100_000);
+/// Avoid stripping a food patch on every 72-second scout circuit.
+const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
 
 /// Player-local observation of a kobold scout; remote dens and patrols are not exposed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +60,7 @@ pub struct KoboldScoutEvent {
     relocated_drop: Option<SurfaceResourceId>,
     fled_player: bool,
     abandoned_drop: Option<SurfaceResourceId>,
+    foraged_food: Option<(SurfaceResourceId, Mass)>,
 }
 
 impl KoboldScoutEvent {
@@ -87,6 +91,12 @@ impl KoboldScoutEvent {
     pub const fn abandoned_drop(self) -> Option<SurfaceResourceId> {
         self.abandoned_drop
     }
+
+    /// Finite wild food gathered into a loose, recoverable den parcel.
+    #[must_use]
+    pub const fn foraged_food(self) -> Option<(SurfaceResourceId, Mass)> {
+        self.foraged_food
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +109,7 @@ struct KoboldColony {
     next_step_at: SimulationTick,
     noticed_player_drop: bool,
     scavenged_drop: Option<SurfaceResourceId>,
+    next_forage_at: Option<SimulationTick>,
 }
 
 impl KoboldColony {
@@ -148,6 +159,7 @@ impl KoboldState {
             next_step_at: SimulationTick::new(FIRST_SCOUT_TICK),
             noticed_player_drop: false,
             scavenged_drop: None,
+            next_forage_at: None,
         });
     }
 
@@ -200,6 +212,7 @@ pub(crate) fn apply_kobold_scout_tick(
         return None;
     }
     let from = colony.scout_position();
+    let forage_ready = colony.next_forage_at.is_none_or(|due| next_tick >= due);
     let player_position = state.logistics().player().map(|player| player.position());
     let player_near = player_position.is_some_and(|position| {
         from.y() == position.y()
@@ -217,7 +230,7 @@ pub(crate) fn apply_kobold_scout_tick(
     let exposed_at_current = state
         .surface()
         .available_resources_at(Some(from))
-        .any(|resource| is_portable_drop(resource));
+        .any(is_portable_drop);
     let (step, returning) = if pressured {
         // Presence is an active noncombat defense. Scouts flee toward the den, or
         // stay sheltered there, rather than snatching supplies beside the player.
@@ -283,6 +296,38 @@ pub(crate) fn apply_kobold_scout_tick(
     } else {
         None
     };
+    // An unattended food patch is genuine competition even if the player has
+    // never dropped inventory. Loose parcels have priority; the scout forages at
+    // the junction only while returning to its adjacent den, in one conserved
+    // transaction that leaves the finite catch recoverable.
+    let forage_source = (can_move
+        && returning
+        && step == 0
+        && relocated_drop.is_none()
+        && !pressured
+        && forage_ready)
+        .then(|| {
+            state
+                .surface()
+                .available_resources_at(Some(from))
+                .find(|resource| {
+                    resource.kind() == SurfaceResourceKind::Opportunity
+                        && resource.commodity().form() == crate::content::FORM_FOOD
+                })
+                .map(|resource| resource.id())
+        })
+        .flatten();
+    let foraged_food = forage_source.and_then(|source| {
+        forage_food_to_adjacent_den(
+            registries,
+            state,
+            source,
+            from,
+            position,
+            next_tick,
+            SCOUT_FORAGE_BATCH,
+        )
+    });
     let next_step_at = next_tick
         .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
         .expect("bounded control-aligned simulation cannot overflow a scout schedule");
@@ -304,6 +349,13 @@ pub(crate) fn apply_kobold_scout_tick(
         colony.scavenged_drop = None;
     }
     colony.next_step_at = next_step_at;
+    if foraged_food.is_some() {
+        colony.next_forage_at = Some(
+            next_tick
+                .checked_add_span(TickSpan::new(SCOUT_FORAGE_INTERVAL_TICKS))
+                .expect("bounded simulation cannot overflow the next forage opportunity"),
+        );
+    }
     colony.noticed_player_drop |= discovered || relocated_drop.is_some();
     let visible = (can_move || abandoned_drop.is_some())
         && player_position.is_some_and(|player| colony.is_near(player));
@@ -313,6 +365,7 @@ pub(crate) fn apply_kobold_scout_tick(
         relocated_drop,
         fled_player: pressured && can_move,
         abandoned_drop,
+        foraged_food,
     })
 }
 
@@ -353,6 +406,16 @@ pub(crate) fn validate_loaded_kobolds(state: &AppState) -> Result<(), &'static s
         return Err("kobold patrol lacks authoritative wilderness traversal edges");
     }
     let current = state.tick().value();
+    if let Some(next_forage) = colony.next_forage_at {
+        let earliest = FIRST_SCOUT_TICK + SCOUT_STEP_TICKS + SCOUT_FORAGE_INTERVAL_TICKS;
+        let forage_due = next_forage.value();
+        if forage_due < earliest
+            || (forage_due - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+            || forage_due > current.saturating_add(SCOUT_FORAGE_INTERVAL_TICKS)
+        {
+            return Err("kobold forage interval is not aligned with authoritative time");
+        }
+    }
     let due = colony.next_step_at.value();
     if due <= current {
         return Err("kobold scout step is overdue");

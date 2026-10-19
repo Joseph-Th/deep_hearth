@@ -211,7 +211,13 @@ re-approach to find its new position and the parcel. A separate core continuatio
 nearby player makes a loaded scout abandon its parcel. The evidence distinguishes an avoidable
 loss of local access from destroyed matter and does not represent deterrence as combat or pursuit.
 Focused replays accept the seed/episode-tagged scavenger experience as a complete witness
-independently of the opening-survival episodes.
+independently of the opening-survival episodes. A second generated-world episode follows
+one witnessed natural food opportunity: the player may protect it, or leave it unattended,
+return to observe the changed finite quantity, find the recovered food through an adjacent
+den projection, and pick it up. The probe must use normal player movement and local
+resource observation; it must not read hidden enemy route or surface truth to choose a plan.
+Successful food-foraging intervals are persisted, so repeated harvesting cannot deplete a
+patch on every scout circuit.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed

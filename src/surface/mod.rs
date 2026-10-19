@@ -76,6 +76,59 @@ pub(crate) fn relocate_scavenged_drop_step(
     true
 }
 
+/// Conserved, bounded gathering by an opening scavenger at one physical patrol step.
+///
+/// The same natural source loses exactly the mass materialized as a new recoverable loose
+/// parcel at the adjacent den. The parcel inherits the source's material profile, origin,
+/// and ambient aging. Both surface revisions are reserved before either mutation.
+pub(crate) fn forage_food_to_adjacent_den(
+    registries: &crate::registry::Registries,
+    state: &mut crate::core::state::AppState,
+    source: SurfaceResourceId,
+    from: crate::spatial::VoxelCoord,
+    den: crate::spatial::VoxelCoord,
+    at: crate::core::time::SimulationTick,
+    maximum_mass: crate::core::quantity::Mass,
+) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
+    if !from.is_face_adjacent_to(den) || !state.can_spend_surface_revisions(2) {
+        return None;
+    }
+    let opportunity = state.surface().get(source)?;
+    if opportunity.kind() != SurfaceResourceKind::Opportunity
+        || opportunity.lifecycle() != SurfaceResourceLifecycle::Available
+        || opportunity.position() != from
+        || opportunity.commodity().form() != crate::content::FORM_FOOD
+    {
+        return None;
+    }
+    let mass = opportunity.remaining_mass().min(maximum_mass);
+    if mass.is_zero() {
+        return None;
+    }
+    let parcel = creation::SurfaceResourceSpec::from_existing_material(
+        SurfaceResourceKind::Drop,
+        den,
+        mass,
+        opportunity.material_profile().clone(),
+        opportunity.material_provenance(),
+        opportunity.ambient_storage_age_parts_at(at)?,
+    )
+    .ok()?;
+    let creation =
+        creation::validate_create_surface_resources_at(registries, state, [parcel], at).ok()?;
+    let drop = creation.first_resource_id();
+    creation.apply(state);
+    let revision = state
+        .surface()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| unreachable!("two surface revisions were reserved before foraging"));
+    state
+        .surface_state_mut()
+        .apply_gathering(source, mass, at, revision);
+    Some((drop, mass))
+}
+
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

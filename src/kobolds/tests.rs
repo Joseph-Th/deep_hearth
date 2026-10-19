@@ -127,6 +127,128 @@ fn kobold_scout_notices_exposed_drop_without_consuming_or_teleporting_matter() {
     assert_eq!(state, restored);
 }
 
+#[test]
+fn unattended_natural_food_is_finitely_foraged_into_a_recoverable_den_parcel() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, _] = colony(&state).route;
+    let food = state
+        .surface()
+        .available_resources_at(Some(junction))
+        .find(|source| {
+            source.kind() == SurfaceResourceKind::Opportunity
+                && source.commodity().form() == crate::content::FORM_FOOD
+        })
+        .expect("the ordinary opening contains forage at the junction");
+    let id = food.id();
+    let initial = food.remaining_mass();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 194);
+    assert_eq!(state.surface().get(id).unwrap().remaining_mass(), initial);
+    // The scout has been visible at the fork, but the unattended catch moves out of
+    // local sight as it reaches the den; it is not an omniscient player event.
+    let event = advance_tick(&registries, &mut state).unwrap();
+    assert!(event.kobold_scout().is_none());
+    let batch = Mass::from_milligrams(100_000);
+    assert_eq!(
+        state.surface().get(id).unwrap().remaining_mass(),
+        initial.checked_sub(batch).unwrap()
+    );
+    let parcels = state
+        .surface()
+        .available_resources_at(Some(den))
+        .filter(|record| record.kind() == SurfaceResourceKind::Drop)
+        .collect::<Vec<_>>();
+    assert_eq!(parcels.len(), 1);
+    assert_eq!(parcels[0].remaining_mass(), batch);
+    assert_eq!(
+        parcels[0].commodity(),
+        state.surface().get(id).unwrap().commodity()
+    );
+    assert_eq!(
+        parcels[0].composition(),
+        state.surface().get(id).unwrap().composition()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let mut restored = loaded
+        .into_state(&registries)
+        .expect("foraged den parcel must load");
+    for _ in 0..99 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(state.tick().value(), 294);
+    assert_eq!(
+        state.surface().get(id).unwrap().remaining_mass(),
+        initial.checked_sub(batch).unwrap(),
+        "foraging must not strip the natural patch on every scout circuit"
+    );
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut restored).unwrap()
+    );
+    assert_eq!(state, restored);
+    assert_eq!(state.tick().value(), 295);
+    assert_eq!(
+        state.surface().get(id).unwrap().remaining_mass(),
+        initial.checked_sub(Mass::from_milligrams(200_000)).unwrap()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn impossible_scavenger_foraging_schedule_is_rejected_on_load() {
+    let (registries, mut state, _) = generated_opening();
+    advance_to_tick(&registries, &mut state, 195);
+    let mut value = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    value["state"]["systems"]["kobolds"]["colony"]["next_forage_at"] =
+        serde_json::json!(999_999_u64);
+    let loaded: LoadedSaveEnvelope = serde_json::from_value(value).unwrap();
+    assert!(loaded.into_state(&registries).is_err());
+}
+
+#[test]
+fn guarding_the_natural_food_prevents_the_scout_from_foraging() {
+    let (registries, mut state, _) = generated_opening();
+    let junction = colony(&state).route[1];
+    let food = state
+        .surface()
+        .available_resources_at(Some(junction))
+        .find(|source| source.commodity().form() == crate::content::FORM_FOOD)
+        .unwrap();
+    let id = food.id();
+    let initial = food.remaining_mass();
+    validate_admit_player(&registries, &state, junction)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 210);
+    assert_eq!(state.surface().get(id).unwrap().remaining_mass(), initial);
+    assert!(
+        !state
+            .surface()
+            .resources()
+            .any(|record| record.kind() == SurfaceResourceKind::Drop)
+    );
+}
+
 fn place_loose_stone_drop(
     registries: &crate::Registries,
     state: &mut AppState,

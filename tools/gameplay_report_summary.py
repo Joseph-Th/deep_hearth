@@ -161,6 +161,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "camp-warmth",
         "shelter",
         "scavenger",
+        "natural-forage",
     ),
     "primitive-progression": (
         "generated-exact-local-campaign",
@@ -678,7 +679,10 @@ def _focused_verbose_gameplay_report(
                 if episode is not None and field(line, "episode") != episode:
                     continue
                 matching_events += 1
-                episode_witnesses += int(line.startswith(("WILDERNESS EXPERIENCE ", "KOBOLD EXPERIENCE ")))
+                episode_witnesses += int(line.startswith((
+                    "WILDERNESS EXPERIENCE ", "KOBOLD EXPERIENCE ",
+                    "KOBOLD FORAGE EXPERIENCE ",
+                )))
                 selected.append(line)
             continue
         if line.startswith(

@@ -4098,6 +4098,8 @@ class GameplayReportContractTests(unittest.TestCase):
                 "WILDERNESS EXPERIENCE sample=coverage seed=0x1 episode=coverage/rested/long-stay-shelter start=rested goal=long-stay-shelter",
                 "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-patrol phase=exposed-ration choice=defend",
                 "KOBOLD EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-patrol evidence=ordinary-generated-world",
+                "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-forage phase=wild-food-contest choice=guard",
+                "KOBOLD FORAGE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-forage source-before:835922mg",
             )
         )
         environment = {
@@ -4119,7 +4121,14 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("phase=exposed-ration choice=defend", enemy_focus)
         self.assertIn("KOBOLD EXPERIENCE seed=0x1", enemy_focus)
         self.assertNotIn("stay-mobile", enemy_focus)
-        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
+        forage_focus = gameplay_report_summary.concise_gameplay_report(
+            stdout,
+            {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "coverage/rested/scavenger-forage"},
+        )
+        self.assertIn("phase=wild-food-contest choice=guard", forage_focus)
+        self.assertIn("KOBOLD FORAGE EXPERIENCE seed=0x1", forage_focus)
+        self.assertNotIn("scavenger-patrol", forage_focus)
+        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},
