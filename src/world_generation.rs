@@ -30,7 +30,7 @@ use crate::surface::{
     SurfaceResourceSpec, SurfaceResourceSpecError, SurfaceResourceValidationError,
     ValidatedSurfaceResourceCreation, validate_create_surface_resources,
 };
-use crate::world::{BlockCollisionShape, BlockStateId, WorldGenerationSeed};
+use crate::world::WorldGenerationSeed;
 
 use opening::{
     OPENING_RESOURCE_ORDER_SALT, generated_mass, generated_opening_layout,
@@ -180,30 +180,6 @@ impl Error for InitialWildernessGenerationError {
             | Self::InvalidGeneratedWater => None,
         }
     }
-}
-
-fn terrain_opening_position_is_standable(
-    registries: &Registries,
-    state: &AppState,
-    position: VoxelCoord,
-) -> bool {
-    let Some(floor_y) = position.y().checked_sub(1) else {
-        return false;
-    };
-    let Some(head_y) = position.y().checked_add(1) else {
-        return false;
-    };
-    let floor = VoxelCoord::new(position.x(), floor_y, position.z());
-    let head = VoxelCoord::new(position.x(), head_y, position.z());
-    let Some(floor_state) = state.world().block_at(floor) else {
-        return false;
-    };
-    registries
-        .world()
-        .block_for_state(floor_state)
-        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
-        && state.world().block_at(position) == Some(BlockStateId::AIR)
-        && state.world().block_at(head) == Some(BlockStateId::AIR)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -472,7 +448,9 @@ pub fn validate_generate_initial_wilderness(
     }
     let layout = if state.world().generation_profile().is_some() {
         generated_opening_layout_matching(seed, spawn, |position| {
-            terrain_opening_position_is_standable(registries, state, position)
+            state
+                .world()
+                .has_standing_clearance(registries.world(), position)
         })
         .ok_or(InitialWildernessGenerationError::NoTraversableTerrainLayout)?
     } else {

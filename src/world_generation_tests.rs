@@ -63,7 +63,9 @@ fn terrain_backed_wilderness_generation_selects_only_standable_opening_layout() 
         .unwrap_or_else(|| panic!("terrain-backed wilderness spawn column has no solid surface"));
     let spawn = VoxelCoord::new(horizontal.x(), surface_y + 1, horizontal.z());
     let layout = generated_opening_layout_matching(seed, spawn, |position| {
-        terrain_opening_position_is_standable(&registries, &state, position)
+        state
+            .world()
+            .has_standing_clearance(registries.world(), position)
     })
     .unwrap_or_else(|| panic!("terrain-backed wilderness fixture has no standable opening layout"));
 
@@ -73,10 +75,9 @@ fn terrain_backed_wilderness_generation_selects_only_standable_opening_layout() 
         .unwrap_or_else(|error| panic!("terrain-backed wilderness commit failed: {error}"));
 
     assert!(
-        layout
-            .positions()
-            .into_iter()
-            .all(|position| terrain_opening_position_is_standable(&registries, &state, position)),
+        layout.positions().into_iter().all(|position| state
+            .world()
+            .has_standing_clearance(registries.world(), position)),
         "every authored opening interaction voxel must remain physically standable in generated terrain"
     );
     assert!(

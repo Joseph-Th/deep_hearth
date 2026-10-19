@@ -11,7 +11,7 @@ use super::WorldRegistry;
 #[cfg(test)]
 use crate::core::state::AppState;
 
-use super::{BlockStateId, WorldGenerationProfile};
+use super::{BlockCollisionShape, BlockStateId, WorldGenerationProfile};
 
 pub const CHUNK_SIDE: usize = 16;
 pub const SECTION_SIDE: usize = 16;
@@ -568,6 +568,28 @@ impl WorldState {
         }
         self.get_chunk(ChunkCoord::containing(voxel))
             .map(|chunk| chunk.block_at(voxel))
+    }
+
+    /// A floor-supported, two-block-high standing column in generated terrain.
+    /// Missing chunks and out-of-range floor/head cells are never traversable ground.
+    #[must_use]
+    pub(crate) fn has_standing_clearance(
+        &self,
+        registry: &WorldRegistry,
+        position: VoxelCoord,
+    ) -> bool {
+        let (Some(floor_y), Some(head_y)) =
+            (position.y().checked_sub(1), position.y().checked_add(1))
+        else {
+            return false;
+        };
+        let floor = VoxelCoord::new(position.x(), floor_y, position.z());
+        let head = VoxelCoord::new(position.x(), head_y, position.z());
+        self.block_at(floor)
+            .and_then(|state| registry.block_for_state(state))
+            .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+            && self.block_at(position) == Some(BlockStateId::AIR)
+            && self.block_at(head) == Some(BlockStateId::AIR)
     }
 
     pub(crate) fn represented_mass_at(

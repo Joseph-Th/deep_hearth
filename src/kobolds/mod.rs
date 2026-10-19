@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::surface::{SurfaceResourceId, SurfaceResourceKind};
-use crate::world::BlockStateId;
+use crate::surface::SurfaceResourceKind;
 
 const FIRST_SCOUT_TICK: u64 = 600;
 const SCOUT_STEP_TICKS: u64 = 20;
@@ -61,7 +61,7 @@ struct KoboldColony {
     scout_step: u8,
     returning: bool,
     next_step_at: SimulationTick,
-    investigated_drop: Option<SurfaceResourceId>,
+    noticed_player_drop: bool,
 }
 
 impl KoboldColony {
@@ -80,26 +80,22 @@ impl KoboldColony {
     }
 }
 
-/// Complete durable kobold owner. The first opening seeds one colony; iteration is stable.
+/// Complete durable kobold owner. The opening creates at most one colony.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct KoboldState {
-    revision: u64,
-    colonies: Vec<KoboldColony>,
+    colony: Option<KoboldColony>,
 }
 
 impl KoboldState {
     #[must_use]
     pub(crate) const fn new() -> Self {
-        Self {
-            revision: 0,
-            colonies: Vec::new(),
-        }
+        Self { colony: None }
     }
 
     #[must_use]
-    pub(crate) fn is_pristine(&self) -> bool {
-        self.revision == 0 && self.colonies.is_empty()
+    pub(crate) const fn is_pristine(&self) -> bool {
+        self.colony.is_none()
     }
 
     /// Called within the already prechecked initial-wilderness generation transaction.
@@ -108,23 +104,22 @@ impl KoboldState {
         assert!(route[0].is_face_adjacent_to(route[1]));
         assert!(route[1].is_face_adjacent_to(route[2]));
         assert_ne!(route[0], route[2]);
-        self.colonies.push(KoboldColony {
+        self.colony = Some(KoboldColony {
             route,
             scout_step: 0,
             returning: false,
             next_step_at: SimulationTick::new(FIRST_SCOUT_TICK),
-            investigated_drop: None,
+            noticed_player_drop: false,
         });
-        self.revision = 1;
     }
 
     fn sightings_at(&self, position: VoxelCoord) -> impl Iterator<Item = KoboldSighting> + '_ {
-        self.colonies
+        self.colony
             .iter()
             .filter(move |colony| colony.is_near(position))
             .map(|colony| KoboldSighting {
                 position: colony.scout_position(),
-                has_noticed_player_drop: colony.investigated_drop.is_some(),
+                has_noticed_player_drop: colony.noticed_player_drop,
             })
     }
 }
@@ -142,109 +137,88 @@ pub fn available_nearby_kobold_scouts(
 /// Deterministic slow-tick patrol. Scouts notice exposed player-created drops but do not take
 /// custody of them until a conserved scavenging operation exists.
 pub(crate) fn apply_kobold_scout_tick(
+    registries: &Registries,
     state: &mut AppState,
     next_tick: SimulationTick,
 ) -> Option<KoboldScoutEvent> {
-    let player_position = state.logistics().player().map(|player| player.position());
-    let decisions: Vec<_> = state
-        .kobold_state()
-        .colonies
-        .iter()
-        .enumerate()
-        .filter(|(_, colony)| colony.next_step_at <= next_tick)
-        .map(|(index, colony)| {
-            let (step, returning) = match (colony.scout_step, colony.returning) {
-                (0, _) => (1, false),
-                (1, false) => (2, false),
-                (2, _) => (1, true),
-                (1, true) => (0, true),
-                _ => unreachable!("trusted colony route step is bounded"),
-            };
-            let position = colony.route[usize::from(step)];
-            let can_move = player_position != Some(position)
-                && match state.world().generation_profile() {
-                    Some(_) => state.world().block_at(position) == Some(BlockStateId::AIR),
-                    None => true,
-                };
-            let discovered = can_move
-                .then(|| {
-                    state
-                        .surface()
-                        .available_resources_at(Some(position))
-                        .find(|drop| drop.kind() == SurfaceResourceKind::Drop)
-                        .map(|drop| drop.id())
-                })
-                .flatten();
-            (index, step, returning, position, can_move, discovered)
-        })
-        .collect();
-    let mut visible = None;
-    for (index, step, returning, position, can_move, discovered) in decisions {
-        let colony = &mut state.kobold_state_mut().colonies[index];
-        if can_move {
-            colony.scout_step = step;
-            colony.returning = returning;
-        }
-        colony.next_step_at = next_tick
-            .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
-            .expect("bounded control-aligned simulation cannot overflow a scout schedule");
-        if let Some(drop) = discovered {
-            colony.investigated_drop = Some(drop);
-        }
-        let event = KoboldScoutEvent {
-            position,
-            discovered_player_drop: discovered.is_some(),
-        };
-        if can_move && player_position.is_some_and(|player| colony.is_near(player)) {
-            visible = Some(event);
-        }
-        state.kobold_state_mut().revision += 1;
+    let colony = state.kobold_state().colony.as_ref()?;
+    if colony.next_step_at > next_tick {
+        return None;
     }
-    visible
+    let (step, returning) = match (colony.scout_step, colony.returning) {
+        (0, _) => (1, false),
+        (1, false) => (2, false),
+        (2, _) => (1, true),
+        (1, true) => (0, true),
+        _ => unreachable!("trusted colony route step is bounded"),
+    };
+    let position = colony.route[usize::from(step)];
+    let player_position = state.logistics().player().map(|player| player.position());
+    let can_move = player_position != Some(position)
+        && (state.world().generation_profile().is_none()
+            || state
+                .world()
+                .has_standing_clearance(registries.world(), position));
+    let discovered = can_move
+        && state
+            .surface()
+            .available_resources_at(Some(position))
+            .any(|resource| resource.kind() == SurfaceResourceKind::Drop);
+    let next_step_at = next_tick
+        .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
+        .expect("bounded control-aligned simulation cannot overflow a scout schedule");
+
+    let colony = state
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap_or_else(|| unreachable!("scout decision requires a colony"));
+    if can_move {
+        colony.scout_step = step;
+        colony.returning = returning;
+    }
+    colony.next_step_at = next_step_at;
+    colony.noticed_player_drop |= discovered;
+    let visible = can_move && player_position.is_some_and(|player| colony.is_near(player));
+    visible.then_some(KoboldScoutEvent {
+        position,
+        discovered_player_drop: discovered,
+    })
 }
 
 /// Full save-admission validation of persistent colony topology and patrol continuation.
 pub(crate) fn validate_loaded_kobolds(state: &AppState) -> Result<(), &'static str> {
-    let kobolds = state.kobold_state();
-    if kobolds.colonies.is_empty() {
-        return if kobolds.revision == 0 {
-            Ok(())
-        } else {
-            Err("unpopulated kobold state has nonzero revision")
-        };
+    let Some(colony) = state.kobold_state().colony.as_ref() else {
+        return Ok(());
+    };
+    if colony.scout_step > 2
+        || (colony.scout_step == 2 && colony.returning)
+        || !colony.route[0].is_face_adjacent_to(colony.route[1])
+        || !colony.route[1].is_face_adjacent_to(colony.route[2])
+        || colony.route[0] == colony.route[2]
+    {
+        return Err("invalid kobold patrol route or cursor");
     }
-    if kobolds.revision == 0 {
-        return Err("populated kobold state has zero revision");
-    }
-    for colony in &kobolds.colonies {
-        if colony.scout_step > 2
-            || (colony.scout_step == 2 && colony.returning)
-            || !colony.route[0].is_face_adjacent_to(colony.route[1])
-            || !colony.route[1].is_face_adjacent_to(colony.route[2])
-            || colony.route[0] == colony.route[2]
-        {
-            return Err("invalid kobold patrol route or cursor");
-        }
-        if !state
+    if !state
+        .logistics()
+        .has_traversal_edge(colony.route[0], colony.route[1])
+        || !state
             .logistics()
-            .has_traversal_edge(colony.route[0], colony.route[1])
-            || !state
-                .logistics()
-                .has_traversal_edge(colony.route[1], colony.route[2])
-        {
-            return Err("kobold patrol lacks authoritative wilderness traversal edges");
-        }
-        if colony.next_step_at <= state.tick() {
-            return Err("kobold scout step is overdue");
-        }
-        if colony.investigated_drop.is_some_and(|id| {
-            state
-                .surface()
-                .get(id)
-                .is_none_or(|resource| resource.kind() != SurfaceResourceKind::Drop)
-        }) {
-            return Err("kobold observed an unknown or non-drop surface resource");
-        }
+            .has_traversal_edge(colony.route[1], colony.route[2])
+    {
+        return Err("kobold patrol lacks authoritative wilderness traversal edges");
+    }
+    let current = state.tick().value();
+    let due = colony.next_step_at.value();
+    if due <= current {
+        return Err("kobold scout step is overdue");
+    }
+    if due < FIRST_SCOUT_TICK
+        || (due - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+        || (current < FIRST_SCOUT_TICK && due != FIRST_SCOUT_TICK)
+        || (current >= FIRST_SCOUT_TICK && due - current > SCOUT_STEP_TICKS)
+    {
+        return Err("kobold patrol schedule is not aligned with authoritative time");
     }
     Ok(())
 }
