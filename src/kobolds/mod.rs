@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
+use crate::energy::assess_local_illumination;
 use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -25,6 +26,8 @@ const SCOUT_CARRY_LIMIT: Mass = Mass::from_milligrams(1_000_000);
 const SCOUT_FORAGE_BATCH: Mass = Mass::from_milligrams(100_000);
 /// Avoid stripping a food patch on every 72-second scout circuit.
 const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
+/// A low, dying ember does not repel the same scout as a maintained bright fire.
+const SCOUT_DETERRENT_LIGHT_LEVEL: u8 = 3;
 
 /// Player-local observation of a kobold scout; remote dens and patrols are not exposed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +62,7 @@ pub struct KoboldScoutEvent {
     discovered_player_drop: bool,
     relocated_drop: Option<SurfaceResourceId>,
     fled_player: bool,
+    fled_light: bool,
     abandoned_drop: Option<SurfaceResourceId>,
     foraged_food: Option<(SurfaceResourceId, Mass)>,
 }
@@ -84,6 +88,12 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn fled_player(self) -> bool {
         self.fled_player
+    }
+
+    /// The scout retreated because a finite local light source illuminated its position.
+    #[must_use]
+    pub const fn fled_light(self) -> bool {
+        self.fled_light
     }
 
     /// Previously carried material left in its existing loose surface custody.
@@ -115,6 +125,22 @@ struct KoboldColony {
 impl KoboldColony {
     fn scout_position(&self) -> VoxelCoord {
         self.route[usize::from(self.scout_step)]
+    }
+
+    /// Return toward safety when confronted; otherwise keep the patrol or turn
+    /// home with an unattended loose parcel at the junction.
+    fn next_scout_step(&self, pressured: bool, exposed_at_current: bool) -> (u8, bool) {
+        if pressured {
+            return (self.scout_step.saturating_sub(1), true);
+        }
+        match (self.scout_step, self.returning) {
+            (0, _) => (1, false),
+            (1, false) if exposed_at_current => (0, true),
+            (1, false) => (2, false),
+            (2, _) => (1, true),
+            (1, true) => (0, true),
+            _ => unreachable!("trusted colony route step is bounded"),
+        }
     }
 
     fn is_near(&self, observer: VoxelCoord) -> bool {
@@ -197,6 +223,22 @@ fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord) -> bool {
     resource.kind() == SurfaceResourceKind::Drop && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
+fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
+    let near = state.logistics().player().is_some_and(|player| {
+        let position = player.position();
+        from.y() == position.y()
+            && from
+                .x()
+                .abs_diff(position.x())
+                .saturating_add(from.z().abs_diff(position.z()))
+                <= 1
+    });
+    near && state
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() != Vitality::ZERO)
+}
+
 /// Deterministic slow-tick patrol with finite, interruptible return-trip scavenging.
 ///
 /// The scout waits one visit before collecting an exposed drop. On retreat it takes one
@@ -214,41 +256,24 @@ pub(crate) fn apply_kobold_scout_tick(
     let from = colony.scout_position();
     let forage_ready = colony.next_forage_at.is_none_or(|due| next_tick >= due);
     let player_position = state.logistics().player().map(|player| player.position());
-    let player_near = player_position.is_some_and(|position| {
-        from.y() == position.y()
-            && from
-                .x()
-                .abs_diff(position.x())
-                .saturating_add(from.z().abs_diff(position.z()))
-                <= 1
-    });
-    let pressured = player_near
-        && state
-            .survival()
-            .player()
-            .is_some_and(|player| player.vitality() != Vitality::ZERO);
+    let pressured_by_player = living_player_deters_scout(state, from);
+    // World-owned opaque blocks and live finite energy stores control this field.
+    // Neither player-held torches nor hidden ambient/skylight are invented here.
+    let pressured_by_light =
+        assess_local_illumination(registries, state, from).level() >= SCOUT_DETERRENT_LIGHT_LEVEL;
+    let pressured = pressured_by_player || pressured_by_light;
     let exposed_at_current = state
         .surface()
         .available_resources_at(Some(from))
         .any(is_portable_drop);
-    let (step, returning) = if pressured {
-        // Presence is an active noncombat defense. Scouts flee toward the den, or
-        // stay sheltered there, rather than snatching supplies beside the player.
-        (colony.scout_step.saturating_sub(1), true)
-    } else {
-        match (colony.scout_step, colony.returning) {
-            (0, _) => (1, false),
-            // Exposed material at the junction changes the route before its next step.
-            (1, false) if exposed_at_current => (0, true),
-            (1, false) => (2, false),
-            (2, _) => (1, true),
-            (1, true) => (0, true),
-            _ => unreachable!("trusted colony route step is bounded"),
-        }
-    };
+    let (step, returning) = colony.next_scout_step(pressured, exposed_at_current);
     let position = colony.route[usize::from(step)];
+    let illuminated_destination = !returning
+        && assess_local_illumination(registries, state, position).level()
+            >= SCOUT_DETERRENT_LIGHT_LEVEL;
     let physically_clear = step != colony.scout_step
         && player_position != Some(position)
+        && !illuminated_destination
         && (state.world().generation_profile().is_none()
             || state
                 .world()
@@ -363,7 +388,8 @@ pub(crate) fn apply_kobold_scout_tick(
         position: colony.scout_position(),
         discovered_player_drop: discovered,
         relocated_drop,
-        fled_player: pressured && can_move,
+        fled_player: pressured_by_player && can_move,
+        fled_light: pressured_by_light && can_move,
         abandoned_drop,
         foraged_food,
     })

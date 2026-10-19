@@ -217,7 +217,12 @@ return to observe the changed finite quantity, find the recovered food through a
 den projection, and pick it up. The probe must use normal player movement and local
 resource observation; it must not read hidden enemy route or surface truth to choose a plan.
 Successful food-foraging intervals are persisted, so repeated harvesting cannot deplete a
-patch on every scout circuit.
+patch on every scout circuit. A third matched choice builds and fuels a real stone-ring
+campfire using observed sources. The player can leave the burning fire unattended and
+verify the guarded food remains unchanged, save/load the active fire, then return after
+its finite light falls below the deterrence threshold and witness forage losses resume.
+A player must travel back to inspect exact source mass; renderer-neutral illumination
+is used as canonical behavior input rather than a scripted timer or free safe zone.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed

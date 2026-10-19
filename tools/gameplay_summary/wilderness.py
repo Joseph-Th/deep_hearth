@@ -450,24 +450,35 @@ def wilderness_summary(lines: list[str]) -> str | None:
     if foraging_events:
         observed = re.search(
             r"\bsource-before:(\d+)mg source-after:(\d+)mg protected:(\d+)mg "
-            r"contested:(\d+)mg recovered:(\d+)mg no-player-drop=(true|false) "
-            r"matter-conserved=(true|false)",
+            r"contested:(\d+)mg recovered:(\d+)mg "
+            r"fire-protected:(\d+)mg resumed-after-extinction:(\d+)mg "
+            r"no-player-drop=(true|false) matter-conserved=(true|false)",
             foraging_events[0],
         )
         if observed is None:
             raise ValueError("wilderness natural scavenging lost observed source and custody evidence")
-        before, after, protected, contested, recovered = (
-            int(observed.group(i)) for i in range(1, 6)
+        before, after, protected, contested, recovered, fire_protected, resumed = (
+            int(observed.group(i)) for i in range(1, 8)
         )
-        if (before - after != contested or protected != before
-                or recovered != contested or contested <= 0
-                or observed.group(6) != "true" or observed.group(7) != "true"):
-            raise ValueError("natural foraging must expose avoidable and fully recoverable competition")
+        if (
+            before - after != contested
+            or protected != before
+            or recovered != contested
+            or contested <= 0
+            or fire_protected != before
+            or resumed <= 0
+            or resumed > before
+            or observed.group(8) != "true"
+            or observed.group(9) != "true"
+        ):
+            raise ValueError("natural foraging must expose finite, reversible firelight protection")
         natural_contest = (
             "natural-forage=["
             f"source:{_mass_kg(before)}->{_mass_kg(after)}kg "
             f"guarded:{_mass_kg(protected)}kg "
-            f"foraged:{_mass_kg(contested)}kg recovered:{_mass_kg(recovered)}kg]"
+            f"foraged:{_mass_kg(contested)}kg recovered:{_mass_kg(recovered)}kg "
+            f"fire-ward:{_mass_kg(fire_protected)}kg "
+            f"dim-fire-loss:{_mass_kg(resumed)}kg]"
         )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:

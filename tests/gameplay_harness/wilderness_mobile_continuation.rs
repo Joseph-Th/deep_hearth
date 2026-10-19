@@ -174,6 +174,16 @@ fn build_campfire_from_observed_local_sources(
     }
 }
 
+/// The same real gathered-stone and timber assembly is used when a survivor
+/// chooses to invest finite firewood in deterrence rather than immediate warmth.
+pub(super) fn build_scout_warding_fire(
+    registries: &Registries,
+    state: &mut AppState,
+    junction: VoxelCoord,
+) -> EnergyStoreId {
+    build_campfire_from_observed_local_sources(registries, state, junction).fire
+}
+
 pub(super) fn evaluate_mobile_cold_response(
     registries: &Registries,
     mobile_state: &AppState,
