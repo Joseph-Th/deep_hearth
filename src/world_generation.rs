@@ -86,6 +86,7 @@ pub enum InitialWildernessGenerationError {
         logistics_initialized: bool,
     },
     SurfaceAlreadyGenerated,
+    KoboldsAlreadyGenerated,
     FluidAlreadyGenerated,
     LogisticsAlreadyPopulated,
     SurfaceIdExhausted,
@@ -120,6 +121,9 @@ impl Display for InitialWildernessGenerationError {
             ),
             Self::SurfaceAlreadyGenerated => formatter.write_str(
                 "initial wilderness surface generation requires pristine surface-resource state",
+            ),
+            Self::KoboldsAlreadyGenerated => formatter.write_str(
+                "initial wilderness kobold generation requires pristine colony state",
             ),
             Self::FluidAlreadyGenerated => formatter
                 .write_str("initial wilderness water generation requires pristine fluid state"),
@@ -164,6 +168,7 @@ impl Error for InitialWildernessGenerationError {
             | Self::NotInitialTick { .. }
             | Self::PlayerAlreadyInitialized { .. }
             | Self::SurfaceAlreadyGenerated
+            | Self::KoboldsAlreadyGenerated
             | Self::FluidAlreadyGenerated
             | Self::LogisticsAlreadyPopulated
             | Self::SurfaceIdExhausted
@@ -301,6 +306,7 @@ pub struct ValidatedInitialWildernessGeneration {
     water_generation: ValidatedFluidGeneration,
     water_position: VoxelCoord,
     traversal_edges: Vec<TraversalEdge>,
+    kobold_patrol: [VoxelCoord; 3],
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
 }
@@ -385,6 +391,9 @@ impl ValidatedInitialWildernessGeneration {
 
         self.surface_generation.apply(state);
         self.water_generation.apply(state);
+        state
+            .kobold_state_mut()
+            .apply_opening_colony(self.kobold_patrol);
         state.logistics_state_mut().apply_generated_opening_access(
             self.expected_logistics_revision,
             self.next_logistics_revision,
@@ -451,6 +460,9 @@ pub fn validate_generate_initial_wilderness(
     }
     if !state.surface().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::SurfaceAlreadyGenerated);
+    }
+    if !state.kobold_state().is_pristine() {
+        return Err(InitialWildernessGenerationError::KoboldsAlreadyGenerated);
     }
     if !state.fluid().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::FluidAlreadyGenerated);
@@ -616,6 +628,11 @@ pub fn validate_generate_initial_wilderness(
         water_generation,
         water_position,
         traversal_edges,
+        kobold_patrol: [
+            layout.material_branch,
+            layout.junction,
+            layout.material_forward,
+        ],
         expected_logistics_revision,
         next_logistics_revision,
     })

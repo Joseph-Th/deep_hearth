@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing with routed tailings, copper forming/casting, delegated cast-part work. Ore reduction and smelting-slag generation are absent. |
-| Opening wilderness acquisition | Berry/nut/water/clay/stone/timber graph, continuous-body proof, finite fire/light, and a same-state camp/refuge route. General pathfinding, enclosure, and weather are absent. |
+| Opening wilderness acquisition | Finite wilderness gathering, water, fire, shelter, and a persistent kobold scout patrol. No creature combat, pathfinding, weather, or enclosure. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -79,7 +79,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, and pressure-dependent behavior. |
-| Ecology and society | Agriculture, soil/ecology/genetics, creatures, hunting/combat, workers, settlements, trade, economy, and migration. |
+| Ecology and society | Agriculture, soil/ecology/genetics, creature bodies/collision, combat, settlements, trade, economy, migration, and kobold scavenging/raids. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
 

@@ -50,6 +50,7 @@ pub enum StateValidationError {
     Structure(StructureValidationError),
     World(WorldValidationError),
     Surface(SurfaceResourceValidationError),
+    Kobolds(&'static str),
     StructureAnalysis(StructuralAnalysisError),
     UnresolvedStructuralDamage {
         event: StructuralDamageEvent,

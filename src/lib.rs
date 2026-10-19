@@ -19,6 +19,7 @@ pub mod equipment;
 pub mod fluid;
 pub mod geology;
 pub mod inventory;
+pub mod kobolds;
 pub mod labor;
 pub mod logistics;
 pub mod mining;

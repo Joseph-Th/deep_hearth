@@ -40,6 +40,7 @@ pub(super) fn assert_tick_events_within(
         outcome.structural_construction().is_some(),
         outcome.structural_dismantling().is_some(),
         outcome.field_prospecting().is_some(),
+        outcome.kobold_scout().is_some(),
     ]
     .into_iter()
     .filter(|present| *present)

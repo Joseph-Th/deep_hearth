@@ -22,6 +22,7 @@ use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_diss
 use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
 use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
 use crate::inventory::apply_storage_enclosure_dismantling_tick;
+use crate::kobolds::apply_kobold_scout_tick;
 use crate::labor::{
     PlayerWork, apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
     decide_player_work_control_tick, decide_player_work_tick, player_work_exertion,
@@ -549,6 +550,7 @@ fn advance_simulation_tick(
         apply_storage_enclosure_dismantling_tick(state, storage_enclosure_dismantling_plan);
     apply_player_death_effects(state, player_death_effects);
     apply_player_work_tick(state, player_work_plan);
+    let kobold_scout = apply_kobold_scout_tick(state, next_tick);
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
     if player_dead_after_tick {
@@ -573,6 +575,7 @@ fn advance_simulation_tick(
         structural_construction,
         structural_dismantling,
         field_prospecting,
+        kobold_scout,
         survival,
     })
 }

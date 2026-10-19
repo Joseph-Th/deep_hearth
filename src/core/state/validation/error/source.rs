@@ -15,6 +15,7 @@ impl Error for StateValidationError {
             Self::Structure(error) => Some(error),
             Self::World(error) => Some(error),
             Self::Surface(error) => Some(error),
+            Self::Kobolds(_) => None,
             Self::StructureAnalysis(error) => Some(error),
             Self::Geology(error) => Some(error),
             Self::GeologicalKnowledge(error) => Some(error),

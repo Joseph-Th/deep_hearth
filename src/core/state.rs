@@ -9,6 +9,7 @@ use crate::equipment::{EquipmentRecord, EquipmentState};
 use crate::fluid::{FluidState, FluidStoreRecord};
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
 use crate::inventory::{InventoryState, StockpileRecord};
+use crate::kobolds::KoboldState;
 use crate::labor::PlayerWorkState;
 use crate::logistics::LogisticsState;
 use crate::mining::MiningState;
@@ -66,6 +67,7 @@ impl Debug for AppState {
             .field("structures", &self.systems.structures)
             .field("world", &self.systems.world)
             .field("surface", &self.systems.surface)
+            .field("kobolds", &"hidden local-only creature state")
             .field("geological_knowledge", &self.systems.geological_knowledge)
             .field("inventory", &self.systems.inventory)
             .field("logistics", &self.systems.logistics)
@@ -113,6 +115,7 @@ struct SystemState {
     world: WorldState,
     #[serde(serialize_with = "crate::surface::serialize_surface_resource_state")]
     surface: SurfaceResourceState,
+    kobolds: KoboldState,
     geology: GeologyState,
     geological_knowledge: GeologicalKnowledgeState,
     inventory: InventoryState,
@@ -149,6 +152,7 @@ impl AppState {
                 structures: StructureState::new(),
                 world: WorldState::new(),
                 surface: SurfaceResourceState::new(),
+                kobolds: KoboldState::new(),
                 geology: GeologyState::new(),
                 geological_knowledge: GeologicalKnowledgeState::new(),
                 inventory: InventoryState::new(),
@@ -316,6 +320,14 @@ impl AppState {
 
     pub(crate) fn surface_state_mut(&mut self) -> &mut SurfaceResourceState {
         &mut self.systems.surface
+    }
+
+    pub(crate) const fn kobold_state(&self) -> &KoboldState {
+        &self.systems.kobolds
+    }
+
+    pub(crate) fn kobold_state_mut(&mut self) -> &mut KoboldState {
+        &mut self.systems.kobolds
     }
 
     /// Returns authoritative geological truth to owning core systems only.
