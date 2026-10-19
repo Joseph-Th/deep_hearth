@@ -118,7 +118,9 @@ fn physiology() -> PhysiologyDefinition {
             ThermalComfortDefinition::new(
                 800_000,
                 1_000,
-                500,
+                // A completed overhead cover should buy a meaningful fuel-free refuge
+                // interval, while still losing warmth without ongoing heating.
+                300,
                 // Warming beside a fire should take meaningful time after prolonged exposure,
                 // not erase a cold workday in a handful of 3.6-second simulation ticks.
                 7_500,

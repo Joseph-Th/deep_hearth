@@ -138,12 +138,28 @@ def wilderness_summary(lines: list[str]) -> str | None:
         or int(shelter_match.group(21)) <= 0
     ):
         raise ValueError("wilderness shelter no longer proves earned structural survival leverage")
+    postfire = re.search(
+        r"\bpostfire=\[deferred:(true|false) covered:(\d+)ppm unbuilt:(\d+)ppm(?: fuel-only:(\d+)ppm)?\]",
+        shelter_lines[0],
+    )
+    fuel_free = ""
+    if postfire is not None:
+        protected = int(postfire.group(2))
+        exposed = int(postfire.group(3))
+        if postfire.group(1) != "true" or protected <= exposed:
+            raise ValueError("wilderness roof did not protect an actual post-fire fuel deferral")
+        fuel_free = f" fuel-free-hour:{protected // 1_000}k>{exposed // 1_000}kppm"
+        if postfire.group(4) is not None:
+            fuel_only = int(postfire.group(4))
+            if fuel_only < protected:
+                raise ValueError("wilderness fuel-only alternative unexpectedly lost short-horizon warmth")
+            fuel_free += f" alternative-fire:{fuel_only // 1_000}kppm/1kg"
     shelter = (
         "shelter=["
         f"long adze:+{saved}t "
         f"roof:{_mass_kg(int(shelter_match.group(7)))}kg/{shelter_match.group(8)}b "
         f"posts:{shelter_match.group(5)} "
-        f"exposure:{open_loss}->{covered_loss}ppm/t]"
+        f"exposure:{open_loss}->{covered_loss}ppm/t{fuel_free}]"
     )
     maintained = [line for line in experiences if " sample=maintained " in line]
     coverage = [line for line in experiences if " sample=coverage " in line]

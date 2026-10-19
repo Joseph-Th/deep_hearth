@@ -242,8 +242,9 @@ cover and reduces the existing thermal-exposure loss; it does not generate heat.
 the existing field-box-and-fire worksite state into a fresh-world long stay: after one fire charge leaves 5 kg of its
 staged timber reserve, the same actor consumes that cache first, gathers the remaining 14.75 kg timber plus 1 kg stone,
 builds three real support members, earns an adze from the panel's nine-batch board workload, completes the roof,
-conserves matter, and observes exposure fall from 1000 to 500 ppm per tick in a continuation with finite fire warmth
-removed. Broader panels/walls/joints, general terrain-support physics, dependent demolition, weather, sleep, enclosure
+conserves matter, and observes exposure fall from 1000 to 300 ppm per tick after finite fire warmth is gone. A covered
+player can defer fuel for a further hour, though an additional 1 kg fire charge in an unroofed camp
+still gives more warmth over that short interval. Broader panels/walls/joints, general terrain-support physics, dependent demolition, weather, sleep, enclosure
 and insulation remain open. The rested long-stay proof now combines food, storage, fire, toolmaking, and shelter in one
 state; the need-driven water detour remains separately covered, so one all-need branch that actually requires water is
 still open.

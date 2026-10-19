@@ -682,6 +682,10 @@ pub(super) struct WildernessShelterReview {
     pub(super) observed_loss_ppm_per_tick: u32,
     pub(super) board_output_mg: u64,
     pub(super) tool_worn: bool,
+    pub(super) postfire_deferred_refuel: bool,
+    pub(super) postfire_covered_comfort_ppm: u32,
+    pub(super) postfire_open_comfort_ppm: u32,
+    pub(super) postfire_fuel_only_comfort_ppm: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1616,30 +1620,51 @@ fn extend_worksite_with_shelter(
     .unwrap_or_else(|error| panic!("long-stay shelter board selection failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("long-stay shelter board selection commit failed: {error}"));
-    let roof_view = ViewDirection::new(707_107, 707_107, 0)
-        .unwrap_or_else(|error| panic!("long-stay shelter roof view failed: {error}"));
-    let direct = PlayerDirectControlInput::NEUTRAL
-        .with_secondary(SecondaryControlIntent::use_active(roof_view));
-    let first = advance_control_tick_with_direct_input(registries, state, direct)
-        .unwrap_or_else(|error| panic!("long-stay shelter roof action failed: {error}"));
-    let mut roof_work = match first.secondary_action() {
-        Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) => Some(*work),
-        Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary) | None => None,
-        other => panic!("long-stay shelter roof returned unexpected first outcome: {other:?}"),
-    };
-    while roof_work.is_none() {
-        let control = advance_control_tick(registries, state)
-            .unwrap_or_else(|error| panic!("long-stay shelter roof continuation failed: {error}"));
-        if let Some(action) = control.secondary_action() {
-            match action {
-                SecondaryActionOutcome::StructuralConstructionStarted(work) => {
-                    roof_work = Some(*work)
-                }
-                SecondaryActionOutcome::QueuedUntilSimulationBoundary => {}
-                other => panic!("long-stay shelter roof returned unexpected outcome: {other:?}"),
+    // The same camera aim is not guaranteed to hit the upper support from different
+    // sub-voxel stopping positions. Treat a reported body-intersection or absent target
+    // as useful feedback and adjust the view, just as the player would.
+    let mut roof_work = None;
+    let mut last_rejection = None;
+    for (horizontal, upward) in [(707_107, 707_107), (600_000, 800_000), (800_000, 600_000)] {
+        let roof_view = ViewDirection::new(horizontal, upward, 0)
+            .unwrap_or_else(|error| panic!("long-stay shelter roof view failed: {error}"));
+        let direct = PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(roof_view));
+        let first = advance_control_tick_with_direct_input(registries, state, direct)
+            .unwrap_or_else(|error| panic!("long-stay shelter roof action failed: {error}"));
+        let mut attempted = first.secondary_action().cloned();
+        let mut queued_ticks = 0_u64;
+        while attempted.is_none()
+            || matches!(
+                attempted,
+                Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+            )
+        {
+            assert!(
+                queued_ticks < 72,
+                "long-stay roof queued input did not resolve"
+            );
+            let control = advance_control_tick(registries, state)
+                .unwrap_or_else(|error| panic!("long-stay roof continuation failed: {error}"));
+            attempted = control.secondary_action().cloned();
+            queued_ticks += 1;
+        }
+        match attempted {
+            Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) => {
+                roof_work = Some(work);
+                break;
             }
+            Some(
+                rejected @ (SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { .. }
+                | SecondaryActionOutcome::NoStructuralPlacementTarget),
+            ) => last_rejection = Some(rejected),
+            other => panic!("long-stay shelter roof rejected after aiming: {other:?}"),
         }
     }
+    assert!(
+        roof_work.is_some(),
+        "long-stay roof remained untargetable after view adjustment: {last_rejection:?}"
+    );
     let roof_work = roof_work.unwrap_or_else(|| unreachable!("long-stay shelter roof resolved"));
     let roof = roof_work.element();
     let roof_record = state
@@ -1736,6 +1761,10 @@ fn extend_worksite_with_shelter(
         observed_loss_ppm_per_tick: observed_cover_loss,
         board_output_mg: expected_board_mass.milligrams(),
         tool_worn,
+        postfire_deferred_refuel: false,
+        postfire_covered_comfort_ppm: 0,
+        postfire_open_comfort_ppm: 0,
+        postfire_fuel_only_comfort_ppm: 0,
     }
 }
 
@@ -3386,7 +3415,8 @@ fn evaluate_generated_wilderness_opening_internal(
                 "campfire should consume exactly one authored fuel charge from the staged worksite reserve"
             );
             if camp_goal.builds_shelter() {
-                let shelter_review = extend_worksite_with_shelter(
+                let mut uncovered_at_roof_start = state.clone();
+                let mut shelter_review = extend_worksite_with_shelter(
                     &registries,
                     &mut state,
                     carried,
@@ -3410,12 +3440,12 @@ fn evaluate_generated_wilderness_opening_internal(
                     .unwrap_or_else(|| {
                         panic!("wilderness long-stay cache disappeared after shelter")
                     });
-                shelter = Some(shelter_review);
-
                 // The roof changes exposure, but it does not manufacture fuel. A player intending
-                // to stay another hour can assess their *current* fire reserve, compare it with
-                // that disclosed stay, and fetch a finite replacement charge before the fire dies.
-                // Execute that decision in the same world and body, not as a detached fuel test.
+                // to stay another hour can choose to live on the roof's thermal reserve instead
+                // of reflexively hauling a new fuel charge whenever the fire will expire.
+                // Estimate a cautious usable fire window, then add the owner-projected fuel-free
+                // comfortable runway at the current observed comfort. This is an actor policy,
+                // not a guarantee that an intervening change cannot upset the forecast.
                 let fire_energy = state
                     .energy()
                     .get_store(campfire)
@@ -3430,6 +3460,142 @@ fn evaluate_generated_wilderness_opening_internal(
                 .unwrap_or_else(|| panic!("long-stay fire must have finite loss"))
                 .value();
                 let next_stay_ticks = registries.core().calendar().ticks_per_day() / 24;
+                let current_comfort = assess_survival(&registries, &state)
+                    .unwrap_or_else(|| panic!("long-stay roof survival state disappeared"))
+                    .thermal_comfort_ppm();
+                let passive_cover_runway = physiology
+                    .thermal_comfort()
+                    .ticks_until_unheated_discomfort(
+                        current_comfort,
+                        deep_hearth::survival::ThermalExposure::OverheadCover,
+                    )
+                    .value();
+                // Do not credit the last fifth of a dwindling charge as fully protective heat.
+                let reliable_fire_ticks = campfire_runway_before_refuel_ticks / 5 * 4;
+                let covered_stay_is_plausibly_safe =
+                    reliable_fire_ticks.saturating_add(passive_cover_runway) > next_stay_ticks;
+                if covered_stay_is_plausibly_safe {
+                    let stay_end = state
+                        .tick()
+                        .checked_add_span(TickSpan::new(next_stay_ticks))
+                        .unwrap_or_else(|| panic!("roof-protected stay time overflowed"));
+                    // A plausible third choice is to use one more kilogram already staged
+                    // inside the worksite box rather than build any roof at all. This is a
+                    // real material-backed action, not an evaluator-granted extra fire.
+                    let mut fuel_only = uncovered_at_roof_start.clone();
+                    let timber_stacks = project_material_stacks(&registries, &fuel_only, storage)
+                        .unwrap_or_else(|error| panic!("fuel-only cache catalog failed: {error}"));
+                    let timber_stack = timber_stacks
+                        .iter()
+                        .find(|stack| stack.commodity() == timber_commodity)
+                        .unwrap_or_else(|| panic!("fuel-only actor has no staged firewood"));
+                    validate_pickup_stack_from_ground(
+                        &registries,
+                        &fuel_only,
+                        storage,
+                        timber_stack,
+                        CAMPFIRE_FUEL_MASS,
+                    )
+                    .unwrap_or_else(|error| panic!("fuel-only firewood pickup rejected: {error}"))
+                    .commit(&mut fuel_only)
+                    .unwrap_or_else(|error| panic!("fuel-only firewood pickup failed: {error}"));
+                    validate_set_active_selection(
+                        &registries,
+                        &fuel_only,
+                        Some(PlayerActiveSelection::material(timber_commodity)),
+                    )
+                    .unwrap_or_else(|error| panic!("fuel-only timber selection rejected: {error}"))
+                    .commit(&mut fuel_only)
+                    .unwrap_or_else(|error| panic!("fuel-only timber selection failed: {error}"));
+                    let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
+                        .unwrap_or_else(|error| panic!("fuel-only fire direction failed: {error}"));
+                    let fueled = advance_control_tick_with_direct_input(
+                        &registries,
+                        &mut fuel_only,
+                        PlayerDirectControlInput::NEUTRAL
+                            .with_secondary(SecondaryControlIntent::use_active(upward)),
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!("fuel-only campfire interaction failed: {error}")
+                    });
+                    assert_eq!(
+                        fueled.secondary_action(),
+                        Some(&SecondaryActionOutcome::CombustionFuelAdded {
+                            store: campfire,
+                            released: CAMPFIRE_FUEL_THERMAL_ENERGY,
+                        }),
+                        "fuel-only alternative must spend real timber on the same fire",
+                    );
+                    // A matched uncovered counterfactual begins before construction and waits
+                    // to exactly the same time. It never changes the actor's selected action.
+                    advance_to(
+                        &registries,
+                        &mut uncovered_at_roof_start,
+                        stay_end,
+                        TickEventAllowance::default(),
+                        "matched exposed stay without roof",
+                    );
+                    advance_to(
+                        &registries,
+                        &mut fuel_only,
+                        stay_end,
+                        TickEventAllowance::default(),
+                        "matched exposed stay with another fuel charge",
+                    );
+                    advance_to(
+                        &registries,
+                        &mut state,
+                        stay_end,
+                        TickEventAllowance::default(),
+                        "roof-protected hour without fresh firewood",
+                    );
+                    let protected = assess_survival(&registries, &state)
+                        .unwrap_or_else(|| panic!("protected hour lost survival state"));
+                    let exposed = assess_survival(&registries, &uncovered_at_roof_start)
+                        .unwrap_or_else(|| panic!("exposed hour lost survival state"));
+                    let fueled_comfort = assess_survival(&registries, &fuel_only)
+                        .unwrap_or_else(|| panic!("fuel-only alternative lost survival state"))
+                        .thermal_comfort_ppm();
+                    shelter_review.postfire_deferred_refuel = true;
+                    shelter_review.postfire_covered_comfort_ppm = protected.thermal_comfort_ppm();
+                    shelter_review.postfire_open_comfort_ppm = exposed.thermal_comfort_ppm();
+                    shelter_review.postfire_fuel_only_comfort_ppm = fueled_comfort;
+                    assert_eq!(
+                        protected.thermal_comfort_state(),
+                        ThermalComfortState::Comfortable,
+                        "roof-protected deferral must preserve comfort for the selected stay"
+                    );
+                    assert!(
+                        exposed.thermal_comfort_ppm() < protected.thermal_comfort_ppm(),
+                        "the authored roof must produce better lived warmth than no construction"
+                    );
+                    assert!(
+                        fueled_comfort >= protected.thermal_comfort_ppm(),
+                        "an additional real fire charge should remain a strong short-horizon alternative to building a roof"
+                    );
+                    assert_eq!(
+                        calculate_matter_accounting(&fuel_only)
+                            .unwrap_or_else(|error| panic!(
+                                "fuel-only matter audit failed: {error}"
+                            ))
+                            .total(),
+                        matter_before,
+                        "fuel-only branch may spend timber but cannot create or lose matter"
+                    );
+                    campfire_runway_before_refuel_ticks = passive_dissipation_ticks_until_empty(
+                        &registries,
+                        ENERGY_STONE_RING_CAMPFIRE,
+                        state
+                            .energy()
+                            .get_store(campfire)
+                            .unwrap_or_else(|| panic!("long-stay fire disappeared after deferral"))
+                            .stored(),
+                    )
+                    .unwrap_or_else(|error| panic!("deferred fire runway failed: {error}"))
+                    .unwrap_or_else(|| panic!("long-stay fire must have finite dissipation"))
+                    .value();
+                }
+                shelter = Some(shelter_review);
                 if campfire_runway_before_refuel_ticks < next_stay_ticks {
                     // Keep the roof-complete, unfueled alternative only as a matched evaluator
                     // branch. It never influences the player's choice or material custody.
@@ -3598,10 +3764,10 @@ fn evaluate_generated_wilderness_opening_internal(
             )
         }
         WildernessCampGoal::LongStayShelter => {
-            let maximum = 90 * minute;
+            let maximum = 180 * minute;
             assert!(
                 elapsed_microseconds <= maximum,
-                "a long-stay shelter should not become an all-day build: elapsed={elapsed_microseconds}us maximum={maximum}us"
+                "roof building and an observed additional fuel-free hour should remain bounded: elapsed={elapsed_microseconds}us maximum={maximum}us"
             )
         }
     }
@@ -3836,6 +4002,14 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
             physical_minutes_tenths(registries, shelter.saved_ticks),
             shelter.open_loss_ppm_per_tick - shelter.covered_loss_ppm_per_tick,
         );
+        if shelter.postfire_deferred_refuel {
+            std::println!(
+                "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} discovered-option=roof-can-bridge-fuel-expiry choice=defer-refuel-for-an-hour feedback=[covered:{}ppm unbuilt:{}ppm fuel-only:{}ppm fuel-alternative:1kg-staged-timber]",
+                shelter.postfire_covered_comfort_ppm,
+                shelter.postfire_open_comfort_ppm,
+                shelter.postfire_fuel_only_comfort_ppm,
+            );
+        }
         let later_comfort = if review.campfire_refueled {
             format!(
                 "[with-refuel:{}ppm without-refuel:{}ppm]",
@@ -4093,7 +4267,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             .map(|definition| definition.name())
             .unwrap_or_else(|| panic!("wilderness shelter tool definition disappeared"));
         std::println!(
-            "WILDERNESS SHELTER EXPERIENCE source=fresh-world goal=long-stay selection=player-catalog tool=\"{tool_name}\" travel=continuous/{}legs materials=[stone:{}mg timber:{}mg] shelter=[supports:{}x{}mg panel:{}mg board-work:{}b] attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] exposure=[open:{}ppm/t covered:{}ppm/t observed:{}ppm/t] output={}mg wear={} matter-conserved=true continuity=same-opening-state staged-timber-used:{}mg fresh-timber:{}mg",
+            "WILDERNESS SHELTER EXPERIENCE source=fresh-world goal=long-stay selection=player-catalog tool=\"{tool_name}\" travel=continuous/{}legs materials=[stone:{}mg timber:{}mg] shelter=[supports:{}x{}mg panel:{}mg board-work:{}b] attention=[setup:{}t bare:{}t assisted:{}t with-setup:{}t saved:{}t] exposure=[open:{}ppm/t covered:{}ppm/t observed:{}ppm/t] output={}mg wear={} matter-conserved=true continuity=same-opening-state staged-timber-used:{}mg fresh-timber:{}mg postfire=[deferred:{} covered:{}ppm unbuilt:{}ppm fuel-only:{}ppm]",
             shelter.logistics_legs,
             shelter.stone_gathered_mg,
             shelter
@@ -4116,6 +4290,10 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             shelter.tool_worn,
             shelter.staged_timber_used_mg,
             shelter.fresh_timber_gathered_mg,
+            shelter.postfire_deferred_refuel,
+            shelter.postfire_covered_comfort_ppm,
+            shelter.postfire_open_comfort_ppm,
+            shelter.postfire_fuel_only_comfort_ppm,
         );
     }
     std::println!(
@@ -4518,6 +4696,27 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         );
         assert!(shelter.covered_loss_ppm_per_tick < shelter.open_loss_ppm_per_tick);
         assert!(shelter.tool_worn);
+        assert!(
+            shelter.postfire_deferred_refuel,
+            "the roof should let the actor defer fuel replenishment for the first projected hour"
+        );
+        assert!(
+            shelter.postfire_covered_comfort_ppm
+                >= registries
+                    .survival()
+                    .physiology()
+                    .thermal_comfort()
+                    .warning_below_ppm()
+        );
+        assert!(
+            shelter.postfire_open_comfort_ppm
+                < registries
+                    .survival()
+                    .physiology()
+                    .thermal_comfort()
+                    .warning_below_ppm()
+        );
+        assert!(shelter.postfire_fuel_only_comfort_ppm >= shelter.postfire_covered_comfort_ppm);
         assert_eq!(long_stay.camp_logistics_legs, 10);
         assert!(long_stay.campfire_refueled);
         assert!(
@@ -4544,6 +4743,24 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
                 > long_stay.campfire_one_hour_comfort_without_refuel_ppm
         );
         assert!(long_stay.final_warning_safe);
+
+        // The roof's fuel-deferral advantage is a property of runtime heat and cover,
+        // not an accident of the maintained world's one material layout.
+        for alternate_seed in [0x59ED_9AC0_0A00_00AB, 0x9E37_79B9_7F4A_7C15] {
+            let other = evaluate_generated_wilderness_opening(
+                WorldGenerationSeed::new(alternate_seed),
+                WildernessStartProfile::Rested,
+                WildernessCampGoal::LongStayShelter,
+            );
+            let shelter = other.shelter.unwrap_or_else(|| {
+                panic!("generated seed {alternate_seed:#x} did not complete an ordinary shelter")
+            });
+            assert!(shelter.postfire_deferred_refuel);
+            assert!(shelter.postfire_covered_comfort_ppm > shelter.postfire_open_comfort_ppm);
+            assert!(shelter.postfire_fuel_only_comfort_ppm >= shelter.postfire_covered_comfort_ppm);
+            assert!(other.campfire_refueled);
+            assert!(other.final_warning_safe);
+        }
 
         let preserved = evaluate_generated_wilderness_opening(
             WILDERNESS_WORLD_SEED,

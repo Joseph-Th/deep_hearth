@@ -3222,6 +3222,16 @@ class GameplayReportContractTests(unittest.TestCase):
             "shelter=[long adze:+90t roof:6.5kg/9b posts:3 exposure:1000->500ppm/t]",
             summary,
         )
+        postfire_lines = lines.copy()
+        postfire_lines[1] += " postfire=[deferred:true covered:843100ppm unbuilt:476833ppm fuel-only:1000000ppm]"
+        protected_summary = gameplay_report_summary.wilderness_summary(postfire_lines)
+        self.assertIn("fuel-free-hour:843k>476kppm", protected_summary)
+        self.assertIn("alternative-fire:1000kppm/1kg", protected_summary)
+        postfire_lines[1] = postfire_lines[1].replace(
+            "covered:843100ppm unbuilt:476833ppm", "covered:476833ppm unbuilt:843100ppm"
+        )
+        with self.assertRaisesRegex(ValueError, "roof did not protect"):
+            gameplay_report_summary.wilderness_summary(postfire_lines)
         self.assertIn("tool-policy=[short-cache-projects:1 first-box-adze-deferred:1/1 long-stay-adze:1/1 crossover:5batches]", summary)
 
     def test_fieldwork_player_experience_reports_actor_risk_and_delayed_consequence(self) -> None:
