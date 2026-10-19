@@ -160,6 +160,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "camp-projects",
         "camp-warmth",
         "shelter",
+        "scavenger",
     ),
     "primitive-progression": (
         "generated-exact-local-campaign",
@@ -677,7 +678,7 @@ def _focused_verbose_gameplay_report(
                 if episode is not None and field(line, "episode") != episode:
                     continue
                 matching_events += 1
-                episode_witnesses += int(line.startswith("WILDERNESS EXPERIENCE "))
+                episode_witnesses += int(line.startswith(("WILDERNESS EXPERIENCE ", "KOBOLD EXPERIENCE ")))
                 selected.append(line)
             continue
         if line.startswith(
@@ -686,7 +687,7 @@ def _focused_verbose_gameplay_report(
             selected.append(line)
     if episode is not None and episode_witnesses != 1:
         raise ValueError(
-            f"expected one wilderness witness for {seed} episode={episode}, "
+            f"expected one wilderness or kobold experience witness for {seed} episode={episode}, "
             f"found {episode_witnesses}; available episodes for this seed: "
             f"{', '.join(sorted(available_episodes)[:12]) or 'none'}"
         )

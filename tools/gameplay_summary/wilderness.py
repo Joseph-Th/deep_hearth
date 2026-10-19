@@ -407,6 +407,35 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"meals:{sum(' meal:eat-needed ' in line for line in organic)} "
             f"water-visits:{sum(' visited:true ' in line for line in organic)}]"
         )
+    encounters = [line for line in lines if line.startswith("KOBOLD EXPERIENCE ")]
+    if len(encounters) > 1:
+        raise ValueError("wilderness report has more than one lived scavenger encounter")
+    scavenger = ""
+    if encounters:
+        encounter = re.search(
+            r"\bdetection=(\d+)t theft=(\d+)t unsecured-moved:(\d+)mg "
+            r"guarded-retained:(\d+)mg recovered:(\d+)mg "
+            r"route-changed:(true|false) matter-conserved:(true|false)",
+            encounters[0],
+        )
+        if encounter is None:
+            raise ValueError("scavenger experience lost player decision/consequence evidence")
+        seen, theft, moved, kept, recovered = (int(encounter.group(i)) for i in range(1, 6))
+        if (
+            seen >= theft
+            or moved <= 0
+            or moved != kept
+            or moved != recovered
+            or encounter.group(6) != "true"
+            or encounter.group(7) != "true"
+        ):
+            raise ValueError("scavenger failed to create a recoverable, avoidable world consequence")
+        scavenger = (
+            "scavenger=["
+            f"first-sighting:{seen}t theft:{theft}t "
+            f"vulnerable:{_mass_kg(moved)}kg guarded:{_mass_kg(kept)}kg "
+            f"reclaimed:{_mass_kg(recovered)}kg diversion:proved]"
+        )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:
         sample_shape += f" organic:{len(organic)}"
@@ -423,6 +452,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{camp_projects} "
         f"{camp_warmth + ' ' if camp_warmth else ''}"
         f"{shelter} "
+        f"{scavenger + ' ' if scavenger else ''}"
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"

@@ -301,6 +301,30 @@ impl SurfaceResourceState {
         self.revision = next_revision;
     }
 
+    /// Moves one entire available loose player drop by a single face-adjacent step.
+    ///
+    /// Scavenging changes only the location, never the parcel identity, age, provenance,
+    /// composition or mass. Player pickup can still consume it at the new location.
+    pub(crate) fn apply_scavenged_drop_step(
+        &mut self,
+        resource: SurfaceResourceId,
+        from: VoxelCoord,
+        to: VoxelCoord,
+        next_revision: u64,
+    ) {
+        assert!(from.is_face_adjacent_to(to));
+        assert_eq!(self.revision.checked_add(1), Some(next_revision));
+        let record = self.resources.get_mut(&resource).unwrap_or_else(|| {
+            unreachable!("selected scavenged drop exists at this surface revision")
+        });
+        assert_eq!(record.kind, SurfaceResourceKind::Drop);
+        assert_eq!(record.position, from);
+        assert_eq!(record.lifecycle, SurfaceResourceLifecycle::Available);
+        assert!(!record.remaining_mass.is_zero());
+        record.position = to;
+        self.revision = next_revision;
+    }
+
     pub(crate) fn apply_gathering(
         &mut self,
         resource: SurfaceResourceId,

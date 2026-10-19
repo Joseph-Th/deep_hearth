@@ -4,9 +4,10 @@ use crate::content::{FORM_CHIP, MATERIAL_STONE, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::material::{CommodityKey, MaterialComposition};
+use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
-use crate::simulation::advance_tick;
+use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
 use crate::world::WorldGenerationSeed;
@@ -47,7 +48,7 @@ fn kobold_scouts_wait_then_patrol_and_only_report_near_player() {
         .commit(&mut state)
         .expect("player admission should commit");
     assert!(available_nearby_kobold_scouts(&state).next().is_none());
-    for _ in 0..599 {
+    for _ in 0..179 {
         let tick =
             advance_tick(&registries, &mut state).expect("opening simulation should advance");
         assert!(
@@ -91,7 +92,7 @@ fn kobold_scout_notices_exposed_drop_without_consuming_or_teleporting_matter() {
         .expect("player should be admitted")
         .commit(&mut state)
         .expect("player admission should commit");
-    for _ in 0..599 {
+    for _ in 0..179 {
         let _ = advance_tick(&registries, &mut state).expect("scout prelude should advance");
     }
     let observed = advance_tick(&registries, &mut state)
@@ -124,6 +125,201 @@ fn kobold_scout_notices_exposed_drop_without_consuming_or_teleporting_matter() {
         assert_eq!(a.kobold_scout(), b.kobold_scout());
     }
     assert_eq!(state, restored);
+}
+
+fn place_loose_stone_drop(
+    registries: &crate::Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+) -> crate::surface::SurfaceResourceId {
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .expect("stone chips form finite loose material");
+    let plan = validate_create_surface_resources(registries, state, vec![spec])
+        .expect("stone chips should have valid surface custody");
+    let id = plan.first_resource_id();
+    plan.commit(state).expect("stone chips should commit");
+    id
+}
+
+fn advance_to_tick(registries: &crate::Registries, state: &mut AppState, tick: u64) {
+    while state.tick().value() < tick {
+        let _ = advance_tick(registries, state).expect("kobold encounter slow tick failed");
+    }
+    assert_eq!(state.tick().value(), tick);
+}
+
+#[test]
+fn scavenging_moves_one_finite_drop_to_den_without_deleting_or_replacing_it() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let drop = place_loose_stone_drop(&registries, &mut state, tip);
+    let original_parcel = state.surface().get(drop).unwrap().clone();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .expect("player admission should work")
+        .commit(&mut state)
+        .expect("player admission should commit");
+
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(state.surface().get(drop).unwrap().position(), tip);
+    let noticed = colony(&state).noticed_player_drop;
+    assert!(
+        noticed,
+        "a visible drop should be discovered before it is taken"
+    );
+    advance_to_tick(&registries, &mut state, 189);
+    let first_drag = advance_tick(&registries, &mut state).expect("scout should retreat");
+    assert_eq!(
+        first_drag.kobold_scout().unwrap().relocated_drop(),
+        Some(drop)
+    );
+    assert_eq!(state.surface().get(drop).unwrap().position(), junction);
+    assert_eq!(colony(&state).scavenged_drop, Some(drop));
+    assert_eq!(
+        available_nearby_kobold_scouts(&state)
+            .next()
+            .expect("player should see the carrying scout")
+            .scavenged_material(),
+        Some((
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(250_000),
+        )),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let saved: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let mut restored = saved
+        .into_state(&registries)
+        .expect("carried loot must be loadable");
+    for _ in 0..20 {
+        let before = advance_tick(&registries, &mut state).unwrap();
+        let after = advance_tick(&registries, &mut restored).unwrap();
+        assert_eq!(before.kobold_scout(), after.kobold_scout());
+    }
+    assert_eq!(state, restored);
+    assert_eq!(state.surface().get(drop).unwrap().position(), den);
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(colony(&state).scavenged_drop, None);
+    let recovered = state.surface().get(drop).unwrap();
+    assert_eq!(recovered.composition(), original_parcel.composition());
+    assert_eq!(recovered.temperature(), original_parcel.temperature());
+    assert_eq!(recovered.particle_size(), original_parcel.particle_size());
+    assert_eq!(
+        recovered.material_provenance(),
+        original_parcel.material_provenance(),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn player_intercepts_scavenged_drop_using_ordinary_local_pickup() {
+    let (registries, mut state, _) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let drop = place_loose_stone_drop(&registries, &mut state, tip);
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scavenged_drop, Some(drop));
+    assert_eq!(state.surface().get(drop).unwrap().position(), junction);
+    // The intercepting player's admission establishes the same local body/carry owner used by
+    // an actor arriving at the contested junction. Pickup itself is an ordinary control step.
+    let carried = validate_admit_player(&registries, &state, junction)
+        .expect("intercepting player should be admitted")
+        .commit(&mut state)
+        .expect("intercepting player admission should commit")
+        .carried_stockpile();
+    let receipt = advance_control_tick(&registries, &mut state)
+        .expect("local pickup should resolve")
+        .surface_drop_pickup()
+        .expect("player should reclaim scavenged matter before the next return step");
+    assert_eq!(receipt.resource(), drop);
+    assert_eq!(receipt.picked_mass(), Mass::from_milligrams(250_000));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert!(
+        !state
+            .surface()
+            .available_resources_at(Some(den))
+            .any(|item| item.id() == drop)
+    );
+}
+
+#[test]
+fn guarding_the_den_blocks_scavenger_and_cargo_without_teleportation() {
+    let (registries, mut state, _) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let drop = place_loose_stone_drop(&registries, &mut state, tip);
+    let _ = validate_admit_player(&registries, &state, den)
+        .expect("player can guard the den")
+        .commit(&mut state)
+        .expect("den guardian should be admitted");
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(state.surface().get(drop).unwrap().position(), junction);
+    assert_eq!(colony(&state).scavenged_drop, Some(drop));
+    let outcome = advance_tick(&registries, &mut state);
+    assert!(
+        outcome.is_ok(),
+        "approaching a guarded den is not a simulation error"
+    );
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(state.surface().get(drop).unwrap().position(), junction);
+    assert_eq!(colony(&state).scavenged_drop, Some(drop));
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn tampered_scavenged_parcel_identity_is_rejected_on_load() {
+    let (registries, mut state, _) = generated_opening();
+    let tip = colony(&state).route[2];
+    let drop = place_loose_stone_drop(&registries, &mut state, tip);
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scavenged_drop, Some(drop));
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    tampered["state"]["systems"]["kobolds"]["colony"]["scavenged_drop"] = serde_json::json!(999999);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(tampered).unwrap();
+    assert!(decoded.into_state(&registries).is_err());
 }
 
 #[test]
@@ -193,7 +389,7 @@ fn terrain_scout_waits_for_floor_and_head_clearance_and_resumes_after_repair() {
                 .has_standing_clearance(registries.world(), junction)
         );
 
-        for _ in 0..599 {
+        for _ in 0..179 {
             let _ = advance_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("obstructed patrol prelude failed: {error}"));
         }
@@ -219,7 +415,7 @@ fn terrain_scout_waits_for_floor_and_head_clearance_and_resumes_after_repair() {
                 .world()
                 .has_standing_clearance(registries.world(), junction)
         );
-        for _ in 0..20 {
+        for _ in 0..5 {
             let original_step = advance_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("repaired patrol advance failed: {error}"));
             let loaded_step = advance_tick(&registries, &mut loaded)
@@ -244,7 +440,7 @@ fn kobold_invalid_colony_route_is_rejected_from_trusted_save() {
 #[test]
 fn kobold_invalid_patrol_schedule_is_rejected_from_trusted_save() {
     let (registries, state, _) = generated_opening();
-    for due in [601_u64, 620_u64] {
+    for due in [181_u64, 200_u64] {
         let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
             .unwrap_or_else(|error| panic!("patrol schedule fixture failed: {error}"));
         tampered["state"]["systems"]["kobolds"]["colony"]["next_step_at"] = serde_json::json!(due);
@@ -262,7 +458,7 @@ fn kobold_scout_does_not_pass_through_the_player() {
         .expect("player should be admitted at the contested junction")
         .commit(&mut state)
         .expect("junction admission should commit");
-    for _ in 0..599 {
+    for _ in 0..179 {
         let _ = advance_tick(&registries, &mut state).expect("quiet opening should advance");
     }
     let outcome = advance_tick(&registries, &mut state).expect("blocked patrol should advance");

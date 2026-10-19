@@ -4096,6 +4096,8 @@ class GameplayReportContractTests(unittest.TestCase):
                 "WILDERNESS EXPERIENCE sample=maintained seed=0x1 episode=maintained/rested/stay-mobile start=rested goal=stay-mobile",
                 "PLAYER JOURNEY seed=0x1 episode=coverage/rested/long-stay-shelter goal=long-stay-shelter initial=rested",
                 "WILDERNESS EXPERIENCE sample=coverage seed=0x1 episode=coverage/rested/long-stay-shelter start=rested goal=long-stay-shelter",
+                "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-patrol phase=exposed-ration choice=defend",
+                "KOBOLD EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-patrol evidence=ordinary-generated-world",
             )
         )
         environment = {
@@ -4108,7 +4110,16 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("goal=stay-mobile", focused)
         self.assertIn("phase=observed-chill tradeoff=react-then-refuel", focused)
         self.assertNotIn("long-stay-shelter", focused)
-        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, maintained/rested/stay-mobile"):
+        self.assertNotIn("scavenger-patrol", focused)
+        enemy_focus = gameplay_report_summary.concise_gameplay_report(
+            stdout,
+            {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "coverage/rested/scavenger-patrol"},
+        )
+        self.assertIn("continuity=one-wilderness-episode", enemy_focus)
+        self.assertIn("phase=exposed-ration choice=defend", enemy_focus)
+        self.assertIn("KOBOLD EXPERIENCE seed=0x1", enemy_focus)
+        self.assertNotIn("stay-mobile", enemy_focus)
+        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},

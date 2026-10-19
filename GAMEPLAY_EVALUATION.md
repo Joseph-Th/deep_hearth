@@ -201,6 +201,13 @@ Filtering may suppress untagged lines but must not reduce simulation coverage or
 attribute another episode's events to the selected actor. When the same actor continues after
 the initial opening, that continuation retains the original episode key so a focused replay
 shows the new need, chosen intervention, and consequences alongside the initial decision.
+The scavenger encounter likewise begins with an ordinary gathered and deliberately exposed
+ration in one generated world. It reports only the actor-visible patrol warning, timed opportunity
+to collect the drop, identity-preserving enemy relocation, and physical retrieval from the den.
+A matched branch may choose to return before the next scout step. The evidence must distinguish
+an avoidable loss of local access from destroyed matter, and must not report a patrol observation
+as combat, pursuit, or a wider ecology model. Focused replays accept the seed/episode-tagged
+scavenger experience as a complete witness independently of the opening-survival episodes.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
