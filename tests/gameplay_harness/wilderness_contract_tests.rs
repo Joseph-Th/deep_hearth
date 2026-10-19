@@ -99,6 +99,8 @@ const SETTLED_ADJACENT_LEG_SLOW_TICKS: u64 = 1;
 
 #[path = "wilderness_clay_progression.rs"]
 mod clay_progression;
+#[path = "wilderness_kobold_den.rs"]
+mod kobold_den;
 #[path = "wilderness_kobold_encounter.rs"]
 mod kobold_encounter;
 #[path = "wilderness_kobold_foraging.rs"]
@@ -4626,6 +4628,7 @@ fn exercise_opening_two_food_ration(report: bool) {
 }
 
 pub(super) fn run_wilderness_report() {
+    kobold_den::exercise_kobold_den_cache(true);
     kobold_foraging::exercise_kobold_natural_foraging(true);
     kobold_encounter::exercise_kobold_scavenging_encounter(true);
     assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
@@ -4724,6 +4727,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         run_wilderness_report();
     } else {
+        kobold_den::exercise_kobold_den_cache(false);
         kobold_foraging::exercise_kobold_natural_foraging(false);
         kobold_encounter::exercise_kobold_scavenging_encounter(false);
         assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);

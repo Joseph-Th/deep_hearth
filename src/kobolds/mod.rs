@@ -23,6 +23,8 @@ const FIRST_SCOUT_TICK: u64 = 180;
 const SCOUT_STEP_TICKS: u64 = 5;
 /// One scout moves a portable parcel, not an arbitrarily heavy abandoned bulk pile.
 const SCOUT_CARRY_LIMIT: Mass = Mass::from_milligrams(1_000_000);
+/// Limited loose staging space at the den; source scarcity alone is not its capacity.
+const DEN_LOOSE_CACHE_LIMIT: Mass = Mass::from_milligrams(500_000);
 const SCOUT_FORAGE_BATCH: Mass = Mass::from_milligrams(100_000);
 /// Avoid stripping a food patch on every 72-second scout circuit.
 const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
@@ -223,6 +225,21 @@ fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord) -> bool {
     resource.kind() == SurfaceResourceKind::Drop && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
+/// The den uses ordinary surface custody. Its finite loose storage includes all available
+/// player and scout drops, not just parcels labelled as belonging to the colony.
+fn den_cache_space(state: &AppState, den: VoxelCoord) -> Mass {
+    let occupied: u128 = state
+        .surface()
+        .available_resources_at(Some(den))
+        .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
+        .map(|resource| u128::from(resource.remaining_mass().milligrams()))
+        .sum();
+    let available = u128::from(DEN_LOOSE_CACHE_LIMIT.milligrams()).saturating_sub(occupied);
+    Mass::from_milligrams(
+        u64::try_from(available).expect("remaining den space fits its fixed mass limit"),
+    )
+}
+
 fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
     let near = state.logistics().player().is_some_and(|player| {
         let position = player.position();
@@ -262,10 +279,11 @@ pub(crate) fn apply_kobold_scout_tick(
     let pressured_by_light =
         assess_local_illumination(registries, state, from).level() >= SCOUT_DETERRENT_LIGHT_LEVEL;
     let pressured = pressured_by_player || pressured_by_light;
+    let den_space = den_cache_space(state, colony.route[0]);
     let exposed_at_current = state
         .surface()
         .available_resources_at(Some(from))
-        .any(is_portable_drop);
+        .any(|resource| is_portable_drop(resource) && resource.remaining_mass() <= den_space);
     let (step, returning) = colony.next_scout_step(pressured, exposed_at_current);
     let position = colony.route[usize::from(step)];
     let illuminated_destination = !returning
@@ -285,6 +303,7 @@ pub(crate) fn apply_kobold_scout_tick(
             resource.position() == from
                 && resource.lifecycle() == SurfaceResourceLifecycle::Available
                 && is_portable_drop(resource)
+                && resource.remaining_mass() <= den_space
         })
     };
     let abandoned_drop = pressured
@@ -300,7 +319,9 @@ pub(crate) fn apply_kobold_scout_tick(
                     state
                         .surface()
                         .available_resources_at(Some(from))
-                        .find(|resource| is_portable_drop(resource))
+                        .find(|resource| {
+                            is_portable_drop(resource) && resource.remaining_mass() <= den_space
+                        })
                         .map(|resource| resource.id())
                 })
         })
@@ -315,7 +336,7 @@ pub(crate) fn apply_kobold_scout_tick(
         && state
             .surface()
             .available_resources_at(Some(position))
-            .any(|resource| is_portable_drop(resource));
+            .any(|resource| is_portable_drop(resource) && resource.remaining_mass() <= den_space);
     let relocated_drop = if can_move {
         dragged_candidate.filter(|id| relocate_scavenged_drop_step(state, *id, from, position))
     } else {
@@ -350,7 +371,7 @@ pub(crate) fn apply_kobold_scout_tick(
             from,
             position,
             next_tick,
-            SCOUT_FORAGE_BATCH,
+            SCOUT_FORAGE_BATCH.min(den_space),
         )
     });
     let next_step_at = next_tick

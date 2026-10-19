@@ -214,6 +214,149 @@ fn unattended_natural_food_is_finitely_foraged_into_a_recoverable_den_parcel() {
 }
 
 #[test]
+fn scout_den_caps_natural_foraging_without_destroying_unharvested_food() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, _] = colony(&state).route;
+    let source = state
+        .surface()
+        .available_resources_at(Some(junction))
+        .find(|resource| resource.commodity().form() == crate::content::FORM_FOOD)
+        .expect("opening has finite food");
+    let food = source.id();
+    let before = source.remaining_mass();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    advance_to_tick(&registries, &mut state, 595);
+    let hoard = state
+        .surface()
+        .available_resources_at(Some(den))
+        .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
+        .map(|resource| resource.remaining_mass().milligrams())
+        .sum::<u64>();
+    assert_eq!(hoard, 500_000);
+    assert_eq!(
+        state.surface().get(food).unwrap().remaining_mass(),
+        before.checked_sub(Mass::from_milligrams(hoard)).unwrap()
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut loaded = decoded
+        .into_state(&registries)
+        .expect("full den cache must persist with its forage schedule");
+    for _ in 0..200 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut loaded).unwrap()
+        );
+    }
+    assert_eq!(state, loaded);
+    assert_eq!(
+        state.surface().get(food).unwrap().remaining_mass(),
+        before.checked_sub(Mass::from_milligrams(hoard)).unwrap(),
+        "a full den must stop further competition even while natural food remains"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn limited_den_space_only_forages_the_mass_that_fits() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, _] = colony(&state).route;
+    let source = state
+        .surface()
+        .available_resources_at(Some(junction))
+        .find(|resource| resource.commodity().form() == crate::content::FORM_FOOD)
+        .expect("opening has finite food");
+    let food = source.id();
+    let source_before = source.remaining_mass();
+    let hoard_spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(450_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [hoard_spec])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 195);
+    let remaining = state.surface().get(food).unwrap().remaining_mass();
+    assert_eq!(
+        remaining,
+        source_before
+            .checked_sub(Mass::from_milligrams(50_000))
+            .unwrap()
+    );
+    let cache = state
+        .surface()
+        .available_resources_at(Some(den))
+        .filter(|item| item.kind() == SurfaceResourceKind::Drop)
+        .map(|item| item.remaining_mass().milligrams())
+        .sum::<u64>();
+    assert_eq!(cache, 500_000);
+    advance_to_tick(&registries, &mut state, 405);
+    assert_eq!(
+        state.surface().get(food).unwrap().remaining_mass(),
+        remaining
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+}
+
+#[test]
+fn scout_abandons_cargo_when_den_fills_mid_retreat() {
+    let (registries, mut state, _) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let cargo = place_loose_stone_drop(&registries, &mut state, tip);
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scavenged_drop, Some(cargo));
+    assert_eq!(state.surface().get(cargo).unwrap().position(), junction);
+    let blocking_spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(500_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [blocking_spec])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(cargo).unwrap().position(), junction);
+    assert_eq!(
+        state.surface().get(cargo).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn impossible_scavenger_foraging_schedule_is_rejected_on_load() {
     let (registries, mut state, _) = generated_opening();
     advance_to_tick(&registries, &mut state, 195);

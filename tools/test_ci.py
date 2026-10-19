@@ -4100,6 +4100,8 @@ class GameplayReportContractTests(unittest.TestCase):
                 "KOBOLD EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-patrol evidence=ordinary-generated-world",
                 "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-forage phase=wild-food-contest choice=guard",
                 "KOBOLD FORAGE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-forage source-before:835922mg",
+                "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-den phase=raid-full-den choice=recover",
+                "KOBOLD CACHE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-den source-before:835922mg",
             )
         )
         environment = {
@@ -4128,7 +4130,14 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("phase=wild-food-contest choice=guard", forage_focus)
         self.assertIn("KOBOLD FORAGE EXPERIENCE seed=0x1", forage_focus)
         self.assertNotIn("scavenger-patrol", forage_focus)
-        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
+        den_focus = gameplay_report_summary.concise_gameplay_report(
+            stdout,
+            {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "coverage/rested/scavenger-den"},
+        )
+        self.assertIn("phase=raid-full-den choice=recover", den_focus)
+        self.assertIn("KOBOLD CACHE EXPERIENCE seed=0x1", den_focus)
+        self.assertNotIn("scavenger-forage", den_focus)
+        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-den, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},

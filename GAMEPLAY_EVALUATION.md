@@ -222,7 +222,13 @@ campfire using observed sources. The player can leave the burning fire unattende
 verify the guarded food remains unchanged, save/load the active fire, then return after
 its finite light falls below the deterrence threshold and witness forage losses resume.
 A player must travel back to inspect exact source mass; renderer-neutral illumination
-is used as canonical behavior input rather than a scripted timer or free safe zone.
+is used as canonical behavior input rather than a scripted timer or free safe zone. A separate
+longer generated-world den episode waits for the scout's 500 g loose cache to fill, verifies
+that the unattended natural source retains its surplus, approaches the den through local
+observations, recovers each finite parcel using normal control-time pickup, then leaves and
+rechecks the source after scavenging resumes. Save/load and owner tests also establish the
+carry limit, partial foraging into remaining capacity, and custody when the den fills during
+an interrupted return trip.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed

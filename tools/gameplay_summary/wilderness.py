@@ -480,6 +480,32 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"fire-ward:{_mass_kg(fire_protected)}kg "
             f"dim-fire-loss:{_mass_kg(resumed)}kg]"
         )
+    den_events = [line for line in lines if line.startswith("KOBOLD CACHE EXPERIENCE ")]
+    if len(den_events) > 1:
+        raise ValueError("wilderness report has duplicate scout den raid episodes")
+    den_raid = ""
+    if den_events:
+        recovered_cache = re.search(
+            r"\bsource-before:(\d+)mg source-full:(\d+)mg "
+            r"hoard:(\d+)mg reclaimed:(\d+)mg reopened:(\d+)mg "
+            r"finite-storage=(true|false) matter-conserved=(true|false)",
+            den_events[0],
+        )
+        if recovered_cache is None:
+            raise ValueError("kobold cache experience has no player recovery/reopening evidence")
+        source, left, stored, reclaimed, reopened = (
+            int(recovered_cache.group(i)) for i in range(1, 6)
+        )
+        if (source - left != stored or stored != 500_000
+                or reclaimed != stored or reopened <= 0
+                or reopened > left or recovered_cache.group(6) != "true"
+                or recovered_cache.group(7) != "true"):
+            raise ValueError("scout den cache lacks finite, recoverable and reversible behavior")
+        den_raid = (
+            "scout-cache=["
+            f"capacity:{_mass_kg(stored)}kg reclaimed:{_mass_kg(reclaimed)}kg "
+            f"reopened:{_mass_kg(reopened)}kg]"
+        )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:
         sample_shape += f" organic:{len(organic)}"
@@ -498,6 +524,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{shelter} "
         f"{scavenger + ' ' if scavenger else ''}"
         f"{natural_contest + ' ' if natural_contest else ''}"
+        f"{den_raid + ' ' if den_raid else ''}"
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"
