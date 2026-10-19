@@ -56,6 +56,184 @@ fn start_capability_powered_craft(
 }
 
 #[test]
+fn powered_offcuts_fill_a_real_bin_and_block_unrouted_capacity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let assembly = stockpile(&mut state, 4_000_000);
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL), 900_000),
+        (CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT), 100_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 1_600_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 800_000),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            20_000,
+        ),
+    ] {
+        deposit(&registries, &mut state, assembly, commodity, mass);
+    }
+    let drill = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("residue drill assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("residue drill commit failed: {error}"));
+    let source = stockpile(&mut state, 40_000);
+    let reinforcement = deposit(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        40_000,
+    );
+    let products = stockpile(&mut state, 36_000);
+    let first_bin = stockpile(&mut state, 2_000);
+    let drive = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("residue drive failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    for container in [source, products, first_bin] {
+        validate_place_ground_stockpile(&state, container, position)
+            .unwrap_or_else(|error| panic!("residue bin placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("residue bin placement commit failed: {error}"));
+    }
+    let revision = state.logistics().revision();
+    state
+        .logistics_state_mut()
+        .apply_equipment_placement(revision, revision + 1, drill, position);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        drive,
+        position,
+    );
+    validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("residue operator admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("residue operator commit failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("powered residue matter setup failed: {error}"))
+        .total();
+    let request = |lot| {
+        PoweredCraftRequest::single(
+            PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(20_000)),
+            drill,
+            drive,
+        )
+    };
+    let first = validate_start_powered_craft_with_residue_destination(
+        &registries,
+        &state,
+        request(reinforcement),
+        products,
+        first_bin,
+    )
+    .unwrap_or_else(|error| panic!("first powered residue job rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("first powered residue commit failed: {error}"));
+    assert_eq!(
+        state
+            .production()
+            .get_job(first)
+            .unwrap_or_else(|| panic!("first powered residue job disappeared"))
+            .output_streams()
+            .len(),
+        2
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("inflight powered residue invalid: {error}"));
+    finish_job(&registries, &mut state, first);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(first_bin)
+            .unwrap_or_else(|| panic!("first powered residue bin vanished"))
+            .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+        Mass::from_milligrams(2_000)
+    );
+    assert!(
+        registries
+            .materials()
+            .is_residual_commodity(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(products)
+            .unwrap_or_else(|| panic!("powered products disappeared"))
+            .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE)),
+        Mass::from_milligrams(18_000)
+    );
+    let next_lot = state
+        .inventory()
+        .lot_ids(source)
+        .next()
+        .unwrap_or_else(|| panic!("second powered input was lost"));
+    let before_rejection = state.clone();
+    assert!(
+        matches!(
+            validate_start_powered_craft_with_residue_destination(
+                &registries,
+                &state,
+                request(next_lot),
+                products,
+                first_bin,
+            ),
+            Err(StartPoweredCraftError::Process(
+                crate::production::StartProcessError::CapacityExceeded {
+                    stockpile, requested_inbound, ..
+                }
+            )) if stockpile == first_bin && requested_inbound == Mass::from_milligrams(2_000)
+        ),
+        "full offcut bin must prevent a second powered job"
+    );
+    assert_eq!(state, before_rejection);
+    let second_bin = stockpile(&mut state, 2_000);
+    validate_place_ground_stockpile(&state, second_bin, position)
+        .unwrap_or_else(|error| panic!("second powered bin placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("second powered bin commit failed: {error}"));
+    let second = validate_start_powered_craft_with_residue_destination(
+        &registries,
+        &state,
+        request(next_lot),
+        products,
+        second_bin,
+    )
+    .unwrap_or_else(|error| panic!("second powered route rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("second powered route commit failed: {error}"));
+    finish_job(&registries, &mut state, second);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(second_bin)
+            .unwrap_or_else(|| panic!("second powered bin disappeared"))
+            .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+        Mass::from_milligrams(2_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("powered residue final audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("completed powered residue invalid: {error}"));
+}
+
+#[test]
 fn spindle_drill_preserves_screen_plate_yield_while_spending_stored_work() {
     let registries = build_registries();
     let mut state = AppState::new();

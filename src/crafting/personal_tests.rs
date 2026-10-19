@@ -9,15 +9,147 @@ use crate::content::{
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
-use crate::inventory::{deposit_lot_for_test, project_material_stacks};
+use crate::inventory::{
+    add_solid_stockpile_for_test, deposit_lot_for_test, project_material_stacks,
+};
+use crate::logistics::validate_place_ground_stockpile;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
 fn one_batch() -> NonZeroU64 {
     NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one batch is nonzero"))
+}
+
+#[test]
+fn carpentry_residue_requires_physical_bin_capacity_and_survives_save_load() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("waste actor admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("waste actor commit failed: {error}"))
+        .carried_stockpile();
+    let place_bin = |state: &mut AppState| {
+        let bin = add_solid_stockpile_for_test(state, Mass::from_milligrams(200_000))
+            .unwrap_or_else(|error| panic!("waste stockpile creation failed: {error}"));
+        validate_place_ground_stockpile(state, bin, position)
+            .unwrap_or_else(|error| panic!("waste stockpile placement failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("waste stockpile placement commit failed: {error}"));
+        bin
+    };
+    let first_bin = place_bin(&mut state);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(2_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("wood feed setup failed: {error}"));
+    let original_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("waste initial accounting failed: {error}"))
+        .total();
+    let start = |state: &AppState, bin| {
+        validate_start_player_manual_craft_with_residue_destination(
+            &registries,
+            state,
+            PROCESS_SHAPE_WOOD_BOARDS,
+            one_batch(),
+            None,
+            bin,
+        )
+    };
+    let first = start(&state, first_bin)
+        .unwrap_or_else(|error| panic!("first segregated craft rejected: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("first segregated craft commit failed: {error}"));
+    let first_job = state
+        .production()
+        .get_job(first)
+        .unwrap_or_else(|| panic!("first segregated job disappeared"));
+    assert_eq!(first_job.output_streams().len(), 2);
+    assert_eq!(first_job.output_streams()[0].destination(), carried);
+    assert_eq!(first_job.output_streams()[1].destination(), first_bin);
+    let completes_at = first_job.completes_at();
+    let serialized = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("inflight waste save failed: {error}"));
+    let envelope: LoadedSaveEnvelope = serde_json::from_slice(&serialized)
+        .unwrap_or_else(|error| panic!("inflight waste decode failed: {error}"));
+    state = envelope
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("inflight routed job failed trusted load: {error}"));
+    while state.tick() < completes_at {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("first segregated work failed: {error}"));
+    }
+    let boards = CommodityKey::new(MATERIAL_WOOD, crate::content::FORM_BOARD);
+    let chips = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap_or_else(|| panic!("carried output lost"))
+            .get_mass(boards),
+        Mass::from_milligrams(800_000)
+    );
+    let waste_stacks = project_material_stacks(&registries, &state, first_bin)
+        .unwrap_or_else(|error| panic!("waste projection failed: {error}"));
+    assert_eq!(waste_stacks.len(), 1);
+    assert_eq!(waste_stacks[0].commodity(), chips);
+    assert!(waste_stacks[0].is_residual(&registries));
+    assert_eq!(waste_stacks[0].mass(), Mass::from_milligrams(200_000));
+    let before_rejection = state.clone();
+    assert!(
+        matches!(
+            start(&state, first_bin),
+            Err(PlayerManualCraftError::Start(
+                StartManualCraftError::Process(crate::production::StartProcessError::CapacityExceeded {
+                    stockpile, requested_inbound, ..
+                })
+            )) if stockpile == first_bin && requested_inbound == Mass::from_milligrams(200_000)
+        ),
+        "full waste capacity must block otherwise feasible work"
+    );
+    assert_eq!(state, before_rejection);
+    let second_bin = place_bin(&mut state);
+    let second = start(&state, second_bin)
+        .unwrap_or_else(|error| panic!("waste re-routing rejected: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("second segregated craft commit failed: {error}"));
+    let completes_at = state
+        .production()
+        .get_job(second)
+        .unwrap_or_else(|| panic!("second segregated job lost"))
+        .completes_at();
+    while state.tick() < completes_at {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("second segregated work failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(second_bin)
+            .unwrap_or_else(|| panic!("second waste bin vanished"))
+            .get_mass(chips),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("final waste accounting failed: {error}"))
+            .total(),
+        original_matter
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
 }
 
 #[test]

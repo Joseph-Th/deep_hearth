@@ -184,6 +184,7 @@ pub(super) fn batch_error(error: ManualCraftBatchError) -> PoweredCraftError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartPoweredCraftError {
+    NoSegregableResidue { process: ProcessId },
     PlayerNotAdmitted,
     PlayerDead,
     StockpileAccess(PlayerStockpileAccessError),
@@ -196,6 +197,11 @@ pub enum StartPoweredCraftError {
 impl Display for StartPoweredCraftError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NoSegregableResidue { process } => write!(
+                formatter,
+                "powered craft {} has no separable product and residue streams",
+                process.value()
+            ),
             Self::PlayerNotAdmitted => {
                 formatter.write_str("powered crafting requires an admitted player")
             }
@@ -223,7 +229,7 @@ impl Display for StartPoweredCraftError {
 impl Error for StartPoweredCraftError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerNotAdmitted | Self::PlayerDead => None,
+            Self::PlayerNotAdmitted | Self::PlayerDead | Self::NoSegregableResidue { .. } => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
             Self::EnergyStoreAccess(error) => Some(error),

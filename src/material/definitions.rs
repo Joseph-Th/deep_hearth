@@ -11,6 +11,7 @@ pub struct MaterialDefinition {
     id: MaterialId,
     name: String,
     properties: MaterialProperties,
+    residual: bool,
 }
 
 impl MaterialDefinition {
@@ -27,7 +28,20 @@ impl MaterialDefinition {
             id,
             name,
             properties,
+            residual: false,
         }
+    }
+
+    /// Some materials, such as slag, originate as process residue across multiple physical forms.
+    #[must_use]
+    pub fn as_residual(mut self) -> Self {
+        self.residual = true;
+        self
+    }
+
+    #[must_use]
+    pub const fn is_residual(&self) -> bool {
+        self.residual
     }
 
     #[must_use]
@@ -79,6 +93,7 @@ pub struct FormDefinition {
     phase: MaterialPhase,
     particle_size_policy: ParticleSizeStatePolicy,
     cohesion: MaterialFormCohesion,
+    residual: bool,
 }
 
 impl FormDefinition {
@@ -114,7 +129,22 @@ impl FormDefinition {
             phase,
             particle_size_policy,
             cohesion,
+            residual: false,
         }
+    }
+
+    /// Marks an output form as physical residue requiring handling. Residue remains ordinary
+    /// conserved matter and may have subsequent recovery processes; this is not a deletion flag.
+    #[must_use]
+    pub fn as_residual(mut self) -> Self {
+        assert_eq!(self.phase, MaterialPhase::Solid);
+        self.residual = true;
+        self
+    }
+
+    #[must_use]
+    pub const fn is_residual(&self) -> bool {
+        self.residual
     }
 
     #[must_use]

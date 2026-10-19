@@ -30,6 +30,8 @@ pub struct ProcessOutputStreamId(u16);
 
 impl ProcessOutputStreamId {
     pub const PRIMARY: Self = Self(1);
+    /// An explicitly segregated physical residue stream, when a caller elects separate custody.
+    pub const RESIDUE: Self = Self(2);
 
     #[must_use]
     pub const fn new(value: u16) -> Self {
@@ -243,6 +245,37 @@ pub struct ProcessResolution {
 }
 
 impl ProcessResolution {
+    /// Separates an existing single-stream shaping resolution by authored material form.
+    ///
+    /// This changes only the custody boundary, not output mass, thermal cohorts, process physics,
+    /// equipment cost or selected inputs. Without both a useful and a residual parcel there is
+    /// no meaningful two-way segregation, so callers must handle `None` explicitly.
+    pub(crate) fn segregate_residue(
+        mut self,
+        is_residual: impl Fn(&MaterialLotSpec) -> bool,
+    ) -> Option<Self> {
+        let [stream] = self.output_streams.as_slice() else {
+            return None;
+        };
+        let mut primary = Vec::new();
+        let mut residue = Vec::new();
+        for output in &stream.outputs {
+            if is_residual(output) {
+                residue.push(output.clone());
+            } else {
+                primary.push(output.clone());
+            }
+        }
+        if primary.is_empty() || residue.is_empty() {
+            return None;
+        }
+        self.output_streams = vec![
+            ProcessOutputStream::new(ProcessOutputStreamId::PRIMARY, primary),
+            ProcessOutputStream::new(ProcessOutputStreamId::RESIDUE, residue),
+        ];
+        Some(self)
+    }
+
     #[must_use]
     pub const fn process(&self) -> ProcessId {
         self.process

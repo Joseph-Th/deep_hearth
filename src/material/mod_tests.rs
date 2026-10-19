@@ -3,6 +3,41 @@
 use super::*;
 use crate::core::quantity::{Length, Temperature};
 
+#[test]
+fn built_in_residue_classification_preserves_recoverable_feed_and_slag_identity() {
+    use crate::content::{
+        FORM_BOARD, FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_LOG,
+        FORM_SCRAP, FORM_TAILINGS, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+        build_registries,
+    };
+    let registries = build_registries();
+    let materials = registries.materials();
+    for commodity in [
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+        CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
+        CommodityKey::new(MATERIAL_STONE, FORM_EXHAUSTED_TAILINGS),
+        CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
+    ] {
+        assert!(
+            materials.is_residual_commodity(commodity),
+            "authored waste commodity {} must be explicitly classified",
+            commodity.value()
+        );
+    }
+    for commodity in [
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
+    ] {
+        assert!(
+            !materials.is_residual_commodity(commodity),
+            "useful feed or product {} must not be classified as residual",
+            commodity.value()
+        );
+    }
+}
+
 fn make_test_properties() -> MaterialProperties {
     MaterialProperties::new(
         1_000,

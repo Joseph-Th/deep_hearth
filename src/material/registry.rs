@@ -124,4 +124,19 @@ impl MaterialRegistry {
     pub fn has_commodity(&self, commodity: CommodityKey) -> bool {
         self.commodity_names.contains_key(&commodity)
     }
+
+    /// Reports physical process residue from authored material/form identity. Recovery remains
+    /// legal wherever a real process consumes it; residue is not synonymous with unrecoverable.
+    #[must_use]
+    pub fn is_residual_commodity(&self, commodity: CommodityKey) -> bool {
+        self.has_commodity(commodity)
+            && (self
+                .forms
+                .get(&commodity.form())
+                .is_some_and(FormDefinition::is_residual)
+                || self
+                    .materials
+                    .get(&commodity.material())
+                    .is_some_and(MaterialDefinition::is_residual))
+    }
 }

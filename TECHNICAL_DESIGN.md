@@ -318,7 +318,10 @@ remainder is zero.
 
 Materials and forms are immutable definitions. A runtime commodity exists only for an explicitly authored
 `CommodityKey`; independently valid material and form IDs do not imply a valid pair. Forms declare phase,
-particle-state policy, and cohesion. Rigid infrastructure inputs must be consolidated non-particulate solids.
+particle-state policy, cohesion, and whether their physical form is residual; material identities may also be
+residual (notably slag). `MaterialRegistry::is_residual_commodity` classifies authored chips, scrap, tailings,
+exhausted tailings, and slag without converting them into another custody type. Residue can still be recovered
+where a real recipe consumes it. Rigid infrastructure inputs must be consolidated non-particulate solids.
 Materials with an authored edible form are excluded from infrastructure embodiment until embodied perishability
 is modeled.
 
@@ -516,6 +519,22 @@ retained structural obligation atomically. Loss of required support/provider ava
 preserving work-in-process, reservations, remaining active duration, and those future completion obligations.
 Manual production releases player attention while suspended and must reacquire labor/survival budget before
 resumption.
+
+**Physical process residue:** Form and material definitions classify chips, offcuts/scrap, ore tailings and slag
+without deleting their mass or suppressing recovery recipes. Manual shaping and powered crafting retain their
+existing one-destination behavior by default: both useful output and residual lots occupy that destination's
+finite capacity. Their opt-in residue-destination admission (`ManualCraftStartRequest::with_residue_destination`,
+`validate_start_player_manual_craft_with_residue_destination`, and
+`validate_start_powered_craft_with_residue_destination`) partitions the exact resolved lot specs into stable
+`PRIMARY` and `RESIDUE` process streams. The production owner checks local access, independent capacity,
+support and future reservations for **both** destinations before consuming inputs/energy. A full waste stockpile
+rejects another segregated job; the player can use a different local stockpile, move the physical waste using
+existing inventory/ground transfer or drop paths, or reclaim it through an authored process. Jobs persist both
+routes and exact output profiles, and trusted load validates the split against current material definitions.
+Ore constituent separation already resolves two independent target/residue streams with tailings containing the
+remaining physical constituents; segregation does not grant an extra separation process. Slag identity is
+defined, but chemical ore reduction and the generation of new smelting slag are not implemented. Environmental
+dispersion, soil/water contamination, spoil heaps, and bulk waste conveyance are not yet simulated.
 
 Manual shaping conserves material identity/mass and cannot change phase. Pure durable input lots may span exact
 temperatures: form-only shaping retains every selected thermal cohort and apportions each authored output across

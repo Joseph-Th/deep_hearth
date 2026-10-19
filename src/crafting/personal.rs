@@ -119,6 +119,29 @@ pub fn validate_start_player_manual_craft(
         .map_err(PlayerManualCraftError::Start)
 }
 
+/// Starts personal crafting while routing physical offcuts, chips and other residual forms into
+/// an accessible waste stockpile instead of mixing them with carried products.
+/// Both destinations must satisfy canonical capacity, locality and revision checks.
+pub fn validate_start_player_manual_craft_with_residue_destination(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    batches: NonZeroU64,
+    equipment: Option<EquipmentId>,
+    residue_destination: crate::inventory::StockpileId,
+) -> Result<ValidatedManualCraftStart, PlayerManualCraftError> {
+    let carried = carried_stockpile(state)?;
+    let craft = plan_manual_craft_from_stockpile(registries, state, process, carried, batches)
+        .map_err(PlayerManualCraftError::InputPlan)?;
+    let craft = with_optional_equipment(craft, equipment);
+    validate_start_manual_craft(
+        registries,
+        state,
+        ManualCraftStartRequest::in_place(craft).with_residue_destination(residue_destination),
+    )
+    .map_err(PlayerManualCraftError::Start)
+}
+
 /// Starts one actor-visible personal-crafting catalog row without exposing recipe identity at the
 /// action boundary.
 ///

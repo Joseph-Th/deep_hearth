@@ -6,8 +6,9 @@ use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::production::{
-    ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess, validate_process_inputs,
-    validate_start_manual_process,
+    ProcessId, ProcessOutputRoute, ProcessOutputStreamId, ProcessResolution, ProductionJobId,
+    ValidatedStartProcess, validate_process_inputs, validate_start_manual_process,
+    validate_start_manual_process_routed,
 };
 use crate::registry::Registries;
 use crate::survival::{Vitality, assess_survival};
@@ -43,6 +44,7 @@ pub use input_planning::{
 pub use personal::{
     PlayerManualCraftError, player_manual_craft_options, validate_start_player_manual_craft,
     validate_start_player_manual_craft_from_stack, validate_start_player_manual_craft_option,
+    validate_start_player_manual_craft_with_residue_destination,
 };
 pub(crate) use physics::resolve_manual_craft_equipment_physics;
 pub use powered::{
@@ -50,7 +52,7 @@ pub use powered::{
     PoweredCraftRequest, PoweredCraftWorkProjection, StartPoweredCraftError,
     player_powered_craft_options, project_powered_craft_equipment_work, project_powered_craft_work,
     resolve_powered_craft, validate_start_player_powered_craft_option,
-    validate_start_powered_craft,
+    validate_start_powered_craft, validate_start_powered_craft_with_residue_destination,
 };
 pub use projection::{
     ManualCraftEquipmentProjection, ManualCraftHandProjection, project_manual_craft_equipment,
@@ -130,12 +132,17 @@ impl ManualCraftRequest {
 pub struct ManualCraftStartRequest {
     craft: ManualCraftRequest,
     destination: StockpileId,
+    residue_destination: Option<StockpileId>,
 }
 
 impl ManualCraftStartRequest {
     #[must_use]
     pub const fn new(craft: ManualCraftRequest, destination: StockpileId) -> Self {
-        Self { craft, destination }
+        Self {
+            craft,
+            destination,
+            residue_destination: None,
+        }
     }
 
     /// Sends conserved craft output back to the same inventory custody that supplied the input.
@@ -146,7 +153,11 @@ impl ManualCraftStartRequest {
     #[must_use]
     pub fn in_place(craft: ManualCraftRequest) -> Self {
         let destination = craft.source();
-        Self { craft, destination }
+        Self {
+            craft,
+            destination,
+            residue_destination: None,
+        }
     }
 
     #[must_use]
@@ -165,6 +176,14 @@ impl ManualCraftStartRequest {
     #[must_use]
     pub const fn destination(&self) -> StockpileId {
         self.destination
+    }
+
+    /// Segregates physical process residue from useful output into a second accessible stockpile.
+    /// Both destinations must have capacity; no matter is silently discarded.
+    #[must_use]
+    pub fn with_residue_destination(mut self, stockpile: StockpileId) -> Self {
+        self.residue_destination = Some(stockpile);
+        self
     }
 }
 
@@ -302,22 +321,52 @@ pub fn validate_start_manual_craft(
     state: &AppState,
     request: ManualCraftStartRequest,
 ) -> Result<ValidatedManualCraftStart, StartManualCraftError> {
-    let ManualCraftStartRequest { craft, destination } = request;
+    let ManualCraftStartRequest {
+        craft,
+        destination,
+        residue_destination,
+    } = request;
     let process_id = craft.process();
     let source = craft.source();
     validate_player_stockpile_access(state, source)
         .map_err(StartManualCraftError::StockpileAccess)?;
     validate_player_stockpile_access(state, destination)
         .map_err(StartManualCraftError::StockpileAccess)?;
+    if let Some(residue) = residue_destination {
+        validate_player_stockpile_access(state, residue)
+            .map_err(StartManualCraftError::StockpileAccess)?;
+    }
     if let Some(equipment) = craft.equipment() {
         validate_player_equipment_access(state, equipment)
             .map_err(StartManualCraftError::EquipmentAccess)?;
     }
-    let resolution = resolve_manual_craft(registries, state, &craft)
+    let mut resolution = resolve_manual_craft(registries, state, &craft)
         .map_err(StartManualCraftError::Resolution)?;
-    let process =
+    let process = if let Some(residue) = residue_destination {
+        resolution = resolution
+            .segregate_residue(|output| {
+                registries
+                    .materials()
+                    .is_residual_commodity(output.commodity())
+            })
+            .ok_or(StartManualCraftError::NoSegregableResidue {
+                process: process_id,
+            })?;
+        validate_start_manual_process_routed(
+            registries,
+            state,
+            &resolution,
+            source,
+            &[
+                ProcessOutputRoute::new(ProcessOutputStreamId::PRIMARY, destination),
+                ProcessOutputRoute::new(ProcessOutputStreamId::RESIDUE, residue),
+            ],
+        )
+        .map_err(StartManualCraftError::Process)?
+    } else {
         validate_start_manual_process(registries, state, &resolution, source, destination)
-            .map_err(StartManualCraftError::Process)?;
+            .map_err(StartManualCraftError::Process)?
+    };
     let exertion = registries
         .crafting()
         .get_manual(process_id)

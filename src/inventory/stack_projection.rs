@@ -97,6 +97,15 @@ pub struct MaterialStackProjection {
 }
 
 impl MaterialStackProjection {
+    /// Marks a physical byproduct on the same stack used by ordinary transfer and recovery.
+    /// Residue remains conserved inventory rather than an abstract trash counter.
+    #[must_use]
+    pub fn is_residual(&self, registries: &Registries) -> bool {
+        registries
+            .materials()
+            .is_residual_commodity(self.profile.commodity())
+    }
+
     #[must_use]
     pub const fn stockpile(&self) -> StockpileId {
         self.stockpile

@@ -192,6 +192,11 @@ impl Display for ManualCraftError {
 impl Display for StartManualCraftError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NoSegregableResidue { process } => write!(
+                formatter,
+                "manual craft {} has no separable product and residue streams",
+                process.value()
+            ),
             Self::StockpileAccess(error) => {
                 write!(formatter, "manual craft stockpile access failed: {error}")
             }

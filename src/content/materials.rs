@@ -106,7 +106,8 @@ fn register_forms(registry: &mut MaterialRegistry) {
             "chip",
             MaterialPhase::Solid,
             ParticleSizeStatePolicy::Untracked,
-        ),
+        )
+        .as_residual(),
         consolidated_form(FORM_HANDLE, "handle"),
         consolidated_form(FORM_BOARD, "board"),
         consolidated_form(FORM_CHEST_BODY, "timber chest body"),
@@ -139,7 +140,8 @@ fn register_forms(registry: &mut MaterialRegistry) {
             "scrap",
             MaterialPhase::Solid,
             ParticleSizeStatePolicy::Untracked,
-        ),
+        )
+        .as_residual(),
         consolidated_form(FORM_LUMP, "lump"),
         consolidated_form(FORM_ORE, "ore"),
         loose_form(
@@ -166,13 +168,15 @@ fn register_forms(registry: &mut MaterialRegistry) {
             "tailings",
             MaterialPhase::Solid,
             ParticleSizeStatePolicy::Required,
-        ),
+        )
+        .as_residual(),
         loose_form(
             FORM_EXHAUSTED_TAILINGS,
             "exhausted tailings",
             MaterialPhase::Solid,
             ParticleSizeStatePolicy::Required,
-        ),
+        )
+        .as_residual(),
     ] {
         registry.register_form(definition);
     }
@@ -205,7 +209,8 @@ fn register_materials(registry: &mut MaterialRegistry) {
             MATERIAL_SLAG,
             "slag",
             MaterialProperties::new(2_700, ThermalProperties::new(900, None), None),
-        ),
+        )
+        .as_residual(),
         MaterialDefinition::new(
             MATERIAL_WATER,
             "water",

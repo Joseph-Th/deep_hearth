@@ -230,16 +230,49 @@ fn reconstruct_manual_craft_outputs(
 }
 
 fn validate_manual_craft_outputs(
+    registries: &Registries,
     job: &ProductionJobRecord,
     expected_outputs: &[MaterialLotSpec],
 ) -> Result<(), CraftingJobValidationError> {
-    let Some(stream) = job.single_output_stream() else {
-        return Err(CraftingJobValidationError::OutputMismatch { job: job.id() });
-    };
-    if stream.id() != ProcessOutputStreamId::PRIMARY || stream.outputs() != expected_outputs {
-        return Err(CraftingJobValidationError::OutputMismatch { job: job.id() });
+    let mismatch = || CraftingJobValidationError::OutputMismatch { job: job.id() };
+    match job.output_streams() {
+        [stream]
+            if stream.id() == ProcessOutputStreamId::PRIMARY
+                && stream.outputs() == expected_outputs =>
+        {
+            Ok(())
+        }
+        [primary, residue]
+            if primary.id() == ProcessOutputStreamId::PRIMARY
+                && residue.id() == ProcessOutputStreamId::RESIDUE =>
+        {
+            let is_residual = |output: &MaterialLotSpec| {
+                registries
+                    .materials()
+                    .is_residual_commodity(output.commodity())
+            };
+            let expected_primary = expected_outputs
+                .iter()
+                .filter(|output| !is_residual(output))
+                .cloned()
+                .collect::<Vec<_>>();
+            let expected_residue = expected_outputs
+                .iter()
+                .filter(|output| is_residual(output))
+                .cloned()
+                .collect::<Vec<_>>();
+            if !expected_primary.is_empty()
+                && !expected_residue.is_empty()
+                && primary.outputs() == expected_primary
+                && residue.outputs() == expected_residue
+            {
+                Ok(())
+            } else {
+                Err(mismatch())
+            }
+        }
+        _ => Err(mismatch()),
     }
-    Ok(())
 }
 
 pub(crate) fn validate_loaded_crafting_job(
@@ -308,5 +341,5 @@ pub(crate) fn validate_loaded_crafting_job(
         });
     }
     let expected_outputs = reconstruct_manual_craft_outputs(definition, job, &batch)?;
-    validate_manual_craft_outputs(job, &expected_outputs)
+    validate_manual_craft_outputs(registries, job, &expected_outputs)
 }

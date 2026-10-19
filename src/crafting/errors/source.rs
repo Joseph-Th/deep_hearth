@@ -53,6 +53,7 @@ impl Error for ManualCraftError {
 impl Error for StartManualCraftError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::NoSegregableResidue { .. } => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
             Self::Resolution(error) => Some(error),

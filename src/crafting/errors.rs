@@ -149,6 +149,7 @@ impl ManualCraftError {
 /// Failure while admitting manual shaping into production and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualCraftError {
+    NoSegregableResidue { process: ProcessId },
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
     Resolution(ManualCraftError),

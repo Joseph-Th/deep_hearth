@@ -25,8 +25,9 @@ use crate::maintenance::{
 };
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::production::{
-    ProcessId, ProcessResolution, StartPlayerProcessError, ValidatedStartProcess,
-    validate_process_inputs, validate_start_player_process,
+    ProcessId, ProcessOutputRoute, ProcessOutputStreamId, ProcessResolution,
+    StartPlayerProcessError, ValidatedStartProcess, validate_process_inputs,
+    validate_start_player_process, validate_start_player_process_routed,
 };
 use crate::registry::Registries;
 
@@ -449,6 +450,34 @@ pub fn validate_start_powered_craft(
     request: PoweredCraftRequest,
     destination: StockpileId,
 ) -> Result<ValidatedStartProcess, StartPoweredCraftError> {
+    validate_start_powered_craft_internal(registries, state, request, destination, None)
+}
+
+/// Routes machine-made chips and offcuts into finite independent local storage. Output capacity
+/// for both product and residue is checked before consuming material or machine energy.
+pub fn validate_start_powered_craft_with_residue_destination(
+    registries: &Registries,
+    state: &AppState,
+    request: PoweredCraftRequest,
+    destination: StockpileId,
+    residue_destination: StockpileId,
+) -> Result<ValidatedStartProcess, StartPoweredCraftError> {
+    validate_start_powered_craft_internal(
+        registries,
+        state,
+        request,
+        destination,
+        Some(residue_destination),
+    )
+}
+
+fn validate_start_powered_craft_internal(
+    registries: &Registries,
+    state: &AppState,
+    request: PoweredCraftRequest,
+    destination: StockpileId,
+    residue_destination: Option<StockpileId>,
+) -> Result<ValidatedStartProcess, StartPoweredCraftError> {
     if player_admission_state(state) != PlayerAdmissionState::Admitted {
         return Err(StartPoweredCraftError::PlayerNotAdmitted);
     }
@@ -457,28 +486,53 @@ pub fn validate_start_powered_craft(
         .map_err(StartPoweredCraftError::StockpileAccess)?;
     validate_player_stockpile_access(state, destination)
         .map_err(StartPoweredCraftError::StockpileAccess)?;
+    if let Some(residue) = residue_destination {
+        validate_player_stockpile_access(state, residue)
+            .map_err(StartPoweredCraftError::StockpileAccess)?;
+    }
     validate_player_equipment_access(state, request.equipment)
         .map_err(StartPoweredCraftError::EquipmentAccess)?;
     validate_player_energy_store_access(state, request.energy_store)
         .map_err(StartPoweredCraftError::EnergyStoreAccess)?;
-    let resolution = resolve_powered_craft(registries, state, &request)
+    let mut resolution = resolve_powered_craft(registries, state, &request)
         .map_err(StartPoweredCraftError::Resolution)?;
-    validate_start_player_process(registries, state, &resolution, source, destination).map_err(
-        |error| match error {
-            StartPlayerProcessError::PlayerNotAdmitted => {
-                unreachable!("powered craft already proved full player admission")
-            }
-            StartPlayerProcessError::PlayerDead => StartPoweredCraftError::PlayerDead,
-            StartPlayerProcessError::StockpileAccess(error) => {
-                StartPoweredCraftError::StockpileAccess(error)
-            }
-            StartPlayerProcessError::EquipmentAccess(error) => {
-                StartPoweredCraftError::EquipmentAccess(error)
-            }
-            StartPlayerProcessError::EnergyStoreAccess(error) => {
-                StartPoweredCraftError::EnergyStoreAccess(error)
-            }
-            StartPlayerProcessError::Process(error) => StartPoweredCraftError::Process(error),
-        },
-    )
+    let result = if let Some(residue) = residue_destination {
+        resolution = resolution
+            .segregate_residue(|output| {
+                registries
+                    .materials()
+                    .is_residual_commodity(output.commodity())
+            })
+            .ok_or(StartPoweredCraftError::NoSegregableResidue {
+                process: request.process,
+            })?;
+        validate_start_player_process_routed(
+            registries,
+            state,
+            &resolution,
+            source,
+            &[
+                ProcessOutputRoute::new(ProcessOutputStreamId::PRIMARY, destination),
+                ProcessOutputRoute::new(ProcessOutputStreamId::RESIDUE, residue),
+            ],
+        )
+    } else {
+        validate_start_player_process(registries, state, &resolution, source, destination)
+    };
+    result.map_err(|error| match error {
+        StartPlayerProcessError::PlayerNotAdmitted => {
+            unreachable!("powered craft already proved full player admission")
+        }
+        StartPlayerProcessError::PlayerDead => StartPoweredCraftError::PlayerDead,
+        StartPlayerProcessError::StockpileAccess(error) => {
+            StartPoweredCraftError::StockpileAccess(error)
+        }
+        StartPlayerProcessError::EquipmentAccess(error) => {
+            StartPoweredCraftError::EquipmentAccess(error)
+        }
+        StartPlayerProcessError::EnergyStoreAccess(error) => {
+            StartPoweredCraftError::EnergyStoreAccess(error)
+        }
+        StartPlayerProcessError::Process(error) => StartPoweredCraftError::Process(error),
+    })
 }
