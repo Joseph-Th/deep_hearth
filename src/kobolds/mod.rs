@@ -94,6 +94,7 @@ pub struct KoboldScoutEvent {
     foraged_food: Option<(SurfaceResourceId, Mass)>,
     split_drop: Option<(SurfaceResourceId, Mass)>,
     consumed_food: Option<(SurfaceResourceId, Mass)>,
+    discarded_food: Option<SurfaceResourceId>,
 }
 
 impl KoboldScoutEvent {
@@ -159,6 +160,12 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn consumed_food(self) -> Option<(SurfaceResourceId, Mass)> {
         self.consumed_food
+    }
+
+    /// Spoiled den food physically discarded onto the adjacent route.
+    #[must_use]
+    pub const fn discarded_food(self) -> Option<SurfaceResourceId> {
+        self.discarded_food
     }
 }
 

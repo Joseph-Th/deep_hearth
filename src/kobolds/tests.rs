@@ -1191,6 +1191,102 @@ fn den_meals_transfer_only_fresh_local_food_into_conserved_consumption() {
 }
 
 #[test]
+fn spoiled_den_food_is_discarded_on_a_real_edge_and_not_raided_again() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::inventory::{MaterialLotProfile, MaterialLotProvenance, STORAGE_AGE_PARTS_PER_TICK};
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::material::MaterialLotSpec;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(1, 0, 0);
+    add_traversable_edge_for_test(&mut state, den, junction);
+    add_traversable_edge_for_test(&mut state, junction, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    advance_to_tick(&registries, &mut state, 579);
+    assert_eq!(colony(&state).scout_position(), den);
+
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let mass = Mass::from_milligrams(300_000);
+    let profile = MaterialLotProfile::from_spec(
+        &MaterialLotSpec::with_composition(
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap(),
+    );
+    let shelf = registries
+        .survival()
+        .get_food(commodity)
+        .unwrap()
+        .shelf_life();
+    // A parcel accumulated age in prior storage before entering loose custody.
+    let specification = SurfaceResourceSpec::from_existing_material(
+        SurfaceResourceKind::Drop,
+        den,
+        mass,
+        profile,
+        MaterialLotProvenance::single(SimulationTick::ZERO),
+        u128::from(shelf.value()) * STORAGE_AGE_PARTS_PER_TICK,
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [specification]).unwrap();
+    let resource = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let initial = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut loaded = decoded.into_state(&registries).unwrap();
+    let mut cautious = loaded.clone();
+    cautious
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap()
+        .wary_until = Some(SimulationTick::new(615));
+    let _ = advance_tick(&registries, &mut cautious).unwrap();
+    assert_eq!(cautious.surface().get(resource).unwrap().position(), den);
+    assert_eq!(colony(&cautious).scout_position(), den);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &cautious),
+        Ok(())
+    );
+    for _ in 0..20 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut loaded).unwrap()
+        );
+    }
+    assert_eq!(state, loaded);
+    assert_eq!(state.surface().get(resource).unwrap().position(), junction);
+    assert_eq!(
+        state.surface().get(resource).unwrap().remaining_mass(),
+        mass
+    );
+    assert_eq!(colony(&state).scout_position(), den);
+    assert!(state.kobold_state().consumed_matter().next().is_none());
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn nearby_player_can_observe_den_feeding_without_revealing_remote_inventory() {
     let (registries, mut state, _) = generated_opening();
     advance_to_tick(&registries, &mut state, 579);

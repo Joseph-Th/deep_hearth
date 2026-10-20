@@ -2,11 +2,13 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
+use super::feeding::scout_wants_drop;
 use super::patrol::scout_can_enter;
 use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
 
@@ -85,6 +87,7 @@ pub(super) fn reachable_side_drop(
     authored_tip: VoxelCoord,
     player_position: Option<VoxelCoord>,
     capacity: Mass,
+    at: SimulationTick,
 ) -> Option<VoxelCoord> {
     state
         .logistics()
@@ -98,7 +101,10 @@ pub(super) fn reachable_side_drop(
             state
                 .surface()
                 .available_resources_at(Some(destination))
-                .filter(|resource| is_contestable_drop(resource, capacity))
+                .filter(|resource| {
+                    is_contestable_drop(resource, capacity)
+                        && scout_wants_drop(registries, resource, at)
+                })
                 .min_by_key(|resource| detour_loot_priority(resource, capacity))
                 .map(|resource| (detour_loot_priority(resource, capacity), destination))
         })
@@ -116,6 +122,7 @@ pub(super) fn reachable_far_drop(
     authored_tip: VoxelCoord,
     player_position: Option<VoxelCoord>,
     capacity: Mass,
+    at: SimulationTick,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
     state
         .logistics()
@@ -140,7 +147,10 @@ pub(super) fn reachable_far_drop(
                     state
                         .surface()
                         .available_resources_at(Some(goal))
-                        .filter(|resource| is_contestable_drop(resource, capacity))
+                        .filter(|resource| {
+                            is_contestable_drop(resource, capacity)
+                                && scout_wants_drop(registries, resource, at)
+                        })
                         .min_by_key(|resource| detour_loot_priority(resource, capacity))
                         .map(|resource| (detour_loot_priority(resource, capacity), first, goal))
                 })

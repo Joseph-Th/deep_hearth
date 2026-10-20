@@ -12,7 +12,7 @@ use crate::surface::{
 };
 use crate::survival::Vitality;
 
-use super::feeding::apply_scheduled_den_meal;
+use super::feeding::{apply_scheduled_den_care, scout_wants_drop};
 use super::scavenging::{
     den_cache_space, is_contestable_drop, is_portable_drop, reachable_far_drop,
     reachable_side_drop, reachable_side_food, scout_loot_priority,
@@ -32,6 +32,7 @@ fn choose_outbound_detour(
     player_position: Option<VoxelCoord>,
     den_space: Mass,
     forage_ready: bool,
+    at: SimulationTick,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
     if step != 2 || returning || colony.scout_step != 1 {
         return None;
@@ -45,6 +46,7 @@ fn choose_outbound_detour(
         tip,
         player_position,
         den_space,
+        at,
     )
     .map(|first| (first, None))
     .or_else(|| {
@@ -56,6 +58,7 @@ fn choose_outbound_detour(
             tip,
             player_position,
             den_space,
+            at,
         )
         .map(|(first, goal)| (first, Some(goal)))
     })
@@ -148,6 +151,7 @@ fn plan_scout_move(
         player_position,
         den_space,
         forage_ready,
+        next_tick,
     );
     let proposed_position = proposed_detour.map_or_else(
         || colony.position_at_step(proposed_step),
@@ -166,7 +170,10 @@ fn plan_scout_move(
         && !state
             .surface()
             .available_resources_at(Some(proposed_position))
-            .any(|resource| is_contestable_drop(resource, den_space));
+            .any(|resource| {
+                is_contestable_drop(resource, den_space)
+                    && scout_wants_drop(registries, resource, next_tick)
+            });
     let turned_back_at_barrier = !proposed_returning
         && proposed_step > colony.scout_step
         && colony.scout_step > 0
@@ -227,7 +234,8 @@ pub(crate) fn apply_kobold_scout_tick(
     let pressured = pressured_by_player || pressured_by_light;
     // Meals use the existing sparse scout schedule, never a per-control-tick AI update.
     // Den resources remain physically recoverable until they are actually eaten.
-    let consumed_food = apply_scheduled_den_meal(registries, state, from, next_tick, pressured);
+    let (consumed_food, discarded_food) =
+        apply_scheduled_den_care(registries, state, from, next_tick, pressured);
     let colony = state
         .kobold_state()
         .colony
@@ -237,7 +245,10 @@ pub(crate) fn apply_kobold_scout_tick(
     let exposed_at_current = state
         .surface()
         .available_resources_at(Some(from))
-        .any(|resource| is_contestable_drop(resource, den_space));
+        .any(|resource| {
+            is_contestable_drop(resource, den_space)
+                && scout_wants_drop(registries, resource, next_tick)
+        });
     let move_plan = plan_scout_move(
         registries,
         state,
@@ -267,6 +278,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 && resource.lifecycle() == SurfaceResourceLifecycle::Available
                 && is_portable_drop(resource)
                 && resource.remaining_mass() <= den_space
+                && scout_wants_drop(registries, resource, next_tick)
         })
     };
     let abandoned_drop = pressured
@@ -283,7 +295,9 @@ pub(crate) fn apply_kobold_scout_tick(
                         .surface()
                         .available_resources_at(Some(from))
                         .filter(|resource| {
-                            is_portable_drop(resource) && resource.remaining_mass() <= den_space
+                            is_portable_drop(resource)
+                                && resource.remaining_mass() <= den_space
+                                && scout_wants_drop(registries, resource, next_tick)
                         })
                         .min_by_key(|resource| scout_loot_priority(resource))
                         .map(|resource| resource.id())
@@ -300,7 +314,10 @@ pub(crate) fn apply_kobold_scout_tick(
         && state
             .surface()
             .available_resources_at(Some(position))
-            .any(|resource| is_contestable_drop(resource, den_space));
+            .any(|resource| {
+                is_contestable_drop(resource, den_space)
+                    && scout_wants_drop(registries, resource, next_tick)
+            });
     let relocated_drop = if can_move {
         dragged_candidate.filter(|id| relocate_scavenged_drop_step(state, *id, from, position))
     } else {
@@ -315,6 +332,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 .available_resources_at(Some(from))
                 .filter(|resource| {
                     is_contestable_drop(resource, den_space)
+                        && scout_wants_drop(registries, resource, next_tick)
                         && (!is_portable_drop(resource) || resource.remaining_mass() > den_space)
                 })
                 .min_by_key(|resource| scout_loot_priority(resource))
@@ -408,10 +426,14 @@ pub(crate) fn apply_kobold_scout_tick(
     let scout_position = colony.scout_position();
     // A scout emerging from an occluded den must not disclose the identity
     // or mass of food eaten out of the observer's line of sight.
-    let observed_meal = consumed_food.filter(|_| {
-        player_position.is_some_and(|player| scout_visible_from(registries, state, from, player))
-    });
-    let visible = (can_move || abandoned_drop.is_some() || observed_meal.is_some())
+    let den_visible =
+        player_position.is_some_and(|player| scout_visible_from(registries, state, from, player));
+    let observed_meal = consumed_food.filter(|_| den_visible);
+    let observed_discard = discarded_food.filter(|_| den_visible);
+    let visible = (can_move
+        || abandoned_drop.is_some()
+        || observed_meal.is_some()
+        || observed_discard.is_some())
         && player_position
             .is_some_and(|player| scout_visible_from(registries, state, scout_position, player));
     visible.then_some(KoboldScoutEvent {
@@ -426,5 +448,6 @@ pub(crate) fn apply_kobold_scout_tick(
         foraged_food,
         split_drop,
         consumed_food: observed_meal,
+        discarded_food: observed_discard,
     })
 }
