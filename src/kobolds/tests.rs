@@ -406,7 +406,7 @@ fn player_intercepts_far_cache_before_scout_reaches_it() {
 }
 
 #[test]
-fn den_capacity_change_cancels_a_far_cache_raid_before_contact() {
+fn full_den_cancels_a_far_cache_raid_before_contact() {
     let (registries, mut state, spawn) = generated_opening();
     let [den, junction, tip] = colony(&state).route;
     let parcel = place_loose_stone_drop(&registries, &mut state, spawn);
@@ -416,7 +416,7 @@ fn den_capacity_change_cancels_a_far_cache_raid_before_contact() {
         SurfaceResourceKind::Drop,
         den,
         CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
-        Mass::from_milligrams(400_000),
+        Mass::from_milligrams(500_000),
         Temperature::from_millikelvin(293_150),
         MaterialComposition::pure(MATERIAL_STONE),
     )
@@ -473,7 +473,7 @@ fn invalid_two_edge_scout_detours_are_rejected_on_load() {
 }
 
 #[test]
-fn scout_does_not_pursue_an_overweight_cache_two_edges_away() {
+fn scout_pursues_and_splits_an_overweight_cache_two_edges_away() {
     let (registries, mut state, spawn) = generated_opening();
     let mass = Mass::from_milligrams(2_000_000);
     let bulk = SurfaceResourceSpec::new(
@@ -488,13 +488,21 @@ fn scout_does_not_pursue_an_overweight_cache_two_edges_away() {
     let creation = validate_create_surface_resources(&registries, &state, [bulk]).unwrap();
     let pile = creation.first_resource_id();
     creation.commit(&mut state).unwrap();
-    let tip = colony(&state).route[2];
+    let den = colony(&state).route[0];
     let conserved = calculate_matter_accounting(&state).unwrap().total();
     advance_to_tick(&registries, &mut state, 185);
-    assert_eq!(colony(&state).scout_position(), tip);
-    assert_eq!(colony(&state).detour, None);
-    assert_eq!(colony(&state).detour_goal, None);
-    assert_eq!(state.surface().get(pile).unwrap().remaining_mass(), mass);
+    assert!(colony(&state).detour.is_some());
+    assert_eq!(colony(&state).detour_goal, Some(spawn));
+    advance_to_tick(&registries, &mut state, 205);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(
+        state.surface().get(pile).unwrap().remaining_mass(),
+        mass.checked_sub(Mass::from_milligrams(250_000)).unwrap()
+    );
+    assert_eq!(
+        super::den_cache_space(&state, den),
+        Mass::from_milligrams(250_000)
+    );
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
         conserved
@@ -754,8 +762,8 @@ fn invalid_temporary_scout_detours_are_rejected_on_load() {
 }
 
 #[test]
-fn scout_does_not_detour_toward_an_overweight_side_branch_drop() {
-    let (registries, mut state, spawn) = generated_opening();
+fn scout_diverts_to_split_a_bulk_side_branch_drop_and_returns_it_physically() {
+    let (registries, mut state, _) = generated_opening();
     let [den, junction, tip] = colony(&state).route;
     let side = state
         .logistics()
@@ -774,17 +782,121 @@ fn scout_does_not_detour_toward_an_overweight_side_branch_drop() {
     let creation = validate_create_surface_resources(&registries, &state, [heavy]).unwrap();
     let id = creation.first_resource_id();
     creation.commit(&mut state).unwrap();
-    validate_admit_player(&registries, &state, spawn)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
     advance_to_tick(&registries, &mut state, 185);
-    assert_eq!(colony(&state).scout_position(), tip);
+    assert_eq!(colony(&state).scout_position(), side);
+    assert_eq!(colony(&state).detour, Some(side));
     assert_eq!(colony(&state).route[2], tip);
-    assert_eq!(state.surface().get(id).unwrap().position(), side);
+    advance_to_tick(&registries, &mut state, 190);
+    let split = colony(&state)
+        .scavenged_drop
+        .expect("bulk split stays with the returning scout");
+    assert_ne!(split, id);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(
+        state.surface().get(split).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(state.surface().get(split).unwrap().position(), junction);
     assert_eq!(
         state.surface().get(id).unwrap().remaining_mass(),
-        Mass::from_milligrams(2_000_000)
+        Mass::from_milligrams(1_750_000)
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let mut restored = loaded.into_state(&registries).unwrap();
+    for _ in 0..5 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(state, restored);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(split).unwrap().position(), den);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn scout_splits_a_far_cache_that_exceeds_remaining_den_capacity() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let halfway = state
+        .logistics()
+        .traversable_destinations(junction)
+        .find(|step| {
+            *step != den && *step != tip && state.logistics().has_traversal_edge(*step, spawn)
+        })
+        .expect("the starting camp is two route edges from the junction");
+    let source = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        spawn,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(2_000_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let den_fill = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(450_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let creation =
+        validate_create_surface_resources(&registries, &state, [source, den_fill]).unwrap();
+    let source_id = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), halfway);
+    assert_eq!(colony(&state).detour_goal, Some(spawn));
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scout_position(), spawn);
+    advance_to_tick(&registries, &mut state, 195);
+    let split = colony(&state)
+        .scavenged_drop
+        .expect("far pile must split before returning");
+    assert_eq!(state.surface().get(split).unwrap().position(), halfway);
+    assert_eq!(
+        state.surface().get(split).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut restored = loaded.into_state(&registries).unwrap();
+    for _ in 0..10 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(state, restored);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(state.surface().get(split).unwrap().position(), den);
+    assert_eq!(
+        state.surface().get(source_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_950_000)
+    );
+    assert_eq!(super::den_cache_space(&state, den), Mass::ZERO);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
     );
 }
 
