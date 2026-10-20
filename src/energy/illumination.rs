@@ -8,6 +8,7 @@ use crate::registry::Registries;
 use crate::spatial::{CubeFace, VoxelCoord};
 
 use super::EnergyStoreId;
+use super::definitions::MAX_LOCAL_LIGHT_LEVEL;
 
 /// One currently active located local-light emitter.
 #[must_use]
@@ -64,51 +65,58 @@ impl LocalIlluminationAssessment {
     }
 }
 
+fn light_sources_at_locations<'a>(
+    registries: &'a Registries,
+    state: &'a AppState,
+    locations: impl Iterator<Item = (EnergyStoreId, VoxelCoord)> + 'a,
+) -> impl Iterator<Item = LocalLightSourceProjection> + 'a {
+    locations.filter_map(move |(store, position)| {
+        let record = state.energy().get_store(store).unwrap_or_else(|| {
+            panic!("runtime invariant broken: located energy store disappeared")
+        });
+        if record.stored().is_zero() {
+            return None;
+        }
+        let definition = registries
+            .energy()
+            .get_store(record.definition())
+            .unwrap_or_else(|| panic!("runtime invariant broken: energy definition disappeared"));
+        let maximum_level = definition.local_light_level();
+        if maximum_level == 0 {
+            return None;
+        }
+        // A combustion emitter fades as its finite heat charge is spent. A smaller
+        // alternative fuel charge (e.g. woodworking chips) starts dimmer instead of
+        // producing a full-strength fire for a shorter, invisible burn horizon.
+        // The primary authored fuel charge defines full brightness; stacked fuel
+        // remains capped at that brightness. Noncombustion emitters use their capacity.
+        let full_brightness_energy = definition
+            .combustion_profile()
+            .map_or(definition.capacity(), |profile| profile.released_energy());
+        let level = checked_mul_div_ceil(
+            record.stored().min(full_brightness_energy).nanojoules(),
+            u128::from(maximum_level),
+            full_brightness_energy.nanojoules(),
+        )
+        .and_then(|scaled| u8::try_from(scaled).ok())
+        .unwrap_or_else(|| unreachable!("bounded finite emission fits authored light level"));
+        Some(LocalLightSourceProjection {
+            store,
+            position,
+            level,
+        })
+    })
+}
+
 fn active_local_light_sources<'a>(
     registries: &'a Registries,
     state: &'a AppState,
 ) -> impl Iterator<Item = LocalLightSourceProjection> + 'a {
-    state
-        .logistics()
-        .energy_store_locations()
-        .filter_map(move |(store, position)| {
-            let record = state.energy().get_store(store).unwrap_or_else(|| {
-                panic!("runtime invariant broken: located energy store disappeared")
-            });
-            if record.stored().is_zero() {
-                return None;
-            }
-            let definition = registries
-                .energy()
-                .get_store(record.definition())
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: energy definition disappeared")
-                });
-            let maximum_level = definition.local_light_level();
-            if maximum_level == 0 {
-                return None;
-            }
-            // A combustion emitter fades as its finite heat charge is spent. A smaller
-            // alternative fuel charge (e.g. woodworking chips) starts dimmer instead of
-            // producing a full-strength fire for a shorter, invisible burn horizon.
-            // The primary authored fuel charge defines full brightness; stacked fuel
-            // remains capped at that brightness. Noncombustion emitters use their capacity.
-            let full_brightness_energy = definition
-                .combustion_profile()
-                .map_or(definition.capacity(), |profile| profile.released_energy());
-            let level = checked_mul_div_ceil(
-                record.stored().min(full_brightness_energy).nanojoules(),
-                u128::from(maximum_level),
-                full_brightness_energy.nanojoules(),
-            )
-            .and_then(|scaled| u8::try_from(scaled).ok())
-            .unwrap_or_else(|| unreachable!("bounded finite emission fits authored light level"));
-            Some(LocalLightSourceProjection {
-                store,
-                position,
-                level,
-            })
-        })
+    light_sources_at_locations(
+        registries,
+        state,
+        state.logistics().energy_store_locations(),
+    )
 }
 
 /// Projects every currently active located local-light emitter in stable store-ID order.
@@ -138,7 +146,18 @@ pub fn assess_local_illumination(
 ) -> LocalIlluminationAssessment {
     let mut level = 0_u8;
     let mut strongest_source = None;
-    for source in active_local_light_sources(registries, state) {
+    // Authored finite light cannot influence voxels beyond its bounded radius.
+    // Query location custody through its position index, not all world stores.
+    let candidates = state
+        .logistics()
+        .energy_store_locations_near(position, MAX_LOCAL_LIGHT_LEVEL - 1);
+    for source in light_sources_at_locations(registries, state, candidates.into_iter()) {
+        // The Manhattan bound is optimistic: obstacles can only lower contribution.
+        // Skipping equal contributions also preserves the first (lowest ID) source.
+        let distance = manhattan_distance(source.position(), position);
+        if u128::from(source.level()) <= distance + u128::from(level) {
+            continue;
+        }
         let contribution = propagated_light_level(registries, state, source, position);
         if contribution > level {
             level = contribution;

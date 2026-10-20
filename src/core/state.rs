@@ -433,7 +433,8 @@ impl AppState {
         self.systems.production.rebuild_derived_indexes();
         self.systems.mining.rebuild_derived_indexes();
         self.systems.surface.rebuild_derived_indexes();
-        // Survival, player work, logistics, world, and geology hold no derived indexes:
+        self.systems.logistics.rebuild_derived_indexes();
+        // Survival, player work, world, and geology hold no derived indexes:
         // their persisted records are the complete continuation state.
     }
 

@@ -1,6 +1,6 @@
 //! Persistent logistics records and actor-facing carrying assessment.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -345,6 +345,9 @@ pub struct LogisticsState {
     equipment_locations: BTreeMap<EquipmentId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     energy_store_locations: BTreeMap<EnergyStoreId, VoxelCoord>,
+    /// Local-light and spatial access index reconstructed solely from location custody.
+    #[serde(skip)]
+    energy_stores_by_position: BTreeMap<VoxelCoord, BTreeSet<EnergyStoreId>>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     fluid_store_locations: BTreeMap<FluidStoreId, VoxelCoord>,
 }
@@ -364,6 +367,7 @@ impl LogisticsState {
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
+            energy_stores_by_position: BTreeMap::new(),
             fluid_store_locations: BTreeMap::new(),
         }
     }
@@ -392,6 +396,47 @@ impl LogisticsState {
         self.energy_store_locations
             .iter()
             .map(|(store, position)| (*store, *position))
+    }
+
+    /// Only stores inside the maximum mathematically possible finite-light range.
+    /// Source order remains stable by ID for deterministic equal-brightness ties.
+    pub(crate) fn energy_store_locations_near(
+        &self,
+        position: VoxelCoord,
+        radius: u8,
+    ) -> Vec<(EnergyStoreId, VoxelCoord)> {
+        let reach = i64::from(radius);
+        let low = VoxelCoord::new(position.x().saturating_sub(reach), i64::MIN, i64::MIN);
+        let high = VoxelCoord::new(position.x().saturating_add(reach), i64::MAX, i64::MAX);
+        let mut nearby = self
+            .energy_stores_by_position
+            .range(low..=high)
+            .filter(|(at, _)| {
+                at.y().abs_diff(position.y()) <= u64::from(radius)
+                    && at.z().abs_diff(position.z()) <= u64::from(radius)
+            })
+            .flat_map(|(at, stores)| stores.iter().map(move |store| (*store, *at)))
+            .collect::<Vec<_>>();
+        nearby.sort_unstable_by_key(|(store, _)| *store);
+        nearby
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        self.energy_stores_by_position.clear();
+        for (store, position) in &self.energy_store_locations {
+            self.energy_stores_by_position
+                .entry(*position)
+                .or_default()
+                .insert(*store);
+        }
+    }
+
+    pub(crate) fn has_valid_energy_position_index(&self) -> bool {
+        let mut expected = BTreeMap::<VoxelCoord, BTreeSet<EnergyStoreId>>::new();
+        for (store, position) in &self.energy_store_locations {
+            expected.entry(*position).or_default().insert(*store);
+        }
+        self.energy_stores_by_position == expected
     }
 
     /// Returns the world voxel of one equipment instance managed by logistics.
@@ -964,6 +1009,10 @@ impl LogisticsState {
         );
         let previous = self.energy_store_locations.insert(store, position);
         assert!(previous.is_none());
+        self.energy_stores_by_position
+            .entry(position)
+            .or_default()
+            .insert(store);
         self.revision = next_revision;
     }
 
@@ -981,6 +1030,14 @@ impl LogisticsState {
             Some(expected_position),
             "energy-store location changed after validation"
         );
+        let at_position = self
+            .energy_stores_by_position
+            .get_mut(&expected_position)
+            .expect("located energy store must appear in its derived position index");
+        assert!(at_position.remove(&store));
+        if at_position.is_empty() {
+            self.energy_stores_by_position.remove(&expected_position);
+        }
         self.revision = next_revision;
     }
 

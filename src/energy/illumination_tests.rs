@@ -3,14 +3,17 @@
 use crate::content::{
     BLOCK_STATE_STONE, CAMPFIRE_CHIP_FUEL_MASS, CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE,
     FORM_CHIP, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    make_test_registries_with_energy_store,
 };
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Energy, Mass, Power};
 use crate::core::state::AppState;
 use crate::energy::{
-    passive_dissipation_ticks_until_empty, validate_assemble_energy_store, validate_combust_fuel,
-    validate_combust_selected_fuel,
+    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    add_energy_store_with_initial_for_fixture, passive_dissipation_ticks_until_empty,
+    validate_assemble_energy_store, validate_combust_fuel, validate_combust_selected_fuel,
 };
 use crate::inventory::deposit_bulk_for_test;
+use crate::logistics::place_energy_store_for_fixture;
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -223,5 +226,109 @@ fn finite_campfire_light_appears_only_while_stored_heat_exists() {
     assert_eq!(
         project_local_light_sources(&registries, &state)[0].level(),
         chip_light.level()
+    );
+}
+
+#[test]
+fn local_light_index_excludes_remote_emitters_rebuilds_and_preserves_stable_ties() {
+    let definition = EnergyStoreDefinitionId::new(930_405);
+    let registries = make_test_registries_with_energy_store(
+        EnergyStoreDefinition::new_with_transfer_limits(
+            definition,
+            "bounded resident light",
+            EnergyCarrier::Electrical,
+            Energy::from_nanojoules(1_000),
+            Power::ZERO,
+            Power::from_microwatts(10),
+        )
+        .with_passive_dissipation_power(Power::from_microwatts(1))
+        .with_local_light_source(15),
+    );
+    let mut state = AppState::new();
+    let center = VoxelCoord::new(0, 0, 0);
+    let placements = [
+        center,
+        VoxelCoord::new(14, 0, 0),
+        VoxelCoord::new(15, 0, 0),
+        center,
+        VoxelCoord::new(-15, 0, 0),
+        VoxelCoord::new(900_000, 0, 0),
+        VoxelCoord::new(i64::MAX, 0, 0),
+    ];
+    let mut ids = Vec::new();
+    for position in placements {
+        let store = add_energy_store_with_initial_for_fixture(
+            &registries,
+            &mut state,
+            definition,
+            Energy::from_nanojoules(1_000),
+        )
+        .unwrap();
+        place_energy_store_for_fixture(&mut state, store, position);
+        ids.push(store);
+    }
+    let nearby = state
+        .logistics()
+        .energy_store_locations_near(center, 14)
+        .into_iter()
+        .map(|(store, _)| store)
+        .collect::<Vec<_>>();
+    assert_eq!(nearby, [ids[0], ids[1], ids[3]]);
+    assert!(state.logistics().has_valid_energy_position_index());
+    assert_eq!(
+        project_local_light_sources(&registries, &state).len(),
+        placements.len()
+    );
+    let before = assess_local_illumination(&registries, &state, center);
+    assert_eq!(before.level(), 15);
+    assert_eq!(before.strongest_source(), Some(ids[0]));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        !String::from_utf8_lossy(&saved).contains("energy_stores_by_position"),
+        "location index must not become independent persistent world truth"
+    );
+    let envelope: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut loaded = envelope.into_state(&registries).unwrap();
+    assert_eq!(state, loaded);
+    assert_eq!(
+        loaded
+            .logistics()
+            .energy_store_locations_near(center, 14)
+            .len(),
+        3
+    );
+    assert_eq!(
+        assess_local_illumination(&registries, &loaded, center),
+        before
+    );
+
+    let old_revision = loaded.logistics().revision();
+    loaded
+        .logistics_state_mut()
+        .apply_energy_store_location_removal(old_revision, old_revision + 1, ids[0], center);
+    assert!(loaded.logistics().has_valid_energy_position_index());
+    assert_eq!(
+        assess_local_illumination(&registries, &loaded, center).strongest_source(),
+        Some(ids[3]),
+        "removing the oldest co-located emitter must preserve the next stable winner"
+    );
+    let revision = loaded.logistics().revision();
+    loaded
+        .logistics_state_mut()
+        .apply_energy_store_location_removal(revision, revision + 1, ids[3], center);
+    assert!(loaded.logistics().has_valid_energy_position_index());
+    assert_eq!(
+        loaded.logistics().energy_store_locations_near(center, 0),
+        Vec::new(),
+        "removing the last colocated source removes its empty position bucket"
+    );
+    assert_eq!(
+        assess_local_illumination(&registries, &loaded, center).level(),
+        0
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &loaded),
+        Ok(())
     );
 }

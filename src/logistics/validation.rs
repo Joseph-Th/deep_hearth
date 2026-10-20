@@ -97,6 +97,7 @@ pub enum LogisticsValidationError {
     UnknownLocatedEnergyStore {
         store: EnergyStoreId,
     },
+    EnergyStorePositionIndexInconsistent,
     UnknownLocatedFluidStore {
         store: FluidStoreId,
     },
@@ -176,6 +177,9 @@ impl Display for LogisticsValidationError {
                 "energy-store location references missing store {}",
                 store.value()
             ),
+            Self::EnergyStorePositionIndexInconsistent => {
+                formatter.write_str("energy-store spatial lookup disagrees with location custody")
+            }
             Self::UnknownLocatedFluidStore { store } => write!(
                 formatter,
                 "fluid-store location references missing store {}",
@@ -724,6 +728,9 @@ fn validate_energy_store_locations(
     state: &LogisticsState,
     energy: &EnergyState,
 ) -> Result<(), LogisticsValidationError> {
+    if !state.has_valid_energy_position_index() {
+        return Err(LogisticsValidationError::EnergyStorePositionIndexInconsistent);
+    }
     for (store, _) in state.energy_store_locations() {
         if energy.get_store(store).is_none() {
             return Err(LogisticsValidationError::UnknownLocatedEnergyStore { store });

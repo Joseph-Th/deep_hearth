@@ -98,6 +98,10 @@ impl CombustionProfile {
     }
 }
 
+/// Every authored finite block-light source is bounded by this emission level.
+/// A local illumination query can therefore ignore stores farther than this minus one voxel.
+pub(super) const MAX_LOCAL_LIGHT_LEVEL: u8 = 15;
+
 /// Immutable authored capacity and directional transfer envelopes for one energy-store class.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnergyStoreDefinition {
@@ -213,7 +217,7 @@ impl EnergyStoreDefinition {
     /// bounded to the familiar 0..=15 block-light presentation range.
     #[must_use]
     pub fn with_local_light_source(mut self, level: u8) -> Self {
-        assert!((1..=15).contains(&level));
+        assert!((1..=MAX_LOCAL_LIGHT_LEVEL).contains(&level));
         assert!(!self.passive_dissipation_power.is_zero());
         assert_eq!(self.local_light_level, 0);
         self.local_light_level = level;
