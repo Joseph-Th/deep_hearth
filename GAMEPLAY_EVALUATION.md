@@ -298,6 +298,16 @@ trail guarding in one generated opening. Owner tests also demonstrate that a
 den filled during a distant approach cancels the raid. The original patrol,
 trusted save/load continuation, and exact matter accounting remain intact.
 
+A separate generated-world continuation exhausts the junction's natural wild nuts
+through ordinary player gathering and compares guarding the neighboring berry
+source with withdrawing beyond the scout's deterrence range. Once the junction
+source is gone, a scout takes a real one-edge detour to berries, extracts a
+finite 100 g source-derived catch into an adjacent loose parcel on its return,
+and transports that same lot to the den. The player inspects the exact berry
+source mass locally and recovers the conserved den parcel using normal pickup.
+Trusted save/load replays the in-flight catch, while owner tests verify profile,
+provenance, age, 100-tick cooldown, and the last 50 g of den capacity.
+
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
 contracts cannot establish whether an individual experienced an interesting tradeoff. Inspect

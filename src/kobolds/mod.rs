@@ -517,6 +517,34 @@ fn reachable_far_drop(
     })
 }
 
+/// When the junction's own wild food is exhausted, investigate one reachable
+/// neighboring food patch. Foraging stays source-owned and physically adjacent:
+/// the scout creates its catch only while retreating from the patch.
+fn reachable_side_food(
+    registries: &Registries,
+    state: &AppState,
+    junction: VoxelCoord,
+    den: VoxelCoord,
+    authored_tip: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+) -> Option<VoxelCoord> {
+    state.surface().resources().find_map(|resource| {
+        let destination = resource.position();
+        (resource.kind() == SurfaceResourceKind::Opportunity
+            && resource.lifecycle() == SurfaceResourceLifecycle::Available
+            && resource.commodity().form() == crate::content::FORM_FOOD
+            && !resource.remaining_mass().is_zero()
+            && destination != den
+            && destination != junction
+            && destination != authored_tip
+            && state.logistics().has_traversal_edge(junction, destination)
+            && scout_can_enter(registries, state, destination, player_position)
+            && assess_local_illumination(registries, state, destination).level()
+                < SCOUT_DETERRENT_LIGHT_LEVEL)
+            .then_some(destination)
+    })
+}
+
 fn choose_outbound_detour(
     registries: &Registries,
     state: &AppState,
@@ -525,6 +553,7 @@ fn choose_outbound_detour(
     returning: bool,
     player_position: Option<VoxelCoord>,
     den_space: Mass,
+    forage_ready: bool,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
     if step != 2 || returning || colony.scout_step != 1 {
         return None;
@@ -551,6 +580,21 @@ fn choose_outbound_detour(
             den_space,
         )
         .map(|(first, goal)| (first, Some(goal)))
+    })
+    .or_else(|| {
+        let local_food_remains =
+            state
+                .surface()
+                .available_resources_at(Some(junction))
+                .any(|resource| {
+                    resource.kind() == SurfaceResourceKind::Opportunity
+                        && resource.commodity().form() == crate::content::FORM_FOOD
+                        && !resource.remaining_mass().is_zero()
+                });
+        (forage_ready && !den_space.is_zero() && !local_food_remains)
+            .then(|| reachable_side_food(registries, state, junction, den, tip, player_position))
+            .flatten()
+            .map(|destination| (destination, None))
     })
 }
 
@@ -607,6 +651,7 @@ fn plan_scout_move(
     exposed_at_current: bool,
     player_position: Option<VoxelCoord>,
     den_space: Mass,
+    forage_ready: bool,
 ) -> ScoutMovePlan {
     let wary_at_den = colony.scout_step == 0
         && !pressured
@@ -624,6 +669,7 @@ fn plan_scout_move(
         proposed_returning,
         player_position,
         den_space,
+        forage_ready,
     );
     let proposed_position = proposed_detour.map_or_else(
         || colony.position_at_step(proposed_step),
@@ -720,6 +766,7 @@ pub(crate) fn apply_kobold_scout_tick(
         exposed_at_current,
         player_position,
         den_space,
+        forage_ready,
     );
     let ScoutMovePlan {
         step,
@@ -808,7 +855,7 @@ pub(crate) fn apply_kobold_scout_tick(
     // transaction that leaves the finite catch recoverable.
     let forage_source = (can_move
         && returning
-        && step == 0
+        && step <= 1
         && relocated_drop.is_none()
         && split_drop.is_none()
         && !pressured
@@ -849,7 +896,9 @@ pub(crate) fn apply_kobold_scout_tick(
             step,
             returning,
             detour,
-            relocated_drop.or(split_drop.map(|(id, _)| id)),
+            relocated_drop
+                .or(split_drop.map(|(id, _)| id))
+                .or_else(|| (step > 0).then(|| foraged_food.map(|(id, _)| id)).flatten()),
         );
     }
     if pressured {

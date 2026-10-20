@@ -40,6 +40,200 @@ fn generated_opening() -> (crate::Registries, AppState, VoxelCoord) {
     (registries, state, spawn)
 }
 
+/// Gather every locally observed nut through the same player work owner used
+/// in gameplay. The real remaining surface source, not a flag on the scout,
+/// then drives its decision to seek the neighboring berry opportunity.
+fn exhaust_junction_nuts(
+    registries: &crate::Registries,
+    state: &mut AppState,
+) -> (VoxelCoord, VoxelCoord, crate::surface::SurfaceResourceId) {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES, MATERIAL_WILD_NUTS};
+    use crate::surface::{
+        player_surface_gathering_options, validate_start_player_surface_gathering_option,
+    };
+    let junction = colony(state).route[1];
+    let forage = state
+        .logistics()
+        .traversable_destinations(junction)
+        .find(|position| {
+            state
+                .surface()
+                .available_resources_at(Some(*position))
+                .any(|resource| {
+                    resource.commodity() == CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)
+                })
+        })
+        .expect("opening provides an adjacent berry opportunity");
+    let source = state
+        .surface()
+        .available_resources_at(Some(forage))
+        .find(|resource| resource.commodity() == CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD))
+        .unwrap()
+        .id();
+    let nuts = state
+        .surface()
+        .available_resources_at(Some(junction))
+        .find(|resource| resource.commodity() == CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD))
+        .unwrap()
+        .id();
+    validate_admit_player(registries, state, junction)
+        .unwrap()
+        .commit(state)
+        .unwrap();
+    while state.surface().get(nuts).unwrap().remaining_mass() != Mass::ZERO {
+        let option = player_surface_gathering_options(registries, state)
+            .unwrap()
+            .into_iter()
+            .find(|option| option.resource() == nuts)
+            .unwrap();
+        let batch = state
+            .surface()
+            .get(nuts)
+            .unwrap()
+            .remaining_mass()
+            .min(option.maximum_batch_mass());
+        validate_start_player_surface_gathering_option(registries, state, option, batch)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+        for _ in 0..100 {
+            if state.player_work().active().is_none() {
+                break;
+            }
+            let _ = advance_tick(registries, state).unwrap();
+        }
+        assert!(
+            state.player_work().active().is_none(),
+            "authoritative surface gathering must finish before the scout arrives"
+        );
+    }
+    // Clay lies two graph edges from forage and three from the junction, so
+    // relocation in this owner test cannot intimidate either scout leg.
+    let water = state
+        .logistics()
+        .traversable_destinations(forage)
+        .find(|position| {
+            *position != junction
+                && state.logistics().has_traversal_edge(
+                    *position,
+                    state
+                        .logistics()
+                        .traversable_destinations(*position)
+                        .find(|next| *next != forage)
+                        .unwrap(),
+                )
+        })
+        .expect("opening berry branch reaches the water cell");
+    let clay = state
+        .logistics()
+        .traversable_destinations(water)
+        .find(|position| *position != forage)
+        .unwrap();
+    crate::logistics::relocate_player_for_test(state, clay);
+    (junction, forage, source)
+}
+
+#[test]
+fn scout_switches_to_neighboring_wild_food_and_carries_its_catch_home() {
+    let (registries, mut state, _) = generated_opening();
+    let den = colony(&state).route[0];
+    let (junction, forage, berries) = exhaust_junction_nuts(&registries, &mut state);
+    assert!(state.tick().value() < 180);
+    let original = state.surface().get(berries).unwrap().clone();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), forage);
+    assert_eq!(colony(&state).detour, Some(forage));
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scout_position(), junction);
+    let caught = colony(&state)
+        .scavenged_drop
+        .expect("side forage produces carried world matter");
+    let catch = state.surface().get(caught).unwrap();
+    assert_eq!(catch.position(), junction);
+    assert_eq!(catch.remaining_mass(), Mass::from_milligrams(100_000));
+    assert_eq!(catch.material_provenance(), original.material_provenance());
+    assert_eq!(catch.composition(), original.composition());
+    assert_eq!(
+        catch.ambient_storage_age_parts_at(state.tick()),
+        original.ambient_storage_age_parts_at(state.tick())
+    );
+    assert_eq!(
+        state.surface().get(berries).unwrap().remaining_mass(),
+        original
+            .remaining_mass()
+            .checked_sub(Mass::from_milligrams(100_000))
+            .unwrap()
+    );
+    assert_eq!(
+        colony(&state).next_forage_at,
+        Some(SimulationTick::new(290))
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut loaded = decoded
+        .into_state(&registries)
+        .expect("carried wild catch must persist");
+    for _ in 0..5 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut loaded).unwrap()
+        );
+    }
+    assert_eq!(state, loaded);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(colony(&state).detour, None);
+    assert_eq!(state.surface().get(caught).unwrap().position(), den);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn side_foraging_stops_at_the_remaining_den_capacity() {
+    let (registries, mut state, _) = generated_opening();
+    let den = colony(&state).route[0];
+    let (_, forage, berries) = exhaust_junction_nuts(&registries, &mut state);
+    let before = state.surface().get(berries).unwrap().remaining_mass();
+    let hoard = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(450_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [hoard])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), forage);
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(
+        state.surface().get(berries).unwrap().remaining_mass(),
+        before.checked_sub(Mass::from_milligrams(50_000)).unwrap()
+    );
+    assert_eq!(super::den_cache_space(&state, den), Mass::ZERO);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
 #[test]
 fn kobold_scouts_wait_then_patrol_and_only_report_near_player() {
     let (registries, mut state, spawn) = generated_opening();

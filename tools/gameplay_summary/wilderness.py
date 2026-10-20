@@ -584,6 +584,32 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"exposed:{cache}mg stolen:{stolen}mg reclaimed:{recovered}mg "
             f"intercepted:{intercepted}mg reach:2-edges guarded:safe]"
         )
+    side_events = [line for line in lines if line.startswith("KOBOLD SIDE FOOD EXPERIENCE ")]
+    if len(side_events) > 1:
+        raise ValueError("wilderness report has duplicate alternate wild-food scout episodes")
+    side_food = ""
+    if side_events:
+        witness = re.search(
+            r"\bsource-before:(\d+)mg guarded:(\d+)mg source-after:(\d+)mg "
+            r"foraged:(\d+)mg recovered:(\d+)mg depleted-junction:(true|false) "
+            r"physical-return:(true|false) save-replay:(true|false) matter-conserved:(true|false)",
+            side_events[0],
+        )
+        if witness is None:
+            raise ValueError("alternate wild-food forage lacks finite source custody evidence")
+        before, guarded, after, foraged, recovered = (
+            int(witness.group(i)) for i in range(1, 6)
+        )
+        if (before <= 0 or guarded != before
+                or before - after != foraged or not 0 < foraged <= 100_000
+                or recovered != foraged
+                or any(witness.group(i) != "true" for i in range(6, 10))):
+            raise ValueError("alternate wild-food forage must conserve guarded and recovered fruit")
+        side_food = (
+            "scout-side-food=["
+            f"source:{_mass_kg(before)}kg foraged:{_mass_kg(foraged)}kg "
+            f"guarded:{_mass_kg(guarded)}kg recovered:{_mass_kg(recovered)}kg]"
+        )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:
         sample_shape += f" organic:{len(organic)}"
@@ -606,6 +632,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{detour + ' ' if detour else ''}"
         f"{bulk + ' ' if bulk else ''}"
         f"{camp_cache + ' ' if camp_cache else ''}"
+        f"{side_food + ' ' if side_food else ''}"
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"
