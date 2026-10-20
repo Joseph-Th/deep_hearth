@@ -13,6 +13,7 @@ This page is not implementation evidence. Use
 | How should the game stay immediately familiar while deeper systems remain learnable? | [Familiar interaction shell](#familiar-interaction-shell); [Mechanical parity floor](#mechanical-parity-floor); [Control-oriented legibility](#control-oriented-legibility) |
 | What does the player repeatedly do and which economies interact? | [Player loop](#player-loop) |
 | What experience should each major system eventually create? | [System direction](#system-direction) |
+| How should enemies behave as persistent world inhabitants? | [Living-world adversaries](#living-world-adversaries) |
 | How should capability and industrial scale progress? | [Progression](#progression) |
 | What information must decisions expose and when does a mechanic belong? | [Player information](#player-information); [Mechanic acceptance](#mechanic-acceptance) |
 | What future-development preference follows from the design, and what is outside this page? | [Development direction](#development-direction); [Boundary](#boundary) |
@@ -202,8 +203,35 @@ Resources should usually have competing uses. Every material or social sink need
 | Maintenance | Wear changes performance, reliability, precision, safety, and spare-part demand. Technology changes maintenance work rather than removing it. |
 | Survival and food | Survival pressures are legible and increasingly managed through preparation, preservation, stable supply, and infrastructure. Dietary breadth affects recovery. |
 | Agriculture and ecology | Crop choice, climate, soil, nutrients, moisture, populations, disease, habitat, and domestication form changing managed systems. |
+| Creatures and adversaries | Hunger, shelter, territories, finite supplies, and social pressures make wildlife and hostile groups respond to world changes. Scouting, theft, defense, negotiation, flight, and eventual combat have physical causes rather than arbitrary player-centered spawns. |
 | Workers and settlements | Skill, organization, specialization, trade, transport, and continuing economic relationships shift work away from direct player input. |
 | Sanitation and environment | Dense settlement and industry create physical waste, pollution, water-quality, and habitat constraints that require management. |
+
+### Living-world adversaries
+
+Enemies are residents of the same world as the player, not combat encounters materialized for convenience.
+A camp, animal territory, or hostile settlement has a real location, resources, routes, needs, and consequences
+while the player is elsewhere. Foraging removes finite food from its source; taking supplies relocates owned
+matter; eating transfers it to a conserved biological-consumption boundary. A stolen parcel remains recoverable
+until it is consumed, destroyed by an authored process, or carried beyond the player's reach through real travel.
+Storage capacity, spoilage, weather, lighting, access, injuries, fear, and scarcity should matter to adversaries
+through shared world facts, not separate scripted exceptions.
+
+Adversarial behavior should have a legible progression: establish safety and food, observe and explore local
+paths, take unattended opportunity, defend or retreat when challenged, and return to habitation to recover.
+The player should be able to recognize tracks and activity, interrupt a raid, secure storage, guard a route,
+use illumination or terrain, recover supplies, or choose to coexist. Future combat should extend the same
+physical actor, inventory, injury, equipment, and observation boundaries instead of replacing this ecology
+with a separate encounter simulation. Species and factions may have different incentives, but no actor
+may know undiscovered remote player inventory or ignore a blocked real route.
+
+Simulation cost must follow relevant activity, not total world history. Schedule slow needs, population
+transitions, and remote settlement obligations at bounded authoritative deadlines; run fine-grained motion,
+sensing, and tactical decisions only for actors that need local physical resolution. Search spatially indexed
+nearby opportunities and traversable paths with explicit work budgets. Persist the minimal state needed
+for deterministic continuation, including offscreen deadlines and conserved custody, and promote dormant
+actors without teleporting resources, rerolling outcomes, or simulating every absent frame. Observability
+and performance are acceptance criteria alongside world conservation and compelling behavior.
 
 ## Progression
 

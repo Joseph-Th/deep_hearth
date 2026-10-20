@@ -4,16 +4,19 @@
 //! their authored retreat route to a recoverable den. The surface owner moves the same parcel
 //! step by step; no mass disappears and player interception remains possible. Combat is separate.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MaterialId};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceLifecycle};
 
+mod feeding;
 mod patrol;
 mod scavenging;
 mod visibility;
@@ -35,6 +38,10 @@ const SCOUT_FORAGE_BATCH: Mass = Mass::from_milligrams(100_000);
 const SCOUT_BULK_SPLIT_BATCH: Mass = Mass::from_milligrams(250_000);
 /// Avoid stripping a food patch on every 72-second scout circuit.
 const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
+/// One 20 g meal every 24 physical minutes is about 1.2 kg/day for a small
+/// humanoid. Food stays recoverable between visits and frees finite den space.
+const SCOUT_MEAL_INTERVAL_TICKS: u64 = 400;
+const SCOUT_MEAL_MASS: Mass = Mass::from_milligrams(20_000);
 /// A chased scout stays wary for 2.4 simulation minutes after the most recent threat.
 const SCOUT_WARY_INTERVAL_TICKS: u64 = 40;
 /// A low, dying ember does not repel the same scout as a maintained bright fire.
@@ -86,6 +93,7 @@ pub struct KoboldScoutEvent {
     abandoned_drop: Option<SurfaceResourceId>,
     foraged_food: Option<(SurfaceResourceId, Mass)>,
     split_drop: Option<(SurfaceResourceId, Mass)>,
+    consumed_food: Option<(SurfaceResourceId, Mass)>,
 }
 
 impl KoboldScoutEvent {
@@ -146,6 +154,12 @@ impl KoboldScoutEvent {
     pub const fn split_drop(self) -> Option<(SurfaceResourceId, Mass)> {
         self.split_drop
     }
+
+    /// A nearby scout consumed finite food at its den on this step.
+    #[must_use]
+    pub const fn consumed_food(self) -> Option<(SurfaceResourceId, Mass)> {
+        self.consumed_food
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +180,8 @@ struct KoboldColony {
     noticed_player_drop: bool,
     scavenged_drop: Option<SurfaceResourceId>,
     next_forage_at: Option<SimulationTick>,
+    /// Regular meal opportunity, advanced only on the low-frequency scout clock.
+    next_meal_at: SimulationTick,
     /// Caution survives saves and expires on the same five-tick scout clock.
     #[serde(deserialize_with = "required_optional_wary_tick")]
     wary_until: Option<SimulationTick>,
@@ -287,17 +303,31 @@ impl KoboldColony {
 #[serde(deny_unknown_fields)]
 pub(crate) struct KoboldState {
     colony: Option<KoboldColony>,
+    /// Terminal consumed-food custody retained by original material, not deleted matter.
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
+    consumed_matter: BTreeMap<MaterialId, AggregateMass>,
 }
 
 impl KoboldState {
     #[must_use]
     pub(crate) const fn new() -> Self {
-        Self { colony: None }
+        Self {
+            colony: None,
+            consumed_matter: BTreeMap::new(),
+        }
     }
 
     #[must_use]
-    pub(crate) const fn is_pristine(&self) -> bool {
-        self.colony.is_none()
+    pub(crate) fn is_pristine(&self) -> bool {
+        self.colony.is_none() && self.consumed_matter.is_empty()
+    }
+
+    pub(crate) fn consumed_matter(&self) -> impl Iterator<Item = (MaterialId, AggregateMass)> + '_ {
+        self.consumed_matter.iter().map(|(id, mass)| (*id, *mass))
+    }
+
+    fn apply_meal(&mut self, material: MaterialId, total: AggregateMass) {
+        self.consumed_matter.insert(material, total);
     }
 
     /// Called within the already prechecked initial-wilderness generation transaction.
@@ -316,6 +346,7 @@ impl KoboldState {
             noticed_player_drop: false,
             scavenged_drop: None,
             next_forage_at: None,
+            next_meal_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS),
             wary_until: None,
         });
     }
@@ -355,10 +386,48 @@ pub fn available_nearby_kobold_scouts<'a>(
     })
 }
 
+fn validate_meal_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'static str> {
+    let next = colony.next_meal_at.value();
+    let first = FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS;
+    if next < first
+        || (next - FIRST_SCOUT_TICK) % SCOUT_MEAL_INTERVAL_TICKS != 0
+        || next <= current
+        || (current < first && next != first)
+        || (current >= first && next - current > SCOUT_MEAL_INTERVAL_TICKS)
+    {
+        return Err("kobold meal schedule is not aligned with authoritative time");
+    }
+    Ok(())
+}
+
+fn validate_consumed_matter(
+    registries: &Registries,
+    state: &KoboldState,
+) -> Result<(), &'static str> {
+    if state.consumed_matter.values().any(|mass| mass.is_zero())
+        || state
+            .consumed_matter
+            .keys()
+            .any(|material| registries.materials().get_material(*material).is_none())
+    {
+        return Err("kobold consumption ledger has invalid materials or zero mass");
+    }
+    Ok(())
+}
+
 /// Full save-admission validation of persistent colony topology and patrol continuation.
-pub(crate) fn validate_loaded_kobolds(state: &AppState) -> Result<(), &'static str> {
+pub(crate) fn validate_loaded_kobolds(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), &'static str> {
+    validate_consumed_matter(registries, state.kobold_state())?;
     let Some(colony) = state.kobold_state().colony.as_ref() else {
-        return Ok(());
+        return state
+            .kobold_state()
+            .consumed_matter
+            .is_empty()
+            .then_some(())
+            .ok_or("uninhabited kobold state contains consumed matter");
     };
     if colony.scout_step > 3
         || (colony.scout_step == 3 && (colony.returning || colony.detour_goal.is_none()))
@@ -393,6 +462,7 @@ pub(crate) fn validate_loaded_kobolds(state: &AppState) -> Result<(), &'static s
         return Err("kobold patrol lacks authoritative wilderness traversal edges");
     }
     let current = state.tick().value();
+    validate_meal_schedule(colony, current)?;
     if let Some(wary_until) = colony.wary_until {
         let due = wary_until.value();
         if due < FIRST_SCOUT_TICK + SCOUT_WARY_INTERVAL_TICKS

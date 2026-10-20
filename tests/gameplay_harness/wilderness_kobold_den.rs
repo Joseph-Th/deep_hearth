@@ -77,10 +77,9 @@ pub(super) fn exercise_kobold_den_cache(print: bool) {
         .find(|source| source.commodity() == nuts)
         .expect("full den cannot consume the entire source")
         .remaining_mass();
-    let hoard = initial
+    let used_food = initial
         .checked_sub(remaining_when_full)
         .expect("unattended patch must not grow");
-    assert_eq!(hoard, Mass::from_milligrams(500_000));
 
     // Only adjacent exposed world parcels reveal the den; the fixture must not
     // read the colony's remote route. Pick the goods up via the actual control owner.
@@ -95,26 +94,29 @@ pub(super) fn exercise_kobold_den_cache(print: bool) {
         "recover full den hoard",
     );
     for _ in 0..24 {
-        if state
-            .inventory()
-            .get_stockpile(carried)
-            .is_some_and(|pile| pile.stored_mass() == hoard)
-        {
+        if available_player_world_drops(&state).next().is_none() {
             break;
         }
         let _ = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("den cache ordinary pickup failed: {error}"));
     }
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(carried)
-            .unwrap()
-            .stored_mass(),
-        hoard,
-        "den raid must reclaim all five original parcels through normal pickup",
-    );
     assert!(available_player_world_drops(&state).next().is_none());
+    let hoard = state
+        .inventory()
+        .get_stockpile(carried)
+        .unwrap()
+        .stored_mass();
+    assert_eq!(
+        hoard,
+        Mass::from_milligrams(500_000),
+        "player recovers only the physically staged den parcels"
+    );
+    let eaten = calculate_matter_accounting(&state).unwrap().consumed();
+    assert_eq!(
+        u128::from(used_food.milligrams()),
+        u128::from(hoard.milligrams()) + eaten.milligrams(),
+        "foraged food is either recoverable in the den or conserved as consumed matter"
+    );
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
         conserved
@@ -184,12 +186,13 @@ pub(super) fn exercise_kobold_den_cache(print: bool) {
             new_foraging.milligrams(),
         );
         std::println!(
-            "KOBOLD CACHE EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-den source-before:{}mg source-full:{}mg hoard:{}mg reclaimed:{}mg reopened:{}mg finite-storage=true matter-conserved=true",
+            "KOBOLD CACHE EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-den source-before:{}mg source-full:{}mg hoard:{}mg reclaimed:{}mg eaten:{}mg reopened:{}mg finite-storage=true matter-conserved=true",
             seed.value(),
             initial.milligrams(),
             remaining_when_full.milligrams(),
             hoard.milligrams(),
             hoard.milligrams(),
+            eaten.milligrams(),
             new_foraging.milligrams(),
         );
     }

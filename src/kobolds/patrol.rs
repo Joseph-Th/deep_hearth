@@ -12,6 +12,7 @@ use crate::surface::{
 };
 use crate::survival::Vitality;
 
+use super::feeding::apply_scheduled_den_meal;
 use super::scavenging::{
     den_cache_space, is_contestable_drop, is_portable_drop, reachable_far_drop,
     reachable_side_drop, reachable_side_food, scout_loot_priority,
@@ -224,6 +225,14 @@ pub(crate) fn apply_kobold_scout_tick(
     let pressured_by_light =
         assess_local_illumination(registries, state, from).level() >= SCOUT_DETERRENT_LIGHT_LEVEL;
     let pressured = pressured_by_player || pressured_by_light;
+    // Meals use the existing sparse scout schedule, never a per-control-tick AI update.
+    // Den resources remain physically recoverable until they are actually eaten.
+    let consumed_food = apply_scheduled_den_meal(registries, state, from, next_tick, pressured);
+    let colony = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .expect("colony still exists");
     let den_space = den_cache_space(state, colony.route[0]);
     let exposed_at_current = state
         .surface()
@@ -397,7 +406,12 @@ pub(crate) fn apply_kobold_scout_tick(
     }
     colony.noticed_player_drop |= discovered || relocated_drop.is_some() || split_drop.is_some();
     let scout_position = colony.scout_position();
-    let visible = (can_move || abandoned_drop.is_some())
+    // A scout emerging from an occluded den must not disclose the identity
+    // or mass of food eaten out of the observer's line of sight.
+    let observed_meal = consumed_food.filter(|_| {
+        player_position.is_some_and(|player| scout_visible_from(registries, state, from, player))
+    });
+    let visible = (can_move || abandoned_drop.is_some() || observed_meal.is_some())
         && player_position
             .is_some_and(|player| scout_visible_from(registries, state, scout_position, player));
     visible.then_some(KoboldScoutEvent {
@@ -411,5 +425,6 @@ pub(crate) fn apply_kobold_scout_tick(
         abandoned_drop,
         foraged_food,
         split_drop,
+        consumed_food: observed_meal,
     })
 }

@@ -87,7 +87,7 @@ pub fn validate_loaded_state(
         state.control_tick(),
     )
     .map_err(StateValidationError::Surface)?;
-    validate_loaded_kobolds(state).map_err(StateValidationError::Kobolds)?;
+    validate_loaded_kobolds(registries, state).map_err(StateValidationError::Kobolds)?;
     validate_loaded_inventory(
         registries.materials(),
         &state.systems.inventory,

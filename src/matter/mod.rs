@@ -87,7 +87,7 @@ impl MatterAccounting {
         self.in_process
     }
 
-    /// Food matter transferred into the terminal survival-consumption conservation boundary.
+    /// Food transferred into terminal player and kobold consumption custody.
     /// This is cumulative consumed matter, not live body mass.
     #[must_use]
     pub const fn consumed(self) -> AggregateMass {
@@ -282,7 +282,11 @@ fn calculate_in_process_mass(state: &AppState) -> Result<AggregateMass, MatterAc
 
 fn calculate_consumed_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
     sum_masses(
-        state.survival().consumed_matter().map(|(_, mass)| mass),
+        state
+            .survival()
+            .consumed_matter()
+            .chain(state.kobold_state().consumed_matter())
+            .map(|(_, mass)| mass),
         MatterAccountingError::ConsumedMassOverflow,
     )
 }

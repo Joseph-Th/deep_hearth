@@ -492,24 +492,25 @@ def wilderness_summary(lines: list[str]) -> str | None:
     if den_events:
         recovered_cache = re.search(
             r"\bsource-before:(\d+)mg source-full:(\d+)mg "
-            r"hoard:(\d+)mg reclaimed:(\d+)mg reopened:(\d+)mg "
+            r"hoard:(\d+)mg reclaimed:(\d+)mg eaten:(\d+)mg reopened:(\d+)mg "
             r"finite-storage=(true|false) matter-conserved=(true|false)",
             den_events[0],
         )
         if recovered_cache is None:
             raise ValueError("kobold cache experience has no player recovery/reopening evidence")
-        source, left, stored, reclaimed, reopened = (
-            int(recovered_cache.group(i)) for i in range(1, 6)
+        source, left, stored, reclaimed, eaten, reopened = (
+            int(recovered_cache.group(i)) for i in range(1, 7)
         )
-        if (source - left != stored or stored != 500_000
+        if (source - left != stored + eaten or stored != 500_000
+                or eaten <= 0
                 or reclaimed != stored or reopened <= 0
-                or reopened > left or recovered_cache.group(6) != "true"
-                or recovered_cache.group(7) != "true"):
+                or reopened > left or recovered_cache.group(7) != "true"
+                or recovered_cache.group(8) != "true"):
             raise ValueError("scout den cache lacks finite, recoverable and reversible behavior")
         den_raid = (
             "scout-cache=["
             f"capacity:{_mass_kg(stored)}kg reclaimed:{_mass_kg(reclaimed)}kg "
-            f"reopened:{_mass_kg(reopened)}kg]"
+            f"consumed:{_mass_kg(eaten)}kg reopened:{_mass_kg(reopened)}kg]"
         )
     detours = [line for line in lines if line.startswith("KOBOLD DETOUR EXPERIENCE ")]
     if len(detours) > 1:

@@ -271,7 +271,7 @@ fn kobold_scouts_wait_then_patrol_and_only_report_near_player() {
             .position(),
         event.position()
     );
-    assert_eq!(validate_loaded_kobolds(&state), Ok(()));
+    assert_eq!(validate_loaded_kobolds(&registries, &state), Ok(()));
 }
 
 #[test]
@@ -1066,10 +1066,19 @@ fn scout_den_caps_natural_foraging_without_destroying_unharvested_food() {
         .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
         .map(|resource| resource.remaining_mass().milligrams())
         .sum::<u64>();
-    assert_eq!(hoard, 500_000);
+    assert!(hoard <= 500_000);
+    let consumed = state
+        .kobold_state()
+        .consumed_matter()
+        .map(|(_, mass)| mass.milligrams())
+        .sum::<u128>();
+    assert!(consumed > 0, "the resident scout must eat from its den");
+    let extracted = before
+        .checked_sub(state.surface().get(food).unwrap().remaining_mass())
+        .unwrap();
     assert_eq!(
-        state.surface().get(food).unwrap().remaining_mass(),
-        before.checked_sub(Mass::from_milligrams(hoard)).unwrap()
+        u128::from(extracted.milligrams()),
+        u128::from(hoard) + consumed
     );
 
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -1077,23 +1086,197 @@ fn scout_den_caps_natural_foraging_without_destroying_unharvested_food() {
     let mut loaded = decoded
         .into_state(&registries)
         .expect("full den cache must persist with its forage schedule");
-    for _ in 0..200 {
+    for _ in 0..400 {
         assert_eq!(
             advance_tick(&registries, &mut state).unwrap(),
             advance_tick(&registries, &mut loaded).unwrap()
         );
     }
     assert_eq!(state, loaded);
-    assert_eq!(
-        state.surface().get(food).unwrap().remaining_mass(),
-        before.checked_sub(Mass::from_milligrams(hoard)).unwrap(),
-        "a full den must stop further competition even while natural food remains"
+    let current = state.surface().get(food).unwrap().remaining_mass();
+    assert!(
+        current < before.checked_sub(extracted).unwrap(),
+        "feeding must free den space for later, physically gathered food"
     );
+    let hoard_after = state
+        .surface()
+        .available_resources_at(Some(den))
+        .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
+        .map(|resource| resource.remaining_mass().milligrams())
+        .sum::<u64>();
+    assert!(hoard_after <= 500_000);
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())
     );
+}
+
+#[test]
+fn den_meals_transfer_only_fresh_local_food_into_conserved_consumption() {
+    let (registries, mut state, _) = generated_opening();
+    let den = colony(&state).route[0];
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 579);
+    let source = state
+        .surface()
+        .available_resources_at(Some(den))
+        .find(|resource| {
+            resource.kind() == SurfaceResourceKind::Drop
+                && resource.commodity().form() == crate::content::FORM_FOOD
+        })
+        .expect("scout must have foraged an edible den parcel before its meal");
+    let food = source.id();
+    let mass_before = source.remaining_mass();
+    assert_eq!(colony(&state).next_meal_at, SimulationTick::new(580));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        0
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut restored = loaded.into_state(&registries).unwrap();
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut restored).unwrap()
+    );
+    assert_eq!(state, restored);
+    assert_eq!(colony(&state).next_meal_at, SimulationTick::new(980));
+    assert_eq!(
+        state.surface().get(food).unwrap().remaining_mass(),
+        mass_before
+            .checked_sub(Mass::from_milligrams(20_000))
+            .unwrap()
+    );
+    assert_eq!(
+        state
+            .kobold_state()
+            .consumed_matter()
+            .map(|(_, mass)| mass.milligrams())
+            .sum::<u128>(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    for _ in 0..400 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(state, restored);
+    assert_eq!(colony(&state).next_meal_at, SimulationTick::new(1380));
+    assert_eq!(
+        state
+            .kobold_state()
+            .consumed_matter()
+            .map(|(_, mass)| mass.milligrams())
+            .sum::<u128>(),
+        40_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn nearby_player_can_observe_den_feeding_without_revealing_remote_inventory() {
+    let (registries, mut state, _) = generated_opening();
+    advance_to_tick(&registries, &mut state, 579);
+    let [den, _, tip] = colony(&state).route;
+    let available = state
+        .surface()
+        .available_resources_at(Some(den))
+        .find(|resource| {
+            resource.kind() == SurfaceResourceKind::Drop
+                && resource.commodity().form() == crate::content::FORM_FOOD
+        })
+        .unwrap();
+    let source = available.id();
+    let original = available.remaining_mass();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let event = advance_tick(&registries, &mut state)
+        .unwrap()
+        .kobold_scout()
+        .expect("the scout is locally visible from the patrol tip");
+    assert_eq!(
+        event.consumed_food(),
+        Some((source, Mass::from_milligrams(20_000)))
+    );
+    assert_eq!(
+        state.surface().get(source).unwrap().remaining_mass(),
+        original.checked_sub(Mass::from_milligrams(20_000)).unwrap()
+    );
+}
+
+#[test]
+fn player_guarding_the_den_prevents_a_meal_without_consuming_the_food() {
+    let (registries, mut state, _) = generated_opening();
+    advance_to_tick(&registries, &mut state, 579);
+    let [den, junction, _] = colony(&state).route;
+    let den_food = state
+        .surface()
+        .available_resources_at(Some(den))
+        .find(|resource| resource.kind() == SurfaceResourceKind::Drop)
+        .unwrap();
+    let food = den_food.id();
+    let mass = den_food.remaining_mass();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, junction)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(state.surface().get(food).unwrap().remaining_mass(), mass);
+    assert!(state.kobold_state().consumed_matter().next().is_none());
+    assert_eq!(colony(&state).next_meal_at, SimulationTick::new(980));
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn invalid_kobold_meal_schedule_and_consumption_ledger_are_rejected_on_load() {
+    let (registries, mut state, _) = generated_opening();
+    advance_to_tick(&registries, &mut state, 580);
+    let valid = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    for due in [0_u64, 580, 581, 800] {
+        let mut tampered = valid.clone();
+        tampered["state"]["systems"]["kobolds"]["colony"]["next_meal_at"] = serde_json::json!(due);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(tampered).unwrap();
+        assert!(decoded.into_state(&registries).is_err());
+    }
+    let mut missing = valid.clone();
+    missing["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("next_meal_at");
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err());
+
+    let mut corrupt_ledger = valid;
+    let ledger = corrupt_ledger["state"]["systems"]["kobolds"]["consumed_matter"]
+        .as_object_mut()
+        .unwrap();
+    assert!(!ledger.is_empty());
+    *ledger.values_mut().next().unwrap() = serde_json::json!(0_u64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(corrupt_ledger).unwrap();
+    assert!(decoded.into_state(&registries).is_err());
 }
 
 #[test]
@@ -1140,10 +1323,18 @@ fn limited_den_space_only_forages_the_mass_that_fits() {
         .map(|item| item.remaining_mass().milligrams())
         .sum::<u64>();
     assert_eq!(cache, 500_000);
-    advance_to_tick(&registries, &mut state, 405);
+    advance_to_tick(&registries, &mut state, 1005);
+    assert!(
+        state.surface().get(food).unwrap().remaining_mass() < remaining,
+        "den meals must reopen limited staging space for later forage"
+    );
     assert_eq!(
-        state.surface().get(food).unwrap().remaining_mass(),
-        remaining
+        state
+            .kobold_state()
+            .consumed_matter()
+            .map(|(_, mass)| mass.milligrams())
+            .sum::<u128>(),
+        40_000
     );
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
 }
@@ -2427,5 +2618,5 @@ fn kobold_scout_does_not_pass_through_the_player() {
     let outcome = advance_tick(&registries, &mut state).expect("blocked patrol should advance");
     assert!(outcome.kobold_scout().is_none());
     assert_eq!(colony(&state).scout_position(), den);
-    assert_eq!(validate_loaded_kobolds(&state), Ok(()));
+    assert_eq!(validate_loaded_kobolds(&registries, &state), Ok(()));
 }
