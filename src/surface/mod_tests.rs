@@ -11,7 +11,7 @@ use crate::content::{
     SURFACE_GATHERING_HAND_COLLECT_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
     SURFACE_GATHERING_HAND_FORAGE_BERRIES, build_registries,
 };
-use crate::core::quantity::{Energy, Mass, Temperature, Volume};
+use crate::core::quantity::{AggregateMass, Energy, Mass, Temperature, Volume};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
@@ -59,6 +59,91 @@ const WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5355_5246_414
 fn positive_x_view() -> ViewDirection {
     ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
         .unwrap_or_else(|error| panic!("surface positive-X view failed: {error}"))
+}
+
+#[test]
+fn local_surface_index_tracks_creation_partial_use_relocation_and_depletion_across_load() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let local = VoxelCoord::new(1, 0, 0);
+    let remote = VoxelCoord::new(2, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let specs = [
+        (remote, 100_000_u64),
+        (local, 200_000),
+        (local, 300_000),
+        (remote, 400_000),
+    ]
+    .map(|(position, mass)| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            Mass::from_milligrams(mass),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    });
+    let creation = validate_create_surface_resources(&registries, &state, specs).unwrap();
+    let ids = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let nearby = |state: &AppState, position| {
+        state
+            .surface()
+            .available_resources_at(Some(position))
+            .map(|record| record.id())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(nearby(&state, local), vec![ids[1], ids[2]]);
+    assert_eq!(nearby(&state, remote), vec![ids[0], ids[3]]);
+    assert!(
+        state
+            .surface()
+            .available_resources_at(None)
+            .next()
+            .is_none()
+    );
+
+    let gathered_at = state.tick();
+    let revision = state.surface().revision() + 1;
+    state.surface_state_mut().apply_gathering(
+        ids[1],
+        Mass::from_milligrams(50_000),
+        gathered_at,
+        revision,
+    );
+    assert_eq!(nearby(&state, local), vec![ids[1], ids[2]]);
+    assert!(super::relocate_scavenged_drop_step(
+        &mut state, ids[2], local, remote
+    ));
+    assert_eq!(nearby(&state, local), vec![ids[1]]);
+    assert_eq!(nearby(&state, remote), vec![ids[0], ids[2], ids[3]]);
+
+    let revision = state.surface().revision() + 1;
+    state.surface_state_mut().apply_gathering(
+        ids[1],
+        Mass::from_milligrams(150_000),
+        gathered_at,
+        revision,
+    );
+    assert!(nearby(&state, local).is_empty());
+    assert_eq!(nearby(&state, remote), vec![ids[0], ids[2], ids[3]]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let loaded = decoded.into_state(&registries).unwrap();
+    assert_eq!(loaded, state);
+    assert!(nearby(&loaded, local).is_empty());
+    assert_eq!(nearby(&loaded, remote), vec![ids[0], ids[2], ids[3]]);
+    assert_eq!(
+        calculate_matter_accounting(&loaded).unwrap().total(),
+        conserved
+            .checked_sub(AggregateMass::from_milligrams(200_000))
+            .unwrap()
+    );
 }
 
 #[test]

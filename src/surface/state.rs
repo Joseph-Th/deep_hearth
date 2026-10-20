@@ -1,6 +1,6 @@
 //! Persistent finite loose surface-resource ownership.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize, Serializer};
@@ -192,6 +192,9 @@ pub struct SurfaceResourceState {
     next_resource_id: u32,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     resources: BTreeMap<SurfaceResourceId, SurfaceResourceRecord>,
+    /// Rebuilt from persisted resource keys after decoding; never independent custody.
+    #[serde(skip)]
+    available_by_position: BTreeMap<VoxelCoord, BTreeSet<SurfaceResourceId>>,
 }
 
 /// Keeps ordinary diagnostics from becoming a global world-resource oracle.
@@ -233,7 +236,34 @@ impl SurfaceResourceState {
             revision: 0,
             next_resource_id: 1,
             resources: BTreeMap::new(),
+            available_by_position: BTreeMap::new(),
         }
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        self.available_by_position.clear();
+        for (id, record) in &self.resources {
+            if record.lifecycle == SurfaceResourceLifecycle::Available
+                && !record.remaining_mass.is_zero()
+            {
+                self.available_by_position
+                    .entry(record.position)
+                    .or_default()
+                    .insert(*id);
+            }
+        }
+    }
+
+    pub(super) fn has_valid_position_index(&self) -> bool {
+        let mut expected = BTreeMap::<VoxelCoord, BTreeSet<SurfaceResourceId>>::new();
+        for (id, record) in &self.resources {
+            if record.lifecycle == SurfaceResourceLifecycle::Available
+                && !record.remaining_mass.is_zero()
+            {
+                expected.entry(record.position).or_default().insert(*id);
+            }
+        }
+        expected == self.available_by_position
     }
 
     #[must_use]
@@ -251,11 +281,15 @@ impl SurfaceResourceState {
         &self,
         position: Option<VoxelCoord>,
     ) -> impl Iterator<Item = &SurfaceResourceRecord> {
-        self.resources.values().filter(move |resource| {
-            Some(resource.position) == position
-                && resource.lifecycle == SurfaceResourceLifecycle::Available
-                && !resource.remaining_mass.is_zero()
-        })
+        position
+            .into_iter()
+            .filter_map(|position| self.available_by_position.get(&position))
+            .flat_map(|ids| ids.iter())
+            .map(|id| {
+                self.resources.get(id).unwrap_or_else(|| {
+                    unreachable!("surface location index references missing resource")
+                })
+            })
     }
 
     pub(crate) fn resources(&self) -> impl Iterator<Item = &SurfaceResourceRecord> {
@@ -291,6 +325,14 @@ impl SurfaceResourceState {
         let mut expected_id = self.next_resource_id;
         for record in records {
             assert_eq!(record.id.value(), expected_id);
+            assert!(record.lifecycle == SurfaceResourceLifecycle::Available);
+            assert!(!record.remaining_mass.is_zero());
+            assert!(
+                self.available_by_position
+                    .entry(record.position)
+                    .or_default()
+                    .insert(record.id)
+            );
             assert!(self.resources.insert(record.id, record).is_none());
             expected_id = expected_id.checked_add(1).unwrap_or_else(|| {
                 unreachable!("validated surface generation reserved the next id")
@@ -322,6 +364,13 @@ impl SurfaceResourceState {
         assert_eq!(record.lifecycle, SurfaceResourceLifecycle::Available);
         assert!(!record.remaining_mass.is_zero());
         record.position = to;
+        self.remove_available_index(from, resource);
+        assert!(
+            self.available_by_position
+                .entry(to)
+                .or_default()
+                .insert(resource)
+        );
         self.revision = next_revision;
     }
 
@@ -348,8 +397,23 @@ impl SurfaceResourceState {
         if remaining.is_zero() {
             record.lifecycle = SurfaceResourceLifecycle::Depleted;
             record.depleted_at = Some(gathered_at);
+            let position = record.position;
+            self.remove_available_index(position, resource);
         }
         self.revision = next_revision;
+    }
+
+    fn remove_available_index(&mut self, position: VoxelCoord, resource: SurfaceResourceId) {
+        let ids = self
+            .available_by_position
+            .get_mut(&position)
+            .unwrap_or_else(|| {
+                unreachable!("available surface parcel must appear in its position index")
+            });
+        assert!(ids.remove(&resource));
+        if ids.is_empty() {
+            self.available_by_position.remove(&position);
+        }
     }
 }
 

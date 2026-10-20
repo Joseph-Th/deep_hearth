@@ -17,6 +17,7 @@ use super::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SurfaceResourceValidationError {
+    InvalidLocationIndex,
     ZeroNextResourceId,
     NextIdNotAfterExisting {
         next: u32,
@@ -113,6 +114,9 @@ pub enum SurfaceResourceValidationError {
 impl Display for SurfaceResourceValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidLocationIndex => formatter.write_str(
+                "surface resource position index does not match available parcel custody",
+            ),
             Self::ZeroNextResourceId => {
                 formatter.write_str("surface next resource id must be nonzero")
             }
@@ -273,7 +277,8 @@ impl Error for SurfaceResourceValidationError {
             Self::InvalidComposition { error, .. } => Some(error),
             Self::InvalidPhaseState { error, .. } => Some(error),
             Self::InvalidParticleSizeState { error, .. } => Some(error),
-            Self::ZeroNextResourceId
+            Self::InvalidLocationIndex
+            | Self::ZeroNextResourceId
             | Self::NextIdNotAfterExisting { .. }
             | Self::ZeroResourceId
             | Self::IdMismatch { .. }
@@ -484,6 +489,9 @@ pub(crate) fn validate_loaded_surface_resources(
     }
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
+    }
+    if !state.has_valid_position_index() {
+        return Err(SurfaceResourceValidationError::InvalidLocationIndex);
     }
     Ok(())
 }

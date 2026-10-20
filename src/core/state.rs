@@ -432,9 +432,9 @@ impl AppState {
         self.systems.geological_knowledge.rebuild_derived_indexes();
         self.systems.production.rebuild_derived_indexes();
         self.systems.mining.rebuild_derived_indexes();
-        // Survival, player work, logistics, world, geology, and surface resources hold no derived indexes:
-        // their persisted records are the complete continuation state, so there is nothing to
-        // rebuild.
+        self.systems.surface.rebuild_derived_indexes();
+        // Survival, player work, logistics, world, and geology hold no derived indexes:
+        // their persisted records are the complete continuation state.
     }
 
     /// Returns read-only authoritative production scheduling state.
