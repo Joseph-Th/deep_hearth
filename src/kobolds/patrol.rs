@@ -240,7 +240,7 @@ fn plan_scout_move(
         && assess_local_illumination(registries, state, proposed_position).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
     let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position)
-        || (colony.watch_deployed_at.is_some() && proposed_position == colony.route[1]);
+        || (colony.watch_deployed_at.is_some() && proposed_position == colony.watch_position());
     // A detour chosen at the junction is not a reservation. Player pickup or
     // another canonical surface transaction can remove or alter the target
     // during the scout's intervening physical step. Recheck its neighboring
@@ -287,7 +287,7 @@ fn plan_scout_move(
         physically_clear: step != colony.scout_step
             && (returning || !ahead_is_lit)
             && scout_can_enter(registries, state, position, player_position)
-            && !(colony.watch_deployed_at.is_some() && position == colony.route[1]),
+            && !(colony.watch_deployed_at.is_some() && position == colony.watch_position()),
     }
 }
 

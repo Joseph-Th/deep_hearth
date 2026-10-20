@@ -245,6 +245,10 @@ struct KoboldColony {
     watch_ready_at: SimulationTick,
     /// Danger seen by the guard, not shared with a scout until both return home.
     watch_alarm_pending: bool,
+    /// A delivered player warning authorizes one later, food-funded outer picket.
+    watch_counterpatrol_pending: bool,
+    /// 0 = junction, 1 = outer post, 2 = junction on actual return; home uses 0.
+    watch_leg: u8,
     /// Only the latest real departed route steps; old traces expire on observation.
     tracks: Vec<KoboldTrack>,
     /// Caution survives saves and expires on the same five-tick scout clock.
@@ -437,6 +441,8 @@ impl KoboldState {
             watch_deployed_at: None,
             watch_ready_at: SimulationTick::new(FIRST_SCOUT_TICK),
             watch_alarm_pending: false,
+            watch_counterpatrol_pending: false,
+            watch_leg: 0,
             tracks: Vec::new(),
             wary_until: None,
         });

@@ -18,10 +18,12 @@ use super::{
 impl KoboldColony {
     /// The watchman exists at the den from the beginning, independent of scout cargo.
     pub(super) fn watch_position(&self) -> VoxelCoord {
-        if self.watch_deployed_at.is_some() {
-            self.route[1]
-        } else {
+        if self.watch_deployed_at.is_none() {
             self.route[0]
+        } else if self.watch_leg == 1 {
+            self.route[2]
+        } else {
+            self.route[1]
         }
     }
 
@@ -36,6 +38,8 @@ impl KoboldColony {
             .expect("bounded scout caution cannot overflow");
         self.wary_until = Some(self.wary_until.map_or(until, |old| old.max(until)));
         self.watch_alarm_pending = false;
+        // A witnessed intrusion changes the next provisioned sortie's reach.
+        self.watch_counterpatrol_pending = true;
     }
 
     pub(super) fn validate_watchman(&self, now: SimulationTick) -> Result<(), &'static str> {
@@ -49,6 +53,17 @@ impl KoboldColony {
             || (self.watch_alarm_pending
                 && (self.watch_ready_at.value() == FIRST_SCOUT_TICK
                     || (self.watch_deployed_at.is_none() && self.scout_step == 0)))
+            || self.watch_leg > 2
+            || (self.watch_deployed_at.is_none() && self.watch_leg != 0)
+            || (self.watch_counterpatrol_pending
+                && (self.mobilized_at.is_none()
+                    || ready == FIRST_SCOUT_TICK
+                    || self.watch_leg > 0
+                    || self.watch_deployed_at.is_some_and(|start| {
+                        self.mobilized_at.is_some_and(|reported| {
+                            start.value() <= reported.value().saturating_add(SCOUT_STEP_TICKS)
+                        })
+                    })))
         {
             return Err("kobold watchman's food-backed patrol cooldown is invalid");
         }
@@ -59,11 +74,48 @@ impl KoboldColony {
                 || self.mobilized_at.is_none_or(|report| report >= deployed)
                 || deployed.checked_add_span(TickSpan::new(WATCH_RECOVERY_TICKS))
                     != Some(self.watch_ready_at)
+                || (self.watch_leg == 1
+                    && now.value() < deployed.value().saturating_add(SCOUT_STEP_TICKS))
+                || (self.watch_leg == 2
+                    && now.value() < deployed.value().saturating_add(2 * SCOUT_STEP_TICKS))
             {
                 return Err("kobold watchman lacks a possible provisioned deployment");
             }
         }
         Ok(())
+    }
+}
+
+/// A reported player intrusion can fund one wider, two-edge picket on the
+/// next rationed sortie. Every leg follows the same authored traversal graph.
+/// The guard never abandons its post by teleporting through an obstructed leg.
+fn plan_watch_step(
+    colony: &KoboldColony,
+    at: SimulationTick,
+    pressured: bool,
+) -> Option<(VoxelCoord, u8)> {
+    let [den, junction, tip] = colony.route;
+    match colony.watch_deployed_at {
+        None if colony.mobilized_at.is_some() && at >= colony.watch_ready_at && !pressured => {
+            Some((junction, 0))
+        }
+        Some(start) => match colony.watch_leg {
+            0 if pressured || at.value() >= start.value().saturating_add(WATCH_DURATION_TICKS) => {
+                Some((den, 0))
+            }
+            0 if colony.watch_counterpatrol_pending && at > start => Some((tip, 1)),
+            1 if pressured
+                || at.value()
+                    >= start
+                        .value()
+                        .saturating_add(WATCH_DURATION_TICKS - SCOUT_STEP_TICKS) =>
+            {
+                Some((junction, 2))
+            }
+            2 => Some((den, 0)),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -79,7 +131,6 @@ pub(super) fn apply_watchman_tick(
         return;
     };
     let den = colony.route[0];
-    let junction = colony.route[1];
     let guard = colony.watch_position();
     let player = state.logistics().player().map(|record| record.position());
     let player_seen = colony.watch_deployed_at.is_some()
@@ -88,17 +139,8 @@ pub(super) fn apply_watchman_tick(
     let pressured = living_player_deters_scout(state, guard)
         || assess_local_illumination(registries, state, guard).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
-    let destination = if colony.watch_deployed_at.is_some() {
-        (pressured
-            || colony.watch_deployed_at.is_some_and(|start| {
-                at.value() >= start.value().saturating_add(WATCH_DURATION_TICKS)
-            }))
-        .then_some(den)
-    } else {
-        (colony.mobilized_at.is_some() && at >= colony.watch_ready_at && !pressured)
-            .then_some(junction)
-    };
-    let scout_at_post = colony.scout_position() == junction;
+    let next = plan_watch_step(colony, at, pressured);
+    let scout_position = colony.scout_position();
     // A witness retains the alarm even if a blocked return prevents reporting it.
     if player_seen {
         state
@@ -108,33 +150,39 @@ pub(super) fn apply_watchman_tick(
             .unwrap()
             .watch_alarm_pending = true;
     }
-    let Some(destination) = destination else {
+    let Some((destination, next_leg)) = next else {
         return;
     };
     if !scout_can_enter(registries, state, destination, player)
-        || (destination == junction
-            && (scout_at_post || living_player_deters_scout(state, destination)))
+        || (destination != den && scout_position == destination)
+        || (destination != den && living_player_deters_scout(state, destination))
         || assess_local_illumination(registries, state, destination).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL
     {
         return;
     }
     if destination == den {
-        state
-            .kobold_state_mut()
-            .colony
-            .as_mut()
-            .unwrap()
-            .watch_deployed_at = None;
-        state
-            .kobold_state_mut()
-            .colony
-            .as_mut()
-            .unwrap()
-            .deliver_watch_alarm_at_den(at);
+        let watcher = state.kobold_state_mut().colony.as_mut().unwrap();
+        watcher.watch_deployed_at = None;
+        watcher.watch_leg = 0;
+        watcher.deliver_watch_alarm_at_den(at);
+    } else if state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .watch_deployed_at
+        .is_some()
+    {
+        let watcher = state.kobold_state_mut().colony.as_mut().unwrap();
+        watcher.watch_leg = next_leg;
+        if next_leg == 1 {
+            watcher.watch_counterpatrol_pending = false;
+        }
     } else if consume_den_meal(registries, state, den, at, super::SCOUT_MEAL_MASS).is_some() {
         let watcher = state.kobold_state_mut().colony.as_mut().unwrap();
         watcher.watch_deployed_at = Some(at);
+        watcher.watch_leg = 0;
         watcher.watch_ready_at = at
             .checked_add_span(TickSpan::new(WATCH_RECOVERY_TICKS))
             .expect("bounded watch cooldown cannot overflow");

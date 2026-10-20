@@ -6,6 +6,7 @@ use crate::core::state::validate_loaded_state;
 use crate::core::time::SimulationTick;
 use crate::energy::EnergyCarrier;
 use crate::kobolds::{KoboldRole, available_nearby_kobold_scouts};
+use crate::logistics::relocate_player_for_test;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -443,4 +444,169 @@ fn blocked_guard_retreat_keeps_locally_seen_warning_pending_not_teleported() {
         "a sheltered pair cannot retain an undelivered alarm"
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn physically_reported_intrusion_funds_one_two_edge_outer_picket() {
+    let (registries, mut alerted, route) =
+        scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut alerted, 195);
+    let food = ration(&registries, &mut alerted, route[0]);
+    let original = calculate_matter_accounting(&alerted).unwrap().total();
+    advance_to(&registries, &mut alerted, 200);
+    validate_admit_player(&registries, &alerted, route[2])
+        .unwrap()
+        .commit(&mut alerted)
+        .unwrap();
+    advance_to(&registries, &mut alerted, 205);
+    assert!(
+        alerted
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_counterpatrol_pending
+    );
+    // Focused owner setup: the player withdraws after the physically delivered
+    // alarm; the test exercises kobold behavior, not player locomotion.
+    relocate_player_for_test(&mut alerted, VoxelCoord::new(40, 0, 0));
+    let mut reached_tip = None;
+    for tick in (210..=365).step_by(5) {
+        advance_to(&registries, &mut alerted, tick);
+        if alerted.kobold_state().colony.as_ref().unwrap().watch_leg == 1 {
+            reached_tip = Some(tick);
+            break;
+        }
+    }
+    let tip_tick = reached_tip.expect("a fed watchman must eventually extend its picket");
+    let watcher = alerted.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(watcher.watch_position(), route[2]);
+    assert!(!watcher.watch_counterpatrol_pending);
+    assert_ne!(watcher.scout_position(), watcher.watch_position());
+    assert_eq!(
+        alerted.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(60_000),
+        "one regular watch and one actual outer picket consume exactly two full rations"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &alerted)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&bytes).unwrap();
+    let mut replay = decoded.into_state(&registries).unwrap();
+    for _ in 0..30 {
+        assert_eq!(
+            crate::simulation::advance_control_tick(&registries, &mut alerted).unwrap(),
+            crate::simulation::advance_control_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(alerted, replay);
+    advance_to(&registries, &mut alerted, tip_tick + 25);
+    advance_to(&registries, &mut replay, tip_tick + 25);
+    assert_eq!(alerted, replay);
+    let watcher = alerted.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(watcher.watch_position(), route[0]);
+    assert_eq!(watcher.watch_leg, 0);
+    assert!(!watcher.watch_counterpatrol_pending);
+    assert_eq!(
+        alerted.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(60_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&alerted).unwrap().total(),
+        original
+    );
+    assert_eq!(validate_loaded_state(&registries, &alerted), Ok(()));
+}
+
+#[test]
+fn a_single_ration_cannot_fund_the_counterpicket_even_after_real_warning() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut state, 195);
+    let ration_id = ration_mass(
+        &registries,
+        &mut state,
+        route[0],
+        Mass::from_milligrams(20_000),
+    );
+    advance_to(&registries, &mut state, 200);
+    validate_admit_player(&registries, &state, route[2])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to(&registries, &mut state, 205);
+    relocate_player_for_test(&mut state, VoxelCoord::new(40, 0, 0));
+    advance_to(&registries, &mut state, 350);
+    let watcher = state.kobold_state().colony.as_ref().unwrap();
+    assert!(watcher.watch_counterpatrol_pending);
+    assert_eq!(watcher.watch_position(), route[0]);
+    assert_eq!(watcher.watch_leg, 0);
+    assert_eq!(
+        state.surface().get(ration_id).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn player_can_turn_back_an_outer_picket_before_the_guard_enters_its_tip() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut state, 195);
+    let food = ration(&registries, &mut state, route[0]);
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 200);
+    validate_admit_player(&registries, &state, route[2])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to(&registries, &mut state, 205);
+    relocate_player_for_test(&mut state, VoxelCoord::new(40, 0, 0));
+    let mut at_junction = None;
+    for tick in (210..=365).step_by(5) {
+        advance_to(&registries, &mut state, tick);
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        if colony.watch_deployed_at.is_some()
+            && colony.watch_ready_at.value() >= 400
+            && colony.watch_position() == route[1]
+        {
+            at_junction = Some(tick);
+            break;
+        }
+    }
+    let junction_tick = at_junction.expect("a second provisioned watch must depart");
+    relocate_player_for_test(&mut state, route[2]);
+    advance_to(&registries, &mut state, junction_tick + 5);
+    let watcher = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(watcher.watch_position(), route[0]);
+    assert_eq!(watcher.watch_leg, 0);
+    assert!(watcher.watch_counterpatrol_pending);
+    assert_eq!(
+        state.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(60_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn forged_outer_picket_legs_and_unearned_alarm_orders_fail_save_admission() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut state, 195);
+    ration(&registries, &mut state, route[0]);
+    advance_to(&registries, &mut state, 200);
+    let snapshot = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    for (leg, pending) in [(1, false), (2, false), (3, false), (0, true)] {
+        let mut tampered = snapshot.clone();
+        let colony = &mut tampered["state"]["systems"]["kobolds"]["colony"];
+        colony["watch_leg"] = serde_json::json!(leg);
+        colony["watch_counterpatrol_pending"] = serde_json::json!(pending);
+        let loaded: LoadedSaveEnvelope = serde_json::from_value(tampered).unwrap();
+        assert!(loaded.into_state(&registries).is_err());
+    }
+    let mut missing = snapshot;
+    missing["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("watch_leg");
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err());
 }
