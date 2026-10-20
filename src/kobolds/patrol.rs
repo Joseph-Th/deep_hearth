@@ -239,7 +239,8 @@ fn plan_scout_move(
     let ahead_is_lit = !proposed_returning
         && assess_local_illumination(registries, state, proposed_position).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
-    let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position);
+    let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position)
+        || (colony.watch_deployed_at.is_some() && proposed_position == colony.route[1]);
     // A detour chosen at the junction is not a reservation. Player pickup or
     // another canonical surface transaction can remove or alter the target
     // during the scout's intervening physical step. Recheck its neighboring
@@ -285,7 +286,8 @@ fn plan_scout_move(
         cancelled_empty_cache_raid,
         physically_clear: step != colony.scout_step
             && (returning || !ahead_is_lit)
-            && scout_can_enter(registries, state, position, player_position),
+            && scout_can_enter(registries, state, position, player_position)
+            && !(colony.watch_deployed_at.is_some() && position == colony.route[1]),
     }
 }
 
@@ -501,6 +503,7 @@ pub(crate) fn apply_kobold_scout_tick(
         );
         colony.record_track(from, position, next_tick, activity);
         colony.report_progress_at_home(next_tick);
+        colony.deliver_watch_alarm_at_den(next_tick);
     }
     if pressured {
         // A trapped scout also relinquishes the parcel, enabling recovery without

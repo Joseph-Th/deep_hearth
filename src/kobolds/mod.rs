@@ -243,6 +243,8 @@ struct KoboldColony {
     watch_deployed_at: Option<SimulationTick>,
     /// Earliest possible next fed watch patrol; starts at the opening scout deadline.
     watch_ready_at: SimulationTick,
+    /// Danger seen by the guard, not shared with a scout until both return home.
+    watch_alarm_pending: bool,
     /// Only the latest real departed route steps; old traces expire on observation.
     tracks: Vec<KoboldTrack>,
     /// Caution survives saves and expires on the same five-tick scout clock.
@@ -434,6 +436,7 @@ impl KoboldState {
             mobilized_at: None,
             watch_deployed_at: None,
             watch_ready_at: SimulationTick::new(FIRST_SCOUT_TICK),
+            watch_alarm_pending: false,
             tracks: Vec::new(),
             wary_until: None,
         });
@@ -468,7 +471,7 @@ impl KoboldState {
                     role: KoboldRole::Watchman,
                     position: guard,
                     has_noticed_player_drop: false,
-                    is_wary: false,
+                    is_wary: colony.watch_alarm_pending,
                     mobilized: colony.mobilized_at.is_some(),
                     scavenged_material: None,
                 })

@@ -254,6 +254,17 @@ fn short_rations_cannot_deploy_watchman_and_a_player_can_trap_a_returning_guard(
             .as_ref()
             .unwrap()
             .watch_position(),
+        route[0],
+        "the watchman waits while the scout passes the junction"
+    );
+    advance_to(&registries, &mut provisioned, 210);
+    assert_eq!(
+        provisioned
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
         route[1]
     );
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &provisioned)).unwrap();
@@ -267,8 +278,8 @@ fn short_rations_cannot_deploy_watchman_and_a_player_can_trap_a_returning_guard(
         .unwrap()
         .commit(&mut replay)
         .unwrap();
-    advance_to(&registries, &mut provisioned, 230);
-    advance_to(&registries, &mut replay, 230);
+    advance_to(&registries, &mut provisioned, 235);
+    advance_to(&registries, &mut replay, 235);
     assert_eq!(provisioned, replay);
     assert_eq!(
         provisioned
@@ -306,4 +317,130 @@ fn trusted_load_rejects_unreported_or_out_of_schedule_watch_deployments() {
         .unwrap()
         .remove("watch_deployed_at");
     assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err());
+}
+
+#[test]
+fn watchman_locally_warns_scout_only_after_its_actual_return_to_the_den() {
+    let (registries, mut warned, route) =
+        scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut warned, 195);
+    let food = ration(&registries, &mut warned, route[0]);
+    let conserved = calculate_matter_accounting(&warned).unwrap().total();
+    advance_to(&registries, &mut warned, 200);
+    assert_eq!(
+        warned
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[1]
+    );
+    assert_eq!(
+        warned
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[0]
+    );
+    let mut peaceful = warned.clone();
+    validate_admit_player(&registries, &warned, route[2])
+        .unwrap()
+        .commit(&mut warned)
+        .unwrap();
+    advance_to(&registries, &mut warned, 205);
+    advance_to(&registries, &mut peaceful, 205);
+    let colony = warned.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.watch_position(), route[0]);
+    assert_eq!(colony.scout_position(), route[0]);
+    assert!(
+        !colony.watch_alarm_pending,
+        "the returned watchman delivered its warning"
+    );
+    assert_eq!(colony.wary_until, Some(SimulationTick::new(245)));
+    assert_eq!(
+        peaceful
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[1]
+    );
+    assert!(
+        peaceful
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .wary_until
+            .is_none()
+    );
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &warned)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&checkpoint).unwrap();
+    let mut replay = loaded.into_state(&registries).unwrap();
+    advance_to(&registries, &mut warned, 220);
+    advance_to(&registries, &mut replay, 220);
+    advance_to(&registries, &mut peaceful, 220);
+    assert_eq!(warned, replay);
+    assert_eq!(
+        warned
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[0]
+    );
+    assert_eq!(
+        peaceful
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1],
+        "without warning the scout resumes its ordinary patrol"
+    );
+    assert_eq!(
+        warned.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&warned).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &warned), Ok(()));
+}
+
+#[test]
+fn blocked_guard_retreat_keeps_locally_seen_warning_pending_not_teleported() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut state, 195);
+    ration(&registries, &mut state, route[0]);
+    advance_to(&registries, &mut state, 200);
+    validate_admit_player(&registries, &state, route[0])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to(&registries, &mut state, 205);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.watch_position(), route[1]);
+    assert!(colony.watch_alarm_pending);
+    assert_eq!(colony.watch_deployed_at, Some(SimulationTick::new(200)));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let restored = loaded.into_state(&registries).unwrap();
+    assert_eq!(state, restored);
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    forged["state"]["systems"]["kobolds"]["colony"]["watch_deployed_at"] = serde_json::Value::Null;
+    let loaded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert!(
+        loaded.into_state(&registries).is_err(),
+        "a sheltered pair cannot retain an undelivered alarm"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
