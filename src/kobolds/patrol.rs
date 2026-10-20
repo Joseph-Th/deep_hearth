@@ -17,7 +17,8 @@ use super::mobilization::observe_progress;
 use super::scavenging::{
     den_cache_space, finds_external_drop, has_local_scout_interest, is_portable_drop,
     local_portable_source, local_split_source, reachable_far_drop, reachable_far_food,
-    reachable_side_drop, reachable_side_food, scout_goal_has_supplies, should_seek_local_food,
+    reachable_inherited_salvage, reachable_side_drop, reachable_side_food, scout_goal_has_supplies,
+    should_seek_local_food,
 };
 use super::visibility::scout_visible_from;
 use super::{
@@ -92,14 +93,31 @@ fn choose_outbound_detour(
             })
             .flatten()
     };
+    let inherited_salvage = || {
+        colony.mobilized_at.and_then(|_| {
+            reachable_inherited_salvage(
+                registries,
+                state,
+                junction,
+                den,
+                tip,
+                player_position,
+                den_space,
+                at,
+            )
+        })
+    };
     if colony.hungry {
-        // After a missed meal, actual edible food matters more than carrying
-        // inert cargo. If no food is reachable, ordinary scavenging remains possible.
+        // Food first, then the remembered machine-service salvage priority.
+        // Ordinary nearby scraps remain available when neither is reachable.
         loose_cache(true)
             .or_else(wild_food)
+            .or_else(inherited_salvage)
             .or_else(|| loose_cache(false))
     } else {
-        loose_cache(false).or_else(wild_food)
+        inherited_salvage()
+            .or_else(|| loose_cache(false))
+            .or_else(wild_food)
     }
 }
 
@@ -275,6 +293,7 @@ pub(crate) fn apply_kobold_scout_tick(
     let salvage_batch = colony.salvage_batch();
     let forage_batch = colony.forage_batch();
     let forage_interval = colony.forage_interval();
+    let mobilized = colony.mobilized_at.is_some();
     let den_space = den_cache_space(state, colony.route[0]);
     let exposed_at_current = has_local_scout_interest(
         registries,
@@ -339,7 +358,9 @@ pub(crate) fn apply_kobold_scout_tick(
                 .scavenged_drop
                 .filter(|id| available_drop_at(*id))
                 .or_else(|| {
-                    local_portable_source(registries, state, from, den_space, next_tick, food_only)
+                    local_portable_source(
+                        registries, state, from, den_space, next_tick, food_only, mobilized,
+                    )
                 })
         })
         .flatten();
@@ -366,7 +387,11 @@ pub(crate) fn apply_kobold_scout_tick(
     // Whole portable parcels retain identity. Oversized exposed piles instead
     // yield a bounded daughter parcel, leaving the exact remainder at the source.
     let bulk_source = (can_move && returning && !pressured && relocated_drop.is_none())
-        .then(|| local_split_source(registries, state, from, den_space, next_tick, food_only))
+        .then(|| {
+            local_split_source(
+                registries, state, from, den_space, next_tick, food_only, mobilized,
+            )
+        })
         .flatten();
     let split_drop = bulk_source.and_then(|source| {
         split_bulk_scavenged_drop_step(

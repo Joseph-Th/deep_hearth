@@ -12,13 +12,17 @@ use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
 use super::patrol::scout_can_enter;
 use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
 
-/// Food takes precedence within one physical transfer tier at the same source.
-/// Stable surface identity breaks ties without introducing random state.
-pub(super) fn scout_loot_priority(
+/// Survival food always precedes inert cargo, but mobilized scavengers use
+/// inherited service-work knowledge to recognize shaped precision copper.
+/// Stable surface identity breaks every equal-value tie.
+fn scout_loot_priority(
     resource: &crate::surface::SurfaceResourceRecord,
-) -> (bool, SurfaceResourceId) {
+    mobilized: bool,
+) -> (bool, bool, SurfaceResourceId) {
+    let not_food = resource.commodity().form() != crate::content::FORM_FOOD;
     (
-        resource.commodity().form() != crate::content::FORM_FOOD,
+        not_food,
+        !(mobilized && is_servant_era_salvage(resource)),
         resource.id(),
     )
 }
@@ -128,6 +132,7 @@ pub(super) fn local_portable_source(
     space: Mass,
     at: SimulationTick,
     food_only: bool,
+    mobilized: bool,
 ) -> Option<SurfaceResourceId> {
     state
         .surface()
@@ -138,7 +143,7 @@ pub(super) fn local_portable_source(
                 && scout_wants_drop(registries, resource, at)
                 && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
         })
-        .min_by_key(|resource| scout_loot_priority(resource))
+        .min_by_key(|resource| scout_loot_priority(resource, mobilized))
         .map(|resource| resource.id())
 }
 
@@ -151,6 +156,7 @@ pub(super) fn local_split_source(
     space: Mass,
     at: SimulationTick,
     food_only: bool,
+    mobilized: bool,
 ) -> Option<SurfaceResourceId> {
     state
         .surface()
@@ -161,7 +167,7 @@ pub(super) fn local_split_source(
                 && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
                 && (!is_portable_drop(resource) || resource.remaining_mass() > space)
         })
-        .min_by_key(|resource| scout_loot_priority(resource))
+        .min_by_key(|resource| scout_loot_priority(resource, mobilized))
         .map(|resource| resource.id())
 }
 
@@ -351,6 +357,107 @@ pub(super) fn reachable_far_food(
         })
         .min_by_key(|(id, first, goal)| (*id, *first, *goal))
         .map(|(_, first, goal)| (first, goal))
+}
+
+/// Remnants of precision craft matter more to former machine-servants than
+/// raw rock or copper ore. This only classifies existing, authored loose goods:
+/// an installed or carried machine is never loot in this surface-resource query.
+fn is_servant_era_salvage(resource: &crate::surface::SurfaceResourceRecord) -> bool {
+    use crate::content::{
+        FORM_DRILL_BIT, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_REINFORCEMENT, FORM_SAW_BLADE,
+        FORM_TOOL, MATERIAL_COPPER,
+    };
+    let commodity = resource.commodity();
+    commodity.material() == MATERIAL_COPPER
+        && [
+            FORM_DRILL_BIT,
+            FORM_ELECTRICAL_WINDING,
+            FORM_FLYWHEEL,
+            FORM_REINFORCEMENT,
+            FORM_SAW_BLADE,
+            FORM_TOOL,
+        ]
+        .contains(&commodity.form())
+}
+
+fn engineered_drop_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    space: Mass,
+    at: SimulationTick,
+) -> Option<(bool, SurfaceResourceId)> {
+    state
+        .surface()
+        .available_resources_at(Some(position))
+        .filter(|resource| {
+            is_servant_era_salvage(resource)
+                && is_contestable_drop(resource, space)
+                && scout_wants_drop(registries, resource, at)
+        })
+        .min_by_key(|resource| {
+            (
+                !is_portable_drop(resource) || resource.remaining_mass() > space,
+                resource.id(),
+            )
+        })
+        .map(|resource| {
+            (
+                !is_portable_drop(resource) || resource.remaining_mass() > space,
+                resource.id(),
+            )
+        })
+}
+
+/// After a *delivered* industrial report, prioritize locally reachable precision
+/// copper parts even beyond nearer generic scrap. The target is not reserved;
+/// actual entry and source-local movement still recheck custody, clearance and light.
+pub(super) fn reachable_inherited_salvage(
+    registries: &Registries,
+    state: &AppState,
+    junction: VoxelCoord,
+    den: VoxelCoord,
+    authored_tip: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+    capacity: Mass,
+    at: SimulationTick,
+) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
+    if capacity.is_zero() {
+        return None;
+    }
+    let side = state
+        .logistics()
+        .traversable_destinations(junction)
+        .filter(|first| *first != den && *first != authored_tip)
+        .filter_map(|first| {
+            engineered_drop_at(registries, state, first, capacity, at)
+                .map(|priority| (priority, first))
+        })
+        .filter(|(_, first)| unguarded_unlit_cell(registries, state, *first, player_position))
+        .min_by_key(|(priority, first)| (*priority, *first))
+        .map(|(_, first)| (first, None));
+    side.or_else(|| {
+        state
+            .logistics()
+            .traversable_destinations(junction)
+            .filter(|first| *first != den && *first != authored_tip)
+            .flat_map(|first| {
+                state
+                    .logistics()
+                    .traversable_destinations(first)
+                    .filter(move |goal| *goal != junction && *goal != den && *goal != authored_tip)
+                    .filter_map(move |goal| {
+                        engineered_drop_at(registries, state, goal, capacity, at)
+                            .map(|priority| (priority, first, goal))
+                    })
+            })
+            .filter(|(_, first, goal)| {
+                unguarded_unlit_cell(registries, state, *first, player_position)
+                    && unguarded_unlit_cell(registries, state, *goal, player_position)
+            })
+            .min_by_key(|(priority, first, goal)| (*priority, *first, *goal))
+            .map(|(_, first, goal)| (first, Some(goal)))
+    })
 }
 
 #[cfg(test)]
