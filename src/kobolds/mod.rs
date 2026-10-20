@@ -123,7 +123,7 @@ impl KoboldScoutEvent {
         self.turned_back_at_barrier
     }
 
-    /// The scout found that its planned farther cache no longer has portable loot.
+    /// The planned farther cache no longer has any loose matter it can recover.
     #[must_use]
     pub const fn cancelled_empty_cache_raid(self) -> bool {
         self.cancelled_empty_cache_raid
