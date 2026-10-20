@@ -108,7 +108,11 @@ pub(super) fn exercise_kobold_side_branch_scavenging(print: bool) {
     assert_eq!(detour.position(), berry);
     assert!(detour.discovered_player_drop());
     assert_eq!(detour.relocated_drop(), None);
-    assert!(available_nearby_kobold_scouts(&state).next().is_some());
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_some()
+    );
 
     let save =
         serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).expect("detour should save");
@@ -125,7 +129,11 @@ pub(super) fn exercise_kobold_side_branch_scavenging(print: bool) {
     }
     assert_eq!(state, resumed);
     assert_eq!(state.tick().value(), 195);
-    assert!(available_nearby_kobold_scouts(&state).next().is_none());
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_none()
+    );
     assert_eq!(
         state
             .inventory()
@@ -145,7 +153,11 @@ pub(super) fn exercise_kobold_side_branch_scavenging(print: bool) {
         TickEventAllowance::default(),
         "scout resumes its original patrol while the player stays away",
     );
-    assert!(available_nearby_kobold_scouts(&state).next().is_none());
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_none()
+    );
     walk_body_to_adjacent(&registries, &mut state, spawn, "return to known trail");
     while !state.control_tick().is_simulation_boundary() {
         let _ = advance_control_tick(&registries, &mut state)
@@ -167,7 +179,7 @@ pub(super) fn exercise_kobold_side_branch_scavenging(print: bool) {
         junction,
         "follow scout to patrol fork",
     );
-    let renewed_patrol = available_nearby_kobold_scouts(&state)
+    let renewed_patrol = available_nearby_kobold_scouts(&registries, &state)
         .next()
         .expect("the scout should be seen again at the authored outer patrol branch");
     assert!(

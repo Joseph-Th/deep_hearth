@@ -43,12 +43,20 @@ fn generated_opening() -> (crate::Registries, AppState, VoxelCoord) {
 #[test]
 fn kobold_scouts_wait_then_patrol_and_only_report_near_player() {
     let (registries, mut state, spawn) = generated_opening();
-    assert!(available_nearby_kobold_scouts(&state).next().is_none());
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_none()
+    );
     validate_admit_player(&registries, &state, spawn)
         .expect("ordinary player admission should work")
         .commit(&mut state)
         .expect("player admission should commit");
-    assert!(available_nearby_kobold_scouts(&state).next().is_none());
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_none()
+    );
     for _ in 0..179 {
         let tick =
             advance_tick(&registries, &mut state).expect("opening simulation should advance");
@@ -63,7 +71,7 @@ fn kobold_scouts_wait_then_patrol_and_only_report_near_player() {
         .expect("the scout arrives within local observation range");
     assert!(!event.discovered_player_drop());
     assert_eq!(
-        available_nearby_kobold_scouts(&state)
+        available_nearby_kobold_scouts(&registries, &state)
             .next()
             .unwrap()
             .position(),
@@ -336,7 +344,7 @@ fn intimidated_scout_waits_at_den_then_resumes_scavenging_without_losing_matter(
     assert_eq!(colony(&state).scout_position(), den);
     assert_eq!(colony(&state).wary_until, Some(SimulationTick::new(225)));
     assert!(
-        available_nearby_kobold_scouts(&state)
+        available_nearby_kobold_scouts(&registries, &state)
             .next()
             .is_some_and(|sighting| sighting.is_wary())
     );
@@ -506,7 +514,7 @@ fn kobold_scout_notices_exposed_drop_without_consuming_or_teleporting_matter() {
         .expect("local movement should be reported");
     assert!(observed.discovered_player_drop());
     assert!(
-        available_nearby_kobold_scouts(&state)
+        available_nearby_kobold_scouts(&registries, &state)
             .next()
             .unwrap()
             .has_noticed_player_drop()
@@ -1125,7 +1133,7 @@ fn scavenging_moves_one_finite_drop_to_den_without_deleting_or_replacing_it() {
     assert_eq!(state.surface().get(drop).unwrap().position(), junction);
     assert_eq!(colony(&state).scavenged_drop, Some(drop));
     assert_eq!(
-        available_nearby_kobold_scouts(&state)
+        available_nearby_kobold_scouts(&registries, &state)
             .next()
             .expect("player should see the carrying scout")
             .scavenged_material(),
@@ -1336,6 +1344,240 @@ fn tampered_scavenged_parcel_identity_is_rejected_on_load() {
     tampered["state"]["systems"]["kobolds"]["colony"]["scavenged_drop"] = serde_json::json!(999999);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(tampered).unwrap();
     assert!(decoded.into_state(&registries).is_err());
+}
+
+#[test]
+fn opaque_terrain_conceals_a_close_scout_until_line_of_sight_is_cleared() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let anchor = VoxelCoord::new(8, 0, 8);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(anchor),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| {
+            state
+                .world()
+                .block_at(VoxelCoord::new(anchor.x(), y, anchor.z()))
+                == Some(BLOCK_STATE_STONE)
+        })
+        .expect("generated stone floor exists");
+    let spawn = VoxelCoord::new(anchor.x(), surface_y + 1, anchor.z());
+    validate_generate_initial_wilderness(&registries, &state, seed, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let [den, junction, tip] = colony(&state).route;
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), tip);
+    assert_eq!(state.world().block_at(junction), Some(BlockStateId::AIR));
+    validate_admit_player(&registries, &state, den)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let visible = available_nearby_kobold_scouts(&registries, &state)
+        .next()
+        .expect("unobstructed scout is visible at two voxels");
+    assert_eq!(visible.position(), tip);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+
+    set_generated_block_for_test(registries.world(), &mut state, junction, BLOCK_STATE_STONE);
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_none(),
+        "distance cannot reveal a creature through full opaque stone"
+    );
+
+    set_generated_block_for_test(registries.world(), &mut state, junction, BlockStateId::AIR);
+    assert_eq!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .unwrap()
+            .position(),
+        tip
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_some()
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn opaque_wall_hides_a_moving_scout_event_without_blocking_its_actual_route() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let anchor = VoxelCoord::new(8, 0, 8);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(anchor),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| {
+            state
+                .world()
+                .block_at(VoxelCoord::new(anchor.x(), y, anchor.z()))
+                == Some(BLOCK_STATE_STONE)
+        })
+        .unwrap();
+    let spawn = VoxelCoord::new(anchor.x(), surface_y + 1, anchor.z());
+    validate_generate_initial_wilderness(&registries, &state, seed, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let [den, junction, tip] = colony(&state).route;
+    let (mid, observer) = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        .into_iter()
+        .find_map(|(dx, dz)| {
+            let mid = VoxelCoord::new(junction.x() + dx, junction.y(), junction.z() + dz);
+            let observer = VoxelCoord::new(mid.x() + dx, mid.y(), mid.z() + dz);
+            (mid != den
+                && mid != tip
+                && state.world().block_at(mid) == Some(BlockStateId::AIR)
+                && state.world().block_at(observer) == Some(BlockStateId::AIR))
+            .then_some((mid, observer))
+        })
+        .expect("opening terrain includes one clear off-route two-voxel sightline");
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    crate::logistics::relocate_player_for_test(&mut state, observer);
+    advance_to_tick(&registries, &mut state, 179);
+    let mut concealed = state.clone();
+    set_generated_block_for_test(registries.world(), &mut concealed, mid, BLOCK_STATE_STONE);
+    let clear_event = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(clear_event.kobold_scout().unwrap().position(), junction);
+    let concealed_event = advance_tick(&registries, &mut concealed).unwrap();
+    assert!(
+        concealed_event.kobold_scout().is_none(),
+        "the same moving scout must not leak through a nearby opaque wall"
+    );
+    assert_eq!(
+        colony(&state).scout_position(),
+        colony(&concealed).scout_position(),
+        "sight occlusion must not stop or teleport the actual scout"
+    );
+    assert!(
+        available_nearby_kobold_scouts(&registries, &concealed)
+            .next()
+            .is_none()
+    );
+    set_generated_block_for_test(registries.world(), &mut concealed, mid, BlockStateId::AIR);
+    assert_eq!(
+        available_nearby_kobold_scouts(&registries, &concealed)
+            .next()
+            .unwrap()
+            .position(),
+        junction
+    );
+}
+
+#[test]
+fn a_diagonal_scout_sighting_does_not_peek_through_an_opaque_corner() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let anchor = VoxelCoord::new(8, 0, 8);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(anchor),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| {
+            state
+                .world()
+                .block_at(VoxelCoord::new(anchor.x(), y, anchor.z()))
+                == Some(BLOCK_STATE_STONE)
+        })
+        .unwrap();
+    let spawn = VoxelCoord::new(anchor.x(), surface_y + 1, anchor.z());
+    validate_generate_initial_wilderness(&registries, &state, seed, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let scout = colony(&state).route[1];
+    let diagonal = VoxelCoord::new(scout.x() + 1, scout.y(), scout.z() + 1);
+    let x_leg = VoxelCoord::new(diagonal.x(), scout.y(), scout.z());
+    let z_leg = VoxelCoord::new(scout.x(), scout.y(), diagonal.z());
+    for voxel in [scout, diagonal, x_leg, z_leg] {
+        assert_eq!(state.world().block_at(voxel), Some(BlockStateId::AIR));
+    }
+    assert!(super::scout_visible_from(
+        &registries,
+        &state,
+        scout,
+        diagonal
+    ));
+    for occlusion in [x_leg, z_leg] {
+        set_generated_block_for_test(registries.world(), &mut state, occlusion, BLOCK_STATE_STONE);
+        assert!(
+            !super::scout_visible_from(&registries, &state, scout, diagonal),
+            "a solid wall on either side of a corner conceals the scout"
+        );
+        set_generated_block_for_test(registries.world(), &mut state, occlusion, BlockStateId::AIR);
+    }
+    assert!(super::scout_visible_from(
+        &registries,
+        &state,
+        scout,
+        diagonal
+    ));
 }
 
 #[test]

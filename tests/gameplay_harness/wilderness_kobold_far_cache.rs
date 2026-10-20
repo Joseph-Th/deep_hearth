@@ -148,7 +148,11 @@ pub(super) fn exercise_kobold_far_camp_cache(print: bool) {
     let first =
         advance_tick(&registries, &mut state).expect("scout advances toward intermediary branch");
     assert!(first.kobold_scout().is_none(), "scout first step is remote");
-    assert!(available_nearby_kobold_scouts(&state).next().is_none());
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_none()
+    );
 
     advance_to(
         &registries,
@@ -188,7 +192,11 @@ pub(super) fn exercise_kobold_far_camp_cache(print: bool) {
     }
     assert_eq!(state, restored);
     assert_eq!(state.tick().value(), 205);
-    assert!(available_nearby_kobold_scouts(&state).next().is_none());
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_none()
+    );
 
     walk_body_to_adjacent(
         &registries,

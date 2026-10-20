@@ -89,7 +89,7 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
     assert!(discovery.discovered_player_drop());
     assert_eq!(discovery.relocated_drop(), None);
     assert!(
-        available_nearby_kobold_scouts(&state)
+        available_nearby_kobold_scouts(&registries, &state)
             .next()
             .is_some_and(|sighting| sighting.has_noticed_player_drop())
     );
@@ -183,7 +183,7 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
     assert_eq!(warded_step.abandoned_drop(), None);
     assert_eq!(warded_step.position(), defended_step.position());
     assert!(
-        available_nearby_kobold_scouts(&warded)
+        available_nearby_kobold_scouts(&registries, &warded)
             .next()
             .is_some_and(|sighting| sighting.scavenged_material().is_none() && sighting.is_wary())
     );
@@ -353,7 +353,7 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
         forage,
         "scout aftermath reconnaissance",
     );
-    let den = available_nearby_kobold_scouts(&exposed)
+    let den = available_nearby_kobold_scouts(&registries, &exposed)
         .next()
         .expect("retreating scout must become visible again on approach")
         .position();

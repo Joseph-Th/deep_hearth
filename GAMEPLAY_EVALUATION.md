@@ -268,6 +268,15 @@ continuations. This makes guarding a time-limited choice rather than an instant
 reset or permanent ward; caution is observable only through a nearby scout
 sighting, and remote material mass is not read during the wait.
 
+Generated-terrain enemy perception tests now distinguish distance from line of sight:
+a scout two voxels away is visible across clear air, hidden when the intervening
+junction cell becomes opaque stone, and revealed when that cell is cleared.
+A separately positioned player observer also receives no scout-movement event
+behind opaque stone although the physical scout moves normally. A diagonal
+corner cannot disclose a scout around a single opaque intervening voxel. These
+tests use actual generated block truth and strict local projections; they do not
+invent enemy detection, remote telemetry, or a permanent terrain effect.
+
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
 contracts cannot establish whether an individual experienced an interesting tradeoff. Inspect

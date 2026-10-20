@@ -220,7 +220,7 @@ pub(super) fn exercise_kobold_natural_foraging(print: bool) {
         .expect("stolen food must be physically present on an adjacent den");
     assert_ne!(parcel.position(), fork);
     let den = parcel.position();
-    let sighting = available_nearby_kobold_scouts(&unattended)
+    let sighting = available_nearby_kobold_scouts(&registries, &unattended)
         .next()
         .expect("scout becomes visible during local recovery");
     assert_eq!(sighting.position(), den);

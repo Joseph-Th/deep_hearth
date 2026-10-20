@@ -14,8 +14,8 @@ use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, SurfaceResourceState,
-    forage_food_to_adjacent_den, relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
+    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, forage_food_to_adjacent_den,
+    relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
 };
 use crate::survival::Vitality;
 
@@ -253,14 +253,13 @@ impl KoboldColony {
         Ok(())
     }
 
-    fn is_near(&self, observer: VoxelCoord) -> bool {
-        let scout = self.scout_position();
-        scout
-            .x()
-            .abs_diff(observer.x())
-            .saturating_add(scout.y().abs_diff(observer.y()))
-            .saturating_add(scout.z().abs_diff(observer.z()))
-            <= 2
+    fn is_visible_from(
+        &self,
+        registries: &Registries,
+        state: &AppState,
+        observer: VoxelCoord,
+    ) -> bool {
+        scout_visible_from(registries, state, self.scout_position(), observer)
     }
 }
 
@@ -304,20 +303,20 @@ impl KoboldState {
 
     fn sightings_at<'a>(
         &'a self,
+        registries: &'a Registries,
+        state: &'a AppState,
         position: VoxelCoord,
-        surface: &'a SurfaceResourceState,
-        now: SimulationTick,
     ) -> impl Iterator<Item = KoboldSighting> + 'a {
         self.colony
             .iter()
-            .filter(move |colony| colony.is_near(position))
+            .filter(move |colony| colony.is_visible_from(registries, state, position))
             .map(move |colony| KoboldSighting {
                 position: colony.scout_position(),
                 has_noticed_player_drop: colony.noticed_player_drop,
-                is_wary: colony.wary_until.is_some_and(|until| until > now),
+                is_wary: colony.wary_until.is_some_and(|until| until > state.tick()),
                 scavenged_material: colony
                     .scavenged_drop
-                    .and_then(|id| surface.get(id))
+                    .and_then(|id| state.surface().get(id))
                     .filter(|drop| drop.lifecycle() == SurfaceResourceLifecycle::Available)
                     .map(|drop| (drop.commodity(), drop.remaining_mass())),
             })
@@ -325,15 +324,69 @@ impl KoboldState {
 }
 
 /// Local-only observation, suitable for an adapter's entity/sighting presentation.
-pub fn available_nearby_kobold_scouts(
-    state: &AppState,
-) -> impl Iterator<Item = KoboldSighting> + '_ {
+pub fn available_nearby_kobold_scouts<'a>(
+    registries: &'a Registries,
+    state: &'a AppState,
+) -> impl Iterator<Item = KoboldSighting> + 'a {
     let observer = state.logistics().player().map(|player| player.position());
     observer.into_iter().flat_map(move |position| {
         state
             .kobold_state()
-            .sightings_at(position, state.surface(), state.tick())
+            .sightings_at(registries, state, position)
     })
+}
+
+/// Close-range scout sightings use authoritative block opacity, not distance alone.
+/// At two voxels, all intermediate axis steps must be transparent; a diagonal
+/// corner is concealed by a blocking wall on either side. Missing generated
+/// terrain fails closed. Pre-generation authored graphs have no voxel authority
+/// to occlude their local observations.
+fn scout_visible_from(
+    registries: &Registries,
+    state: &AppState,
+    scout: VoxelCoord,
+    observer: VoxelCoord,
+) -> bool {
+    let distance = scout
+        .x()
+        .abs_diff(observer.x())
+        .saturating_add(scout.y().abs_diff(observer.y()))
+        .saturating_add(scout.z().abs_diff(observer.z()));
+    if distance > 2 {
+        return false;
+    }
+    if state.world().generation_profile().is_none() {
+        return true;
+    }
+    let transparent = |voxel| {
+        state
+            .world()
+            .block_at(voxel)
+            .and_then(|id| registries.world().block_for_state(id))
+            .is_some_and(|block| !block.is_opaque())
+    };
+    if !transparent(scout) || !transparent(observer) {
+        return false;
+    }
+    if distance < 2 {
+        return true;
+    }
+    let toward = |first: i64, second: i64| {
+        if first < second {
+            first.checked_add(1)
+        } else {
+            first.checked_sub(1)
+        }
+    };
+    (scout.x() == observer.x()
+        || toward(scout.x(), observer.x())
+            .is_some_and(|x| transparent(VoxelCoord::new(x, scout.y(), scout.z()))))
+        && (scout.y() == observer.y()
+            || toward(scout.y(), observer.y())
+                .is_some_and(|y| transparent(VoxelCoord::new(scout.x(), y, scout.z()))))
+        && (scout.z() == observer.z()
+            || toward(scout.z(), observer.z())
+                .is_some_and(|z| transparent(VoxelCoord::new(scout.x(), scout.y(), z))))
 }
 
 fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord) -> bool {
@@ -704,10 +757,12 @@ pub(crate) fn apply_kobold_scout_tick(
         );
     }
     colony.noticed_player_drop |= discovered || relocated_drop.is_some() || split_drop.is_some();
+    let scout_position = colony.scout_position();
     let visible = (can_move || abandoned_drop.is_some())
-        && player_position.is_some_and(|player| colony.is_near(player));
+        && player_position
+            .is_some_and(|player| scout_visible_from(registries, state, scout_position, player));
     visible.then_some(KoboldScoutEvent {
-        position: colony.scout_position(),
+        position: scout_position,
         discovered_player_drop: discovered,
         relocated_drop,
         fled_player: pressured_by_player && can_move,
