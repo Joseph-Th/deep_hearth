@@ -256,7 +256,7 @@ pickup disclose the outcome; a trusted save/load halfway through yields identica
 steps and custody. In the matching guarded branch, standing on the intermediate
 trail keeps the camp cache safe without directly picking it up. Owner tests cover
 two-edge saved topology, restoration of the original patrol, invalid goal admission
-and conserved source-local splitting of bulky remote caches. Save schema 109 stores
+and conserved source-local splitting of bulky remote caches. Further owner-level evidence follows actual two-edge travel to a natural fresh food patch, retains the newly generated recoverable harvest parcel on each intermediate return step, and replays deterministically across save/load. A patch expiring between discovery and arrival cancels the last edge without taking matter; a starving scout still hauls inert loot if there is no locally edible alternative. The full-den clearing regression prevents that fallback from overriding fresh food. Save schema 109 stores
 optional route goals, the caution deadline, sparse resident meal scheduling,
 missed-meal hunger, material-keyed consumed-food custody and twelve bounded physical route signs; older saves are not migrated. Den-care regression additionally fills the real cache with 500 g of inert stone: at the scheduled missed meal, a nearby edible patch motivates one recoverable stone relocation, then real forage and a 20 g catch-up meal with exact matter conservation and save/load replay. No reachable food keeps the hoard intact; a player blocking the exit stops the action; a nearby unobstructed player can witness the relocation without receiving remote information.
 

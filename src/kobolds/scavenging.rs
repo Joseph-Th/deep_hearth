@@ -27,15 +27,6 @@ pub(super) fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord)
     resource.kind() == SurfaceResourceKind::Drop && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
-/// Missed meals suspend inert scavenging until food has been secured.
-/// No extra world state is needed beyond the saved resident hunger flag.
-pub(super) fn provision_priority(
-    resource: &crate::surface::SurfaceResourceRecord,
-    hungry: bool,
-) -> bool {
-    !hungry || resource.commodity().form() == crate::content::FORM_FOOD
-}
-
 /// A reachable loose pile is unsafe even if too large to move as one parcel.
 pub(super) fn is_contestable_drop(
     resource: &crate::surface::SurfaceResourceRecord,
@@ -67,6 +58,27 @@ pub(super) fn finds_external_drop(
         })
 }
 
+/// A two-edge food raid must recheck actual edible opportunity when arriving.
+/// An intervening pickup, spoilage or depleted source cancels the last step.
+pub(super) fn scout_goal_has_supplies(
+    registries: &Registries,
+    state: &AppState,
+    goal: VoxelCoord,
+    space: Mass,
+    forage_ready: bool,
+    at: SimulationTick,
+) -> bool {
+    state
+        .surface()
+        .available_resources_at(Some(goal))
+        .any(|resource| {
+            (is_contestable_drop(resource, space) && scout_wants_drop(registries, resource, at))
+                || (forage_ready
+                    && !space.is_zero()
+                    && scout_wants_food_opportunity(registries, resource, at))
+        })
+}
+
 /// Decide whether the scout should turn home from its present cell.
 /// A hungry scout ignores inert parcels at the junction while finding food.
 pub(super) fn has_local_scout_interest(
@@ -95,6 +107,19 @@ pub(super) fn has_local_scout_interest(
         })
 }
 
+/// Hunger must suppress inert cargo only while an edible local alternative exists.
+pub(super) fn should_seek_local_food(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    space: Mass,
+    forage_ready: bool,
+    at: SimulationTick,
+    hungry: bool,
+) -> bool {
+    hungry && has_local_scout_interest(registries, state, position, space, forage_ready, at, true)
+}
+
 /// Choose one locally portable drop without scanning remote or depleted records.
 pub(super) fn local_portable_source(
     registries: &Registries,
@@ -102,7 +127,7 @@ pub(super) fn local_portable_source(
     position: VoxelCoord,
     space: Mass,
     at: SimulationTick,
-    hungry: bool,
+    food_only: bool,
 ) -> Option<SurfaceResourceId> {
     state
         .surface()
@@ -111,7 +136,7 @@ pub(super) fn local_portable_source(
             is_portable_drop(resource)
                 && resource.remaining_mass() <= space
                 && scout_wants_drop(registries, resource, at)
-                && provision_priority(resource, hungry)
+                && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
         })
         .min_by_key(|resource| scout_loot_priority(resource))
         .map(|resource| resource.id())
@@ -125,7 +150,7 @@ pub(super) fn local_split_source(
     position: VoxelCoord,
     space: Mass,
     at: SimulationTick,
-    hungry: bool,
+    food_only: bool,
 ) -> Option<SurfaceResourceId> {
     state
         .surface()
@@ -133,7 +158,7 @@ pub(super) fn local_split_source(
         .filter(|resource| {
             is_contestable_drop(resource, space)
                 && scout_wants_drop(registries, resource, at)
-                && provision_priority(resource, hungry)
+                && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
                 && (!is_portable_drop(resource) || resource.remaining_mass() > space)
         })
         .min_by_key(|resource| scout_loot_priority(resource))
@@ -289,6 +314,43 @@ pub(super) fn reachable_side_food(
         })
         .min_by_key(|(id, _)| *id)
         .map(|(_, destination)| destination)
+}
+
+/// Seek finite natural food beyond one real intermediate route junction.
+/// Candidate resources are position-indexed and checked before expensive light
+/// and terrain resolution; each candidate uses only two adjacent graph edges.
+pub(super) fn reachable_far_food(
+    registries: &Registries,
+    state: &AppState,
+    junction: VoxelCoord,
+    den: VoxelCoord,
+    authored_tip: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+    at: SimulationTick,
+) -> Option<(VoxelCoord, VoxelCoord)> {
+    state
+        .logistics()
+        .traversable_destinations(junction)
+        .filter(|first| *first != den && *first != authored_tip)
+        .flat_map(|first| {
+            state
+                .logistics()
+                .traversable_destinations(first)
+                .filter(move |goal| *goal != junction && *goal != den && *goal != authored_tip)
+                .filter_map(move |goal| {
+                    state
+                        .surface()
+                        .available_resources_at(Some(goal))
+                        .find(|source| scout_wants_food_opportunity(registries, source, at))
+                        .map(|source| (source.id(), first, goal))
+                })
+        })
+        .filter(|(_, first, goal)| {
+            unguarded_unlit_cell(registries, state, *first, player_position)
+                && unguarded_unlit_cell(registries, state, *goal, player_position)
+        })
+        .min_by_key(|(id, first, goal)| (*id, *first, *goal))
+        .map(|(_, first, goal)| (first, goal))
 }
 
 #[cfg(test)]

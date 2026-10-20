@@ -423,3 +423,173 @@ fn successful_first_meal_preserves_inert_scavenging_and_unearned_hunger_is_rejec
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+#[test]
+fn two_edge_wild_food_is_carried_home_through_every_real_route_step() {
+    let (registries, mut state, route) = setup();
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut state, route.side, far);
+    let source = seed(
+        &registries,
+        &mut state,
+        [forage_spec(
+            &registries,
+            far,
+            MATERIAL_WILD_NUTS,
+            Mass::from_milligrams(300_000),
+            None,
+        )],
+    )[0];
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 590);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), far);
+    assert_eq!(colony.detour_goal, Some(far));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut loaded = decoded.into_state(&registries).unwrap();
+    for _ in 0..5 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut loaded).unwrap()
+        );
+    }
+    assert_eq!(state, loaded);
+    assert_eq!(
+        state.surface().get(source).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    let catch = state
+        .surface()
+        .available_resources_at(Some(route.side))
+        .find(|r| r.kind() == SurfaceResourceKind::Drop)
+        .expect("foraging must materialize a recoverable parcel at the adjacent edge")
+        .id();
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+        Some(catch)
+    );
+    for _ in 0..10 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut loaded).unwrap()
+        );
+    }
+    assert_eq!(state, loaded);
+    assert_eq!(state.surface().get(catch).unwrap().position(), route.den);
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .detour_goal
+            .is_none()
+    );
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scavenged_drop
+            .is_none()
+    );
+    advance_to(&registries, &mut state, 610);
+    assert_eq!(
+        state.surface().get(catch).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn far_food_expiring_during_actual_walk_cancels_the_trip_without_depletion() {
+    let (registries, mut state, route) = setup();
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut state, route.side, far);
+    let mass = Mass::from_milligrams(300_000);
+    let source = seed(
+        &registries,
+        &mut state,
+        [forage_spec(
+            &registries,
+            far,
+            MATERIAL_BERRIES,
+            mass,
+            Some(8),
+        )],
+    )[0];
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 585);
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().detour_goal,
+        Some(far)
+    );
+    advance_to(&registries, &mut state, 590);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route.junction
+    );
+    assert_eq!(state.surface().get(source).unwrap().remaining_mass(), mass);
+    advance_to(&registries, &mut state, 600);
+    assert_eq!(
+        state
+            .surface()
+            .available_resources_at(Some(route.den))
+            .count(),
+        0
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hungry_scout_hauls_inert_cache_if_no_edible_food_is_reachable() {
+    let (registries, mut state, route) = setup();
+    let stone = seed(&registries, &mut state, [loose_stone(route.side)])[0];
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 585);
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route.side
+    );
+    advance_to(&registries, &mut state, 595);
+    assert_eq!(state.surface().get(stone).unwrap().position(), route.den);
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        state.surface().get(stone).unwrap().remaining_mass(),
+        Mass::from_milligrams(150_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

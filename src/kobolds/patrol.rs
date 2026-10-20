@@ -14,9 +14,9 @@ use crate::survival::Vitality;
 
 use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_food_opportunity};
 use super::scavenging::{
-    den_cache_space, finds_external_drop, has_local_scout_interest, is_contestable_drop,
-    is_portable_drop, local_portable_source, local_split_source, reachable_far_drop,
-    reachable_side_drop, reachable_side_food,
+    den_cache_space, finds_external_drop, has_local_scout_interest, is_portable_drop,
+    local_portable_source, local_split_source, reachable_far_drop, reachable_far_food,
+    reachable_side_drop, reachable_side_food, scout_goal_has_supplies, should_seek_local_food,
 };
 use super::visibility::scout_visible_from;
 use super::{
@@ -76,9 +76,21 @@ fn choose_outbound_detour(
         (forage_ready && !den_space.is_zero() && !local_food_remains)
             .then(|| {
                 reachable_side_food(registries, state, junction, den, tip, player_position, at)
+                    .map(|destination| (destination, None))
+                    .or_else(|| {
+                        reachable_far_food(
+                            registries,
+                            state,
+                            junction,
+                            den,
+                            tip,
+                            player_position,
+                            at,
+                        )
+                        .map(|(first, goal)| (first, Some(goal)))
+                    })
             })
             .flatten()
-            .map(|destination| (destination, None))
     };
     if colony.hungry {
         // After a missed meal, actual edible food matters more than carrying
@@ -179,13 +191,14 @@ fn plan_scout_move(
     // goal rather than walking into an empty camp by stale distant knowledge.
     let cancelled_empty_cache_raid = proposed_step == 3
         && !proposed_returning
-        && !state
-            .surface()
-            .available_resources_at(Some(proposed_position))
-            .any(|resource| {
-                is_contestable_drop(resource, den_space)
-                    && scout_wants_drop(registries, resource, next_tick)
-            });
+        && !scout_goal_has_supplies(
+            registries,
+            state,
+            proposed_position,
+            den_space,
+            forage_ready,
+            next_tick,
+        );
     let turned_back_at_barrier = !proposed_returning
         && proposed_step > colony.scout_step
         && colony.scout_step > 0
@@ -253,7 +266,6 @@ pub(crate) fn apply_kobold_scout_tick(
         .colony
         .as_ref()
         .expect("colony still exists");
-    let hungry = colony.hungry;
     let den_space = den_cache_space(state, colony.route[0]);
     let exposed_at_current = has_local_scout_interest(
         registries,
@@ -285,6 +297,18 @@ pub(crate) fn apply_kobold_scout_tick(
         cancelled_empty_cache_raid,
         physically_clear,
     } = move_plan;
+    let may_forage_on_return = colony.can_forage_on_return(step);
+    // Hunger prioritizes food when the scout can currently gather or move it.
+    // Without a locally edible source, inert scavenging remains a real fallback.
+    let food_only = should_seek_local_food(
+        registries,
+        state,
+        from,
+        den_space,
+        forage_ready,
+        next_tick,
+        colony.hungry,
+    );
     // A scout only scavenges during retreat. Player pickup may have exhausted its
     // previously dragged parcel between steps; never resurrect or replace that mass.
     let available_drop_at = |id: SurfaceResourceId| {
@@ -306,7 +330,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 .scavenged_drop
                 .filter(|id| available_drop_at(*id))
                 .or_else(|| {
-                    local_portable_source(registries, state, from, den_space, next_tick, hungry)
+                    local_portable_source(registries, state, from, den_space, next_tick, food_only)
                 })
         })
         .flatten();
@@ -333,7 +357,7 @@ pub(crate) fn apply_kobold_scout_tick(
     // Whole portable parcels retain identity. Oversized exposed piles instead
     // yield a bounded daughter parcel, leaving the exact remainder at the source.
     let bulk_source = (can_move && returning && !pressured && relocated_drop.is_none())
-        .then(|| local_split_source(registries, state, from, den_space, next_tick, hungry))
+        .then(|| local_split_source(registries, state, from, den_space, next_tick, food_only))
         .flatten();
     let split_drop = bulk_source.and_then(|source| {
         split_bulk_scavenged_drop_step(
@@ -352,7 +376,7 @@ pub(crate) fn apply_kobold_scout_tick(
     // transaction that leaves the finite catch recoverable.
     let forage_source = (can_move
         && returning
-        && step <= 1
+        && may_forage_on_return
         && relocated_drop.is_none()
         && split_drop.is_none()
         && !pressured

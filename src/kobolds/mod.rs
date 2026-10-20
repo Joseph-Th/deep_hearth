@@ -243,6 +243,12 @@ impl KoboldColony {
         self.hungry && self.scout_step == 1 && !self.returning
     }
 
+    fn can_forage_on_return(&self, next_step: u8) -> bool {
+        // A distant patch is harvested only during the actual goal-to-first
+        // return leg; later legs carry the exact same newly materialized parcel.
+        next_step <= 1 || (self.scout_step == 3 && next_step == 2)
+    }
+
     /// Return toward safety when confronted; otherwise keep the patrol or turn
     /// home with an unattended loose parcel at the junction.
     fn next_scout_step(&self, pressured: bool, exposed_at_current: bool) -> (u8, bool) {
