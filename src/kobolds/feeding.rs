@@ -41,6 +41,20 @@ pub(super) fn food_condition(
     .ok()
 }
 
+/// A wild forage source must remain edible at the authoritative action tick.
+/// Expired patches stay in world custody without blocking fresh neighboring food.
+pub(super) fn scout_wants_food_opportunity(
+    registries: &Registries,
+    resource: &SurfaceResourceRecord,
+    at: SimulationTick,
+) -> bool {
+    resource.kind() == SurfaceResourceKind::Opportunity
+        && matches!(
+            food_condition(registries, resource, at),
+            Some(FoodFreshness::Fresh { .. })
+        )
+}
+
 pub(super) fn scout_wants_drop(
     registries: &Registries,
     resource: &SurfaceResourceRecord,

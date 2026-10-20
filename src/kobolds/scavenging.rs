@@ -8,7 +8,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
-use super::feeding::scout_wants_drop;
+use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
 use super::patrol::scout_can_enter;
 use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
 
@@ -92,11 +92,7 @@ pub(super) fn reachable_side_drop(
     state
         .logistics()
         .traversable_destinations(junction)
-        .filter(|destination| {
-            *destination != den
-                && *destination != authored_tip
-                && unguarded_unlit_cell(registries, state, *destination, player_position)
-        })
+        .filter(|destination| *destination != den && *destination != authored_tip)
         .filter_map(|destination| {
             state
                 .surface()
@@ -107,6 +103,10 @@ pub(super) fn reachable_side_drop(
                 })
                 .min_by_key(|resource| detour_loot_priority(resource, capacity))
                 .map(|resource| (detour_loot_priority(resource, capacity), destination))
+        })
+        // Lighting propagation is more expensive than an indexed local parcel lookup.
+        .filter(|(_, destination)| {
+            unguarded_unlit_cell(registries, state, *destination, player_position)
         })
         .min_by_key(|(priority, _)| *priority)
         .map(|(_, destination)| destination)
@@ -127,21 +127,13 @@ pub(super) fn reachable_far_drop(
     state
         .logistics()
         .traversable_destinations(junction)
-        .filter(|first| {
-            *first != den
-                && *first != authored_tip
-                && unguarded_unlit_cell(registries, state, *first, player_position)
-        })
+        .filter(|first| *first != den && *first != authored_tip)
         .flat_map(|first| {
             state
                 .logistics()
                 .traversable_destinations(first)
                 .filter(move |goal| {
-                    *goal != first
-                        && *goal != den
-                        && *goal != junction
-                        && *goal != authored_tip
-                        && unguarded_unlit_cell(registries, state, *goal, player_position)
+                    *goal != first && *goal != den && *goal != junction && *goal != authored_tip
                 })
                 .filter_map(move |goal| {
                     state
@@ -154,6 +146,10 @@ pub(super) fn reachable_far_drop(
                         .min_by_key(|resource| detour_loot_priority(resource, capacity))
                         .map(|resource| (detour_loot_priority(resource, capacity), first, goal))
                 })
+        })
+        .filter(|(_, first, goal)| {
+            unguarded_unlit_cell(registries, state, *first, player_position)
+                && unguarded_unlit_cell(registries, state, *goal, player_position)
         })
         .min_by_key(|(priority, _, _)| *priority)
         .map(|(_, first, goal)| (first, goal))
@@ -168,24 +164,21 @@ pub(super) fn reachable_side_food(
     den: VoxelCoord,
     authored_tip: VoxelCoord,
     player_position: Option<VoxelCoord>,
+    at: SimulationTick,
 ) -> Option<VoxelCoord> {
     state
         .logistics()
         .traversable_destinations(junction)
-        .filter(|destination| {
-            *destination != den
-                && *destination != authored_tip
-                && unguarded_unlit_cell(registries, state, *destination, player_position)
-        })
+        .filter(|destination| *destination != den && *destination != authored_tip)
         .filter_map(|destination| {
             state
                 .surface()
                 .available_resources_at(Some(destination))
-                .find(|resource| {
-                    resource.kind() == SurfaceResourceKind::Opportunity
-                        && resource.commodity().form() == crate::content::FORM_FOOD
-                })
+                .find(|resource| scout_wants_food_opportunity(registries, resource, at))
                 .map(|resource| (resource.id(), destination))
+        })
+        .filter(|(_, destination)| {
+            unguarded_unlit_cell(registries, state, *destination, player_position)
         })
         .min_by_key(|(id, _)| *id)
         .map(|(_, destination)| destination)

@@ -504,5 +504,8 @@ pub(crate) fn validate_loaded_kobolds(
 }
 
 #[cfg(test)]
+#[path = "foraging_freshness_tests.rs"]
+mod foraging_freshness_tests;
+#[cfg(test)]
 #[path = "tests.rs"]
 mod tests;

@@ -7,12 +7,12 @@ use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, forage_food_to_adjacent_den,
+    SurfaceResourceId, SurfaceResourceLifecycle, forage_food_to_adjacent_den,
     relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
 };
 use crate::survival::Vitality;
 
-use super::feeding::{apply_scheduled_den_care, scout_wants_drop};
+use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_food_opportunity};
 use super::scavenging::{
     den_cache_space, is_contestable_drop, is_portable_drop, reachable_far_drop,
     reachable_side_drop, reachable_side_food, scout_loot_priority,
@@ -63,17 +63,14 @@ fn choose_outbound_detour(
         .map(|(first, goal)| (first, Some(goal)))
     })
     .or_else(|| {
-        let local_food_remains =
-            state
-                .surface()
-                .available_resources_at(Some(junction))
-                .any(|resource| {
-                    resource.kind() == SurfaceResourceKind::Opportunity
-                        && resource.commodity().form() == crate::content::FORM_FOOD
-                        && !resource.remaining_mass().is_zero()
-                });
+        let local_food_remains = state
+            .surface()
+            .available_resources_at(Some(junction))
+            .any(|resource| scout_wants_food_opportunity(registries, resource, at));
         (forage_ready && !den_space.is_zero() && !local_food_remains)
-            .then(|| reachable_side_food(registries, state, junction, den, tip, player_position))
+            .then(|| {
+                reachable_side_food(registries, state, junction, den, tip, player_position, at)
+            })
             .flatten()
             .map(|destination| (destination, None))
     })
@@ -365,10 +362,7 @@ pub(crate) fn apply_kobold_scout_tick(
             state
                 .surface()
                 .available_resources_at(Some(from))
-                .find(|resource| {
-                    resource.kind() == SurfaceResourceKind::Opportunity
-                        && resource.commodity().form() == crate::content::FORM_FOOD
-                })
+                .find(|resource| scout_wants_food_opportunity(registries, resource, next_tick))
                 .map(|resource| resource.id())
         })
         .flatten();
