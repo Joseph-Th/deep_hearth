@@ -27,6 +27,15 @@ pub(super) fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord)
     resource.kind() == SurfaceResourceKind::Drop && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
+/// Missed meals suspend inert scavenging until food has been secured.
+/// No extra world state is needed beyond the saved resident hunger flag.
+pub(super) fn provision_priority(
+    resource: &crate::surface::SurfaceResourceRecord,
+    hungry: bool,
+) -> bool {
+    !hungry || resource.commodity().form() == crate::content::FORM_FOOD
+}
+
 /// A reachable loose pile is unsafe even if too large to move as one parcel.
 pub(super) fn is_contestable_drop(
     resource: &crate::surface::SurfaceResourceRecord,
@@ -36,6 +45,79 @@ pub(super) fn is_contestable_drop(
         && resource.lifecycle() == SurfaceResourceLifecycle::Available
         && !resource.remaining_mass().is_zero()
         && !space.is_zero()
+}
+
+/// Decide whether the scout should turn home from its present cell.
+/// A hungry scout ignores inert parcels at the junction while finding food.
+pub(super) fn has_local_scout_interest(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    space: Mass,
+    forage_ready: bool,
+    at: SimulationTick,
+    seeking_food: bool,
+) -> bool {
+    state
+        .surface()
+        .available_resources_at(Some(position))
+        .any(|resource| {
+            let loose =
+                is_contestable_drop(resource, space) && scout_wants_drop(registries, resource, at);
+            if seeking_food {
+                (loose && resource.commodity().form() == crate::content::FORM_FOOD)
+                    || (forage_ready
+                        && !space.is_zero()
+                        && scout_wants_food_opportunity(registries, resource, at))
+            } else {
+                loose
+            }
+        })
+}
+
+/// Choose one locally portable drop without scanning remote or depleted records.
+pub(super) fn local_portable_source(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    space: Mass,
+    at: SimulationTick,
+    hungry: bool,
+) -> Option<SurfaceResourceId> {
+    state
+        .surface()
+        .available_resources_at(Some(position))
+        .filter(|resource| {
+            is_portable_drop(resource)
+                && resource.remaining_mass() <= space
+                && scout_wants_drop(registries, resource, at)
+                && provision_priority(resource, hungry)
+        })
+        .min_by_key(|resource| scout_loot_priority(resource))
+        .map(|resource| resource.id())
+}
+
+/// Choose one oversized local pile to split on a real retreat edge.
+/// Stable surface IDs decide equal forms without a historical-world scan.
+pub(super) fn local_split_source(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    space: Mass,
+    at: SimulationTick,
+    hungry: bool,
+) -> Option<SurfaceResourceId> {
+    state
+        .surface()
+        .available_resources_at(Some(position))
+        .filter(|resource| {
+            is_contestable_drop(resource, space)
+                && scout_wants_drop(registries, resource, at)
+                && provision_priority(resource, hungry)
+                && (!is_portable_drop(resource) || resource.remaining_mass() > space)
+        })
+        .min_by_key(|resource| scout_loot_priority(resource))
+        .map(|resource| resource.id())
 }
 
 /// The den uses ordinary surface custody. Its finite loose storage includes all available
@@ -88,6 +170,7 @@ pub(super) fn reachable_side_drop(
     player_position: Option<VoxelCoord>,
     capacity: Mass,
     at: SimulationTick,
+    food_only: bool,
 ) -> Option<VoxelCoord> {
     state
         .logistics()
@@ -100,6 +183,7 @@ pub(super) fn reachable_side_drop(
                 .filter(|resource| {
                     is_contestable_drop(resource, capacity)
                         && scout_wants_drop(registries, resource, at)
+                        && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
                 })
                 .min_by_key(|resource| detour_loot_priority(resource, capacity))
                 .map(|resource| (detour_loot_priority(resource, capacity), destination))
@@ -123,6 +207,7 @@ pub(super) fn reachable_far_drop(
     player_position: Option<VoxelCoord>,
     capacity: Mass,
     at: SimulationTick,
+    food_only: bool,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
     state
         .logistics()
@@ -142,6 +227,8 @@ pub(super) fn reachable_far_drop(
                         .filter(|resource| {
                             is_contestable_drop(resource, capacity)
                                 && scout_wants_drop(registries, resource, at)
+                                && (!food_only
+                                    || resource.commodity().form() == crate::content::FORM_FOOD)
                         })
                         .min_by_key(|resource| detour_loot_priority(resource, capacity))
                         .map(|resource| (detour_loot_priority(resource, capacity), first, goal))

@@ -14,8 +14,9 @@ use crate::survival::Vitality;
 
 use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_food_opportunity};
 use super::scavenging::{
-    den_cache_space, is_contestable_drop, is_portable_drop, reachable_far_drop,
-    reachable_side_drop, reachable_side_food, scout_loot_priority,
+    den_cache_space, has_local_scout_interest, is_contestable_drop, is_portable_drop,
+    local_portable_source, local_split_source, reachable_far_drop, reachable_side_drop,
+    reachable_side_food,
 };
 use super::visibility::scout_visible_from;
 use super::{
@@ -38,19 +39,8 @@ fn choose_outbound_detour(
         return None;
     }
     let [den, junction, tip] = colony.route;
-    reachable_side_drop(
-        registries,
-        state,
-        junction,
-        den,
-        tip,
-        player_position,
-        den_space,
-        at,
-    )
-    .map(|first| (first, None))
-    .or_else(|| {
-        reachable_far_drop(
+    let loose_cache = |food_only| {
+        reachable_side_drop(
             registries,
             state,
             junction,
@@ -59,10 +49,25 @@ fn choose_outbound_detour(
             player_position,
             den_space,
             at,
+            food_only,
         )
-        .map(|(first, goal)| (first, Some(goal)))
-    })
-    .or_else(|| {
+        .map(|first| (first, None))
+        .or_else(|| {
+            reachable_far_drop(
+                registries,
+                state,
+                junction,
+                den,
+                tip,
+                player_position,
+                den_space,
+                at,
+                food_only,
+            )
+            .map(|(first, goal)| (first, Some(goal)))
+        })
+    };
+    let wild_food = || {
         let local_food_remains = state
             .surface()
             .available_resources_at(Some(junction))
@@ -73,7 +78,16 @@ fn choose_outbound_detour(
             })
             .flatten()
             .map(|destination| (destination, None))
-    })
+    };
+    if colony.hungry {
+        // After a missed meal, actual edible food matters more than carrying
+        // inert cargo. If no food is reachable, ordinary scavenging remains possible.
+        loose_cache(true)
+            .or_else(wild_food)
+            .or_else(|| loose_cache(false))
+    } else {
+        loose_cache(false).or_else(wild_food)
+    }
 }
 
 pub(super) fn scout_can_enter(
@@ -238,14 +252,17 @@ pub(crate) fn apply_kobold_scout_tick(
         .colony
         .as_ref()
         .expect("colony still exists");
+    let hungry = colony.hungry;
     let den_space = den_cache_space(state, colony.route[0]);
-    let exposed_at_current = state
-        .surface()
-        .available_resources_at(Some(from))
-        .any(|resource| {
-            is_contestable_drop(resource, den_space)
-                && scout_wants_drop(registries, resource, next_tick)
-        });
+    let exposed_at_current = has_local_scout_interest(
+        registries,
+        state,
+        from,
+        den_space,
+        forage_ready,
+        next_tick,
+        colony.seeks_food_at_junction(),
+    );
     let move_plan = plan_scout_move(
         registries,
         state,
@@ -288,16 +305,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 .scavenged_drop
                 .filter(|id| available_drop_at(*id))
                 .or_else(|| {
-                    state
-                        .surface()
-                        .available_resources_at(Some(from))
-                        .filter(|resource| {
-                            is_portable_drop(resource)
-                                && resource.remaining_mass() <= den_space
-                                && scout_wants_drop(registries, resource, next_tick)
-                        })
-                        .min_by_key(|resource| scout_loot_priority(resource))
-                        .map(|resource| resource.id())
+                    local_portable_source(registries, state, from, den_space, next_tick, hungry)
                 })
         })
         .flatten();
@@ -323,18 +331,7 @@ pub(crate) fn apply_kobold_scout_tick(
     // Whole portable parcels retain identity. Oversized exposed piles instead
     // yield a bounded daughter parcel, leaving the exact remainder at the source.
     let bulk_source = (can_move && returning && !pressured && relocated_drop.is_none())
-        .then(|| {
-            state
-                .surface()
-                .available_resources_at(Some(from))
-                .filter(|resource| {
-                    is_contestable_drop(resource, den_space)
-                        && scout_wants_drop(registries, resource, next_tick)
-                        && (!is_portable_drop(resource) || resource.remaining_mass() > den_space)
-                })
-                .min_by_key(|resource| scout_loot_priority(resource))
-                .map(|resource| resource.id())
-        })
+        .then(|| local_split_source(registries, state, from, den_space, next_tick, hungry))
         .flatten();
     let split_drop = bulk_source.and_then(|source| {
         split_bulk_scavenged_drop_step(

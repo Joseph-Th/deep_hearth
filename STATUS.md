@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing with routed tailings, copper forming/casting, delegated cast-part work. Ore reduction and smelting-slag generation are absent. |
-| Opening wilderness acquisition | Scouts raid caches, forage food, hoard 500 g, eat every 24 minutes and discard spoiled den food along real routes. Player, light and terrain constrain behavior. Local sightings only. No combat/pursuit. |
+| Opening wilderness acquisition | Scouts raid caches, forage and hoard 500 g; missed meals persist and prioritize food over inert loot until a catch-up meal. Spoiled food is discarded physically. Player, light and terrain deter. No combat/pursuit. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier

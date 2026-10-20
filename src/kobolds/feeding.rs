@@ -67,8 +67,10 @@ pub(super) fn scout_wants_drop(
         )
 }
 
-/// Sparse den care: eat fresh food, or dispose of one spoiled parcel along a
-/// real, unblocked edge. Both outcomes preserve finite source custody.
+/// Sparse den care: a missed scheduled meal makes hunger persistent until
+/// the scout actually eats. It may eat a catch-up meal on a later den visit,
+/// but never backlogs missed servings or alters the original meal clock.
+/// Spoiled disposal stays on the regular sparse schedule.
 pub(super) fn apply_scheduled_den_care(
     registries: &Registries,
     state: &mut AppState,
@@ -79,7 +81,9 @@ pub(super) fn apply_scheduled_den_care(
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return (None, None);
     };
-    if at < colony.next_meal_at {
+    let due = at >= colony.next_meal_at;
+    let hungry = colony.hungry;
+    if !due && !hungry {
         return (None, None);
     }
     let at_den = colony.scout_step == 0;
@@ -91,19 +95,26 @@ pub(super) fn apply_scheduled_den_care(
         None
     };
     // A wary scout must not move a parcel into the junction while sheltering.
-    let discarded = if at_den && !pressured && !wary_at_den && eaten.is_none() {
+    let discarded = if due && at_den && !pressured && !wary_at_den && eaten.is_none() {
         discard_spoiled_den_food(registries, state, from, junction, at)
     } else {
         None
     };
-    state
+    let colony = state
         .kobold_state_mut()
         .colony
         .as_mut()
-        .expect("resident feeding requires existing colony")
-        .next_meal_at = at
-        .checked_add_span(TickSpan::new(SCOUT_MEAL_INTERVAL_TICKS))
-        .expect("bounded simulation cannot overflow meal schedule");
+        .expect("resident feeding requires existing colony");
+    if due {
+        colony.next_meal_at = at
+            .checked_add_span(TickSpan::new(SCOUT_MEAL_INTERVAL_TICKS))
+            .expect("bounded simulation cannot overflow meal schedule");
+    }
+    if eaten.is_some() {
+        colony.hungry = false;
+    } else if due {
+        colony.hungry = true;
+    }
     (eaten, discarded)
 }
 

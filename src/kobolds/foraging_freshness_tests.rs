@@ -1,6 +1,8 @@
 //! Finite scout foraging respects the actual freshness of wild source custody.
 
-use crate::content::{FORM_FOOD, MATERIAL_BERRIES, MATERIAL_WILD_NUTS, build_registries};
+use crate::content::{
+    FORM_CHIP, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WILD_NUTS, build_registries,
+};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::core::time::SimulationTick;
@@ -166,7 +168,14 @@ fn scout_skips_older_spoiled_patch_and_forages_fresh_food_at_same_junction() {
         den_food.commodity(),
         CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD)
     );
-    assert_eq!(den_food.remaining_mass(), Mass::from_milligrams(100_000));
+    assert_eq!(den_food.remaining_mass(), Mass::from_milligrams(80_000));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
@@ -280,6 +289,136 @@ fn food_expiring_while_scout_walks_to_patch_is_not_harvested() {
             .available_resources_at(Some(route.den))
             .next()
             .is_none()
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+fn loose_stone(position: VoxelCoord) -> SurfaceResourceSpec {
+    SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(150_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap()
+}
+
+#[test]
+fn missed_meal_redirects_scout_from_inert_cargo_to_fresh_side_forage_and_catchup_meal() {
+    let (registries, mut state, route) = setup();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            loose_stone(route.junction),
+            forage_spec(
+                &registries,
+                route.side,
+                MATERIAL_WILD_NUTS,
+                Mass::from_milligrams(300_000),
+                None,
+            ),
+        ],
+    );
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 585);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert!(colony.hungry);
+    assert_eq!(colony.next_meal_at, SimulationTick::new(980));
+    assert_eq!(colony.scout_position(), route.side);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().position(),
+        route.junction
+    );
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&checkpoint).unwrap();
+    let mut replay = decoded.into_state(&registries).unwrap();
+    for _ in 0..15 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().position(),
+        route.junction
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn successful_first_meal_preserves_inert_scavenging_and_unearned_hunger_is_rejected() {
+    let (registries, mut state, route) = setup();
+    let provisions = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route.den,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            provisions,
+            loose_stone(route.junction),
+            forage_spec(
+                &registries,
+                route.side,
+                MATERIAL_WILD_NUTS,
+                Mass::from_milligrams(300_000),
+                None,
+            ),
+        ],
+    );
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let valid = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut invalid = valid.clone();
+    invalid["state"]["systems"]["kobolds"]["colony"]["hungry"] = serde_json::json!(true);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(invalid).unwrap();
+    assert!(decoded.into_state(&registries).is_err());
+    let mut missing = valid;
+    missing["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("hungry");
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err());
+
+    advance_to(&registries, &mut state, 585);
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().position(),
+        route.den
+    );
+    assert_eq!(
+        state.surface().get(sources[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(300_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
     );
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));

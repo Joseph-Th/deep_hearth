@@ -90,6 +90,7 @@ fn side_cache_prefers_whole_cargo_over_older_bulk_food_but_splits_when_pack_spac
             None,
             capacity,
             state.tick(),
+            false,
         )
     };
     assert_eq!(
@@ -128,6 +129,7 @@ fn far_cache_search_uses_two_real_edges_and_prefers_whole_cargo() {
             None,
             capacity,
             state.tick(),
+            false,
         )
     };
     assert_eq!(

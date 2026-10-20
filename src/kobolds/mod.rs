@@ -189,6 +189,9 @@ struct KoboldColony {
     next_forage_at: Option<SimulationTick>,
     /// Regular meal opportunity, advanced only on the low-frequency scout clock.
     next_meal_at: SimulationTick,
+    /// A meal was missed and the scout still needs recoverable food.
+    /// This need survives save/load and clears only after an actual den meal.
+    hungry: bool,
     /// Caution survives saves and expires on the same five-tick scout clock.
     #[serde(deserialize_with = "required_optional_wary_tick")]
     wary_until: Option<SimulationTick>,
@@ -222,6 +225,10 @@ impl KoboldColony {
 
     fn scout_position(&self) -> VoxelCoord {
         self.position_at_step(self.scout_step)
+    }
+
+    fn seeks_food_at_junction(&self) -> bool {
+        self.hungry && self.scout_step == 1 && !self.returning
     }
 
     /// Return toward safety when confronted; otherwise keep the patrol or turn
@@ -354,6 +361,7 @@ impl KoboldState {
             scavenged_drop: None,
             next_forage_at: None,
             next_meal_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS),
+            hungry: false,
             wary_until: None,
         });
     }
@@ -403,6 +411,9 @@ fn validate_meal_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'s
         || (current >= first && next - current > SCOUT_MEAL_INTERVAL_TICKS)
     {
         return Err("kobold meal schedule is not aligned with authoritative time");
+    }
+    if colony.hungry && current < first {
+        return Err("kobold hunger cannot precede its first meal opportunity");
     }
     Ok(())
 }
