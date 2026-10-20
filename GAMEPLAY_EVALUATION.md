@@ -256,8 +256,17 @@ pickup disclose the outcome; a trusted save/load halfway through yields identica
 steps and custody. In the matching guarded branch, standing on the intermediate
 trail keeps the camp cache safe without directly picking it up. Owner tests cover
 two-edge saved topology, restoration of the original patrol, invalid goal admission
-and rejection of unliftable remote bulk. Save schema 105 stores the optional goal
-explicitly; older saves are not migrated.
+and rejection of unliftable remote bulk. Save schema 106 stores optional route goals
+and the caution deadline explicitly; older saves are not migrated.
+
+In the matched live scout encounter, walking to guard the junction without pickup
+makes the scout retreat and stay wary for forty simulation ticks. The player
+then withdraws and can return by tick 215 to recover the still-unmoved ration;
+waiting until tick 235 instead exposes the same parcel to renewed theft and den
+recovery. A trusted save/load after the frightening encounter replays both
+continuations. This makes guarding a time-limited choice rather than an instant
+reset or permanent ward; caution is observable only through a nearby scout
+sighting, and remote material mass is not read during the wait.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed

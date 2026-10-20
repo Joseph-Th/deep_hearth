@@ -416,7 +416,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
             r"\bdetection=(\d+)t theft=(\d+)t unsecured-moved:(\d+)mg "
             r"guarded-retained:(\d+)mg recovered:(\d+)mg "
             r"deterrence=presence-routes-retreat drop-protected:(\d+)mg "
-            r"route-changed:(true|false) matter-conserved:(true|false)",
+            r"cautious-retained:(\d+)mg stolen-after-caution:(\d+)mg "
+            r"wary-window:(\d+)t route-changed:(true|false) matter-conserved:(true|false)",
             encounters[0],
         )
         if encounter is None:
@@ -430,8 +431,11 @@ def wilderness_summary(lines: list[str]) -> str | None:
             or moved != kept
             or moved != recovered
             or moved != deterred
-            or encounter.group(7) != "true"
-            or encounter.group(8) != "true"
+            or moved != int(encounter.group(7))
+            or moved != int(encounter.group(8))
+            or int(encounter.group(9)) != 40
+            or encounter.group(10) != "true"
+            or encounter.group(11) != "true"
         ):
             raise ValueError("scavenger failed to create a recoverable, avoidable world consequence")
         scavenger = (
@@ -439,7 +443,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"first-sighting:{seen}t theft:{theft}t "
             f"vulnerable:{_mass_kg(moved)}kg guarded:{_mass_kg(kept)}kg "
             f"reclaimed:{_mass_kg(recovered)}kg deterred:{_mass_kg(deterred)}kg "
-            "diversion:proved retreat:provoked]"
+            "diversion:proved retreat:provoked "
+            "caution:40t protected-then-vulnerable]"
         )
     foraging_events = [
         line for line in lines if line.startswith("KOBOLD FORAGE EXPERIENCE ")

@@ -2,6 +2,7 @@
 use super::*;
 
 use deep_hearth::kobolds::available_nearby_kobold_scouts;
+use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use deep_hearth::surface::{available_player_world_drops, validate_drop_player_material};
 
 pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
@@ -184,7 +185,7 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
     assert!(
         available_nearby_kobold_scouts(&warded)
             .next()
-            .is_some_and(|sighting| sighting.scavenged_material().is_none())
+            .is_some_and(|sighting| sighting.scavenged_material().is_none() && sighting.is_wary())
     );
     assert_eq!(
         available_adjacent_surface_resources(&warded)
@@ -215,6 +216,119 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
     assert_eq!(validate_loaded_state(&registries, &exposed), Ok(()));
     assert_eq!(validate_loaded_state(&registries, &defended), Ok(()));
     assert_eq!(validate_loaded_state(&registries, &warded), Ok(()));
+
+    // One frightened scout, two follow-up decisions. The player does not
+    // inspect the remote den: each branch returns through ordinary body
+    // movement to establish whether its exact parcel survived.
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &warded))
+        .expect("frightened scout should save");
+    let envelope: LoadedSaveEnvelope =
+        serde_json::from_slice(&encoded).expect("frightened scout should decode");
+    let mut early_return = envelope
+        .into_state(&registries)
+        .expect("scout fear must persist after trusted save load");
+    assert_eq!(early_return, warded);
+    let mut late_return = early_return.clone();
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut early_return,
+        spawn,
+        "leave scout alone during caution",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut late_return,
+        spawn,
+        "leave scout alone past caution",
+    );
+    advance_to(
+        &registries,
+        &mut early_return,
+        SimulationTick::new(215),
+        TickEventAllowance::default(),
+        "caution protects neglected ration",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut early_return,
+        forage,
+        "check still-safe cache before expiration",
+    );
+    assert_eq!(
+        available_adjacent_surface_resources(&early_return)
+            .find(|item| item.resource() == drop)
+            .expect("cautious scout must not take the unguarded ration yet")
+            .position(),
+        junction
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut early_return,
+        junction,
+        "recover cache after temporary deterrence",
+    );
+    assert_eq!(
+        early_return
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        ration
+    );
+    assert!(early_return.tick().value() < 225);
+
+    advance_to(
+        &registries,
+        &mut late_return,
+        SimulationTick::new(235),
+        TickEventAllowance::default(),
+        "caution expires before unattended camp recovery",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut late_return,
+        forage,
+        "inspect ration after caution window",
+    );
+    assert!(
+        available_adjacent_surface_resources(&late_return).all(|item| item.resource() != drop),
+        "old forage junction parcel must have been taken once caution expires"
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut late_return,
+        junction,
+        "follow scout to den after renewed theft",
+    );
+    let late_den = available_adjacent_surface_resources(&late_return)
+        .find(|item| item.resource() == drop)
+        .expect("the old ration should become locally visible at the den")
+        .position();
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut late_return,
+        late_den,
+        "reclaim ration after caution ends",
+    );
+    assert_eq!(
+        late_return
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        ration
+    );
+    assert_eq!(
+        calculate_matter_accounting(&early_return).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        calculate_matter_accounting(&late_return).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &early_return), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &late_return), Ok(()));
+
     walk_continuous_body_adjacent_and_settle(
         &registries,
         &mut warded,
@@ -287,8 +401,10 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
             ration.milligrams(),
         );
         std::println!(
-            "KOBOLD EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-patrol evidence=ordinary-generated-world detection=180t theft=185t unsecured-moved:{}mg guarded-retained:{}mg recovered:{}mg deterrence=presence-routes-retreat drop-protected:{}mg route-changed:true matter-conserved:true",
+            "KOBOLD EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-patrol evidence=ordinary-generated-world detection=180t theft=185t unsecured-moved:{}mg guarded-retained:{}mg recovered:{}mg deterrence=presence-routes-retreat drop-protected:{}mg cautious-retained:{}mg stolen-after-caution:{}mg wary-window:40t route-changed:true matter-conserved:true",
             seed.value(),
+            ration.milligrams(),
+            ration.milligrams(),
             ration.milligrams(),
             ration.milligrams(),
             ration.milligrams(),

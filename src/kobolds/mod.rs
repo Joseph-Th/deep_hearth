@@ -30,6 +30,8 @@ const SCOUT_FORAGE_BATCH: Mass = Mass::from_milligrams(100_000);
 const SCOUT_BULK_SPLIT_BATCH: Mass = Mass::from_milligrams(250_000);
 /// Avoid stripping a food patch on every 72-second scout circuit.
 const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
+/// A chased scout stays wary for 2.4 simulation minutes after the most recent threat.
+const SCOUT_WARY_INTERVAL_TICKS: u64 = 40;
 /// A low, dying ember does not repel the same scout as a maintained bright fire.
 const SCOUT_DETERRENT_LIGHT_LEVEL: u8 = 3;
 
@@ -38,6 +40,7 @@ const SCOUT_DETERRENT_LIGHT_LEVEL: u8 = 3;
 pub struct KoboldSighting {
     position: VoxelCoord,
     has_noticed_player_drop: bool,
+    is_wary: bool,
     scavenged_material: Option<(CommodityKey, Mass)>,
 }
 
@@ -50,6 +53,12 @@ impl KoboldSighting {
     #[must_use]
     pub const fn has_noticed_player_drop(self) -> bool {
         self.has_noticed_player_drop
+    }
+
+    /// The nearby scout is still avoiding danger after player or firelight pressure.
+    #[must_use]
+    pub const fn is_wary(self) -> bool {
+        self.is_wary
     }
 
     /// The identity and mass of a currently carried loose parcel, if still present.
@@ -138,6 +147,9 @@ struct KoboldColony {
     noticed_player_drop: bool,
     scavenged_drop: Option<SurfaceResourceId>,
     next_forage_at: Option<SimulationTick>,
+    /// Caution survives saves and expires on the same five-tick scout clock.
+    #[serde(deserialize_with = "required_optional_wary_tick")]
+    wary_until: Option<SimulationTick>,
 }
 
 fn required_optional_detour<'de, D>(deserializer: D) -> Result<Option<VoxelCoord>, D::Error>
@@ -145,6 +157,13 @@ where
     D: serde::Deserializer<'de>,
 {
     Option::<VoxelCoord>::deserialize(deserializer)
+}
+
+fn required_optional_wary_tick<'de, D>(deserializer: D) -> Result<Option<SimulationTick>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<SimulationTick>::deserialize(deserializer)
 }
 
 impl KoboldColony {
@@ -279,6 +298,7 @@ impl KoboldState {
             noticed_player_drop: false,
             scavenged_drop: None,
             next_forage_at: None,
+            wary_until: None,
         });
     }
 
@@ -286,13 +306,15 @@ impl KoboldState {
         &'a self,
         position: VoxelCoord,
         surface: &'a SurfaceResourceState,
+        now: SimulationTick,
     ) -> impl Iterator<Item = KoboldSighting> + 'a {
         self.colony
             .iter()
             .filter(move |colony| colony.is_near(position))
-            .map(|colony| KoboldSighting {
+            .map(move |colony| KoboldSighting {
                 position: colony.scout_position(),
                 has_noticed_player_drop: colony.noticed_player_drop,
+                is_wary: colony.wary_until.is_some_and(|until| until > now),
                 scavenged_material: colony
                     .scavenged_drop
                     .and_then(|id| surface.get(id))
@@ -307,9 +329,11 @@ pub fn available_nearby_kobold_scouts(
     state: &AppState,
 ) -> impl Iterator<Item = KoboldSighting> + '_ {
     let observer = state.logistics().player().map(|player| player.position());
-    observer
-        .into_iter()
-        .flat_map(move |position| state.kobold_state().sightings_at(position, state.surface()))
+    observer.into_iter().flat_map(move |position| {
+        state
+            .kobold_state()
+            .sightings_at(position, state.surface(), state.tick())
+    })
 }
 
 fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord) -> bool {
@@ -507,7 +531,17 @@ pub(crate) fn apply_kobold_scout_tick(
         .surface()
         .available_resources_at(Some(from))
         .any(|resource| is_contestable_drop(resource, den_space));
-    let (step, returning) = colony.next_scout_step(pressured, exposed_at_current);
+    // Danger has a durable consequence: an unpressured scout remains in its
+    // den while its recent-threat window is active. It cannot steal remotely
+    // or bypass the authored physical route during this hesitation.
+    let wary_at_den = colony.scout_step == 0
+        && !pressured
+        && colony.wary_until.is_some_and(|until| next_tick < until);
+    let (step, returning) = if wary_at_den {
+        (0, false)
+    } else {
+        colony.next_scout_step(pressured, exposed_at_current)
+    };
     let detour = choose_outbound_detour(
         registries,
         state,
@@ -655,6 +689,13 @@ pub(crate) fn apply_kobold_scout_tick(
         colony.scavenged_drop = None;
     }
     colony.next_step_at = next_step_at;
+    if pressured {
+        colony.wary_until = Some(
+            next_tick
+                .checked_add_span(TickSpan::new(SCOUT_WARY_INTERVAL_TICKS))
+                .expect("bounded simulation cannot overflow a scout caution deadline"),
+        );
+    }
     if foraged_food.is_some() {
         colony.next_forage_at = Some(
             next_tick
@@ -715,6 +756,15 @@ pub(crate) fn validate_loaded_kobolds(state: &AppState) -> Result<(), &'static s
         return Err("kobold patrol lacks authoritative wilderness traversal edges");
     }
     let current = state.tick().value();
+    if let Some(wary_until) = colony.wary_until {
+        let due = wary_until.value();
+        if due < FIRST_SCOUT_TICK + SCOUT_WARY_INTERVAL_TICKS
+            || (due - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+            || due > current.saturating_add(SCOUT_WARY_INTERVAL_TICKS)
+        {
+            return Err("kobold caution deadline is not aligned with authoritative time");
+        }
+    }
     if let Some(next_forage) = colony.next_forage_at {
         let earliest = FIRST_SCOUT_TICK + SCOUT_STEP_TICKS + SCOUT_FORAGE_INTERVAL_TICKS;
         let forage_due = next_forage.value();

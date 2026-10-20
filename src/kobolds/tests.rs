@@ -3,6 +3,7 @@
 use crate::content::{FORM_CHIP, MATERIAL_STONE, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -302,8 +303,14 @@ fn scout_resumes_authored_patrol_after_the_side_cache_is_recovered() {
     advance_to_tick(&registries, &mut state, 205);
     assert_eq!(
         colony(&state).scout_position(),
+        den,
+        "an intimidated scout should remain cautious at its den"
+    );
+    advance_to_tick(&registries, &mut state, 235);
+    assert_eq!(
+        colony(&state).scout_position(),
         tip,
-        "after the decoy is gone the scout must patrol the authored tip again"
+        "after caution expires the scout resumes its authored patrol"
     );
     assert_eq!(colony(&state).detour, None);
     assert_eq!(colony(&state).route, [den, junction, tip]);
@@ -312,6 +319,89 @@ fn scout_resumes_authored_patrol_after_the_side_cache_is_recovered() {
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())
     );
+}
+
+#[test]
+fn intimidated_scout_waits_at_den_then_resumes_scavenging_without_losing_matter() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let parcel = place_loose_stone_drop(&registries, &mut state, junction);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).wary_until, Some(SimulationTick::new(225)));
+    assert!(
+        available_nearby_kobold_scouts(&state)
+            .next()
+            .is_some_and(|sighting| sighting.is_wary())
+    );
+    // The player leaves the trail but the scout remembers the encounter.
+    crate::logistics::relocate_player_for_test(&mut state, spawn);
+    advance_to_tick(&registries, &mut state, 205);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(state.surface().get(parcel).unwrap().position(), junction);
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let mut restored = loaded
+        .into_state(&registries)
+        .expect("caution must persist");
+    for _ in 0..25 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(state, restored);
+    assert_eq!(state.tick().value(), 230);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(
+        state.surface().get(parcel).unwrap().position(),
+        den,
+        "once caution expires, unattended supplies become vulnerable again"
+    );
+    assert_eq!(
+        state.surface().get(parcel).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn invalid_kobold_caution_deadlines_are_rejected_on_load() {
+    let (registries, mut state, _) = generated_opening();
+    let tip = colony(&state).route[2];
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).wary_until, Some(SimulationTick::new(225)));
+    let valid = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    for invalid in [180, 217, 10_000_000] {
+        let mut corrupted = valid.clone();
+        corrupted["state"]["systems"]["kobolds"]["colony"]["wary_until"] =
+            serde_json::json!(invalid);
+        let loaded: LoadedSaveEnvelope = serde_json::from_value(corrupted).unwrap();
+        assert!(loaded.into_state(&registries).is_err());
+    }
+    let mut missing = valid;
+    missing["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("wary_until");
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err());
 }
 
 #[test]

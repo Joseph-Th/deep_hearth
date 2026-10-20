@@ -3193,6 +3193,25 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("first-food:25.2s", alternate_lived)
         with self.assertRaisesRegex(ValueError, "requires one maintained actor"):
             gameplay_report_summary.wilderness_player_experience([*lines, lines[2]])
+        caution_record = (
+            "KOBOLD EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-patrol "
+            "detection=180t theft=185t unsecured-moved:500000mg guarded-retained:500000mg "
+            "recovered:500000mg deterrence=presence-routes-retreat "
+            "drop-protected:500000mg cautious-retained:500000mg "
+            "stolen-after-caution:500000mg wary-window:40t "
+            "route-changed:true matter-conserved:true"
+        )
+        cautious_summary = gameplay_report_summary.wilderness_summary([*lines, caution_record])
+        self.assertIn("caution:40t protected-then-vulnerable", cautious_summary)
+        with self.assertRaisesRegex(ValueError, "recoverable, avoidable world consequence"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, caution_record.replace("stolen-after-caution:500000mg",
+                                               "stolen-after-caution:0mg")
+            ])
+        with self.assertRaisesRegex(ValueError, "recoverable, avoidable world consequence"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, caution_record.replace("wary-window:40t", "wary-window:0t")
+            ])
         self.assertIn("sample-shape=[maintained:1 coverage:2 organic:2]", summary)
         self.assertIn(
             "direct-use=[route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct lag=3.15/3.05/2.15s use=one-shot gather=[before:4000000mg batch:500000mg remaining:3500000mg] water=[before:5000000uL serving:500000uL remaining:4500000uL] hydration=[before:3000000uL after:3500000uL] timed=true]",
