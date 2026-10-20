@@ -60,7 +60,7 @@ const WATCH_DURATION_TICKS: u64 = 20;
 const WATCH_RECOVERY_TICKS: u64 = 100;
 
 /// Identity of a locally seen resident, including the fixed den watchman.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KoboldRole {
     Scout,
     Watchman,
@@ -251,6 +251,8 @@ struct KoboldColony {
     watch_leg: u8,
     /// Only the latest real departed route steps; old traces expire on observation.
     tracks: Vec<KoboldTrack>,
+    /// A separate small history of actual watchman steps, never invented idle spoor.
+    watch_tracks: Vec<KoboldTrack>,
     /// Caution survives saves and expires on the same five-tick scout clock.
     #[serde(deserialize_with = "required_optional_wary_tick")]
     wary_until: Option<SimulationTick>,
@@ -444,6 +446,7 @@ impl KoboldState {
             watch_counterpatrol_pending: false,
             watch_leg: 0,
             tracks: Vec::new(),
+            watch_tracks: Vec::new(),
             wary_until: None,
         });
     }
@@ -581,6 +584,7 @@ pub(crate) fn validate_loaded_kobolds(
     colony.validate_mobilization(state.tick())?;
     colony.validate_watchman(state.tick())?;
     colony.validate_tracks(state)?;
+    colony.validate_watch_tracks(state)?;
     if let Some(wary_until) = colony.wary_until {
         let due = wary_until.value();
         if due < FIRST_SCOUT_TICK + SCOUT_WARY_INTERVAL_TICKS

@@ -9,6 +9,7 @@ use crate::spatial::VoxelCoord;
 
 use super::feeding::consume_den_meal;
 use super::patrol::{living_player_deters_scout, scout_can_enter};
+use super::tracks::KoboldTrailKind;
 use super::visibility::scout_visible_from;
 use super::{
     FIRST_SCOUT_TICK, KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_STEP_TICKS,
@@ -161,11 +162,12 @@ pub(super) fn apply_watchman_tick(
     {
         return;
     }
-    if destination == den {
+    let moved = if destination == den {
         let watcher = state.kobold_state_mut().colony.as_mut().unwrap();
         watcher.watch_deployed_at = None;
         watcher.watch_leg = 0;
         watcher.deliver_watch_alarm_at_den(at);
+        true
     } else if state
         .kobold_state()
         .colony
@@ -179,6 +181,7 @@ pub(super) fn apply_watchman_tick(
         if next_leg == 1 {
             watcher.watch_counterpatrol_pending = false;
         }
+        true
     } else if consume_den_meal(registries, state, den, at, super::SCOUT_MEAL_MASS).is_some() {
         let watcher = state.kobold_state_mut().colony.as_mut().unwrap();
         watcher.watch_deployed_at = Some(at);
@@ -186,5 +189,21 @@ pub(super) fn apply_watchman_tick(
         watcher.watch_ready_at = at
             .checked_add_span(TickSpan::new(WATCH_RECOVERY_TICKS))
             .expect("bounded watch cooldown cannot overflow");
+        true
+    } else {
+        false
+    };
+    if moved {
+        let activity = if pressured {
+            KoboldTrailKind::Fleeing
+        } else {
+            KoboldTrailKind::Walking
+        };
+        state
+            .kobold_state_mut()
+            .colony
+            .as_mut()
+            .unwrap()
+            .record_watch_track(guard, destination, at, activity);
     }
 }

@@ -610,3 +610,6 @@ fn forged_outer_picket_legs_and_unearned_alarm_orders_fail_save_admission() {
         .remove("watch_leg");
     assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err());
 }
+
+#[path = "watch_track_tests.rs"]
+mod watch_track_tests;
