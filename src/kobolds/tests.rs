@@ -142,6 +142,116 @@ fn scout_scavenges_a_two_edge_camp_cache_and_resumes_its_authored_patrol() {
 }
 
 #[test]
+fn player_intercepts_far_cache_before_scout_reaches_it() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let parcel = place_loose_stone_drop(&registries, &mut state, spawn);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_step, 2);
+    assert_eq!(colony(&state).detour_goal, Some(spawn));
+    assert!(!colony(&state).returning);
+    let first = colony(&state).scout_position();
+
+    // Canonical pickup happens while the scout traverses its intermediate
+    // graph cell; the player leaves before the next five-tick scout step.
+    let carried = validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let pickup = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .surface_drop_pickup()
+        .expect("camp parcel is still pickable");
+    assert_eq!(pickup.resource(), parcel);
+    assert_eq!(pickup.picked_mass(), Mass::from_milligrams(250_000));
+    crate::logistics::relocate_player_for_test(&mut state, tip);
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&checkpoint).unwrap();
+    let mut restored = loaded.into_state(&registries).unwrap();
+
+    advance_to_tick(&registries, &mut state, 189);
+    advance_to_tick(&registries, &mut restored, 189);
+    let retreat = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(retreat, advance_tick(&registries, &mut restored).unwrap());
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert!(colony(&state).returning);
+    assert_eq!(colony(&state).detour, Some(first));
+    assert!(
+        retreat.kobold_scout().is_some_and(
+            |event| event.cancelled_empty_cache_raid() && !event.turned_back_at_barrier()
+        )
+    );
+    advance_to_tick(&registries, &mut state, 195);
+    advance_to_tick(&registries, &mut restored, 195);
+    assert_eq!(state, restored);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).route, [den, junction, tip]);
+    assert_eq!(colony(&state).detour, None);
+    assert_eq!(colony(&state).detour_goal, None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn den_capacity_change_cancels_a_far_cache_raid_before_contact() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let parcel = place_loose_stone_drop(&registries, &mut state, spawn);
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).detour_goal, Some(spawn));
+    let occupied = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(400_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [occupied])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert!(colony(&state).returning);
+    assert_eq!(state.surface().get(parcel).unwrap().position(), spawn);
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).detour, None);
+    assert_eq!(colony(&state).detour_goal, None);
+    assert_eq!(colony(&state).route, [den, junction, tip]);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn invalid_two_edge_scout_detours_are_rejected_on_load() {
     let (registries, mut state, spawn) = generated_opening();
     let [den, junction, tip] = colony(&state).route;

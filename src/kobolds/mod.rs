@@ -77,6 +77,7 @@ pub struct KoboldScoutEvent {
     fled_player: bool,
     fled_light: bool,
     turned_back_at_barrier: bool,
+    cancelled_empty_cache_raid: bool,
     abandoned_drop: Option<SurfaceResourceId>,
     foraged_food: Option<(SurfaceResourceId, Mass)>,
     split_drop: Option<(SurfaceResourceId, Mass)>,
@@ -115,6 +116,12 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn turned_back_at_barrier(self) -> bool {
         self.turned_back_at_barrier
+    }
+
+    /// The scout found that its planned farther cache no longer has portable loot.
+    #[must_use]
+    pub const fn cancelled_empty_cache_raid(self) -> bool {
+        self.cancelled_empty_cache_raid
     }
 
     /// Previously carried material left in its existing loose surface custody.
@@ -584,6 +591,7 @@ struct ScoutMovePlan {
     position: VoxelCoord,
     ahead_is_lit: bool,
     turned_back_at_barrier: bool,
+    cancelled_empty_cache_raid: bool,
     physically_clear: bool,
 }
 
@@ -625,26 +633,42 @@ fn plan_scout_move(
         && assess_local_illumination(registries, state, proposed_position).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
     let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position);
+    // A detour chosen at the junction is not a reservation. Player pickup or
+    // another canonical surface transaction can remove or alter the target
+    // during the scout's intervening physical step. Recheck its neighboring
+    // goal rather than walking into an empty camp by stale distant knowledge.
+    let cancelled_empty_cache_raid = proposed_step == 3
+        && !proposed_returning
+        && !state
+            .surface()
+            .available_resources_at(Some(proposed_position))
+            .any(|resource| {
+                resource.kind() == SurfaceResourceKind::Drop
+                    && !resource.remaining_mass().is_zero()
+                    && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+                    && resource.remaining_mass() <= den_space
+            });
     let turned_back_at_barrier = !proposed_returning
         && proposed_step > colony.scout_step
         && colony.scout_step > 0
         && (ahead_is_lit || ahead_is_blocked);
-    let (step, returning, detour, position) = if turned_back_at_barrier {
-        let retreat_step = colony.scout_step - 1;
-        (
-            retreat_step,
-            true,
-            None,
-            colony.position_at_step(retreat_step),
-        )
-    } else {
-        (
-            proposed_step,
-            proposed_returning,
-            proposed_detour,
-            proposed_position,
-        )
-    };
+    let (step, returning, detour, position) =
+        if turned_back_at_barrier || cancelled_empty_cache_raid {
+            let retreat_step = colony.scout_step - 1;
+            (
+                retreat_step,
+                true,
+                None,
+                colony.position_at_step(retreat_step),
+            )
+        } else {
+            (
+                proposed_step,
+                proposed_returning,
+                proposed_detour,
+                proposed_position,
+            )
+        };
     ScoutMovePlan {
         step,
         returning,
@@ -652,6 +676,7 @@ fn plan_scout_move(
         position,
         ahead_is_lit,
         turned_back_at_barrier,
+        cancelled_empty_cache_raid,
         physically_clear: step != colony.scout_step
             && (returning || !ahead_is_lit)
             && scout_can_enter(registries, state, position, player_position),
@@ -703,6 +728,7 @@ pub(crate) fn apply_kobold_scout_tick(
         position,
         ahead_is_lit,
         turned_back_at_barrier,
+        cancelled_empty_cache_raid,
         physically_clear,
     } = move_plan;
     // A scout only scavenges during retreat. Player pickup may have exhausted its
@@ -858,6 +884,7 @@ pub(crate) fn apply_kobold_scout_tick(
         fled_player: pressured_by_player && can_move,
         fled_light: (pressured_by_light || (turned_back_at_barrier && ahead_is_lit)) && can_move,
         turned_back_at_barrier: turned_back_at_barrier && can_move,
+        cancelled_empty_cache_raid: cancelled_empty_cache_raid && can_move,
         abandoned_drop,
         foraged_food,
         split_drop,

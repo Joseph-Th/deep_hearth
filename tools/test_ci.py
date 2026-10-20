@@ -3212,6 +3212,18 @@ class GameplayReportContractTests(unittest.TestCase):
             gameplay_report_summary.wilderness_summary([
                 *lines, caution_record.replace("wary-window:40t", "wary-window:0t")
             ])
+        camp_record = (
+            "KOBOLD FAR CACHE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-camp-cache "
+            "cache:250000mg stolen:250000mg recovered:250000mg guarded:250000mg "
+            "intercepted:250000mg two-edges:true save-replay:true local-only:true "
+            "matter-conserved:true"
+        )
+        camp_summary = gameplay_report_summary.wilderness_summary([*lines, camp_record])
+        self.assertIn("intercepted:250000mg reach:2-edges", camp_summary)
+        with self.assertRaisesRegex(ValueError, "finite custody, interception and guard"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, camp_record.replace("intercepted:250000mg", "intercepted:0mg")
+            ])
         self.assertIn("sample-shape=[maintained:1 coverage:2 organic:2]", summary)
         self.assertIn(
             "direct-use=[route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct lag=3.15/3.05/2.15s use=one-shot gather=[before:4000000mg batch:500000mg remaining:3500000mg] water=[before:5000000uL serving:500000uL remaining:4500000uL] hydration=[before:3000000uL after:3500000uL] timed=true]",

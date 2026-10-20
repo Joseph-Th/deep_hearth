@@ -565,20 +565,24 @@ def wilderness_summary(lines: list[str]) -> str | None:
     if camp_events:
         witness = re.search(
             r"\bcache:(\d+)mg stolen:(\d+)mg recovered:(\d+)mg guarded:(\d+)mg "
-            r"two-edges:(true|false) save-replay:(true|false) local-only:(true|false) "
+            r"intercepted:(\d+)mg two-edges:(true|false) "
+            r"save-replay:(true|false) local-only:(true|false) "
             r"matter-conserved:(true|false)",
             camp_events[0],
         )
         if witness is None:
             raise ValueError("camp-cache scavenging lacks finite recoverable evidence")
-        cache, stolen, recovered, guarded = (int(witness.group(i)) for i in range(1, 5))
+        cache, stolen, recovered, guarded, intercepted = (
+            int(witness.group(i)) for i in range(1, 6)
+        )
         if (cache <= 0 or stolen != cache or recovered != cache or guarded != cache
-                or any(witness.group(i) != "true" for i in range(5, 9))):
-            raise ValueError("camp-cache scavenging must preserve finite custody and guard choice")
+                or intercepted != cache
+                or any(witness.group(i) != "true" for i in range(6, 10))):
+            raise ValueError("camp-cache scavenging must preserve finite custody, interception and guard choice")
         camp_cache = (
             "scout-camp-cache=["
             f"exposed:{cache}mg stolen:{stolen}mg reclaimed:{recovered}mg "
-            "reach:2-edges guarded:safe]"
+            f"intercepted:{intercepted}mg reach:2-edges guarded:safe]"
         )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:

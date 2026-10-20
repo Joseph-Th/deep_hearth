@@ -288,6 +288,16 @@ by the scout through the real return route. Both continuations survive trusted
 save/load and conserve represented matter. The blocked cells are fixture terrain,
 not a claim that the player has a terrain-block placement control.
 
+A time-sensitive camp-cache branch now reclaims the actual 250 g dropped ration
+through ordinary body controls after the scout starts its two-edge route. The
+player withdraws before the next scout decision; on arrival at the intermediate
+cell, the scout observes that the neighboring cache is empty and returns home
+without creating a second parcel or proceeding to the abandoned goal. The
+control-interval pickup is contrasted with full unattended theft and passive
+trail guarding in one generated opening. Owner tests also demonstrate that a
+den filled during a distant approach cancels the raid. The original patrol,
+trusted save/load continuation, and exact matter accounting remain intact.
+
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
 contracts cannot establish whether an individual experienced an interesting tradeoff. Inspect

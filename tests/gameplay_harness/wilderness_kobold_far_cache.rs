@@ -154,6 +154,105 @@ pub(super) fn exercise_kobold_far_camp_cache(print: bool) {
             .is_none()
     );
 
+    // The actor can reverse course after the scout has already taken its
+    // first detour leg. This is a lived pickup, not a test-only parcel removal
+    // or a remote query of the colony's planned destination.
+    let mut intercepted = state.clone();
+    walk_body_to_adjacent(
+        &registries,
+        &mut intercepted,
+        outside,
+        "intercept far scout before it reaches camp",
+    );
+    walk_body_to_adjacent(
+        &registries,
+        &mut intercepted,
+        spawn,
+        "collect exposed camp food while scout is en route",
+    );
+    assert_eq!(
+        intercepted
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        cache_mass,
+        "the player should recover the actual parcel before the arriving scout",
+    );
+    walk_body_to_adjacent(
+        &registries,
+        &mut intercepted,
+        outside,
+        "leave intercepted camp before scout next step",
+    );
+    walk_body_to_adjacent(
+        &registries,
+        &mut intercepted,
+        farther,
+        "let scout discover the now-empty camp",
+    );
+    while !intercepted.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(&registries, &mut intercepted)
+            .expect("interception return must settle");
+    }
+    assert!(
+        intercepted.tick().value() < 190,
+        "the player needs to recover the cache before the scout's next step",
+    );
+    advance_to(
+        &registries,
+        &mut intercepted,
+        SimulationTick::new(205),
+        TickEventAllowance::default(),
+        "scout abandons empty camp detour",
+    );
+    assert_eq!(
+        intercepted
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        cache_mass,
+    );
+    walk_body_to_adjacent(
+        &registries,
+        &mut intercepted,
+        outside,
+        "inspect intercepted camp after scout return",
+    );
+    walk_body_to_adjacent(
+        &registries,
+        &mut intercepted,
+        spawn,
+        "confirm reclaimed cache remains in carried custody",
+    );
+    while !intercepted.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(&registries, &mut intercepted)
+            .expect("interception verification must settle");
+    }
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut intercepted,
+        berry,
+        "follow aborted raid back to junction",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut intercepted,
+        junction,
+        "verify no intercepted parcel was brought to den",
+    );
+    assert!(
+        available_adjacent_surface_resources(&intercepted)
+            .all(|record| record.resource() != parcel),
+        "the intercepted parcel cannot also materialize at the den",
+    );
+    assert_eq!(
+        calculate_matter_accounting(&intercepted).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &intercepted), Ok(()));
+
     advance_to(
         &registries,
         &mut state,
@@ -256,11 +355,11 @@ pub(super) fn exercise_kobold_far_camp_cache(print: bool) {
 
     if print {
         std::println!(
-            "PLAYER JOURNEY seed=0x{:016X} episode=coverage/rested/scavenger-camp-cache phase=two-edge-camp-theft choice=[guard-trail-or-leave-camp-cache] observation=[far-scout-visible-at-camp:true remote-retreat-hidden:true] consequence=[unattended-cache-relocated:250000mg guarded-cache-safe:250000mg] recovery=[same-parcel-at-den:250000mg] matter-conserved=true",
+            "PLAYER JOURNEY seed=0x{:016X} episode=coverage/rested/scavenger-camp-cache phase=two-edge-camp-theft choice=[guard-trail-or-leave-cache-or-intercept-in-time] observation=[far-scout-visible-at-camp:true remote-retreat-hidden:true] consequence=[unattended-cache-relocated:250000mg guarded-cache-safe:250000mg timely-pickup-intercepts:250000mg] recovery=[same-parcel-at-den:250000mg] matter-conserved=true",
             seed.value(),
         );
         std::println!(
-            "KOBOLD FAR CACHE EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-camp-cache cache:250000mg stolen:250000mg recovered:250000mg guarded:250000mg two-edges:true save-replay:true local-only:true matter-conserved:true",
+            "KOBOLD FAR CACHE EXPERIENCE seed=0x{:016X} episode=coverage/rested/scavenger-camp-cache cache:250000mg stolen:250000mg recovered:250000mg guarded:250000mg intercepted:250000mg two-edges:true save-replay:true local-only:true matter-conserved:true",
             seed.value(),
         );
     }
