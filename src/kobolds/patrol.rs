@@ -13,6 +13,7 @@ use crate::surface::{
 use crate::survival::Vitality;
 
 use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_food_opportunity};
+use super::mobilization::observe_progress;
 use super::scavenging::{
     den_cache_space, finds_external_drop, has_local_scout_interest, is_portable_drop,
     local_portable_source, local_split_source, reachable_far_drop, reachable_far_food,
@@ -20,8 +21,7 @@ use super::scavenging::{
 };
 use super::visibility::scout_visible_from;
 use super::{
-    KoboldColony, KoboldScoutEvent, KoboldTrailKind, SCOUT_BULK_SPLIT_BATCH,
-    SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_FORAGE_BATCH, SCOUT_FORAGE_INTERVAL_TICKS, SCOUT_STEP_TICKS,
+    KoboldColony, KoboldScoutEvent, KoboldTrailKind, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_STEP_TICKS,
     SCOUT_WARY_INTERVAL_TICKS,
 };
 
@@ -249,7 +249,13 @@ pub(crate) fn apply_kobold_scout_tick(
         return None;
     }
     let from = colony.scout_position();
-    let forage_ready = colony.next_forage_at.is_none_or(|due| next_tick >= due);
+    observe_progress(registries, state, next_tick, from);
+    let forage_ready = state
+        .kobold_state()
+        .colony
+        .as_ref()?
+        .next_forage_at
+        .is_none_or(|due| next_tick >= due);
     let player_position = state.logistics().player().map(|player| player.position());
     let pressured_by_player = living_player_deters_scout(state, from);
     // World-owned opaque blocks and live finite energy stores control this field.
@@ -266,6 +272,9 @@ pub(crate) fn apply_kobold_scout_tick(
         .colony
         .as_ref()
         .expect("colony still exists");
+    let salvage_batch = colony.salvage_batch();
+    let forage_batch = colony.forage_batch();
+    let forage_interval = colony.forage_interval();
     let den_space = den_cache_space(state, colony.route[0]);
     let exposed_at_current = has_local_scout_interest(
         registries,
@@ -367,7 +376,7 @@ pub(crate) fn apply_kobold_scout_tick(
             from,
             position,
             next_tick,
-            SCOUT_BULK_SPLIT_BATCH.min(den_space),
+            salvage_batch.min(den_space),
         )
     });
     // An unattended food patch is genuine competition even if the player has
@@ -397,7 +406,7 @@ pub(crate) fn apply_kobold_scout_tick(
             from,
             position,
             next_tick,
-            SCOUT_FORAGE_BATCH.min(den_space),
+            forage_batch.min(den_space),
         )
     });
     let next_step_at = next_tick
@@ -443,7 +452,7 @@ pub(crate) fn apply_kobold_scout_tick(
     if foraged_food.is_some() {
         colony.next_forage_at = Some(
             next_tick
-                .checked_add_span(TickSpan::new(SCOUT_FORAGE_INTERVAL_TICKS))
+                .checked_add_span(TickSpan::new(forage_interval))
                 .expect("bounded simulation cannot overflow the next forage opportunity"),
         );
     }

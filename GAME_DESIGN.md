@@ -225,6 +225,26 @@ physical actor, inventory, injury, equipment, and observation boundaries instead
 with a separate encounter simulation. Species and factions may have different incentives, but no actor
 may know undiscovered remote player inventory or ignore a blocked real route.
 
+Kobolds are scavengers and the orphaned servant species of a more advanced civilization, not
+a forever-static low-tier nuisance. Their old service culture survives through scavenged
+equipment, learned routines, salvaged infrastructure, inherited loyalties, and efforts to find,
+imitate, restore, or summon what remains of their former masters. That ancestry affects their
+organization and priorities, but does not grant free machinery, supernatural information, or
+an invisible army. Distinguish what they actually possess from what they remember or covet.
+
+Enemy pressure must respond to the player's demonstrated progress, not just elapsed time or
+arbitrary level scaling. At first a lone kobold steals food and exposed scraps; after witnessing
+engineered equipment, repeated defenses, and increasingly capable industry, its colony should
+recognize that petty raids no longer suffice. It must mobilize a proportional, persistent
+response: salvage and provision drives, new scouts and coordinated groups, defended caches,
+adapted routes and tactics, and ultimately attempts to recover advanced servant-era technology
+or reconnect with surviving authority. Escalation requires witnessed local evidence or physical
+intelligence brought home, real population and equipment, finite food and material, and travel
+along routes. Do not instantly spawn units, teleport stolen goods, grant invented weapons,
+or reveal concealed player technology. The player must see warning signs, be able to disrupt
+mobilization, and have options beyond simply fighting ever-stronger enemies. If a player
+outgrows a threat, the world and the faction react rather than remaining irrelevant.
+
 Simulation cost must follow relevant activity, not total world history. Schedule slow needs, population
 transitions, and remote settlement obligations at bounded authoritative deadlines; run fine-grained motion,
 sensing, and tactical decisions only for actors that need local physical resolution. Search spatially indexed

@@ -17,6 +17,7 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceLifecycle};
 
 mod feeding;
+mod mobilization;
 mod patrol;
 mod scavenging;
 mod tracks;
@@ -39,6 +40,9 @@ const DEN_LOOSE_CACHE_LIMIT: Mass = Mass::from_milligrams(500_000);
 const SCOUT_FORAGE_BATCH: Mass = Mass::from_milligrams(100_000);
 /// Scavengers can divide an exposed bulk parcel, but only into small carried lots.
 const SCOUT_BULK_SPLIT_BATCH: Mass = Mass::from_milligrams(250_000);
+const MOBILIZED_BULK_SPLIT_BATCH: Mass = Mass::from_milligrams(500_000);
+const MOBILIZED_FORAGE_BATCH: Mass = Mass::from_milligrams(200_000);
+const MOBILIZED_FORAGE_INTERVAL_TICKS: u64 = 50;
 /// Avoid stripping a food patch on every 72-second scout circuit.
 const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
 /// One 20 g meal every 24 physical minutes is about 1.2 kg/day for a small
@@ -56,6 +60,7 @@ pub struct KoboldSighting {
     position: VoxelCoord,
     has_noticed_player_drop: bool,
     is_wary: bool,
+    mobilized: bool,
     scavenged_material: Option<(CommodityKey, Mass)>,
 }
 
@@ -74,6 +79,12 @@ impl KoboldSighting {
     #[must_use]
     pub const fn is_wary(self) -> bool {
         self.is_wary
+    }
+
+    /// An actual local sighting of engineered machinery mobilized this colony.
+    #[must_use]
+    pub const fn is_mobilized(self) -> bool {
+        self.mobilized
     }
 
     /// The identity and mass of a currently carried loose parcel, if still present.
@@ -202,6 +213,9 @@ struct KoboldColony {
     /// A meal was missed and the scout still needs recoverable food.
     /// This need survives save/load and clears only after an actual den meal.
     hungry: bool,
+    /// First observed local mechanical or electrical machinery. No global player-level reading.
+    #[serde(deserialize_with = "required_optional_mobilization_tick")]
+    mobilized_at: Option<SimulationTick>,
     /// Only the latest real departed route steps; old traces expire on observation.
     tracks: Vec<KoboldTrack>,
     /// Caution survives saves and expires on the same five-tick scout clock.
@@ -217,6 +231,15 @@ where
 }
 
 fn required_optional_wary_tick<'de, D>(deserializer: D) -> Result<Option<SimulationTick>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<SimulationTick>::deserialize(deserializer)
+}
+
+fn required_optional_mobilization_tick<'de, D>(
+    deserializer: D,
+) -> Result<Option<SimulationTick>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -380,6 +403,7 @@ impl KoboldState {
             next_forage_at: None,
             next_meal_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS),
             hungry: false,
+            mobilized_at: None,
             tracks: Vec::new(),
             wary_until: None,
         });
@@ -398,6 +422,7 @@ impl KoboldState {
                 position: colony.scout_position(),
                 has_noticed_player_drop: colony.noticed_player_drop,
                 is_wary: colony.wary_until.is_some_and(|until| until > state.tick()),
+                mobilized: colony.mobilized_at.is_some(),
                 scavenged_material: colony
                     .scavenged_drop
                     .and_then(|id| state.surface().get(id))
@@ -500,6 +525,7 @@ pub(crate) fn validate_loaded_kobolds(
     }
     let current = state.tick().value();
     validate_meal_schedule(colony, current)?;
+    colony.validate_mobilization(state.tick())?;
     colony.validate_tracks(state)?;
     if let Some(wary_until) = colony.wary_until {
         let due = wary_until.value();
@@ -511,7 +537,7 @@ pub(crate) fn validate_loaded_kobolds(
         }
     }
     if let Some(next_forage) = colony.next_forage_at {
-        let earliest = FIRST_SCOUT_TICK + SCOUT_STEP_TICKS + SCOUT_FORAGE_INTERVAL_TICKS;
+        let earliest = FIRST_SCOUT_TICK + SCOUT_STEP_TICKS + colony.forage_interval();
         let forage_due = next_forage.value();
         if forage_due < earliest
             || (forage_due - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
