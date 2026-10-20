@@ -116,6 +116,7 @@ pub enum LogisticsValidationError {
         current_first: VoxelCoord,
         current_second: VoxelCoord,
     },
+    TraversalAdjacencyIndexInconsistent,
     PlayerBodyIntersectsSolid {
         voxel: VoxelCoord,
     },
@@ -339,6 +340,9 @@ impl Display for LogisticsValidationError {
                 current_second.y(),
                 current_second.z()
             ),
+            Self::TraversalAdjacencyIndexInconsistent => {
+                formatter.write_str("traversal adjacency disagrees with authoritative opening edges")
+            }
             Self::PlayerBodyIntersectsSolid { voxel } => write!(
                 formatter,
                 "player body intersects solid world voxel ({},{},{})",
@@ -533,6 +537,9 @@ fn validate_traversal_edges(state: &LogisticsState) -> Result<(), LogisticsValid
             });
         }
         previous = Some(edge);
+    }
+    if !state.has_valid_traversal_index() {
+        return Err(LogisticsValidationError::TraversalAdjacencyIndexInconsistent);
     }
     Ok(())
 }

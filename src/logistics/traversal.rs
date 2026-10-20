@@ -36,17 +36,6 @@ impl TraversalEdge {
     }
 
     #[must_use]
-    pub(crate) fn other(self, endpoint: VoxelCoord) -> Option<VoxelCoord> {
-        if endpoint == self.first {
-            Some(self.second)
-        } else if endpoint == self.second {
-            Some(self.first)
-        } else {
-            None
-        }
-    }
-
-    #[must_use]
     pub(crate) fn is_canonical(self) -> bool {
         self.first < self.second && self.first.is_face_adjacent_to(self.second)
     }

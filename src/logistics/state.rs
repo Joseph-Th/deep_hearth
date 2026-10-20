@@ -334,6 +334,9 @@ pub struct LogisticsState {
     revision: u64,
     player: Option<PlayerLogisticsRecord>,
     traversable_edges: Vec<TraversalEdge>,
+    /// Local route adjacency rebuilt from authoritative persisted edges.
+    #[serde(skip)]
+    traversal_neighbors: BTreeMap<VoxelCoord, BTreeSet<VoxelCoord>>,
     carried_equipment: Vec<EquipmentId>,
     quick_access_slots: [Option<PlayerActiveSelection>; PLAYER_QUICK_ACCESS_SLOT_COUNT],
     active_quick_access_slot: PlayerQuickAccessSlot,
@@ -359,6 +362,7 @@ impl LogisticsState {
             revision: 0,
             player: None,
             traversable_edges: Vec::new(),
+            traversal_neighbors: BTreeMap::new(),
             carried_equipment: Vec::new(),
             quick_access_slots: [None; PLAYER_QUICK_ACCESS_SLOT_COUNT],
             active_quick_access_slot: PlayerQuickAccessSlot::FIRST,
@@ -422,6 +426,10 @@ impl LogisticsState {
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
+        self.traversal_neighbors.clear();
+        for edge in &self.traversable_edges {
+            Self::index_traversal_edge(&mut self.traversal_neighbors, *edge);
+        }
         self.energy_stores_by_position.clear();
         for (store, position) in &self.energy_store_locations {
             self.energy_stores_by_position
@@ -593,9 +601,27 @@ impl LogisticsState {
         &self,
         origin: VoxelCoord,
     ) -> impl Iterator<Item = VoxelCoord> + '_ {
-        self.traversable_edges
-            .iter()
-            .filter_map(move |edge| edge.other(origin))
+        self.traversal_neighbors
+            .get(&origin)
+            .into_iter()
+            .flat_map(|neighbors| neighbors.iter().copied())
+    }
+
+    fn index_traversal_edge(
+        neighbors: &mut BTreeMap<VoxelCoord, BTreeSet<VoxelCoord>>,
+        edge: TraversalEdge,
+    ) {
+        let (first, second) = edge.endpoints();
+        neighbors.entry(first).or_default().insert(second);
+        neighbors.entry(second).or_default().insert(first);
+    }
+
+    pub(crate) fn has_valid_traversal_index(&self) -> bool {
+        let mut expected = BTreeMap::new();
+        for edge in &self.traversable_edges {
+            Self::index_traversal_edge(&mut expected, *edge);
+        }
+        self.traversal_neighbors == expected
     }
 
     /// Returns the world voxel of one stationary stockpile managed by logistics.
@@ -1095,6 +1121,10 @@ impl LogisticsState {
             .insert(water_store, water_position);
         assert!(previous.is_none());
         self.traversable_edges = traversable_edges;
+        self.traversal_neighbors.clear();
+        for edge in &self.traversable_edges {
+            Self::index_traversal_edge(&mut self.traversal_neighbors, *edge);
+        }
         self.revision = next_revision;
     }
 }
@@ -1121,6 +1151,7 @@ pub(crate) fn add_traversable_edge_for_test(
         .binary_search(&edge)
         .unwrap_or_else(|index| index);
     logistics.traversable_edges.insert(insertion, edge);
+    LogisticsState::index_traversal_edge(&mut logistics.traversal_neighbors, edge);
     logistics.revision = next_revision;
 }
 
@@ -1213,3 +1244,7 @@ pub fn assess_player_carrying(state: &AppState) -> Option<PlayerCarryingAssessme
         equipment,
     })
 }
+
+#[cfg(test)]
+#[path = "traversal_index_tests.rs"]
+mod traversal_index_tests;
