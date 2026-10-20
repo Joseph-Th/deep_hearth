@@ -72,6 +72,127 @@ fn kobold_scouts_wait_then_patrol_and_only_report_near_player() {
 }
 
 #[test]
+fn scout_scavenges_a_two_edge_camp_cache_and_resumes_its_authored_patrol() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let forage = state
+        .logistics()
+        .traversable_destinations(junction)
+        .find(|step| {
+            *step != den && *step != tip && state.logistics().has_traversal_edge(*step, spawn)
+        })
+        .expect("the opening camp is two authored edges beyond the junction");
+    let cache = place_loose_stone_drop(&registries, &mut state, spawn);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 180);
+    assert_eq!(colony(&state).scout_position(), junction);
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), forage);
+    assert_eq!(colony(&state).detour, Some(forage));
+    assert_eq!(colony(&state).detour_goal, Some(spawn));
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scout_position(), spawn);
+    assert_eq!(colony(&state).scout_step, 3);
+    assert_eq!(state.surface().get(cache).unwrap().position(), spawn);
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let mut restored = decoded
+        .into_state(&registries)
+        .expect("four-step outbound detour must be loadable");
+    for _ in 0..15 {
+        let expected = advance_tick(&registries, &mut state).unwrap();
+        assert_eq!(expected, advance_tick(&registries, &mut restored).unwrap());
+        if state.tick().value() == 195 {
+            assert_eq!(colony(&state).scavenged_drop, Some(cache));
+            assert_eq!(state.surface().get(cache).unwrap().position(), forage);
+        }
+        if state.tick().value() == 200 {
+            assert_eq!(state.surface().get(cache).unwrap().position(), junction);
+        }
+    }
+    assert_eq!(state, restored);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).detour, None);
+    assert_eq!(colony(&state).detour_goal, None);
+    assert_eq!(state.surface().get(cache).unwrap().position(), den);
+    assert_eq!(
+        state.surface().get(cache).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    advance_to_tick(&registries, &mut state, 215);
+    assert_eq!(colony(&state).scout_position(), tip);
+    assert_eq!(colony(&state).route, [den, junction, tip]);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn invalid_two_edge_scout_detours_are_rejected_on_load() {
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    place_loose_stone_drop(&registries, &mut state, spawn);
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scout_step, 3);
+    let valid = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    for invalid in [den, junction, tip, VoxelCoord::new(999, 2, 999)] {
+        let mut altered = valid.clone();
+        altered["state"]["systems"]["kobolds"]["colony"]["detour_goal"] =
+            serde_json::to_value(invalid).unwrap();
+        let envelope: LoadedSaveEnvelope = serde_json::from_value(altered).unwrap();
+        assert!(envelope.into_state(&registries).is_err());
+    }
+    let mut missing = valid.clone();
+    missing["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("detour_goal");
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err());
+    let mut none = valid;
+    none["state"]["systems"]["kobolds"]["colony"]["detour_goal"] = serde_json::Value::Null;
+    let envelope: LoadedSaveEnvelope = serde_json::from_value(none).unwrap();
+    assert!(envelope.into_state(&registries).is_err());
+}
+
+#[test]
+fn scout_does_not_pursue_an_overweight_cache_two_edges_away() {
+    let (registries, mut state, spawn) = generated_opening();
+    let mass = Mass::from_milligrams(2_000_000);
+    let bulk = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        spawn,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        mass,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [bulk]).unwrap();
+    let pile = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let tip = colony(&state).route[2];
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), tip);
+    assert_eq!(colony(&state).detour, None);
+    assert_eq!(colony(&state).detour_goal, None);
+    assert_eq!(state.surface().get(pile).unwrap().remaining_mass(), mass);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn scout_diverts_into_a_traversable_side_branch_but_retreats_when_guarded() {
     let (registries, mut state, spawn) = generated_opening();
     let [den, junction, original_tip] = colony(&state).route;

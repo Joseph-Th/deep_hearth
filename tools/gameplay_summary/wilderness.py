@@ -553,6 +553,28 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"source:{_mass_kg(original)}kg split:{_mass_kg(split)}kg "
             f"remaining:{_mass_kg(remaining)}kg recovered:{_mass_kg(recovered)}kg]"
         )
+    camp_events = [line for line in lines if line.startswith("KOBOLD FAR CACHE EXPERIENCE ")]
+    if len(camp_events) > 1:
+        raise ValueError("wilderness report has duplicate remote camp-cache scout episodes")
+    camp_cache = ""
+    if camp_events:
+        witness = re.search(
+            r"\bcache:(\d+)mg stolen:(\d+)mg recovered:(\d+)mg guarded:(\d+)mg "
+            r"two-edges:(true|false) save-replay:(true|false) local-only:(true|false) "
+            r"matter-conserved:(true|false)",
+            camp_events[0],
+        )
+        if witness is None:
+            raise ValueError("camp-cache scavenging lacks finite recoverable evidence")
+        cache, stolen, recovered, guarded = (int(witness.group(i)) for i in range(1, 5))
+        if (cache <= 0 or stolen != cache or recovered != cache or guarded != cache
+                or any(witness.group(i) != "true" for i in range(5, 9))):
+            raise ValueError("camp-cache scavenging must preserve finite custody and guard choice")
+        camp_cache = (
+            "scout-camp-cache=["
+            f"exposed:{cache}mg stolen:{stolen}mg reclaimed:{recovered}mg "
+            "reach:2-edges guarded:safe]"
+        )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:
         sample_shape += f" organic:{len(organic)}"
@@ -574,6 +596,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{den_raid + ' ' if den_raid else ''}"
         f"{detour + ' ' if detour else ''}"
         f"{bulk + ' ' if bulk else ''}"
+        f"{camp_cache + ' ' if camp_cache else ''}"
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"

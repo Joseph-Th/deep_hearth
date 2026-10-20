@@ -4106,6 +4106,8 @@ class GameplayReportContractTests(unittest.TestCase):
                 "KOBOLD DETOUR EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-detour cache-exposed:250000mg",
                 "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-bulk phase=exposed-bulk-cache choice=secure",
                 "KOBOLD BULK EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-bulk original:2000000mg",
+                "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-camp-cache phase=two-edge-camp-theft choice=guard",
+                "KOBOLD FAR CACHE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-camp-cache cache:250000mg",
             )
         )
         environment = {
@@ -4155,7 +4157,14 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("phase=exposed-bulk-cache choice=secure", bulk_focus)
         self.assertIn("KOBOLD BULK EXPERIENCE seed=0x1", bulk_focus)
         self.assertNotIn("scavenger-detour", bulk_focus)
-        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-bulk, coverage/rested/scavenger-den, coverage/rested/scavenger-detour, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
+        camp_focus = gameplay_report_summary.concise_gameplay_report(
+            stdout,
+            {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "coverage/rested/scavenger-camp-cache"},
+        )
+        self.assertIn("phase=two-edge-camp-theft choice=guard", camp_focus)
+        self.assertIn("KOBOLD FAR CACHE EXPERIENCE seed=0x1", camp_focus)
+        self.assertNotIn("scavenger-bulk", camp_focus)
+        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-bulk, coverage/rested/scavenger-camp-cache, coverage/rested/scavenger-den, coverage/rested/scavenger-detour, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},

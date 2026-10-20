@@ -247,6 +247,18 @@ transaction retains material profile, age, provenance, exact matter accounting a
 save/load continuation. Enclosed storage, not simply a heavy exposed drop, remains
 the credible defense against ongoing scavenging.
 
+The camp-cache episode extends the same scout to one extra authored traversal edge.
+A player gathers 250 g of food, leaves it exposed at the original camp, then walks
+two ordinary body steps off-trail to avoid deterring the scout. The scout crosses
+the intermediate forage cell, visibly arrives at the camp, and returns one real
+parcel through that cell and the junction to its den. Only local sightings and
+pickup disclose the outcome; a trusted save/load halfway through yields identical
+steps and custody. In the matching guarded branch, standing on the intermediate
+trail keeps the camp cache safe without directly picking it up. Owner tests cover
+two-edge saved topology, restoration of the original patrol, invalid goal admission
+and rejection of unliftable remote bulk. Save schema 105 stores the optional goal
+explicitly; older saves are not migrated.
+
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
 contracts cannot establish whether an individual experienced an interesting tradeoff. Inspect

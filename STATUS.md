@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing with routed tailings, copper forming/casting, delegated cast-part work. Ore reduction and smelting-slag generation are absent. |
-| Opening wilderness acquisition | Forage, water and shelter; scouts scavenge finite forage and portable drops, split bulky exposed piles, and detour briefly. Player/fire deterrence, finite 500 g den storage and recoverable loot. No combat/pursuit. |
+| Opening wilderness acquisition | Forage, water and shelter; scouts scavenge finite forage and portable drops, split bulky piles, and raid camp caches two edges away. Player/fire deterrence, finite 500 g den storage and recoverable loot. No combat/pursuit. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier

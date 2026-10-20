@@ -107,6 +107,8 @@ mod kobold_den;
 mod kobold_detour;
 #[path = "wilderness_kobold_encounter.rs"]
 mod kobold_encounter;
+#[path = "wilderness_kobold_far_cache.rs"]
+mod kobold_far_cache;
 #[path = "wilderness_kobold_foraging.rs"]
 mod kobold_foraging;
 #[path = "wilderness_mobile_continuation.rs"]
@@ -4635,6 +4637,7 @@ pub(super) fn run_wilderness_report() {
     kobold_bulk::exercise_kobold_bulk_scavenging(true);
     kobold_den::exercise_kobold_den_cache(true);
     kobold_detour::exercise_kobold_side_branch_scavenging(true);
+    kobold_far_cache::exercise_kobold_far_camp_cache(true);
     kobold_foraging::exercise_kobold_natural_foraging(true);
     kobold_encounter::exercise_kobold_scavenging_encounter(true);
     assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
@@ -4736,6 +4739,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         kobold_bulk::exercise_kobold_bulk_scavenging(false);
         kobold_den::exercise_kobold_den_cache(false);
         kobold_detour::exercise_kobold_side_branch_scavenging(false);
+        kobold_far_cache::exercise_kobold_far_camp_cache(false);
         kobold_foraging::exercise_kobold_natural_foraging(false);
         kobold_encounter::exercise_kobold_scavenging_encounter(false);
         assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);

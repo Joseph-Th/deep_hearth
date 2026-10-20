@@ -129,6 +129,9 @@ struct KoboldColony {
     /// Its presence in the new save schema is mandatory even when the value is null.
     #[serde(deserialize_with = "required_optional_detour")]
     detour: Option<VoxelCoord>,
+    /// Second traversable branch cell when a scout investigates a farther exposed cache.
+    #[serde(deserialize_with = "required_optional_detour")]
+    detour_goal: Option<VoxelCoord>,
     scout_step: u8,
     returning: bool,
     next_step_at: SimulationTick,
@@ -145,12 +148,19 @@ where
 }
 
 impl KoboldColony {
-    fn scout_position(&self) -> VoxelCoord {
-        if self.scout_step == 2 {
-            self.detour.unwrap_or(self.route[2])
-        } else {
-            self.route[usize::from(self.scout_step)]
+    fn position_at_step(&self, step: u8) -> VoxelCoord {
+        match step {
+            0..=1 => self.route[usize::from(step)],
+            2 => self.detour.unwrap_or(self.route[2]),
+            3 => self
+                .detour_goal
+                .expect("a fourth scout step requires a planned goal"),
+            _ => unreachable!("trusted scout step remains in its bounded route"),
         }
+    }
+
+    fn scout_position(&self) -> VoxelCoord {
+        self.position_at_step(self.scout_step)
     }
 
     /// Return toward safety when confronted; otherwise keep the patrol or turn
@@ -163,6 +173,8 @@ impl KoboldColony {
             (0, _) => (1, false),
             (1, false) if exposed_at_current => (0, true),
             (1, false) => (2, false),
+            (2, false) if self.detour_goal.is_some() && !exposed_at_current => (3, false),
+            (3, false) => (2, true),
             (2, _) => (1, true),
             (1, true) => (0, true),
             _ => unreachable!("trusted colony route step is bounded"),
@@ -173,18 +185,53 @@ impl KoboldColony {
         &mut self,
         step: u8,
         returning: bool,
-        detour: Option<VoxelCoord>,
+        detour: Option<(VoxelCoord, Option<VoxelCoord>)>,
         carried: Option<SurfaceResourceId>,
     ) {
-        if step == 2 {
-            self.detour = detour;
+        if let Some((first, goal)) = detour {
+            self.detour = Some(first);
+            self.detour_goal = goal;
         } else if step == 0 {
             self.detour = None;
+            self.detour_goal = None;
         }
         self.scout_step = step;
         self.returning = returning;
         // Completing the return leg deposits the same loose parcel at the den.
         self.scavenged_drop = if step == 0 { None } else { carried };
+    }
+
+    fn validate_detour(&self, state: &AppState) -> Result<(), &'static str> {
+        if let Some(detour) = self.detour {
+            if (self.scout_step != 2
+                && self.scout_step != 3
+                && !(self.scout_step == 1 && self.returning))
+                || detour == self.route[0]
+                || detour == self.route[1]
+                || detour == self.route[2]
+                || !state.logistics().has_traversal_edge(self.route[1], detour)
+            {
+                return Err("invalid kobold temporary detour or traversal edge");
+            }
+        }
+        if let Some(goal) = self.detour_goal {
+            let Some(first) = self.detour else {
+                return Err("kobold far detour has no intermediate route cell");
+            };
+            if (self.scout_step == 1 && !self.returning)
+                || self.scout_step == 0
+                || goal == first
+                || goal == self.route[0]
+                || goal == self.route[1]
+                || goal == self.route[2]
+                || !state.logistics().has_traversal_edge(first, goal)
+            {
+                return Err("invalid kobold second detour edge or cursor");
+            }
+        } else if self.scout_step == 3 {
+            return Err("kobold far detour is missing its destination");
+        }
+        Ok(())
     }
 
     fn is_near(&self, observer: VoxelCoord) -> bool {
@@ -225,6 +272,7 @@ impl KoboldState {
         self.colony = Some(KoboldColony {
             route,
             detour: None,
+            detour_goal: None,
             scout_step: 0,
             returning: false,
             next_step_at: SimulationTick::new(FIRST_SCOUT_TICK),
@@ -326,6 +374,95 @@ fn reachable_side_drop(
     })
 }
 
+/// Search one further authored traversal edge only after no directly adjacent
+/// unattended portable parcel was found. The same stable resource order picks
+/// the goal; the first physically clear, unlit intermediate path wins.
+fn reachable_far_drop(
+    registries: &Registries,
+    state: &AppState,
+    junction: VoxelCoord,
+    den: VoxelCoord,
+    authored_tip: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+    capacity: Mass,
+) -> Option<(VoxelCoord, VoxelCoord)> {
+    state.surface().resources().find_map(|resource| {
+        let goal = resource.position();
+        if resource.kind() != SurfaceResourceKind::Drop
+            || resource.lifecycle() != SurfaceResourceLifecycle::Available
+            || resource.remaining_mass().is_zero()
+            || resource.remaining_mass() > SCOUT_CARRY_LIMIT
+            || resource.remaining_mass() > capacity
+            || goal == den
+            || goal == junction
+            || goal == authored_tip
+            || player_position == Some(goal)
+            || assess_local_illumination(registries, state, goal).level()
+                >= SCOUT_DETERRENT_LIGHT_LEVEL
+            || (state.world().generation_profile().is_some()
+                && !state
+                    .world()
+                    .has_standing_clearance(registries.world(), goal))
+        {
+            return None;
+        }
+        state
+            .logistics()
+            .traversable_destinations(junction)
+            .find(|first| {
+                *first != den
+                    && *first != authored_tip
+                    && *first != goal
+                    && player_position != Some(*first)
+                    && state.logistics().has_traversal_edge(*first, goal)
+                    && assess_local_illumination(registries, state, *first).level()
+                        < SCOUT_DETERRENT_LIGHT_LEVEL
+                    && (state.world().generation_profile().is_none()
+                        || state
+                            .world()
+                            .has_standing_clearance(registries.world(), *first))
+            })
+            .map(|first| (first, goal))
+    })
+}
+
+fn choose_outbound_detour(
+    registries: &Registries,
+    state: &AppState,
+    colony: &KoboldColony,
+    step: u8,
+    returning: bool,
+    player_position: Option<VoxelCoord>,
+    den_space: Mass,
+) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
+    if step != 2 || returning || colony.scout_step != 1 {
+        return None;
+    }
+    let [den, junction, tip] = colony.route;
+    reachable_side_drop(
+        registries,
+        state,
+        junction,
+        den,
+        tip,
+        player_position,
+        den_space,
+    )
+    .map(|first| (first, None))
+    .or_else(|| {
+        reachable_far_drop(
+            registries,
+            state,
+            junction,
+            den,
+            tip,
+            player_position,
+            den_space,
+        )
+        .map(|(first, goal)| (first, Some(goal)))
+    })
+}
+
 fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
     let near = state.logistics().player().is_some_and(|player| {
         let position = player.position();
@@ -371,20 +508,16 @@ pub(crate) fn apply_kobold_scout_tick(
         .available_resources_at(Some(from))
         .any(|resource| is_contestable_drop(resource, den_space));
     let (step, returning) = colony.next_scout_step(pressured, exposed_at_current);
-    let side_drop = (step == 2 && !returning && colony.scout_step == 1)
-        .then(|| {
-            reachable_side_drop(
-                registries,
-                state,
-                from,
-                colony.route[0],
-                colony.route[2],
-                player_position,
-                den_space,
-            )
-        })
-        .flatten();
-    let position = side_drop.unwrap_or(colony.route[usize::from(step)]);
+    let detour = choose_outbound_detour(
+        registries,
+        state,
+        colony,
+        step,
+        returning,
+        player_position,
+        den_space,
+    );
+    let position = detour.map_or_else(|| colony.position_at_step(step), |(first, _)| first);
     let illuminated_destination = !returning
         && assess_local_illumination(registries, state, position).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
@@ -512,7 +645,7 @@ pub(crate) fn apply_kobold_scout_tick(
         colony.apply_step(
             step,
             returning,
-            side_drop,
+            detour,
             relocated_drop.or(split_drop.map(|(id, _)| id)),
         );
     }
@@ -549,26 +682,15 @@ pub(crate) fn validate_loaded_kobolds(state: &AppState) -> Result<(), &'static s
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return Ok(());
     };
-    if colony.scout_step > 2
-        || (colony.scout_step == 2 && colony.returning)
+    if colony.scout_step > 3
+        || (colony.scout_step == 3 && (colony.returning || colony.detour_goal.is_none()))
         || !colony.route[0].is_face_adjacent_to(colony.route[1])
         || !colony.route[1].is_face_adjacent_to(colony.route[2])
         || colony.route[0] == colony.route[2]
     {
         return Err("invalid kobold patrol route or cursor");
     }
-    if let Some(detour) = colony.detour {
-        if (colony.scout_step != 2 && !(colony.scout_step == 1 && colony.returning))
-            || detour == colony.route[0]
-            || detour == colony.route[1]
-            || detour == colony.route[2]
-            || !state
-                .logistics()
-                .has_traversal_edge(colony.route[1], detour)
-        {
-            return Err("invalid kobold temporary detour or traversal edge");
-        }
-    }
+    colony.validate_detour(state)?;
     if let Some(resource) = colony.scavenged_drop {
         let Some(drop) = state.surface().get(resource) else {
             return Err("kobold dragged parcel does not exist");
