@@ -1,7 +1,9 @@
 //! One ordinary wilderness actor faces a real scavenger instead of a timed flavor sighting.
 use super::*;
 
-use deep_hearth::kobolds::available_nearby_kobold_scouts;
+use deep_hearth::kobolds::{
+    KoboldTrailKind, available_nearby_kobold_scouts, available_nearby_kobold_tracks,
+};
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use deep_hearth::surface::{available_player_world_drops, validate_drop_player_material};
 
@@ -182,6 +184,11 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
     assert!(warded_step.fled_player());
     assert_eq!(warded_step.abandoned_drop(), None);
     assert_eq!(warded_step.position(), defended_step.position());
+    let retreat_trace = available_nearby_kobold_tracks(&registries, &warded)
+        .find(|track| track.position() == junction && track.toward() == warded_step.position())
+        .expect("player near the fork should see the scout's real retreat track");
+    assert_eq!(retreat_trace.observed_activity(), KoboldTrailKind::Fleeing);
+    assert_eq!(retreat_trace.left_at(), SimulationTick::new(185));
     assert!(
         available_nearby_kobold_scouts(&registries, &warded)
             .next()
@@ -228,6 +235,11 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
         .into_state(&registries)
         .expect("scout fear must persist after trusted save load");
     assert_eq!(early_return, warded);
+    assert_eq!(
+        available_nearby_kobold_tracks(&registries, &early_return).collect::<Vec<_>>(),
+        available_nearby_kobold_tracks(&registries, &warded).collect::<Vec<_>>(),
+        "trusted load must preserve player-local physical retreat evidence"
+    );
     let mut late_return = early_return.clone();
     walk_continuous_body_adjacent_and_settle(
         &registries,

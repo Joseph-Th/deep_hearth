@@ -20,8 +20,9 @@ use super::scavenging::{
 };
 use super::visibility::scout_visible_from;
 use super::{
-    KoboldColony, KoboldScoutEvent, SCOUT_BULK_SPLIT_BATCH, SCOUT_DETERRENT_LIGHT_LEVEL,
-    SCOUT_FORAGE_BATCH, SCOUT_FORAGE_INTERVAL_TICKS, SCOUT_STEP_TICKS, SCOUT_WARY_INTERVAL_TICKS,
+    KoboldColony, KoboldScoutEvent, KoboldTrailKind, SCOUT_BULK_SPLIT_BATCH,
+    SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_FORAGE_BATCH, SCOUT_FORAGE_INTERVAL_TICKS, SCOUT_STEP_TICKS,
+    SCOUT_WARY_INTERVAL_TICKS,
 };
 
 fn choose_outbound_detour(
@@ -392,6 +393,14 @@ pub(crate) fn apply_kobold_scout_tick(
                 .or(split_drop.map(|(id, _)| id))
                 .or_else(|| (step > 0).then(|| foraged_food.map(|(id, _)| id)).flatten()),
         );
+        let activity = KoboldTrailKind::from_step(
+            pressured,
+            turned_back_at_barrier,
+            relocated_drop.is_some(),
+            split_drop.is_some(),
+            foraged_food.is_some(),
+        );
+        colony.record_track(from, position, next_tick, activity);
     }
     if pressured {
         // A trapped scout also relinquishes the parcel, enabling recovery without

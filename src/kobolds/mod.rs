@@ -19,7 +19,10 @@ use crate::surface::{SurfaceResourceId, SurfaceResourceLifecycle};
 mod feeding;
 mod patrol;
 mod scavenging;
+mod tracks;
 mod visibility;
+
+pub use tracks::{KoboldTrack, KoboldTrailKind, available_nearby_kobold_tracks};
 
 pub(crate) use patrol::apply_kobold_scout_tick;
 #[cfg(test)]
@@ -192,6 +195,8 @@ struct KoboldColony {
     /// A meal was missed and the scout still needs recoverable food.
     /// This need survives save/load and clears only after an actual den meal.
     hungry: bool,
+    /// Only the latest real departed route steps; old traces expire on observation.
+    tracks: Vec<KoboldTrack>,
     /// Caution survives saves and expires on the same five-tick scout clock.
     #[serde(deserialize_with = "required_optional_wary_tick")]
     wary_until: Option<SimulationTick>,
@@ -362,6 +367,7 @@ impl KoboldState {
             next_forage_at: None,
             next_meal_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS),
             hungry: false,
+            tracks: Vec::new(),
             wary_until: None,
         });
     }
@@ -481,6 +487,7 @@ pub(crate) fn validate_loaded_kobolds(
     }
     let current = state.tick().value();
     validate_meal_schedule(colony, current)?;
+    colony.validate_tracks(state)?;
     if let Some(wary_until) = colony.wary_until {
         let due = wary_until.value();
         if due < FIRST_SCOUT_TICK + SCOUT_WARY_INTERVAL_TICKS

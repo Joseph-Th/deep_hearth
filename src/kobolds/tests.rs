@@ -986,6 +986,13 @@ fn unattended_natural_food_is_finitely_foraged_into_a_recoverable_den_parcel() {
         state.surface().get(id).unwrap().remaining_mass(),
         initial.checked_sub(batch).unwrap()
     );
+    let forage_trace = colony(&state).tracks.last().unwrap();
+    assert_eq!(forage_trace.position(), junction);
+    assert_eq!(forage_trace.toward(), den);
+    assert_eq!(
+        forage_trace.observed_activity(),
+        super::KoboldTrailKind::Foraging
+    );
     let parcels = state
         .surface()
         .available_resources_at(Some(den))

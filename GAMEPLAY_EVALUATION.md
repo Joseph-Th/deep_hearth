@@ -256,11 +256,11 @@ pickup disclose the outcome; a trusted save/load halfway through yields identica
 steps and custody. In the matching guarded branch, standing on the intermediate
 trail keeps the camp cache safe without directly picking it up. Owner tests cover
 two-edge saved topology, restoration of the original patrol, invalid goal admission
-and conserved source-local splitting of bulky remote caches. Save schema 108 stores
+and conserved source-local splitting of bulky remote caches. Save schema 109 stores
 optional route goals, the caution deadline, sparse resident meal scheduling,
-missed-meal hunger, and material-keyed consumed-food custody; older saves are not migrated.
+missed-meal hunger, material-keyed consumed-food custody and twelve bounded physical route signs; older saves are not migrated.
 
-In the matched live scout encounter, walking to guard the junction without pickup
+In the matched live scout encounter, a nearby player can also see an actual retreat trace left at the work junction, pointing along the scout's physical escape edge. This spoor persists through trusted save/load and is distinct from a sighting: it does not reveal the remote scout's current position or cargo. Owner regression also covers carried-parcel scuffs, fading old tracks, obstruction of a blocked retreat, and forged trace rejection. Walking to guard the junction without pickup
 makes the scout retreat and stay wary for forty simulation ticks. The player
 then withdraws and can return by tick 215 to recover the still-unmoved ration;
 waiting until tick 235 instead exposes the same parcel to renewed theft and den
