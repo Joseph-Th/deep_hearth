@@ -403,6 +403,17 @@ fn scout_visible_from(
                 .is_some_and(|z| transparent(VoxelCoord::new(scout.x(), scout.y(), z))))
 }
 
+/// Food takes precedence over inert loose cargo at equal route distance.
+/// The stable surface ID breaks ties without introducing random state.
+fn scout_loot_priority(
+    resource: &crate::surface::SurfaceResourceRecord,
+) -> (bool, SurfaceResourceId) {
+    (
+        resource.commodity().form() != crate::content::FORM_FOOD,
+        resource.id(),
+    )
+}
+
 fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord) -> bool {
     resource.kind() == SurfaceResourceKind::Drop && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
@@ -443,26 +454,30 @@ fn reachable_side_drop(
     player_position: Option<VoxelCoord>,
     capacity: Mass,
 ) -> Option<VoxelCoord> {
-    state.surface().resources().find_map(|resource| {
-        let destination = resource.position();
-        (resource.kind() == SurfaceResourceKind::Drop
-            && resource.lifecycle() == SurfaceResourceLifecycle::Available
-            && !resource.remaining_mass().is_zero()
-            && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
-            && resource.remaining_mass() <= capacity
-            && destination != den
-            && destination != junction
-            && destination != authored_tip
-            && state.logistics().has_traversal_edge(junction, destination)
-            && player_position != Some(destination)
-            && assess_local_illumination(registries, state, destination).level()
-                < SCOUT_DETERRENT_LIGHT_LEVEL
-            && (state.world().generation_profile().is_none()
-                || state
-                    .world()
-                    .has_standing_clearance(registries.world(), destination)))
-        .then_some(destination)
-    })
+    state
+        .surface()
+        .resources()
+        .filter(|resource| {
+            let destination = resource.position();
+            resource.kind() == SurfaceResourceKind::Drop
+                && resource.lifecycle() == SurfaceResourceLifecycle::Available
+                && !resource.remaining_mass().is_zero()
+                && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+                && resource.remaining_mass() <= capacity
+                && destination != den
+                && destination != junction
+                && destination != authored_tip
+                && state.logistics().has_traversal_edge(junction, destination)
+                && player_position != Some(destination)
+                && assess_local_illumination(registries, state, destination).level()
+                    < SCOUT_DETERRENT_LIGHT_LEVEL
+                && (state.world().generation_profile().is_none()
+                    || state
+                        .world()
+                        .has_standing_clearance(registries.world(), destination))
+        })
+        .min_by_key(|resource| scout_loot_priority(resource))
+        .map(|resource| resource.position())
 }
 
 /// Search one further authored traversal edge only after no directly adjacent
@@ -477,44 +492,49 @@ fn reachable_far_drop(
     player_position: Option<VoxelCoord>,
     capacity: Mass,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
-    state.surface().resources().find_map(|resource| {
-        let goal = resource.position();
-        if resource.kind() != SurfaceResourceKind::Drop
-            || resource.lifecycle() != SurfaceResourceLifecycle::Available
-            || resource.remaining_mass().is_zero()
-            || resource.remaining_mass() > SCOUT_CARRY_LIMIT
-            || resource.remaining_mass() > capacity
-            || goal == den
-            || goal == junction
-            || goal == authored_tip
-            || player_position == Some(goal)
-            || assess_local_illumination(registries, state, goal).level()
-                >= SCOUT_DETERRENT_LIGHT_LEVEL
-            || (state.world().generation_profile().is_some()
-                && !state
-                    .world()
-                    .has_standing_clearance(registries.world(), goal))
-        {
-            return None;
-        }
-        state
-            .logistics()
-            .traversable_destinations(junction)
-            .find(|first| {
-                *first != den
-                    && *first != authored_tip
-                    && *first != goal
-                    && player_position != Some(*first)
-                    && state.logistics().has_traversal_edge(*first, goal)
-                    && assess_local_illumination(registries, state, *first).level()
-                        < SCOUT_DETERRENT_LIGHT_LEVEL
-                    && (state.world().generation_profile().is_none()
-                        || state
-                            .world()
-                            .has_standing_clearance(registries.world(), *first))
-            })
-            .map(|first| (first, goal))
-    })
+    state
+        .surface()
+        .resources()
+        .filter_map(|resource| {
+            let goal = resource.position();
+            if resource.kind() != SurfaceResourceKind::Drop
+                || resource.lifecycle() != SurfaceResourceLifecycle::Available
+                || resource.remaining_mass().is_zero()
+                || resource.remaining_mass() > SCOUT_CARRY_LIMIT
+                || resource.remaining_mass() > capacity
+                || goal == den
+                || goal == junction
+                || goal == authored_tip
+                || player_position == Some(goal)
+                || assess_local_illumination(registries, state, goal).level()
+                    >= SCOUT_DETERRENT_LIGHT_LEVEL
+                || (state.world().generation_profile().is_some()
+                    && !state
+                        .world()
+                        .has_standing_clearance(registries.world(), goal))
+            {
+                return None;
+            }
+            state
+                .logistics()
+                .traversable_destinations(junction)
+                .find(|first| {
+                    *first != den
+                        && *first != authored_tip
+                        && *first != goal
+                        && player_position != Some(*first)
+                        && state.logistics().has_traversal_edge(*first, goal)
+                        && assess_local_illumination(registries, state, *first).level()
+                            < SCOUT_DETERRENT_LIGHT_LEVEL
+                        && (state.world().generation_profile().is_none()
+                            || state
+                                .world()
+                                .has_standing_clearance(registries.world(), *first))
+                })
+                .map(|first| (scout_loot_priority(resource), first, goal))
+        })
+        .min_by_key(|(priority, _, _)| *priority)
+        .map(|(_, first, goal)| (first, goal))
 }
 
 /// When the junction's own wild food is exhausted, investigate one reachable
@@ -801,9 +821,10 @@ pub(crate) fn apply_kobold_scout_tick(
                     state
                         .surface()
                         .available_resources_at(Some(from))
-                        .find(|resource| {
+                        .filter(|resource| {
                             is_portable_drop(resource) && resource.remaining_mass() <= den_space
                         })
+                        .min_by_key(|resource| scout_loot_priority(resource))
                         .map(|resource| resource.id())
                 })
         })
@@ -831,10 +852,11 @@ pub(crate) fn apply_kobold_scout_tick(
             state
                 .surface()
                 .available_resources_at(Some(from))
-                .find(|resource| {
+                .filter(|resource| {
                     is_contestable_drop(resource, den_space)
                         && (!is_portable_drop(resource) || resource.remaining_mass() > den_space)
                 })
+                .min_by_key(|resource| scout_loot_priority(resource))
                 .map(|resource| resource.id())
         })
         .flatten();

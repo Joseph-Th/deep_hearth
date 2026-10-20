@@ -308,6 +308,16 @@ source mass locally and recovers the conserved den parcel using normal pickup.
 Trusted save/load replays the in-flight catch, while owner tests verify profile,
 provenance, age, 100-tick cooldown, and the last 50 g of den capacity.
 
+A competing loose-loot encounter tests scout preference independently of creation
+order: the actor gathers both edible berries and inert stone, drops stone first
+and fruit second at the junction, and withdraws. The scout takes the later
+food parcel first, leaving the earlier stone recoverable at its original
+location. Staying on the neighboring trail instead guards both parcels.
+Normal player pickup reclaims the stone and the same food parcel from the den;
+save/load and matter accounting remain stable. Owner tests also establish that
+a physically nearer inert parcel outranks distant food and that edible bulk
+matter takes priority when neither heavy pile can be carried whole.
+
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
 contracts cannot establish whether an individual experienced an interesting tradeoff. Inspect

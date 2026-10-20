@@ -3236,6 +3236,18 @@ class GameplayReportContractTests(unittest.TestCase):
             gameplay_report_summary.wilderness_summary([
                 *lines, side_food_record.replace("recovered:100000mg", "recovered:0mg")
             ])
+        preference = (
+            "KOBOLD FOOD PRIORITY EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-food-choice "
+            "stone-before-food:true food-stolen:250000mg stone-left:250000mg "
+            "guarded:500000mg recovered:500000mg food-preferred:true "
+            "save-replay:true matter-conserved:true"
+        )
+        preference_summary = gameplay_report_summary.wilderness_summary([*lines, preference])
+        self.assertIn("food-first:250000mg stone-stays:250000mg", preference_summary)
+        with self.assertRaisesRegex(ValueError, "prefer food without losing the stone"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, preference.replace("stone-left:250000mg", "stone-left:0mg")
+            ])
         self.assertIn("sample-shape=[maintained:1 coverage:2 organic:2]", summary)
         self.assertIn(
             "direct-use=[route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct lag=3.15/3.05/2.15s use=one-shot gather=[before:4000000mg batch:500000mg remaining:3500000mg] water=[before:5000000uL serving:500000uL remaining:4500000uL] hydration=[before:3000000uL after:3500000uL] timed=true]",
@@ -4153,6 +4165,8 @@ class GameplayReportContractTests(unittest.TestCase):
                 "KOBOLD FAR CACHE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-camp-cache cache:250000mg",
                 "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-side-food phase=alternate-wild-food choice=secure",
                 "KOBOLD SIDE FOOD EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-side-food source-before:800000mg",
+                "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-food-choice phase=two-parcel-choice choice=drop",
+                "KOBOLD FOOD PRIORITY EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-food-choice stone-before-food:true",
             )
         )
         environment = {
@@ -4216,7 +4230,14 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("phase=alternate-wild-food choice=secure", side_focus)
         self.assertIn("KOBOLD SIDE FOOD EXPERIENCE seed=0x1", side_focus)
         self.assertNotIn("scavenger-camp-cache", side_focus)
-        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-bulk, coverage/rested/scavenger-camp-cache, coverage/rested/scavenger-den, coverage/rested/scavenger-detour, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, coverage/rested/scavenger-side-food, maintained/rested/stay-mobile"):
+        food_choice_focus = gameplay_report_summary.concise_gameplay_report(
+            stdout,
+            {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "coverage/rested/scavenger-food-choice"},
+        )
+        self.assertIn("phase=two-parcel-choice choice=drop", food_choice_focus)
+        self.assertIn("KOBOLD FOOD PRIORITY EXPERIENCE seed=0x1", food_choice_focus)
+        self.assertNotIn("scavenger-side-food", food_choice_focus)
+        with self.assertRaisesRegex(ValueError, "available episodes for this seed: coverage/rested/long-stay-shelter, coverage/rested/scavenger-bulk, coverage/rested/scavenger-camp-cache, coverage/rested/scavenger-den, coverage/rested/scavenger-detour, coverage/rested/scavenger-food-choice, coverage/rested/scavenger-forage, coverage/rested/scavenger-patrol, coverage/rested/scavenger-side-food, maintained/rested/stay-mobile"):
             gameplay_report_summary.concise_gameplay_report(
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},

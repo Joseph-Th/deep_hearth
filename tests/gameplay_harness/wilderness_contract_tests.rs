@@ -109,6 +109,8 @@ mod kobold_detour;
 mod kobold_encounter;
 #[path = "wilderness_kobold_far_cache.rs"]
 mod kobold_far_cache;
+#[path = "wilderness_kobold_food_preference.rs"]
+mod kobold_food_preference;
 #[path = "wilderness_kobold_foraging.rs"]
 mod kobold_foraging;
 #[path = "wilderness_kobold_side_food.rs"]
@@ -4642,6 +4644,7 @@ pub(super) fn run_wilderness_report() {
     kobold_far_cache::exercise_kobold_far_camp_cache(true);
     kobold_foraging::exercise_kobold_natural_foraging(true);
     kobold_side_food::exercise_kobold_side_food_forage(true);
+    kobold_food_preference::exercise_kobold_food_preference(true);
     kobold_encounter::exercise_kobold_scavenging_encounter(true);
     assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(true);
     exercise_opening_two_food_ration(true);
@@ -4745,6 +4748,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         kobold_far_cache::exercise_kobold_far_camp_cache(false);
         kobold_foraging::exercise_kobold_natural_foraging(false);
         kobold_side_food::exercise_kobold_side_food_forage(false);
+        kobold_food_preference::exercise_kobold_food_preference(false);
         kobold_encounter::exercise_kobold_scavenging_encounter(false);
         assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(false);
         exercise_opening_two_food_ration(false);

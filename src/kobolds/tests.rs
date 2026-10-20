@@ -1138,6 +1138,164 @@ fn advance_to_tick(registries: &crate::Registries, state: &mut AppState, tick: u
 }
 
 #[test]
+fn scout_prefers_later_food_over_earlier_stone_at_same_junction() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, _] = colony(&state).route;
+    let stone = place_loose_stone_drop(&registries, &mut state, junction);
+    let food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        junction,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [food]).unwrap();
+    let food_id = creation.first_resource_id();
+    assert!(stone < food_id, "the earlier stone drop must lose the tie");
+    creation.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(state.surface().get(food_id).unwrap().position(), den);
+    assert_eq!(state.surface().get(stone).unwrap().position(), junction);
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored: LoadedSaveEnvelope = serde_json::from_slice(&checkpoint).unwrap();
+    let mut replay = restored.into_state(&registries).unwrap();
+    for _ in 0..10 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(stone).unwrap().position(),
+        den,
+        "the less desirable parcel remains eligible on a subsequent trip"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn nearer_stone_drop_still_outweighs_farther_food_cache() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let forage = state
+        .logistics()
+        .traversable_destinations(junction)
+        .find(|position| {
+            *position != den
+                && *position != tip
+                && state.logistics().has_traversal_edge(*position, spawn)
+        })
+        .unwrap();
+    let stone = place_loose_stone_drop(&registries, &mut state, forage);
+    let food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        spawn,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [food]).unwrap();
+    let food_id = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), forage);
+    assert_eq!(colony(&state).detour, Some(forage));
+    assert_eq!(
+        colony(&state).detour_goal,
+        None,
+        "one-edge accessibility outranks material preference"
+    );
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(state.surface().get(stone).unwrap().position(), den);
+    assert_eq!(state.surface().get(food_id).unwrap().position(), spawn);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn scout_splits_food_before_older_heavy_stone_when_no_portable_parcel_fits() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    let (registries, mut state, spawn) = generated_opening();
+    let [den, junction, _] = colony(&state).route;
+    let stone = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        junction,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(2_000_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        junction,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(2_000_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [stone, food]).unwrap();
+    let stone_id = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let food_id = state
+        .surface()
+        .available_resources_at(Some(junction))
+        .find(|r| r.commodity().form() == FORM_FOOD && r.kind() == SurfaceResourceKind::Drop)
+        .unwrap()
+        .id();
+    assert!(stone_id < food_id);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(
+        state.surface().get(stone_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(2_000_000)
+    );
+    assert_eq!(
+        state.surface().get(food_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_750_000)
+    );
+    let catch = state
+        .surface()
+        .available_resources_at(Some(den))
+        .find(|r| r.kind() == SurfaceResourceKind::Drop)
+        .unwrap();
+    assert_eq!(
+        catch.commodity(),
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)
+    );
+    assert_eq!(catch.remaining_mass(), Mass::from_milligrams(250_000));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
 fn scout_prioritizes_an_intact_portable_parcel_over_splitting_bulk() {
     let (registries, mut state, spawn) = generated_opening();
     let [_, junction, tip] = colony(&state).route;

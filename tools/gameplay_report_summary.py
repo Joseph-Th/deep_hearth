@@ -167,6 +167,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "scout-bulk",
         "scout-camp-cache",
         "scout-side-food",
+        "scout-food-choice",
     ),
     "primitive-progression": (
         "generated-exact-local-campaign",
@@ -690,6 +691,7 @@ def _focused_verbose_gameplay_report(
                     "KOBOLD DETOUR EXPERIENCE ", "KOBOLD BULK EXPERIENCE ",
                     "KOBOLD FAR CACHE EXPERIENCE ",
                     "KOBOLD SIDE FOOD EXPERIENCE ",
+                    "KOBOLD FOOD PRIORITY EXPERIENCE ",
                 )))
                 selected.append(line)
             continue

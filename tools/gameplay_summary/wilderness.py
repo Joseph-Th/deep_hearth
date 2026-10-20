@@ -610,6 +610,32 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"source:{_mass_kg(before)}kg foraged:{_mass_kg(foraged)}kg "
             f"guarded:{_mass_kg(guarded)}kg recovered:{_mass_kg(recovered)}kg]"
         )
+    choice_events = [
+        line for line in lines if line.startswith("KOBOLD FOOD PRIORITY EXPERIENCE ")
+    ]
+    if len(choice_events) > 1:
+        raise ValueError("wilderness report has duplicate food-preference scout episodes")
+    food_choice = ""
+    if choice_events:
+        witness = re.search(
+            r"\bstone-before-food:(true|false) food-stolen:(\d+)mg "
+            r"stone-left:(\d+)mg guarded:(\d+)mg recovered:(\d+)mg "
+            r"food-preferred:(true|false) save-replay:(true|false) matter-conserved:(true|false)",
+            choice_events[0],
+        )
+        if witness is None:
+            raise ValueError("scout food preference has no locally recovered parcel evidence")
+        stolen, left, guarded, recovered = (int(witness.group(i)) for i in range(2, 6))
+        if (stolen <= 0 or left <= 0 or guarded != stolen + left
+                or recovered != guarded
+                or witness.group(1) != "true"
+                or any(witness.group(i) != "true" for i in range(6, 9))):
+            raise ValueError("scout priority must prefer food without losing the stone or its custody")
+        food_choice = (
+            "scout-food-choice=["
+            f"food-first:{stolen}mg stone-stays:{left}mg "
+            f"guarded:{guarded}mg recovered:{recovered}mg]"
+        )
     sample_shape = f"maintained:1 coverage:{len(coverage)}"
     if organic:
         sample_shape += f" organic:{len(organic)}"
@@ -633,6 +659,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{bulk + ' ' if bulk else ''}"
         f"{camp_cache + ' ' if camp_cache else ''}"
         f"{side_food + ' ' if side_food else ''}"
+        f"{food_choice + ' ' if food_choice else ''}"
         f"{tool_policy} "
         "adaptation=[rested:skip-water hydration-pressure:visit-and-drink]"
         f"{organic_detail}"
