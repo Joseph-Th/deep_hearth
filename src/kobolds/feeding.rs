@@ -95,7 +95,7 @@ pub(super) fn apply_scheduled_den_care(
     let wary_at_den = colony.wary_until.is_some_and(|until| at < until);
     let junction = colony.route[1];
     let eaten = if at_den && !pressured {
-        consume_den_meal(registries, state, from, at)
+        consume_den_meal(registries, state, from, at, Mass::ZERO)
     } else {
         None
     };
@@ -268,6 +268,7 @@ pub(super) fn consume_den_meal(
     state: &mut AppState,
     den: VoxelCoord,
     at: SimulationTick,
+    minimum_ration: Mass,
 ) -> Option<(SurfaceResourceId, Mass)> {
     if !state.can_spend_surface_revisions(1) {
         return None;
@@ -286,6 +287,9 @@ pub(super) fn consume_den_meal(
                 return None;
             }
             let mass = resource.remaining_mass().min(SCOUT_MEAL_MASS);
+            if mass < minimum_ration {
+                return None;
+            }
             let material = resource.commodity().material();
             let consumed_after = state
                 .kobold_state()

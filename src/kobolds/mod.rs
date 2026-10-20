@@ -22,6 +22,7 @@ mod patrol;
 mod scavenging;
 mod tracks;
 mod visibility;
+mod watchman;
 
 pub use tracks::{KoboldTrack, KoboldTrailKind, available_nearby_kobold_tracks};
 
@@ -53,10 +54,22 @@ const SCOUT_MEAL_MASS: Mass = Mass::from_milligrams(20_000);
 const SCOUT_WARY_INTERVAL_TICKS: u64 = 40;
 /// A low, dying ember does not repel the same scout as a maintained bright fire.
 const SCOUT_DETERRENT_LIGHT_LEVEL: u8 = 3;
+/// The second opening resident can watch the junction for twenty slow ticks per full meal.
+const WATCH_DURATION_TICKS: u64 = 20;
+/// Bounded recuperation between patrols; no free watch duty every scout step.
+const WATCH_RECOVERY_TICKS: u64 = 100;
 
-/// Player-local observation of a kobold scout; remote dens and patrols are not exposed.
+/// Identity of a locally seen resident, including the fixed den watchman.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KoboldRole {
+    Scout,
+    Watchman,
+}
+
+/// Player-local observation of a physical kobold; remote dens and patrols are not exposed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KoboldSighting {
+    role: KoboldRole,
     position: VoxelCoord,
     has_noticed_player_drop: bool,
     is_wary: bool,
@@ -65,6 +78,11 @@ pub struct KoboldSighting {
 }
 
 impl KoboldSighting {
+    #[must_use]
+    pub const fn role(self) -> KoboldRole {
+        self.role
+    }
+
     #[must_use]
     pub const fn position(self) -> VoxelCoord {
         self.position
@@ -219,6 +237,12 @@ struct KoboldColony {
     /// Colony action changes only after the scout physically returns with that information.
     #[serde(deserialize_with = "required_optional_mobilization_tick")]
     mobilized_at: Option<SimulationTick>,
+    /// The den's second, fixed resident watches the real junction after eating.
+    /// Null means it is at home, not that a new kobold can be spawned.
+    #[serde(deserialize_with = "required_optional_mobilization_tick")]
+    watch_deployed_at: Option<SimulationTick>,
+    /// Earliest possible next fed watch patrol; starts at the opening scout deadline.
+    watch_ready_at: SimulationTick,
     /// Only the latest real departed route steps; old traces expire on observation.
     tracks: Vec<KoboldTrack>,
     /// Caution survives saves and expires on the same five-tick scout clock.
@@ -408,6 +432,8 @@ impl KoboldState {
             hungry: false,
             witnessed_machinery_at: None,
             mobilized_at: None,
+            watch_deployed_at: None,
+            watch_ready_at: SimulationTick::new(FIRST_SCOUT_TICK),
             tracks: Vec::new(),
             wary_until: None,
         });
@@ -423,6 +449,7 @@ impl KoboldState {
             .iter()
             .filter(move |colony| colony.is_visible_from(registries, state, position))
             .map(move |colony| KoboldSighting {
+                role: KoboldRole::Scout,
                 position: colony.scout_position(),
                 has_noticed_player_drop: colony.noticed_player_drop,
                 is_wary: colony.wary_until.is_some_and(|until| until > state.tick()),
@@ -433,6 +460,19 @@ impl KoboldState {
                     .filter(|drop| drop.lifecycle() == SurfaceResourceLifecycle::Available)
                     .map(|drop| (drop.commodity(), drop.remaining_mass())),
             })
+            .chain(self.colony.iter().filter_map(move |colony| {
+                let guard = colony.watch_position();
+                (colony.watch_ready_at.value() > FIRST_SCOUT_TICK
+                    && scout_visible_from(registries, state, guard, position))
+                .then_some(KoboldSighting {
+                    role: KoboldRole::Watchman,
+                    position: guard,
+                    has_noticed_player_drop: false,
+                    is_wary: false,
+                    mobilized: colony.mobilized_at.is_some(),
+                    scavenged_material: None,
+                })
+            }))
     }
 }
 
@@ -530,6 +570,7 @@ pub(crate) fn validate_loaded_kobolds(
     let current = state.tick().value();
     validate_meal_schedule(colony, current)?;
     colony.validate_mobilization(state.tick())?;
+    colony.validate_watchman(state.tick())?;
     colony.validate_tracks(state)?;
     if let Some(wary_until) = colony.wary_until {
         let due = wary_until.value();

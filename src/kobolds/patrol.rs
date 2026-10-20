@@ -21,6 +21,7 @@ use super::scavenging::{
     should_seek_local_food,
 };
 use super::visibility::scout_visible_from;
+use super::watchman::apply_watchman_tick;
 use super::{
     KoboldColony, KoboldScoutEvent, KoboldTrailKind, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_STEP_TICKS,
     SCOUT_WARY_INTERVAL_TICKS,
@@ -168,7 +169,7 @@ pub(super) fn scout_can_enter(
                 .has_standing_clearance(registries.world(), position))
 }
 
-fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
+pub(super) fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
     let near = state.logistics().player().is_some_and(|player| {
         let position = player.position();
         from.y() == position.y()
@@ -321,6 +322,7 @@ pub(crate) fn apply_kobold_scout_tick(
     // Den resources remain physically recoverable until they are actually eaten.
     let (consumed_food, discarded_food, cleared_cache) =
         apply_scheduled_den_care(registries, state, from, next_tick, pressured);
+    apply_watchman_tick(registries, state, next_tick);
     let colony = state
         .kobold_state()
         .colony

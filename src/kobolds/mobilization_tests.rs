@@ -699,3 +699,6 @@ fn empty_industrial_opportunity_and_a_player_occupied_den_exit_prevent_eviction(
     assert_eq!(validate_loaded_state(&registries, &alerted), Ok(()));
     assert_eq!(validate_loaded_state(&registries, &no_target), Ok(()));
 }
+
+#[path = "watchman_tests.rs"]
+mod watchman_tests;
