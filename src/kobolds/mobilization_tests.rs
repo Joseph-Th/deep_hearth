@@ -587,3 +587,115 @@ fn player_intercepts_engineered_salvage_and_mobilized_raider_takes_raw_scraps() 
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+fn cache_stone(
+    registries: &Registries,
+    state: &mut AppState,
+    den: VoxelCoord,
+) -> crate::surface::SurfaceResourceId {
+    let resource = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(500_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(registries, state, [resource]).unwrap();
+    let id = plan.first_resource_id();
+    plan.commit(state).unwrap();
+    id
+}
+
+#[test]
+fn alerted_colony_releases_low_value_cargo_and_recovers_actual_precision_copper() {
+    let (registries, mut alerted, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    let (_, mut ordinary, _) = scenario(EnergyCarrier::Mechanical, None);
+    advance_to(&registries, &mut alerted, 579);
+    advance_to(&registries, &mut ordinary, 579);
+    let old = cache_stone(&registries, &mut alerted, route[0]);
+    let copper = copper_winding(&registries, &mut alerted, route[3]);
+    let ordinary_old = cache_stone(&registries, &mut ordinary, route[0]);
+    let ordinary_copper = copper_winding(&registries, &mut ordinary, route[3]);
+    let conserved = calculate_matter_accounting(&alerted).unwrap().total();
+
+    advance_to(&registries, &mut alerted, 580);
+    advance_to(&registries, &mut ordinary, 580);
+    assert_eq!(alerted.surface().get(old).unwrap().position(), route[1]);
+    assert_eq!(
+        ordinary.surface().get(ordinary_old).unwrap().position(),
+        route[0]
+    );
+    assert_eq!(
+        alerted.surface().get(old).unwrap().remaining_mass(),
+        Mass::from_milligrams(500_000),
+        "cache clearing must not delete stone or pay an abstract upgrade price"
+    );
+    assert!(
+        !alerted
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .noticed_player_drop,
+        "an expelled parcel is not a newly discovered cache"
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &alerted)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    let mut resumed = decoded.into_state(&registries).unwrap();
+    for _ in 0..15 {
+        assert_eq!(
+            advance_tick(&registries, &mut alerted).unwrap(),
+            advance_tick(&registries, &mut resumed).unwrap()
+        );
+    }
+    assert_eq!(alerted, resumed);
+    assert_eq!(alerted.surface().get(old).unwrap().position(), route[1]);
+    assert_eq!(alerted.surface().get(copper).unwrap().position(), route[0]);
+    assert_eq!(
+        alerted.surface().get(copper).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert_eq!(
+        ordinary.surface().get(ordinary_copper).unwrap().position(),
+        route[3]
+    );
+    assert_eq!(
+        calculate_matter_accounting(&alerted).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        calculate_matter_accounting(&ordinary).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &alerted), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &ordinary), Ok(()));
+}
+
+#[test]
+fn empty_industrial_opportunity_and_a_player_occupied_den_exit_prevent_eviction() {
+    let (registries, mut alerted, route) =
+        scenario(EnergyCarrier::Electrical, Some(route_machinery()));
+    advance_to(&registries, &mut alerted, 579);
+    let stone = cache_stone(&registries, &mut alerted, route[0]);
+    let mut no_target = alerted.clone();
+    let winding = copper_winding(&registries, &mut alerted, route[3]);
+    let conserved = calculate_matter_accounting(&alerted).unwrap().total();
+    validate_admit_player(&registries, &alerted, route[1])
+        .unwrap()
+        .commit(&mut alerted)
+        .unwrap();
+    advance_to(&registries, &mut alerted, 580);
+    advance_to(&registries, &mut no_target, 580);
+    assert_eq!(alerted.surface().get(stone).unwrap().position(), route[0]);
+    assert_eq!(no_target.surface().get(stone).unwrap().position(), route[0]);
+    assert_eq!(alerted.surface().get(winding).unwrap().position(), route[3]);
+    assert_eq!(
+        calculate_matter_accounting(&alerted).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &alerted), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &no_target), Ok(()));
+}

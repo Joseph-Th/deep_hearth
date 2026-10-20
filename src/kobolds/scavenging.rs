@@ -362,7 +362,7 @@ pub(super) fn reachable_far_food(
 /// Remnants of precision craft matter more to former machine-servants than
 /// raw rock or copper ore. This only classifies existing, authored loose goods:
 /// an installed or carried machine is never loot in this surface-resource query.
-fn is_servant_era_salvage(resource: &crate::surface::SurfaceResourceRecord) -> bool {
+pub(super) fn is_servant_era_salvage(resource: &crate::surface::SurfaceResourceRecord) -> bool {
     use crate::content::{
         FORM_DRILL_BIT, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_REINFORCEMENT, FORM_SAW_BLADE,
         FORM_TOOL, MATERIAL_COPPER,

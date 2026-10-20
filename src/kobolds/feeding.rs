@@ -13,7 +13,7 @@ use crate::surface::{
 use crate::survival::{FoodFreshness, freshness_from_history};
 
 use super::patrol::scout_can_enter;
-use super::scavenging::den_cache_space;
+use super::scavenging::{den_cache_space, is_servant_era_salvage, reachable_inherited_salvage};
 use super::{
     SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
 };
@@ -107,7 +107,10 @@ pub(super) fn apply_scheduled_den_care(
     // Food is a survival priority. Release one inert parcel only if the den
     // is entirely blocked and the scout can actually reach fresh provisions.
     let cleared_cache = (can_tend_den && discarded.is_none())
-        .then(|| clear_inert_cache_for_food(registries, state, from, junction, at))
+        .then(|| {
+            clear_inert_cache_for_food(registries, state, from, junction, at)
+                .or_else(|| clear_inert_cache_for_industry(registries, state, from, junction, at))
+        })
         .flatten();
     let colony = state
         .kobold_state_mut()
@@ -200,6 +203,52 @@ fn clear_inert_cache_for_food(
         })?
         .id();
     relocate_scavenged_drop_step(state, source, den, junction).then_some(source)
+}
+
+/// A reported machine threat gives the old servant culture a concrete
+/// salvage objective. A full den may release *one* expendable inert parcel
+/// only when a precision copper component can truly be reached and brought
+/// back. The freed mass is custody, never an abstract purchase price.
+fn clear_inert_cache_for_industry(
+    registries: &Registries,
+    state: &mut AppState,
+    den: VoxelCoord,
+    junction: VoxelCoord,
+    at: SimulationTick,
+) -> Option<SurfaceResourceId> {
+    let colony = state.kobold_state().colony.as_ref()?;
+    if colony.mobilized_at.is_none() || !den_cache_space(state, den).is_zero() {
+        return None;
+    }
+    let tip = colony.route[2];
+    let source = state
+        .surface()
+        .available_resources_at(Some(den))
+        .find(|resource| {
+            resource.kind() == SurfaceResourceKind::Drop
+                && resource.commodity().form() != crate::content::FORM_FOOD
+                && !is_servant_era_salvage(resource)
+                && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+        })?;
+    let source_id = source.id();
+    let released_capacity = source.remaining_mass();
+    let player = state.logistics().player().map(|record| record.position());
+    if !den_exit_is_safe(registries, state, junction)
+        || reachable_inherited_salvage(
+            registries,
+            state,
+            junction,
+            den,
+            tip,
+            player,
+            released_capacity,
+            at,
+        )
+        .is_none()
+    {
+        return None;
+    }
+    relocate_scavenged_drop_step(state, source_id, den, junction).then_some(source_id)
 }
 
 fn den_exit_is_safe(registries: &Registries, state: &AppState, junction: VoxelCoord) -> bool {

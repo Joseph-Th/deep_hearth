@@ -26,6 +26,52 @@ use super::{
     SCOUT_WARY_INTERVAL_TICKS,
 };
 
+/// Determine whether a den's expelled inert parcel should be ignored in
+/// favor of a reachable piece of inherited machinery. The indexed target is
+/// then reused by movement planning, avoiding repeated two-edge searches.
+fn scout_raid_interest(
+    registries: &Registries,
+    state: &AppState,
+    colony: &KoboldColony,
+    from: VoxelCoord,
+    capacity: Mass,
+    forage_ready: bool,
+    at: SimulationTick,
+    player_position: Option<VoxelCoord>,
+    pressured: bool,
+) -> (bool, Option<(VoxelCoord, Option<VoxelCoord>)>) {
+    let inherited_target = (colony.mobilized_at.is_some()
+        && !pressured
+        && colony.scout_step == 1
+        && !colony.returning)
+        .then(|| {
+            let [den, junction, tip] = colony.route;
+            reachable_inherited_salvage(
+                registries,
+                state,
+                junction,
+                den,
+                tip,
+                player_position,
+                capacity,
+                at,
+            )
+        })
+        .flatten();
+    let local_food = colony.hungry
+        && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
+    let exposed = has_local_scout_interest(
+        registries,
+        state,
+        from,
+        capacity,
+        forage_ready,
+        at,
+        colony.seeks_food_at_junction(),
+    ) && (inherited_target.is_none() || local_food);
+    (exposed, inherited_target)
+}
+
 fn choose_outbound_detour(
     registries: &Registries,
     state: &AppState,
@@ -36,6 +82,7 @@ fn choose_outbound_detour(
     den_space: Mass,
     forage_ready: bool,
     at: SimulationTick,
+    inherited_target: Option<(VoxelCoord, Option<VoxelCoord>)>,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
     if step != 2 || returning || colony.scout_step != 1 {
         return None;
@@ -93,20 +140,7 @@ fn choose_outbound_detour(
             })
             .flatten()
     };
-    let inherited_salvage = || {
-        colony.mobilized_at.and_then(|_| {
-            reachable_inherited_salvage(
-                registries,
-                state,
-                junction,
-                den,
-                tip,
-                player_position,
-                den_space,
-                at,
-            )
-        })
-    };
+    let inherited_salvage = || inherited_target;
     if colony.hungry {
         // Food first, then the remembered machine-service salvage priority.
         // Ordinary nearby scraps remain available when neither is reachable.
@@ -171,11 +205,12 @@ fn plan_scout_move(
     colony: &KoboldColony,
     next_tick: SimulationTick,
     pressured: bool,
-    exposed_at_current: bool,
+    raid_interest: (bool, Option<(VoxelCoord, Option<VoxelCoord>)>),
     player_position: Option<VoxelCoord>,
     den_space: Mass,
     forage_ready: bool,
 ) -> ScoutMovePlan {
+    let (exposed_at_current, inherited_target) = raid_interest;
     let wary_at_den = colony.scout_step == 0
         && !pressured
         && colony.wary_until.is_some_and(|until| next_tick < until);
@@ -194,6 +229,7 @@ fn plan_scout_move(
         den_space,
         forage_ready,
         next_tick,
+        inherited_target,
     );
     let proposed_position = proposed_detour.map_or_else(
         || colony.position_at_step(proposed_step),
@@ -295,14 +331,16 @@ pub(crate) fn apply_kobold_scout_tick(
     let forage_interval = colony.forage_interval();
     let mobilized = colony.mobilized_at.is_some();
     let den_space = den_cache_space(state, colony.route[0]);
-    let exposed_at_current = has_local_scout_interest(
+    let raid_interest = scout_raid_interest(
         registries,
         state,
+        colony,
         from,
         den_space,
         forage_ready,
         next_tick,
-        colony.seeks_food_at_junction(),
+        player_position,
+        pressured,
     );
     let move_plan = plan_scout_move(
         registries,
@@ -310,7 +348,7 @@ pub(crate) fn apply_kobold_scout_tick(
         colony,
         next_tick,
         pressured,
-        exposed_at_current,
+        raid_interest,
         player_position,
         den_space,
         forage_ready,
