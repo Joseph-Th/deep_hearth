@@ -98,6 +98,7 @@ pub struct KoboldScoutEvent {
     split_drop: Option<(SurfaceResourceId, Mass)>,
     consumed_food: Option<(SurfaceResourceId, Mass)>,
     discarded_food: Option<SurfaceResourceId>,
+    cleared_cache: Option<SurfaceResourceId>,
 }
 
 impl KoboldScoutEvent {
@@ -169,6 +170,12 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn discarded_food(self) -> Option<SurfaceResourceId> {
         self.discarded_food
+    }
+
+    /// A full den released one inert parcel to make room for actual nearby food.
+    #[must_use]
+    pub const fn cleared_cache(self) -> Option<SurfaceResourceId> {
+        self.cleared_cache
     }
 }
 
@@ -521,6 +528,9 @@ pub(crate) fn validate_loaded_kobolds(
     Ok(())
 }
 
+#[cfg(test)]
+#[path = "den_care_tests.rs"]
+mod den_care_tests;
 #[cfg(test)]
 #[path = "foraging_freshness_tests.rs"]
 mod foraging_freshness_tests;

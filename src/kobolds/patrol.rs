@@ -14,9 +14,9 @@ use crate::survival::Vitality;
 
 use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_food_opportunity};
 use super::scavenging::{
-    den_cache_space, has_local_scout_interest, is_contestable_drop, is_portable_drop,
-    local_portable_source, local_split_source, reachable_far_drop, reachable_side_drop,
-    reachable_side_food,
+    den_cache_space, finds_external_drop, has_local_scout_interest, is_contestable_drop,
+    is_portable_drop, local_portable_source, local_split_source, reachable_far_drop,
+    reachable_side_drop, reachable_side_food,
 };
 use super::visibility::scout_visible_from;
 use super::{
@@ -246,7 +246,7 @@ pub(crate) fn apply_kobold_scout_tick(
     let pressured = pressured_by_player || pressured_by_light;
     // Meals use the existing sparse scout schedule, never a per-control-tick AI update.
     // Den resources remain physically recoverable until they are actually eaten.
-    let (consumed_food, discarded_food) =
+    let (consumed_food, discarded_food, cleared_cache) =
         apply_scheduled_den_care(registries, state, from, next_tick, pressured);
     let colony = state
         .kobold_state()
@@ -317,13 +317,14 @@ pub(crate) fn apply_kobold_scout_tick(
     // Inspect the destination before any relocation. A scout dragging its own
     // parcel home has not discovered a second exposed item there.
     let discovered = can_move
-        && state
-            .surface()
-            .available_resources_at(Some(position))
-            .any(|resource| {
-                is_contestable_drop(resource, den_space)
-                    && scout_wants_drop(registries, resource, next_tick)
-            });
+        && finds_external_drop(
+            registries,
+            state,
+            position,
+            den_space,
+            next_tick,
+            [cleared_cache, discarded_food],
+        );
     let relocated_drop = if can_move {
         dragged_candidate.filter(|id| relocate_scavenged_drop_step(state, *id, from, position))
     } else {
@@ -396,7 +397,7 @@ pub(crate) fn apply_kobold_scout_tick(
         let activity = KoboldTrailKind::from_step(
             pressured,
             turned_back_at_barrier,
-            relocated_drop.is_some(),
+            relocated_drop.is_some() || cleared_cache.is_some() || discarded_food.is_some(),
             split_drop.is_some(),
             foraged_food.is_some(),
         );
@@ -430,10 +431,16 @@ pub(crate) fn apply_kobold_scout_tick(
         player_position.is_some_and(|player| scout_visible_from(registries, state, from, player));
     let observed_meal = consumed_food.filter(|_| den_visible);
     let observed_discard = discarded_food.filter(|_| den_visible);
-    let visible = (can_move
-        || abandoned_drop.is_some()
-        || observed_meal.is_some()
-        || observed_discard.is_some())
+    let observed_clearing = cleared_cache.filter(|_| den_visible);
+    let had_local_activity = [
+        can_move,
+        abandoned_drop.is_some(),
+        observed_meal.is_some(),
+        observed_discard.is_some(),
+        observed_clearing.is_some(),
+    ]
+    .contains(&true);
+    let visible = had_local_activity
         && player_position
             .is_some_and(|player| scout_visible_from(registries, state, scout_position, player));
     visible.then_some(KoboldScoutEvent {
@@ -449,5 +456,6 @@ pub(crate) fn apply_kobold_scout_tick(
         split_drop,
         consumed_food: observed_meal,
         discarded_food: observed_discard,
+        cleared_cache: observed_clearing,
     })
 }

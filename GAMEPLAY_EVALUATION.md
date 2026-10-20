@@ -258,7 +258,7 @@ trail keeps the camp cache safe without directly picking it up. Owner tests cove
 two-edge saved topology, restoration of the original patrol, invalid goal admission
 and conserved source-local splitting of bulky remote caches. Save schema 109 stores
 optional route goals, the caution deadline, sparse resident meal scheduling,
-missed-meal hunger, material-keyed consumed-food custody and twelve bounded physical route signs; older saves are not migrated.
+missed-meal hunger, material-keyed consumed-food custody and twelve bounded physical route signs; older saves are not migrated. Den-care regression additionally fills the real cache with 500 g of inert stone: at the scheduled missed meal, a nearby edible patch motivates one recoverable stone relocation, then real forage and a 20 g catch-up meal with exact matter conservation and save/load replay. No reachable food keeps the hoard intact; a player blocking the exit stops the action; a nearby unobstructed player can witness the relocation without receiving remote information.
 
 In the matched live scout encounter, a nearby player can also see an actual retreat trace left at the work junction, pointing along the scout's physical escape edge. This spoor persists through trusted save/load and is distinct from a sighting: it does not reveal the remote scout's current position or cargo. Owner regression also covers carried-parcel scuffs, fading old tracks, obstruction of a blocked retreat, and forged trace rejection. Walking to guard the junction without pickup
 makes the scout retreat and stay wary for forty simulation ticks. The player

@@ -13,6 +13,7 @@ use crate::surface::{
 use crate::survival::{FoodFreshness, freshness_from_history};
 
 use super::patrol::scout_can_enter;
+use super::scavenging::den_cache_space;
 use super::{
     SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
 };
@@ -70,21 +71,25 @@ pub(super) fn scout_wants_drop(
 /// Sparse den care: a missed scheduled meal makes hunger persistent until
 /// the scout actually eats. It may eat a catch-up meal on a later den visit,
 /// but never backlogs missed servings or alters the original meal clock.
-/// Spoiled disposal stays on the regular sparse schedule.
+/// Spoiled disposal and food-driven cache clearing stay on the regular sparse schedule.
 pub(super) fn apply_scheduled_den_care(
     registries: &Registries,
     state: &mut AppState,
     from: VoxelCoord,
     at: SimulationTick,
     pressured: bool,
-) -> (Option<(SurfaceResourceId, Mass)>, Option<SurfaceResourceId>) {
+) -> (
+    Option<(SurfaceResourceId, Mass)>,
+    Option<SurfaceResourceId>,
+    Option<SurfaceResourceId>,
+) {
     let Some(colony) = state.kobold_state().colony.as_ref() else {
-        return (None, None);
+        return (None, None, None);
     };
     let due = at >= colony.next_meal_at;
     let hungry = colony.hungry;
     if !due && !hungry {
-        return (None, None);
+        return (None, None, None);
     }
     let at_den = colony.scout_step == 0;
     let wary_at_den = colony.wary_until.is_some_and(|until| at < until);
@@ -95,11 +100,15 @@ pub(super) fn apply_scheduled_den_care(
         None
     };
     // A wary scout must not move a parcel into the junction while sheltering.
-    let discarded = if due && at_den && !pressured && !wary_at_den && eaten.is_none() {
-        discard_spoiled_den_food(registries, state, from, junction, at)
-    } else {
-        None
-    };
+    let can_tend_den = due && at_den && !pressured && !wary_at_den && eaten.is_none();
+    let discarded = can_tend_den
+        .then(|| discard_spoiled_den_food(registries, state, from, junction, at))
+        .flatten();
+    // Food is a survival priority. Release one inert parcel only if the den
+    // is entirely blocked and the scout can actually reach fresh provisions.
+    let cleared_cache = (can_tend_den && discarded.is_none())
+        .then(|| clear_inert_cache_for_food(registries, state, from, junction, at))
+        .flatten();
     let colony = state
         .kobold_state_mut()
         .colony
@@ -115,7 +124,7 @@ pub(super) fn apply_scheduled_den_care(
     } else if due {
         colony.hungry = true;
     }
-    (eaten, discarded)
+    (eaten, discarded, cleared_cache)
 }
 
 fn discard_spoiled_den_food(
@@ -137,17 +146,70 @@ fn discard_spoiled_den_food(
                 )
         })?
         .id();
-    if !scout_can_enter(
+    den_exit_is_safe(registries, state, junction)
+        .then(|| relocate_scavenged_drop_step(state, source, den, junction))
+        .filter(|moved| *moved)
+        .map(|_| source)
+}
+
+/// Reorganize a blocked den toward food, not toward an arbitrary scripted
+/// desire. Only real local fresh supplies justify releasing a physical parcel.
+fn clear_inert_cache_for_food(
+    registries: &Registries,
+    state: &mut AppState,
+    den: VoxelCoord,
+    junction: VoxelCoord,
+    at: SimulationTick,
+) -> Option<SurfaceResourceId> {
+    if !den_cache_space(state, den).is_zero() {
+        return None;
+    }
+    let player = state.logistics().player().map(|record| record.position());
+    let fresh_nearby = std::iter::once(junction)
+        .chain(
+            state
+                .logistics()
+                .traversable_destinations(junction)
+                .filter(|position| *position != den),
+        )
+        .any(|position| {
+            state
+                .surface()
+                .available_resources_at(Some(position))
+                .any(|resource| {
+                    matches!(
+                        food_condition(registries, resource, at),
+                        Some(FoodFreshness::Fresh { .. })
+                    )
+                })
+                && (position == junction
+                    || (scout_can_enter(registries, state, position, player)
+                        && assess_local_illumination(registries, state, position).level()
+                            < SCOUT_DETERRENT_LIGHT_LEVEL))
+        });
+    if !fresh_nearby || !den_exit_is_safe(registries, state, junction) {
+        return None;
+    }
+    let source = state
+        .surface()
+        .available_resources_at(Some(den))
+        .find(|resource| {
+            resource.kind() == SurfaceResourceKind::Drop
+                && resource.commodity().form() != crate::content::FORM_FOOD
+                && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+        })?
+        .id();
+    relocate_scavenged_drop_step(state, source, den, junction).then_some(source)
+}
+
+fn den_exit_is_safe(registries: &Registries, state: &AppState, junction: VoxelCoord) -> bool {
+    scout_can_enter(
         registries,
         state,
         junction,
         state.logistics().player().map(|player| player.position()),
-    ) || assess_local_illumination(registries, state, junction).level()
-        >= SCOUT_DETERRENT_LIGHT_LEVEL
-    {
-        return None;
-    }
-    relocate_scavenged_drop_step(state, source, den, junction).then_some(source)
+    ) && assess_local_illumination(registries, state, junction).level()
+        < SCOUT_DETERRENT_LIGHT_LEVEL
 }
 
 /// Deplete one fresh, physically local food parcel and retain the exact mass

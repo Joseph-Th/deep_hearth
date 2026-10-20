@@ -47,6 +47,26 @@ pub(super) fn is_contestable_drop(
         && !space.is_zero()
 }
 
+/// Detect new loose matter without confusing a scout's own just-discarded
+/// parcel with a newly discovered player cache.
+pub(super) fn finds_external_drop(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    space: Mass,
+    at: SimulationTick,
+    ignored: [Option<SurfaceResourceId>; 2],
+) -> bool {
+    state
+        .surface()
+        .available_resources_at(Some(position))
+        .any(|resource| {
+            is_contestable_drop(resource, space)
+                && scout_wants_drop(registries, resource, at)
+                && !ignored.contains(&Some(resource.id()))
+        })
+}
+
 /// Decide whether the scout should turn home from its present cell.
 /// A hungry scout ignores inert parcels at the junction while finding food.
 pub(super) fn has_local_scout_interest(
