@@ -277,6 +277,17 @@ corner cannot disclose a scout around a single opaque intervening voxel. These
 tests use actual generated block truth and strict local projections; they do not
 invent enemy detection, remote telemetry, or a permanent terrain effect.
 
+Generated-terrain owner encounters distinguish a blocked first step from an
+outbound obstruction: the first makes a den-bound scout wait, while stone blocking
+an outer patrol tip after the junction causes a visible, one-edge return to the
+den. Unblocking the tip restores the original patrol without mutating its route or
+creating phantom cargo. In a longer cache raid, obstructing the second destination
+after the scout reaches its intermediate cell cancels its temporary detour and
+preserves the original 250 g parcel; clearing the stone later permits its recovery
+by the scout through the real return route. Both continuations survive trusted
+save/load and conserve represented matter. The blocked cells are fixture terrain,
+not a claim that the player has a terrain-block placement control.
+
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
 contracts cannot establish whether an individual experienced an interesting tradeoff. Inspect

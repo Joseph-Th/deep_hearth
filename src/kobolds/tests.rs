@@ -1580,6 +1580,137 @@ fn a_diagonal_scout_sighting_does_not_peek_through_an_opaque_corner() {
     ));
 }
 
+fn generated_terrain_scout_opening() -> (crate::Registries, AppState, VoxelCoord) {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, validate_generate_chunk};
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let origin = VoxelCoord::new(8, 0, 8);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(origin),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(8, y, 8)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let spawn = VoxelCoord::new(8, surface_y + 1, 8);
+    validate_generate_initial_wilderness(&registries, &state, seed, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    (registries, state, spawn)
+}
+
+#[test]
+fn terrain_barrier_after_first_patrol_step_sends_scout_home_without_teleportation() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+    let (registries, mut state, spawn) = generated_terrain_scout_opening();
+    let [den, junction, tip] = colony(&state).route;
+    advance_to_tick(&registries, &mut state, 180);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(state.world().block_at(tip), Some(BlockStateId::AIR));
+
+    // A local observer beyond the den sees the return, but is not close
+    // enough to intimidate a scout still at the junction.
+    let beyond = VoxelCoord::new(
+        den.x() + (den.x() - junction.x()),
+        den.y(),
+        den.z() + (den.z() - junction.z()),
+    );
+    validate_admit_player(&registries, &state, beyond)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    set_generated_block_for_test(registries.world(), &mut state, tip, BLOCK_STATE_STONE);
+    advance_to_tick(&registries, &mut state, 184);
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(colony(&state).scout_position(), den);
+    assert!(colony(&state).returning);
+    assert_eq!(colony(&state).route, [den, junction, tip]);
+    assert_eq!(
+        outcome.kobold_scout().unwrap().turned_back_at_barrier(),
+        true
+    );
+    assert!(!outcome.kobold_scout().unwrap().fled_light());
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut loaded = decoded.into_state(&registries).unwrap();
+    assert_eq!(state, loaded);
+    set_generated_block_for_test(registries.world(), &mut state, tip, BlockStateId::AIR);
+    set_generated_block_for_test(registries.world(), &mut loaded, tip, BlockStateId::AIR);
+    crate::logistics::relocate_player_for_test(&mut state, spawn);
+    crate::logistics::relocate_player_for_test(&mut loaded, spawn);
+    advance_to_tick(&registries, &mut state, 195);
+    advance_to_tick(&registries, &mut loaded, 195);
+    assert_eq!(state, loaded);
+    assert_eq!(colony(&state).scout_position(), tip);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn blocked_far_cache_goal_cancels_detour_and_preserves_original_parcel() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+    let (registries, mut state, spawn) = generated_terrain_scout_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let cache = place_loose_stone_drop(&registries, &mut state, spawn);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_step, 2);
+    assert_eq!(colony(&state).detour_goal, Some(spawn));
+    let branch = colony(&state).scout_position();
+    set_generated_block_for_test(registries.world(), &mut state, spawn, BLOCK_STATE_STONE);
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert!(colony(&state).returning);
+    assert_eq!(state.surface().get(cache).unwrap().position(), spawn);
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).detour_goal, None);
+    assert_eq!(colony(&state).detour, None);
+    assert_eq!(colony(&state).route, [den, junction, tip]);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let mut loaded = decoded.into_state(&registries).unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, spawn, BlockStateId::AIR);
+    set_generated_block_for_test(registries.world(), &mut loaded, spawn, BlockStateId::AIR);
+    for _ in 0..30 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut loaded).unwrap()
+        );
+    }
+    assert_eq!(state, loaded);
+    assert_ne!(branch, spawn);
+    assert_eq!(state.surface().get(cache).unwrap().position(), den);
+    assert_eq!(
+        state.surface().get(cache).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
 #[test]
 fn terrain_scout_waits_for_floor_and_head_clearance_and_resumes_after_repair() {
     use crate::content::BLOCK_STATE_STONE;

@@ -76,6 +76,7 @@ pub struct KoboldScoutEvent {
     relocated_drop: Option<SurfaceResourceId>,
     fled_player: bool,
     fled_light: bool,
+    turned_back_at_barrier: bool,
     abandoned_drop: Option<SurfaceResourceId>,
     foraged_food: Option<(SurfaceResourceId, Mass)>,
     split_drop: Option<(SurfaceResourceId, Mass)>,
@@ -108,6 +109,12 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn fled_light(self) -> bool {
         self.fled_light
+    }
+
+    /// An inaccessible or illuminated outbound cell forced the scout to turn home.
+    #[must_use]
+    pub const fn turned_back_at_barrier(self) -> bool {
+        self.turned_back_at_barrier
     }
 
     /// Previously carried material left in its existing loose surface custody.
@@ -540,6 +547,19 @@ fn choose_outbound_detour(
     })
 }
 
+fn scout_can_enter(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+) -> bool {
+    player_position != Some(position)
+        && (state.world().generation_profile().is_none()
+            || state
+                .world()
+                .has_standing_clearance(registries.world(), position))
+}
+
 fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
     let near = state.logistics().player().is_some_and(|player| {
         let position = player.position();
@@ -554,6 +574,88 @@ fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
         .survival()
         .player()
         .is_some_and(|player| player.vitality() != Vitality::ZERO)
+}
+
+#[derive(Clone, Copy)]
+struct ScoutMovePlan {
+    step: u8,
+    returning: bool,
+    detour: Option<(VoxelCoord, Option<VoxelCoord>)>,
+    position: VoxelCoord,
+    ahead_is_lit: bool,
+    turned_back_at_barrier: bool,
+    physically_clear: bool,
+}
+
+/// Movement and retreat planning does not mutate the authoritative colony.
+/// An obstructed outbound scout returns by real edges; at the den it waits
+/// for a cleared route rather than inventing a bypass.
+fn plan_scout_move(
+    registries: &Registries,
+    state: &AppState,
+    colony: &KoboldColony,
+    next_tick: SimulationTick,
+    pressured: bool,
+    exposed_at_current: bool,
+    player_position: Option<VoxelCoord>,
+    den_space: Mass,
+) -> ScoutMovePlan {
+    let wary_at_den = colony.scout_step == 0
+        && !pressured
+        && colony.wary_until.is_some_and(|until| next_tick < until);
+    let (proposed_step, proposed_returning) = if wary_at_den {
+        (0, false)
+    } else {
+        colony.next_scout_step(pressured, exposed_at_current)
+    };
+    let proposed_detour = choose_outbound_detour(
+        registries,
+        state,
+        colony,
+        proposed_step,
+        proposed_returning,
+        player_position,
+        den_space,
+    );
+    let proposed_position = proposed_detour.map_or_else(
+        || colony.position_at_step(proposed_step),
+        |(first, _)| first,
+    );
+    let ahead_is_lit = !proposed_returning
+        && assess_local_illumination(registries, state, proposed_position).level()
+            >= SCOUT_DETERRENT_LIGHT_LEVEL;
+    let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position);
+    let turned_back_at_barrier = !proposed_returning
+        && proposed_step > colony.scout_step
+        && colony.scout_step > 0
+        && (ahead_is_lit || ahead_is_blocked);
+    let (step, returning, detour, position) = if turned_back_at_barrier {
+        let retreat_step = colony.scout_step - 1;
+        (
+            retreat_step,
+            true,
+            None,
+            colony.position_at_step(retreat_step),
+        )
+    } else {
+        (
+            proposed_step,
+            proposed_returning,
+            proposed_detour,
+            proposed_position,
+        )
+    };
+    ScoutMovePlan {
+        step,
+        returning,
+        detour,
+        position,
+        ahead_is_lit,
+        turned_back_at_barrier,
+        physically_clear: step != colony.scout_step
+            && (returning || !ahead_is_lit)
+            && scout_can_enter(registries, state, position, player_position),
+    }
 }
 
 /// Deterministic slow-tick patrol with finite, interruptible return-trip scavenging.
@@ -584,37 +686,25 @@ pub(crate) fn apply_kobold_scout_tick(
         .surface()
         .available_resources_at(Some(from))
         .any(|resource| is_contestable_drop(resource, den_space));
-    // Danger has a durable consequence: an unpressured scout remains in its
-    // den while its recent-threat window is active. It cannot steal remotely
-    // or bypass the authored physical route during this hesitation.
-    let wary_at_den = colony.scout_step == 0
-        && !pressured
-        && colony.wary_until.is_some_and(|until| next_tick < until);
-    let (step, returning) = if wary_at_den {
-        (0, false)
-    } else {
-        colony.next_scout_step(pressured, exposed_at_current)
-    };
-    let detour = choose_outbound_detour(
+    let move_plan = plan_scout_move(
         registries,
         state,
         colony,
-        step,
-        returning,
+        next_tick,
+        pressured,
+        exposed_at_current,
         player_position,
         den_space,
     );
-    let position = detour.map_or_else(|| colony.position_at_step(step), |(first, _)| first);
-    let illuminated_destination = !returning
-        && assess_local_illumination(registries, state, position).level()
-            >= SCOUT_DETERRENT_LIGHT_LEVEL;
-    let physically_clear = step != colony.scout_step
-        && player_position != Some(position)
-        && !illuminated_destination
-        && (state.world().generation_profile().is_none()
-            || state
-                .world()
-                .has_standing_clearance(registries.world(), position));
+    let ScoutMovePlan {
+        step,
+        returning,
+        detour,
+        position,
+        ahead_is_lit,
+        turned_back_at_barrier,
+        physically_clear,
+    } = move_plan;
     // A scout only scavenges during retreat. Player pickup may have exhausted its
     // previously dragged parcel between steps; never resurrect or replace that mass.
     let available_drop_at = |id: SurfaceResourceId| {
@@ -742,7 +832,7 @@ pub(crate) fn apply_kobold_scout_tick(
         colony.scavenged_drop = None;
     }
     colony.next_step_at = next_step_at;
-    if pressured {
+    if pressured || (turned_back_at_barrier && ahead_is_lit && can_move) {
         colony.wary_until = Some(
             next_tick
                 .checked_add_span(TickSpan::new(SCOUT_WARY_INTERVAL_TICKS))
@@ -766,7 +856,8 @@ pub(crate) fn apply_kobold_scout_tick(
         discovered_player_drop: discovered,
         relocated_drop,
         fled_player: pressured_by_player && can_move,
-        fled_light: pressured_by_light && can_move,
+        fled_light: (pressured_by_light || (turned_back_at_barrier && ahead_is_lit)) && can_move,
+        turned_back_at_barrier: turned_back_at_barrier && can_move,
         abandoned_drop,
         foraged_food,
         split_drop,
