@@ -14,7 +14,7 @@ use super::{
     SCOUT_FORAGE_INTERVAL_TICKS, SCOUT_STEP_TICKS,
 };
 
-/// Record the first direct sighting on the already sparse scout activity clock.
+/// Record the scout's direct knowledge. The colony cannot act on it until the scout returns.
 pub(super) fn observe_progress(
     registries: &Registries,
     state: &mut AppState,
@@ -25,7 +25,7 @@ pub(super) fn observe_progress(
         .kobold_state()
         .colony
         .as_ref()
-        .is_some_and(|colony| colony.mobilized_at.is_none())
+        .is_some_and(|colony| colony.witnessed_machinery_at.is_none())
         && scout_sees_engineered_machinery(registries, state, from)
     {
         state
@@ -33,11 +33,22 @@ pub(super) fn observe_progress(
             .colony
             .as_mut()
             .expect("observed scout remains in the same colony")
-            .mobilized_at = Some(at);
+            .witnessed_machinery_at = Some(at);
     }
 }
 
 impl KoboldColony {
+    /// The report becomes colony knowledge only after an actual completed return.
+    /// Remaining outside (including a player-blocked den entry) postpones mobilization.
+    pub(super) fn report_progress_at_home(&mut self, at: SimulationTick) {
+        if self.scout_step == 0
+            && self.mobilized_at.is_none()
+            && self.witnessed_machinery_at.is_some()
+        {
+            self.mobilized_at = Some(at);
+        }
+    }
+
     pub(super) fn salvage_batch(&self) -> Mass {
         self.mobilized_at
             .map(|_| MOBILIZED_BULK_SPLIT_BATCH)
@@ -60,12 +71,31 @@ impl KoboldColony {
         &self,
         current: SimulationTick,
     ) -> Result<(), &'static str> {
-        if self.mobilized_at.is_some_and(|at| {
-            at.value() < FIRST_SCOUT_TICK
-                || at > current
-                || (at.value() - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+        let aligned = |at: SimulationTick| {
+            at.value() >= FIRST_SCOUT_TICK
+                && at <= current
+                && (at.value() - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS == 0
+        };
+        if self.witnessed_machinery_at.is_some_and(|at| !aligned(at))
+            || self.mobilized_at.is_some_and(|at| !aligned(at))
+            || self
+                .mobilized_at
+                .is_some_and(|at| self.witnessed_machinery_at.is_none_or(|seen| seen >= at))
+        {
+            return Err("kobold industrial knowledge lacks a possible witness and den report");
+        }
+        // While the actual arrival remains in bounded track history, validate
+        // the reported time against a real, adjacent step ending at the den.
+        if self.mobilized_at.is_some_and(|reported| {
+            self.tracks
+                .first()
+                .is_some_and(|first| first.left_at() <= reported)
+                && !self
+                    .tracks
+                    .iter()
+                    .any(|trail| trail.left_at() == reported && trail.toward() == self.route[0])
         }) {
-            return Err("kobold mobilization lacks a possible local scout observation time");
+            return Err("kobold mobilization report lacks a real return to the den");
         }
         Ok(())
     }

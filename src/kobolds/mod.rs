@@ -213,7 +213,10 @@ struct KoboldColony {
     /// A meal was missed and the scout still needs recoverable food.
     /// This need survives save/load and clears only after an actual den meal.
     hungry: bool,
-    /// First observed local mechanical or electrical machinery. No global player-level reading.
+    /// A scout's first direct sighting of engineered machinery, still unreported until home.
+    #[serde(deserialize_with = "required_optional_mobilization_tick")]
+    witnessed_machinery_at: Option<SimulationTick>,
+    /// Colony action changes only after the scout physically returns with that information.
     #[serde(deserialize_with = "required_optional_mobilization_tick")]
     mobilized_at: Option<SimulationTick>,
     /// Only the latest real departed route steps; old traces expire on observation.
@@ -403,6 +406,7 @@ impl KoboldState {
             next_forage_at: None,
             next_meal_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS),
             hungry: false,
+            witnessed_machinery_at: None,
             mobilized_at: None,
             tracks: Vec::new(),
             wary_until: None,

@@ -108,15 +108,42 @@ fn seeing_industry_mobilizes_larger_real_salvage_and_survives_save_replay() {
     let (registries, mut alerted, route) =
         scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
     let (_, mut normal, _) = scenario(EnergyCarrier::Mechanical, None);
-    let a = put_resource(&registries, &mut alerted, route[3], false);
-    let b = put_resource(&registries, &mut normal, route[3], false);
-    let total = calculate_matter_accounting(&alerted).unwrap().total();
     advance_to(&registries, &mut alerted, 190);
     advance_to(&registries, &mut normal, 190);
     assert_eq!(
-        alerted.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        alerted
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .witnessed_machinery_at,
         Some(SimulationTick::new(180))
     );
+    assert_eq!(
+        alerted.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        None,
+        "knowledge from the scout must not alter the colony before a real return"
+    );
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &alerted)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&checkpoint).unwrap();
+    let mut continuation = decoded.into_state(&registries).unwrap();
+    for _ in 0..5 {
+        assert_eq!(
+            advance_tick(&registries, &mut alerted).unwrap(),
+            advance_tick(&registries, &mut continuation).unwrap()
+        );
+    }
+    assert_eq!(alerted, continuation);
+    advance_to(&registries, &mut normal, 195);
+    assert_eq!(
+        alerted.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        Some(SimulationTick::new(195))
+    );
+    let a = put_resource(&registries, &mut alerted, route[3], false);
+    let b = put_resource(&registries, &mut normal, route[3], false);
+    let total = calculate_matter_accounting(&alerted).unwrap().total();
+    advance_to(&registries, &mut alerted, 210);
+    advance_to(&registries, &mut normal, 210);
     assert_eq!(
         normal.kobold_state().colony.as_ref().unwrap().mobilized_at,
         None
@@ -187,11 +214,13 @@ fn only_nearby_engineered_machinery_triggers_higher_food_provisioning() {
     let (registries, mut alerted, route) =
         scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
     let (_, mut normal, _) = scenario(EnergyCarrier::Electrical, None);
+    advance_to(&registries, &mut alerted, 195);
+    advance_to(&registries, &mut normal, 195);
     let fresh = put_resource(&registries, &mut alerted, route[1], true);
     let baseline = put_resource(&registries, &mut normal, route[1], true);
     let total = calculate_matter_accounting(&alerted).unwrap().total();
-    advance_to(&registries, &mut alerted, 195);
-    advance_to(&registries, &mut normal, 195);
+    advance_to(&registries, &mut alerted, 215);
+    advance_to(&registries, &mut normal, 215);
     assert_eq!(
         alerted
             .kobold_state()
@@ -199,7 +228,7 @@ fn only_nearby_engineered_machinery_triggers_higher_food_provisioning() {
             .as_ref()
             .unwrap()
             .next_forage_at,
-        Some(SimulationTick::new(245))
+        Some(SimulationTick::new(265))
     );
     assert_eq!(
         normal
@@ -208,7 +237,7 @@ fn only_nearby_engineered_machinery_triggers_higher_food_provisioning() {
             .as_ref()
             .unwrap()
             .next_forage_at,
-        Some(SimulationTick::new(295))
+        Some(SimulationTick::new(315))
     );
     assert_eq!(
         alerted.surface().get(fresh).unwrap().remaining_mass(),
@@ -236,4 +265,85 @@ fn only_nearby_engineered_machinery_triggers_higher_food_provisioning() {
         .unwrap()
         .remove("mobilized_at");
     assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err());
+    let mut missing_witness =
+        serde_json::to_value(SaveEnvelope::new(&registries, &alerted)).unwrap();
+    missing_witness["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("witnessed_machinery_at");
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing_witness).is_err());
+}
+
+#[test]
+fn player_guarded_den_blocks_the_scouts_industrial_report() {
+    // This machine cannot be seen from the den: only the scout's real walk
+    // to the junction gives it information about the player's advancement.
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 2)));
+    advance_to(&registries, &mut state, 190);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .witnessed_machinery_at,
+        Some(SimulationTick::new(185))
+    );
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        None
+    );
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1]
+    );
+    let mut guarded = state.clone();
+    validate_admit_player(&registries, &guarded, route[0])
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&snapshot).unwrap();
+    let mut replay = decoded.into_state(&registries).unwrap();
+
+    advance_to(&registries, &mut state, 195);
+    advance_to(&registries, &mut guarded, 195);
+    advance_to(&registries, &mut replay, 195);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        Some(SimulationTick::new(195))
+    );
+    assert_eq!(
+        guarded.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        None
+    );
+    assert_eq!(
+        guarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1],
+        "an occupied den cannot receive a report from a scout still outside"
+    );
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+
+    let valid = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut forged_early = valid.clone();
+    forged_early["state"]["systems"]["kobolds"]["colony"]["mobilized_at"] = serde_json::json!(185);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(forged_early).unwrap();
+    assert!(decoded.into_state(&registries).is_err());
+    let mut forged_witness = valid;
+    forged_witness["state"]["systems"]["kobolds"]["colony"]["witnessed_machinery_at"] =
+        serde_json::json!(200);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(forged_witness).unwrap();
+    assert!(decoded.into_state(&registries).is_err());
 }

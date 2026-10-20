@@ -435,6 +435,7 @@ pub(crate) fn apply_kobold_scout_tick(
             foraged_food.is_some(),
         );
         colony.record_track(from, position, next_tick, activity);
+        colony.report_progress_at_home(next_tick);
     }
     if pressured {
         // A trapped scout also relinquishes the parcel, enabling recovery without
