@@ -78,6 +78,9 @@ impl ValidatedPlayerStoragePlacement {
         self,
         state: &mut AppState,
     ) -> Result<StockpileId, PlayerStoragePlacementCommitError> {
+        if state.player_work().active().is_some() {
+            return Err(PlayerStoragePlacementCommitError::PlayerBecameBusy);
+        }
         if state.surface().revision() != self.expected_surface_revision {
             return Err(PlayerStoragePlacementCommitError::SurfaceRevisionChanged {
                 expected: self.expected_surface_revision,
@@ -128,6 +131,9 @@ pub(crate) fn validate_place_player_storage_at(
         .ok_or(PlayerStoragePlacementError::Allocation(
             crate::logistics::PlayerGroundStockpileAllocationError::PlayerNotInitialized,
         ))?;
+    if state.player_work().active().is_some() {
+        return Err(PlayerStoragePlacementError::PlayerBusy);
+    }
     validate_player_stockpile_access(state, source)
         .map_err(StorageEnclosureConstructionError::SourceAccess)
         .map_err(PlayerStoragePlacementError::Construction)?;

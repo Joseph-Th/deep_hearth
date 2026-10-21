@@ -91,6 +91,7 @@ pub enum StorageEnclosureConstructionError {
 /// carried construction matter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStoragePlacementError {
+    PlayerBusy,
     Allocation(PlayerGroundStockpileAllocationError),
     Construction(StorageEnclosureConstructionError),
     LooseResidueFooting {
@@ -102,6 +103,9 @@ pub enum PlayerStoragePlacementError {
 impl Display for PlayerStoragePlacementError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot place storage while work is active")
+            }
             Self::Allocation(error) => {
                 write!(formatter, "storage placement allocation failed: {error}")
             }
@@ -127,6 +131,7 @@ impl Display for PlayerStoragePlacementError {
 impl Error for PlayerStoragePlacementError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::PlayerBusy => None,
             Self::Allocation(error) => Some(error),
             Self::Construction(error) => Some(error),
             Self::LooseResidueFooting { .. } => None,
@@ -137,6 +142,7 @@ impl Error for PlayerStoragePlacementError {
 /// Failure when a prevalidated player storage placement no longer matches owner revisions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerStoragePlacementCommitError {
+    PlayerBecameBusy,
     Allocation(GroundStockpileAllocationCommitError),
     SurfaceRevisionChanged { expected: u64, actual: u64 },
 }
@@ -144,6 +150,9 @@ pub enum PlayerStoragePlacementCommitError {
 impl Display for PlayerStoragePlacementCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player work started before storage placement commit")
+            }
             Self::Allocation(error) => {
                 write!(formatter, "storage placement commit failed: {error}")
             }
@@ -158,6 +167,7 @@ impl Display for PlayerStoragePlacementCommitError {
 impl Error for PlayerStoragePlacementCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::PlayerBecameBusy => None,
             Self::Allocation(error) => Some(error),
             Self::SurfaceRevisionChanged { .. } => None,
         }

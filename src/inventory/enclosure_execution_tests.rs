@@ -18,6 +18,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::TickSpan;
 use crate::crafting::{
     ManualCraftStartRequest, plan_manual_craft_from_stockpile, validate_start_manual_craft,
+    validate_start_player_manual_craft,
 };
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
@@ -45,6 +46,103 @@ use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_su
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
+
+#[test]
+fn carried_storage_placement_cannot_bypass_exclusive_work() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("busy storage player survival failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried =
+        validate_initialize_player_logistics(&state, position, Mass::from_milligrams(25_000_000))
+            .unwrap_or_else(|error| panic!("busy storage player logistics failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("busy storage player admission failed: {error}"))
+            .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(3_000_000),
+        ),
+    ] {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("busy storage material setup failed: {error}"));
+    }
+    let ready = validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|error| panic!("busy storage pre-work placement failed: {error}"));
+    let work = validate_start_player_manual_craft(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        NonZeroU64::new(1).unwrap_or_else(|| panic!("one batch must exist")),
+        None,
+    )
+    .unwrap_or_else(|error| panic!("busy storage woodworking admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("busy storage woodworking commit failed: {error}"));
+    let before = state.clone();
+    assert_eq!(
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX).err(),
+        Some(PlayerStoragePlacementError::PlayerBusy)
+    );
+    assert_eq!(
+        ready.commit(&mut state),
+        Err(PlayerStoragePlacementCommitError::PlayerBecameBusy)
+    );
+    assert_eq!(state, before);
+    let total = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("busy storage matter baseline failed: {error}"))
+        .total();
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("busy storage save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|error| panic!("busy storage decode failed: {error}"));
+    let mut replay = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("busy storage trusted load failed: {error}"));
+    let completes_at = state
+        .production()
+        .get_job(work)
+        .unwrap_or_else(|| panic!("busy storage woodworking job disappeared"))
+        .completes_at();
+    while state.tick() < completes_at {
+        let next = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("busy storage woodworking tick failed: {error}"));
+        let replayed = advance_tick(&registries, &mut replay)
+            .unwrap_or_else(|error| panic!("busy storage replay failed: {error}"));
+        assert_eq!(next, replayed);
+    }
+    assert_eq!(state, replay);
+    assert!(state.player_work().active().is_none());
+    let created =
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap_or_else(|error| panic!("idle storage placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("idle storage placement commit failed: {error}"));
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(created),
+        Some(position)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("post-work storage matter accounting failed: {error}"))
+            .total(),
+        total
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
 
 #[test]
 fn exposed_woodworking_residue_obstructs_storage_footing_until_player_clears_it() {
