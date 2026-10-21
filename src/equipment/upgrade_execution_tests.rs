@@ -6,12 +6,13 @@ use crate::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_STONE_CRUSHER,
     EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR, FORM_FLYWHEEL,
-    FORM_HANDLE, FORM_REINFORCEMENT, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    FORM_HANDLE, FORM_LOG, FORM_REINFORCEMENT, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::SimulationTick;
+use crate::crafting::validate_start_player_manual_craft;
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     EquipmentValidationError, degrade_equipment_condition_for_test, validate_assemble_equipment,
@@ -25,9 +26,11 @@ use crate::logistics::{
 use crate::material::{CommodityKey, MaterialPhaseStateError};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 use crate::survival::initialize_player_survival;
+use std::num::NonZeroU64;
 
 fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> EquipmentId {
     let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
@@ -56,6 +59,111 @@ fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> Equipme
         .unwrap_or_else(|error| panic!("upgrade pick assembly validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("upgrade pick assembly commit failed: {error}"))
+}
+
+#[test]
+fn equipment_upgrade_cannot_bypass_exclusive_manual_work() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let pick = assemble_stone_pick(&registries, &mut state);
+    let reinforcement = reinforcement_source(&registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    crate::logistics::place_equipment_for_fixture(&mut state, pick, position);
+    validate_place_ground_stockpile(&state, reinforcement, position)
+        .unwrap_or_else(|error| panic!("busy upgrade source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("busy upgrade source placement commit failed: {error}"));
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("busy upgrade player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("busy upgrade player admission commit failed: {error}"))
+        .carried_stockpile();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(3_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("busy upgrade woodworking supply failed: {error}"));
+    let prepared = validate_upgrade_equipment(
+        &registries,
+        &state,
+        pick,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        reinforcement,
+    )
+    .unwrap_or_else(|error| panic!("busy upgrade initial validation failed: {error}"));
+    let job = validate_start_player_manual_craft(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        NonZeroU64::new(1).unwrap_or_else(|| panic!("one batch must exist")),
+        None,
+    )
+    .unwrap_or_else(|error| panic!("busy upgrade woodworking admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("busy upgrade woodworking commit failed: {error}"));
+    let before = state.clone();
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            pick,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            reinforcement,
+        )
+        .err(),
+        Some(EquipmentUpgradeError::PlayerBusy)
+    );
+    assert_eq!(
+        prepared.commit(&mut state),
+        Err(EquipmentUpgradeCommitError::PlayerBecameBusy)
+    );
+    assert_eq!(state, before);
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("busy upgrade save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("busy upgrade decode failed: {error}"));
+    let mut replay = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("busy upgrade trusted load failed: {error}"));
+    let completes_at = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("busy upgrade woodworking job disappeared"))
+        .completes_at();
+    while state.tick() < completes_at {
+        let next = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("busy upgrade woodworking tick failed: {error}"));
+        let replayed = advance_tick(&registries, &mut replay)
+            .unwrap_or_else(|error| panic!("busy upgrade replay failed: {error}"));
+        assert_eq!(next, replayed);
+    }
+    assert_eq!(state, replay);
+    let total = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("busy upgrade matter baseline failed: {error}"))
+        .total();
+    let upgraded = validate_upgrade_equipment(
+        &registries,
+        &state,
+        pick,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        reinforcement,
+    )
+    .unwrap_or_else(|error| panic!("idle upgrade validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("idle upgrade commit failed: {error}"));
+    assert_eq!(upgraded, pick);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("post-work upgrade matter accounting failed: {error}"))
+            .total(),
+        total
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

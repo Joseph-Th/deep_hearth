@@ -17,6 +17,7 @@ use super::super::{EquipmentDefinitionId, EquipmentId};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentUpgradeError {
     PlayerDead,
+    PlayerBusy,
     EquipmentAccess(PlayerEquipmentAccessError),
     SourceAccess(PlayerStockpileAccessError),
     UnknownEquipment {
@@ -89,6 +90,9 @@ impl Display for EquipmentUpgradeError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot upgrade equipment"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot upgrade equipment while work is active")
+            }
             Self::EquipmentAccess(error) => {
                 write!(formatter, "equipment upgrade access failed: {error}")
             }
@@ -226,6 +230,7 @@ impl Error for EquipmentUpgradeError {
             Self::SourceAccess(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::UnknownEquipment { .. }
             | Self::UnknownTargetDefinition { .. }
             | Self::NoUpgradeProfile { .. }
@@ -250,6 +255,7 @@ impl Error for EquipmentUpgradeError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentUpgradeCommitError {
+    PlayerBecameBusy,
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -307,6 +313,9 @@ pub enum EquipmentUpgradeCommitError {
 impl Display for EquipmentUpgradeCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player work started before equipment upgrade commit")
+            }
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "equipment upgrade expected survival revision {expected} but current revision is {actual}"
@@ -400,7 +409,8 @@ impl Error for EquipmentUpgradeCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvival { .. }
+            Self::PlayerBecameBusy
+            | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }

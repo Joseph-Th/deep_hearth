@@ -24,6 +24,7 @@ use super::state::{EquipmentId, EquipmentRecord};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyError {
     PlayerDead,
+    PlayerBusy,
     Access(PlayerStockpileAccessError),
     UnknownDefinition {
         definition: EquipmentDefinitionId,
@@ -58,6 +59,9 @@ impl Display for EquipmentAssemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot assemble equipment"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot assemble equipment while work is active")
+            }
             Self::Access(error) => write!(formatter, "equipment assembly access failed: {error}"),
             Self::UnknownDefinition { definition } => write!(
                 formatter,
@@ -121,6 +125,7 @@ impl Error for EquipmentAssemblyError {
             Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::UnknownDefinition { definition: _ }
             | Self::NoAssemblyProfile { definition: _ }
             | Self::UnknownSource { stockpile: _ }
@@ -145,6 +150,7 @@ impl Error for EquipmentAssemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyCommitError {
+    PlayerBecameBusy,
     StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
@@ -155,6 +161,9 @@ pub enum EquipmentAssemblyCommitError {
 impl Display for EquipmentAssemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player work started before equipment assembly commit")
+            }
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "equipment assembly expected survival revision {expected} but current revision is {actual}"
@@ -182,7 +191,8 @@ impl Error for EquipmentAssemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvival { .. }
+            Self::PlayerBecameBusy
+            | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory {
                 expected: _,
@@ -223,6 +233,9 @@ impl ValidatedEquipmentAssembly {
                 actual: stale.actual,
             }
         })?;
+        if state.logistics().player().is_some() && state.player_work().active().is_some() {
+            return Err(EquipmentAssemblyCommitError::PlayerBecameBusy);
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EquipmentAssemblyCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -273,6 +286,9 @@ pub fn validate_assemble_equipment(
 ) -> Result<ValidatedEquipmentAssembly, EquipmentAssemblyError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| EquipmentAssemblyError::PlayerDead)?;
+    if state.logistics().player().is_some() && state.player_work().active().is_some() {
+        return Err(EquipmentAssemblyError::PlayerBusy);
+    }
     let definition_record = registries
         .equipment()
         .get_equipment(definition)

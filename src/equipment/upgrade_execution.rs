@@ -124,6 +124,9 @@ impl ValidatedEquipmentUpgrade {
                 actual: stale.actual,
             }
         })?;
+        if state.logistics().player().is_some() && state.player_work().active().is_some() {
+            return Err(EquipmentUpgradeCommitError::PlayerBecameBusy);
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EquipmentUpgradeCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -195,6 +198,9 @@ pub fn validate_upgrade_equipment(
 ) -> Result<ValidatedEquipmentUpgrade, EquipmentUpgradeError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| EquipmentUpgradeError::PlayerDead)?;
+    if state.logistics().player().is_some() && state.player_work().active().is_some() {
+        return Err(EquipmentUpgradeError::PlayerBusy);
+    }
     let record = state
         .equipment()
         .get_equipment(equipment)
