@@ -231,6 +231,9 @@ struct KoboldColony {
     /// A meal was missed and the scout still needs recoverable food.
     /// This need survives save/load and clears only after an actual den meal.
     hungry: bool,
+    /// Food actually eaten toward this outstanding 20 g ration. A required
+    /// persisted quantity; older saves need an explicit schema migration.
+    partial_meal: Mass,
     /// A scout's first direct sighting of engineered machinery, still unreported until home.
     #[serde(deserialize_with = "required_optional_mobilization_tick")]
     witnessed_machinery_at: Option<SimulationTick>,
@@ -438,6 +441,7 @@ impl KoboldState {
             next_forage_at: None,
             next_meal_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS),
             hungry: false,
+            partial_meal: Mass::ZERO,
             witnessed_machinery_at: None,
             mobilized_at: None,
             watch_deployed_at: None,
@@ -512,6 +516,10 @@ fn validate_meal_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'s
     }
     if colony.hungry && current < first {
         return Err("kobold hunger cannot precede its first meal opportunity");
+    }
+    if colony.partial_meal >= SCOUT_MEAL_MASS || (!colony.hungry && !colony.partial_meal.is_zero())
+    {
+        return Err("kobold partial meal is not a valid outstanding ration");
     }
     Ok(())
 }

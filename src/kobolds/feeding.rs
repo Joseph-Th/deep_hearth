@@ -93,6 +93,11 @@ pub(super) fn apply_scheduled_den_care(
     };
     let due = at >= colony.next_meal_at;
     let hungry = colony.hungry;
+    // Missing rations are not backlogged, but a real consumed fragment remains
+    // credited until the same 20 g meal is completed at a later home visit.
+    let remaining = SCOUT_MEAL_MASS
+        .checked_sub(colony.partial_meal)
+        .expect("trusted resident cannot already have a complete partial meal");
     if !due && !hungry {
         return (None, None, None);
     }
@@ -100,11 +105,11 @@ pub(super) fn apply_scheduled_den_care(
     let wary_at_den = colony.wary_until.is_some_and(|until| at < until);
     let junction = colony.route[1];
     let eaten = if at_den && !pressured {
-        // A complete serving has priority over smaller fragments at this
-        // physical location. A starving resident still eats any remaining
-        // fresh scrap, but a partial bite is not a whole 20 g meal.
-        consume_den_meal(registries, state, from, at, SCOUT_MEAL_MASS)
-            .or_else(|| consume_den_meal(registries, state, from, at, Mass::ZERO))
+        // A local serving that finishes the remaining ration takes priority
+        // over smaller fragments. Every consumed scrap remains credited toward
+        // that same meal across actual den visits.
+        consume_den_meal(registries, state, from, at, remaining, remaining)
+            .or_else(|| consume_den_meal(registries, state, from, at, remaining, Mass::ZERO))
     } else {
         None
     };
@@ -112,7 +117,10 @@ pub(super) fn apply_scheduled_den_care(
     // eats an inadequate fragment, it may still free space for a proper next
     // meal on the same scheduled home visit (through another real surface
     // transaction). A complete serving stops further custody changes.
-    let complete_meal = eaten.is_some_and(|(_, mass)| mass >= SCOUT_MEAL_MASS);
+    let complete_meal = eaten.is_some_and(|(_, mass)| mass >= remaining);
+    let still_needed = remaining
+        .checked_sub(eaten.map(|(_, mass)| mass).unwrap_or(Mass::ZERO))
+        .expect("no den serving exceeds the resident's unmet ration");
     let can_tend_den = (due || hungry) && at_den && !pressured && !wary_at_den && !complete_meal;
     let discarded = can_tend_den
         .then(|| discard_spoiled_den_food(registries, state, from, junction, at))
@@ -121,11 +129,15 @@ pub(super) fn apply_scheduled_den_care(
     // den capacity cannot hold the actual fresh food the scout can collect.
     let cleared_cache = (can_tend_den && discarded.is_none())
         .then(|| {
-            clear_inert_cache_for_food(registries, state, from, junction, at).or_else(|| {
-                (due && eaten.is_none())
-                    .then(|| clear_inert_cache_for_industry(registries, state, from, junction, at))
-                    .flatten()
-            })
+            clear_inert_cache_for_food(registries, state, from, junction, at, still_needed).or_else(
+                || {
+                    (due && eaten.is_none())
+                        .then(|| {
+                            clear_inert_cache_for_industry(registries, state, from, junction, at)
+                        })
+                        .flatten()
+                },
+            )
         })
         .flatten();
     let colony = state
@@ -138,10 +150,17 @@ pub(super) fn apply_scheduled_den_care(
             .checked_add_span(TickSpan::new(SCOUT_MEAL_INTERVAL_TICKS))
             .expect("bounded simulation cannot overflow meal schedule");
     }
-    if eaten.is_some_and(|(_, mass)| mass >= SCOUT_MEAL_MASS) {
+    if complete_meal {
         colony.hungry = false;
+        colony.partial_meal = Mass::ZERO;
     } else if due || eaten.is_some() {
         colony.hungry = true;
+        if let Some((_, mass)) = eaten {
+            colony.partial_meal = colony
+                .partial_meal
+                .checked_add(mass)
+                .expect("incomplete ration cannot overflow its bounded 20 g total");
+        }
     }
     (eaten, discarded, cleared_cache)
 }
@@ -179,9 +198,10 @@ fn clear_inert_cache_for_food(
     den: VoxelCoord,
     junction: VoxelCoord,
     at: SimulationTick,
+    meal_shortage: Mass,
 ) -> Option<SurfaceResourceId> {
     let free = den_cache_space(state, den);
-    if free >= SCOUT_MEAL_MASS || !den_exit_is_safe(registries, state, den, junction) {
+    if free >= meal_shortage || !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
     // Some space is not necessarily *enough* space: a missed five-gram meal
@@ -223,7 +243,7 @@ fn clear_inert_cache_for_food(
                     )
             }
         })
-        .map(|resource| resource.remaining_mass().min(SCOUT_MEAL_MASS))
+        .map(|resource| resource.remaining_mass().min(meal_shortage))
         .max()?;
     if wanted <= free {
         return None;
@@ -377,6 +397,7 @@ pub(super) fn consume_den_meal(
     state: &mut AppState,
     den: VoxelCoord,
     at: SimulationTick,
+    maximum_ration: Mass,
     minimum_ration: Mass,
 ) -> Option<(SurfaceResourceId, Mass)> {
     if !state.can_spend_surface_revisions(1) {
@@ -395,7 +416,7 @@ pub(super) fn consume_den_meal(
             ) {
                 return None;
             }
-            let mass = resource.remaining_mass().min(SCOUT_MEAL_MASS);
+            let mass = resource.remaining_mass().min(maximum_ration);
             if mass < minimum_ration {
                 return None;
             }

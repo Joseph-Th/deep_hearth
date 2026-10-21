@@ -211,7 +211,16 @@ pub(super) fn apply_watchman_tick(
             watcher.watch_counterpatrol_pending = false;
         }
         true
-    } else if consume_den_meal(registries, state, den, at, super::SCOUT_MEAL_MASS).is_some() {
+    } else if consume_den_meal(
+        registries,
+        state,
+        den,
+        at,
+        super::SCOUT_MEAL_MASS,
+        super::SCOUT_MEAL_MASS,
+    )
+    .is_some()
+    {
         let watcher = state.kobold_state_mut().colony.as_mut().unwrap();
         watcher.watch_deployed_at = Some(at);
         watcher.watch_leg = 0;

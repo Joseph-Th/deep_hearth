@@ -65,6 +65,262 @@ fn resource(position: VoxelCoord, kind: SurfaceResourceKind, food: bool) -> Surf
 }
 
 #[test]
+fn partly_fed_den_preserves_scrap_when_existing_space_fits_the_remaining_ration() {
+    let (registries, mut world, [den, junction, _, _]) = setup();
+    let local = |material, form, amount| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(amount),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    let planned = validate_create_surface_resources(
+        &registries,
+        &world,
+        [
+            local(MATERIAL_STONE, FORM_CHIP, 470_000),
+            local(MATERIAL_WILD_NUTS, FORM_FOOD, 15_000),
+            local(MATERIAL_STONE, FORM_CHIP, 15_000),
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = planned.resource_ids().collect::<Vec<_>>();
+    planned.commit(&mut world).unwrap();
+    let conserved = calculate_matter_accounting(&world).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &world)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let event = advance_tick(&registries, &mut world).unwrap();
+    assert_eq!(event, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(world, replay);
+    assert_eq!(world.surface().get(ids[0]).unwrap().position(), den);
+    assert_eq!(
+        world.surface().get(ids[2]).unwrap().position(),
+        den,
+        "15 g of space is already more than the scout's remaining 5 g meal need"
+    );
+    assert_eq!(
+        world.kobold_state().colony.as_ref().unwrap().partial_meal,
+        Mass::from_milligrams(15_000)
+    );
+    assert!(world.kobold_state().colony.as_ref().unwrap().hungry);
+
+    while world.tick().value() < 590 {
+        assert_eq!(
+            advance_tick(&registries, &mut world).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(world, replay);
+    assert_eq!(world.surface().get(ids[0]).unwrap().position(), den);
+    assert_eq!(world.surface().get(ids[2]).unwrap().position(), den);
+    assert_eq!(
+        world.surface().get(ids[3]).unwrap().remaining_mass(),
+        Mass::from_milligrams(285_000),
+        "one reachable 15 g forage collection fits the actual free space"
+    );
+    assert!(
+        world
+            .surface()
+            .available_resources_at(Some(den))
+            .any(|item| item.commodity().form() == FORM_FOOD
+                && item.remaining_mass() == Mass::from_milligrams(10_000))
+    );
+    assert!(!world.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        world.kobold_state().colony.as_ref().unwrap().partial_meal,
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&world)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&world).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
+}
+
+#[test]
+fn three_real_food_fragments_complete_one_ration_across_home_visits() {
+    let (registries, mut world, [den, _, _, _]) = setup();
+    let fragment = |amount| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(amount),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let planned = validate_create_surface_resources(
+        &registries,
+        &world,
+        [fragment(8_000), fragment(7_000), fragment(5_000)],
+    )
+    .unwrap();
+    let ids = planned.resource_ids().collect::<Vec<_>>();
+    planned.commit(&mut world).unwrap();
+    let conserved = calculate_matter_accounting(&world).unwrap().total();
+    let mut replay = world.clone();
+
+    for (deadline, eaten, credit) in [(580, 8_000, 8_000), (600, 15_000, 15_000), (620, 20_000, 0)]
+    {
+        while world.tick().value() < deadline {
+            assert_eq!(
+                advance_tick(&registries, &mut world).unwrap(),
+                advance_tick(&registries, &mut replay).unwrap(),
+            );
+        }
+        let resident = world.kobold_state().colony.as_ref().unwrap();
+        assert_eq!(resident.hungry, deadline != 620);
+        assert_eq!(resident.partial_meal, Mass::from_milligrams(credit));
+        assert_eq!(resident.next_meal_at, SimulationTick::new(980));
+        assert_eq!(
+            calculate_matter_accounting(&world)
+                .unwrap()
+                .consumed()
+                .milligrams(),
+            eaten
+        );
+        assert_eq!(world, replay);
+        assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
+        // Each partial credit is saved explicitly and must reproduce exactly,
+        // including the next exact food-source identity selected at home.
+        let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &world)).unwrap();
+        replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+    }
+    for id in ids {
+        assert_eq!(
+            world.surface().get(id).unwrap().remaining_mass(),
+            Mass::ZERO
+        );
+    }
+    assert_eq!(
+        calculate_matter_accounting(&world).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn partial_ration_uses_only_the_missing_mass_from_a_later_large_serving() {
+    let (registries, mut world, [den, _, _, _]) = setup();
+    let food = |amount| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(amount),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(&registries, &world, [food(5_000)]).unwrap();
+    plan.commit(&mut world).unwrap();
+    let _ = advance_tick(&registries, &mut world).unwrap();
+    assert_eq!(
+        world.kobold_state().colony.as_ref().unwrap().partial_meal,
+        Mass::from_milligrams(5_000)
+    );
+    let plan = validate_create_surface_resources(&registries, &world, [food(30_000)]).unwrap();
+    let later = plan.first_resource_id();
+    plan.commit(&mut world).unwrap();
+    let conserved = calculate_matter_accounting(&world).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &world)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while world.tick().value() < 600 {
+        assert_eq!(
+            advance_tick(&registries, &mut world).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(world, replay);
+    assert!(!world.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        world.kobold_state().colony.as_ref().unwrap().partial_meal,
+        Mass::ZERO
+    );
+    assert_eq!(
+        world.surface().get(later).unwrap().remaining_mass(),
+        Mass::from_milligrams(15_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&world)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&world).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
+}
+
+#[test]
+fn invalid_or_missing_partial_ration_credit_is_rejected_on_load() {
+    let (registries, mut world, [den, _, _, _]) = setup();
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+        Mass::from_milligrams(5_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &world, [spec])
+        .unwrap()
+        .commit(&mut world)
+        .unwrap();
+    let _ = advance_tick(&registries, &mut world).unwrap();
+    let mut json = serde_json::to_value(SaveEnvelope::new(&registries, &world)).unwrap();
+    let partial = &mut json["state"]["systems"]["kobolds"]["colony"]["partial_meal"];
+    assert_eq!(*partial, serde_json::json!(5_000));
+    for invalid in [20_000, 500_000] {
+        let mut tampered = json.clone();
+        tampered["state"]["systems"]["kobolds"]["colony"]["partial_meal"] =
+            serde_json::json!(invalid);
+        let loaded = serde_json::from_value::<LoadedSaveEnvelope>(tampered).unwrap();
+        assert!(loaded.into_state(&registries).is_err());
+    }
+    let mut not_hungry = json.clone();
+    not_hungry["state"]["systems"]["kobolds"]["colony"]["hungry"] = serde_json::json!(false);
+    let loaded = serde_json::from_value::<LoadedSaveEnvelope>(not_hungry).unwrap();
+    assert!(loaded.into_state(&registries).is_err());
+    json["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("partial_meal");
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(json).is_err(),
+        "the persistence contract requires explicit credit, not a silent default"
+    );
+}
+
+#[test]
 fn a_den_with_a_five_gram_gap_releases_only_the_missing_meal_capacity() {
     use crate::content::{FORM_ELECTRICAL_WINDING, MATERIAL_COPPER};
 
@@ -154,8 +410,8 @@ fn partial_meal_still_allows_a_real_cache_release_on_the_same_visit() {
         &state,
         [
             local(MATERIAL_STONE, FORM_CHIP, 470_000),
-            local(MATERIAL_STONE, FORM_CHIP, 20_000),
-            local(MATERIAL_WILD_NUTS, FORM_FOOD, 10_000),
+            local(MATERIAL_STONE, FORM_CHIP, 25_000),
+            local(MATERIAL_WILD_NUTS, FORM_FOOD, 5_000),
             resource(junction, SurfaceResourceKind::Opportunity, true),
         ],
     )
@@ -188,7 +444,7 @@ fn partial_meal_still_allows_a_real_cache_release_on_the_same_visit() {
             .unwrap()
             .consumed()
             .milligrams(),
-        10_000
+        5_000
     );
     while state.tick().value() < 590 {
         assert_eq!(
@@ -202,12 +458,20 @@ fn partial_meal_still_allows_a_real_cache_release_on_the_same_visit() {
         state.surface().get(ids[3]).unwrap().remaining_mass(),
         Mass::from_milligrams(270_000)
     );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(den))
+            .any(|item| item.commodity().form() == FORM_FOOD
+                && item.remaining_mass() == Mass::from_milligrams(15_000)),
+        "only 15 g more is eaten; the rest stays recoverable at the den"
+    );
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap()
             .consumed()
             .milligrams(),
-        30_000
+        20_000
     );
     assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
@@ -594,6 +858,7 @@ fn scant_den_food_does_not_count_as_a_complete_ration() {
 
     let later =
         validate_create_surface_resources(&registries, &hungry, [loose_food(25_000)]).unwrap();
+    let later_id = later.first_resource_id();
     later.commit(&mut hungry).unwrap();
     let later_total = calculate_matter_accounting(&hungry).unwrap().total();
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &hungry)).unwrap();
@@ -617,7 +882,12 @@ fn scant_den_food_does_not_count_as_a_complete_ration() {
             .unwrap()
             .consumed()
             .milligrams(),
-        25_000,
+        20_000,
+    );
+    assert_eq!(
+        hungry.surface().get(later_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(10_000),
+        "a 5 g prior meal leaves only 15 g to eat from the next serving"
     );
     assert_eq!(
         calculate_matter_accounting(&hungry).unwrap().total(),
