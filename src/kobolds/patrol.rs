@@ -16,8 +16,8 @@ use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_foo
 use super::mobilization::observe_progress;
 use super::scavenging::{
     den_cache_space, finds_external_drop, has_local_scout_interest, is_portable_drop,
-    local_portable_source, local_split_source, reachable_far_drop, reachable_far_food,
-    reachable_inherited_salvage, reachable_side_drop, reachable_side_food, scout_goal_has_supplies,
+    local_portable_source, local_split_source, reachable_detour_drop, reachable_far_food,
+    reachable_inherited_salvage, reachable_side_food, scout_goal_has_supplies,
     should_seek_local_food,
 };
 use super::visibility::scout_visible_from;
@@ -70,8 +70,56 @@ fn scout_raid_interest(
         forage_ready,
         at,
         colony.seeks_food_at_junction(),
-    ) && (inherited_target.is_none() || local_food);
+    ) && (inherited_target.is_none() || local_food)
+        && !continue_to_whole_far_cache(
+            registries,
+            state,
+            colony,
+            from,
+            capacity,
+            at,
+            player_position,
+        );
     (exposed, inherited_target)
+}
+
+/// Do not abandon an already-chosen whole-cargo raid merely because the
+/// intermediate voxel contains an oversized pile. Re-evaluate the real goal
+/// and route on each slow step: an intercepted, guarded, blocked or illuminated
+/// goal immediately restores the ordinary local-scavenging choice.
+fn continue_to_whole_far_cache(
+    registries: &Registries,
+    state: &AppState,
+    colony: &KoboldColony,
+    from: VoxelCoord,
+    capacity: Mass,
+    at: SimulationTick,
+    player_position: Option<VoxelCoord>,
+) -> bool {
+    if colony.scout_step != 2 || colony.returning {
+        return false;
+    }
+    let Some(goal) = colony.detour_goal else {
+        return false;
+    };
+    let whole_at = |position| {
+        local_portable_source(
+            registries,
+            state,
+            position,
+            capacity,
+            at,
+            colony.hungry,
+            colony.mobilized_at.is_some(),
+        )
+        .is_some()
+    };
+    !whole_at(from)
+        && whole_at(goal)
+        && scout_visible_from(registries, state, from, goal)
+        && scout_can_enter(registries, state, goal, player_position)
+        && !scout_sees_guarded_cell(registries, state, from, goal)
+        && assess_local_illumination(registries, state, goal).level() < SCOUT_DETERRENT_LIGHT_LEVEL
 }
 
 fn choose_outbound_detour(
@@ -91,7 +139,7 @@ fn choose_outbound_detour(
     }
     let [den, junction, tip] = colony.route;
     let loose_cache = |food_only| {
-        reachable_side_drop(
+        reachable_detour_drop(
             registries,
             state,
             junction,
@@ -102,21 +150,6 @@ fn choose_outbound_detour(
             at,
             food_only,
         )
-        .map(|first| (first, None))
-        .or_else(|| {
-            reachable_far_drop(
-                registries,
-                state,
-                junction,
-                den,
-                tip,
-                player_position,
-                den_space,
-                at,
-                food_only,
-            )
-            .map(|(first, goal)| (first, Some(goal)))
-        })
     };
     let wild_food = || {
         let local_food_remains = state

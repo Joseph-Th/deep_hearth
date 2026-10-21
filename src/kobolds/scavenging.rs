@@ -300,6 +300,72 @@ pub(super) fn reachable_far_drop(
         .map(|(_, first, goal)| (first, goal))
 }
 
+/// A hungry scout seeking loose food prefers a whole recoverable ration to
+/// splitting a nearer bulky food pile, even one graph edge farther out.
+/// Ordinary mixed scrap retains its distance-first patrol behavior until an
+/// actual industrial report activates the separate precision salvage priority.
+/// All routes use current light, terrain and player protection.
+pub(super) fn reachable_detour_drop(
+    registries: &Registries,
+    state: &AppState,
+    junction: VoxelCoord,
+    den: VoxelCoord,
+    authored_tip: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+    capacity: Mass,
+    at: SimulationTick,
+    food_only: bool,
+) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
+    let side = reachable_side_drop(
+        registries,
+        state,
+        junction,
+        den,
+        authored_tip,
+        player_position,
+        capacity,
+        at,
+        food_only,
+    );
+    // Generic scrap must not gain knowledge of distant manufactured copper
+    // just because that parcel is easier to lift than a nearer stone pile.
+    if !food_only {
+        if let Some(first) = side {
+            return Some((first, None));
+        }
+    }
+    let whole_at = |position| {
+        state
+            .surface()
+            .available_resources_at(Some(position))
+            .any(|resource| {
+                is_portable_drop(resource)
+                    && resource.remaining_mass() <= capacity
+                    && scout_wants_drop(registries, resource, at)
+                    && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
+            })
+    };
+    if let Some(first) = side.filter(|first| whole_at(*first)) {
+        return Some((first, None));
+    }
+    let far = reachable_far_drop(
+        registries,
+        state,
+        junction,
+        den,
+        authored_tip,
+        player_position,
+        capacity,
+        at,
+        food_only,
+    );
+    if let Some((first, goal)) = far.filter(|(_, goal)| whole_at(*goal)) {
+        return Some((first, Some(goal)));
+    }
+    side.map(|first| (first, None))
+        .or_else(|| far.map(|(first, goal)| (first, Some(goal))))
+}
+
 /// When junction wild food is exhausted, investigate only adjacent traversable
 /// food patches. Stable surface identity decides between qualifying patches.
 pub(super) fn reachable_side_food(
