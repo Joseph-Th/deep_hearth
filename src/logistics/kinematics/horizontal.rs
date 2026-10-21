@@ -5,13 +5,13 @@ use crate::equipment::equipment_occupancy;
 use crate::production::player_move_production_site_conflict;
 use crate::spatial::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VoxelCoord, WorldPoint};
 use crate::survival::LocomotionDefinition;
-use crate::world::{ChunkCoord, WorldRegistry, WorldState};
+use crate::world::{WorldRegistry, WorldState};
 
 use crate::logistics::{PlayerBodyState, PlayerLogisticsRecord};
 
 use super::{
-    PlayerBodyMotionError, block_is_solid, body_height, horizontal_voxel_bounds,
-    integrate_velocity, length_nanometers,
+    PlayerBodyMotionError, body_height, horizontal_voxel_bounds, integrate_velocity,
+    length_nanometers, world_cell_blocks_motion,
 };
 
 pub(super) fn resolve_horizontal_motion(
@@ -196,7 +196,7 @@ fn column_x_blocks(
 ) -> bool {
     for y in min_y..=max_y {
         for z in min_z..=max_z {
-            if cell_blocks_horizontal_motion(registry, world, VoxelCoord::new(x, y, z)) {
+            if world_cell_blocks_motion(registry, world, VoxelCoord::new(x, y, z)) {
                 return true;
             }
         }
@@ -215,26 +215,12 @@ fn column_z_blocks(
 ) -> bool {
     for y in min_y..=max_y {
         for x in min_x..=max_x {
-            if cell_blocks_horizontal_motion(registry, world, VoxelCoord::new(x, y, z)) {
+            if world_cell_blocks_motion(registry, world, VoxelCoord::new(x, y, z)) {
                 return true;
             }
         }
     }
     false
-}
-
-fn cell_blocks_horizontal_motion(
-    registry: &WorldRegistry,
-    world: &WorldState,
-    voxel: VoxelCoord,
-) -> bool {
-    if world.get_chunk(ChunkCoord::containing(voxel)).is_none() {
-        return true;
-    }
-    match world.block_at(voxel) {
-        Some(state) => block_is_solid(registry, state),
-        None => true,
-    }
 }
 
 fn body_horizontal_extents(

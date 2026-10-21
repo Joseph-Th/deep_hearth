@@ -17,7 +17,10 @@ use crate::survival::{
     LocomotionDefinition, SurvivalExertion, SurvivalResourceBudget,
     SurvivalResourceProjectionError, Vitality, project_survival_resource_budget,
 };
-use crate::world::{BlockCollisionShape, ChunkCoord, WorldChunk, WorldRegistry, WorldState};
+use crate::world::{
+    BlockCollisionShape, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldChunk, WorldRegistry,
+    WorldState,
+};
 
 use super::state::LocomotionExertionAccumulator;
 use super::{
@@ -755,8 +758,11 @@ pub(crate) fn first_player_body_collision(
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
 ) -> Option<VoxelCoord> {
-    first_player_body_collision_with_lookup(registry, body, locomotion, |voxel| {
-        world.block_at(voxel)
+    first_player_body_collision_where(body, locomotion, |voxel| {
+        // Ungenerated horizontal chunks are not yet collision authority, but a generated
+        // column cannot admit a body into vertical cells outside the supported world.
+        world.get_chunk(ChunkCoord::containing(voxel)).is_some()
+            && world_cell_blocks_motion(registry, world, voxel)
     })
 }
 
@@ -766,8 +772,10 @@ pub(crate) fn first_player_body_collision_in_chunk(
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
 ) -> Option<VoxelCoord> {
-    first_player_body_collision_with_lookup(registry, body, locomotion, |voxel| {
-        (ChunkCoord::containing(voxel) == chunk.coord()).then(|| chunk.block_at(voxel))
+    first_player_body_collision_where(body, locomotion, |voxel| {
+        ChunkCoord::containing(voxel) == chunk.coord()
+            && (!(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
+                || block_is_solid(registry, chunk.block_at(voxel)))
     })
 }
 
@@ -804,11 +812,10 @@ pub(crate) fn player_body_occupies_voxel(
         && voxel.z() <= max_z
 }
 
-fn first_player_body_collision_with_lookup(
-    registry: &WorldRegistry,
+fn first_player_body_collision_where(
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
-    mut lookup: impl FnMut(VoxelCoord) -> Option<crate::world::BlockStateId>,
+    mut collides: impl FnMut(VoxelCoord) -> bool,
 ) -> Option<VoxelCoord> {
     let (min_x, max_x, min_z, max_z) = horizontal_voxel_bounds(body, locomotion)?;
     let foot_y = body.foot_position().y_nanometers();
@@ -822,7 +829,7 @@ fn first_player_body_collision_with_lookup(
         for z in min_z..=max_z {
             for x in min_x..=max_x {
                 let voxel = VoxelCoord::new(x, y, z);
-                if lookup(voxel).is_some_and(|state| block_is_solid(registry, state)) {
+                if collides(voxel) {
                     return Some(voxel);
                 }
             }
@@ -1476,10 +1483,7 @@ fn crossed_floor_y(
         }
         for z in min_z..=max_z {
             for x in min_x..=max_x {
-                if world
-                    .block_at(VoxelCoord::new(x, y, z))
-                    .is_some_and(|state| block_is_solid(registry, state))
-                {
+                if world_cell_blocks_motion(registry, world, VoxelCoord::new(x, y, z)) {
                     floor = Some(floor.map_or(top, |existing: i64| existing.max(top)));
                 }
             }
@@ -1510,10 +1514,7 @@ fn crossed_ceiling_y(
         }
         for z in min_z..=max_z {
             for x in min_x..=max_x {
-                if world
-                    .block_at(VoxelCoord::new(x, y, z))
-                    .is_some_and(|state| block_is_solid(registry, state))
-                {
+                if world_cell_blocks_motion(registry, world, VoxelCoord::new(x, y, z)) {
                     ceiling = Some(ceiling.map_or(bottom, |existing: i64| existing.min(bottom)));
                 }
             }
@@ -1539,6 +1540,18 @@ fn block_is_solid(registry: &WorldRegistry, state: crate::world::BlockStateId) -
     registry
         .block_for_state(state)
         .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+}
+
+/// Collision authority is the same on every movement axis: unknown cells are never air.
+/// The separate player-admission query checks whether a chunk is generated before using this.
+pub(super) fn world_cell_blocks_motion(
+    registry: &WorldRegistry,
+    world: &WorldState,
+    voxel: VoxelCoord,
+) -> bool {
+    world
+        .block_at(voxel)
+        .is_none_or(|state| block_is_solid(registry, state))
 }
 
 fn horizontal_voxel_bounds(

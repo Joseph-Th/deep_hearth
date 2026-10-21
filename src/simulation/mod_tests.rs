@@ -1400,6 +1400,9 @@ fn fatal_slow_boundary_discards_current_direct_horizontal_input() {
     assert_eq!(after.horizontal_velocity(), before.horizontal_velocity());
 }
 
+#[path = "mod_tests/vertical_boundaries.rs"]
+mod vertical_boundaries;
+
 #[test]
 fn horizontal_motion_sweeps_to_exact_full_cube_wall_contact() {
     let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);

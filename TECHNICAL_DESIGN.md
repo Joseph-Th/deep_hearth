@@ -402,7 +402,9 @@ jump launch speeds; and a 55 m/s fall-speed cap. Full carry continuously removes
 intent, moves horizontal velocity toward the stance/load target, applies grounded jump impulses and gravity over
 the exact 50 ms interval, and sweeps the active-height body X then Z then vertically against `FullCube` collision.
 Standing up is refused when the taller envelope collides; crouching refuses a horizontal move that would remove
-support under the current foot plane. Missing destination chunk truth is a hard collision boundary rather than air.
+support under the current foot plane. Missing destination chunk truth and cells outside the supported vertical
+world range are hard collision boundaries rather than air. In generated columns, player admission, chunk
+generation, and trusted load also reject body envelopes extending beyond that vertical range.
 Trusted load bounds persisted velocity, locomotion fractional state, and pending normalized fall injury;
 trusted load/chunk generation reject body/terrain overlap, and player admission/chunk-generation tokens bind
 the opposite owner revisions so a validate/commit race cannot create an overlap. Downward landings expose the
