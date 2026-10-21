@@ -206,6 +206,214 @@ fn hungry_colony_releases_one_real_stone_parcel_for_nearby_food_then_eats() {
 }
 
 #[test]
+fn scant_den_food_does_not_count_as_a_complete_ration() {
+    let (registries, mut hungry, [den, _, _, _]) = setup();
+    let nuts = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);
+    let loose_food = |mass: u64| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            nuts,
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let crumbs =
+        validate_create_surface_resources(&registries, &hungry, [loose_food(5_000)]).unwrap();
+    let crumb_id = crumbs.first_resource_id();
+    crumbs.commit(&mut hungry).unwrap();
+    let mut provisioned = hungry.clone();
+    let full =
+        validate_create_surface_resources(&registries, &provisioned, [loose_food(30_000)]).unwrap();
+    let full_id = full.first_resource_id();
+    full.commit(&mut provisioned).unwrap();
+    let scarce_total = calculate_matter_accounting(&hungry).unwrap().total();
+    let provisioned_total = calculate_matter_accounting(&provisioned).unwrap().total();
+
+    let _ = advance_tick(&registries, &mut hungry).unwrap();
+    let _ = advance_tick(&registries, &mut provisioned).unwrap();
+    assert!(hungry.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&hungry)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        5_000,
+        "a starving resident eats the available fresh fragment"
+    );
+    assert_eq!(
+        hungry.surface().get(crumb_id).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        provisioned
+            .surface()
+            .get(crumb_id)
+            .unwrap()
+            .remaining_mass(),
+        Mass::from_milligrams(5_000),
+        "a complete serving takes precedence over an inadequate fragment"
+    );
+    assert_eq!(
+        provisioned.surface().get(full_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(10_000),
+    );
+    assert!(!provisioned.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&provisioned)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000,
+    );
+    assert_eq!(
+        hungry.kobold_state().colony.as_ref().unwrap().next_meal_at,
+        SimulationTick::new(980),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&hungry).unwrap().total(),
+        scarce_total,
+    );
+    assert_eq!(
+        calculate_matter_accounting(&provisioned).unwrap().total(),
+        provisioned_total,
+    );
+
+    let later =
+        validate_create_surface_resources(&registries, &hungry, [loose_food(25_000)]).unwrap();
+    later.commit(&mut hungry).unwrap();
+    let later_total = calculate_matter_accounting(&hungry).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &hungry)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while hungry.tick().value() < 600 {
+        assert_eq!(
+            advance_tick(&registries, &mut hungry).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(hungry, restored);
+    assert!(
+        !hungry.kobold_state().colony.as_ref().unwrap().hungry,
+        "a full real den serving clears the persistent missed-meal hunger"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&hungry)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        25_000,
+    );
+    assert_eq!(
+        calculate_matter_accounting(&hungry).unwrap().total(),
+        later_total,
+    );
+    assert_eq!(validate_loaded_state(&registries, &hungry), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &provisioned), Ok(()));
+}
+
+#[test]
+fn den_clears_cache_only_for_food_it_can_collect_on_this_visit() {
+    let (registries, mut blocked, [den, junction, _, _]) = setup();
+    // Model an outstanding real forage recovery deadline on the next scheduled
+    // meal: the normal collection path has no permission to harvest before 630.
+    blocked
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap()
+        .next_forage_at = Some(SimulationTick::new(630));
+    let stone_plan = validate_create_surface_resources(
+        &registries,
+        &blocked,
+        [resource(den, SurfaceResourceKind::Drop, false)],
+    )
+    .unwrap();
+    let stone = stone_plan.first_resource_id();
+    stone_plan.commit(&mut blocked).unwrap();
+
+    let mut loose = blocked.clone();
+    let mut ready = blocked.clone();
+    for (state, kind) in [
+        (&mut blocked, SurfaceResourceKind::Opportunity),
+        (&mut loose, SurfaceResourceKind::Drop),
+        (&mut ready, SurfaceResourceKind::Opportunity),
+    ] {
+        let plan =
+            validate_create_surface_resources(&registries, state, [resource(junction, kind, true)])
+                .unwrap();
+        plan.commit(state).unwrap();
+    }
+    ready
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap()
+        .next_forage_at = Some(SimulationTick::new(580));
+    for state in [&blocked, &loose, &ready] {
+        assert_eq!(validate_loaded_state(&registries, state), Ok(()));
+    }
+    let conserved = calculate_matter_accounting(&blocked).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &blocked)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    assert_eq!(
+        advance_tick(&registries, &mut blocked).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    let _ = advance_tick(&registries, &mut loose).unwrap();
+    let _ = advance_tick(&registries, &mut ready).unwrap();
+    assert_eq!(blocked, replay);
+    assert_eq!(
+        blocked.surface().get(stone).unwrap().position(),
+        den,
+        "unavailable wild forage cannot justify expelling a real den parcel"
+    );
+    assert_eq!(
+        loose.surface().get(stone).unwrap().position(),
+        junction,
+        "loose edible food can be recovered without the wild forage cooldown"
+    );
+    assert_eq!(
+        ready.surface().get(stone).unwrap().position(),
+        junction,
+        "a currently harvestable patch justifies the same physical cache release"
+    );
+    assert_eq!(
+        blocked.kobold_state().colony.as_ref().unwrap().next_meal_at,
+        SimulationTick::new(980)
+    );
+
+    for _ in 0..60 {
+        assert_eq!(
+            advance_tick(&registries, &mut blocked).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(blocked, replay);
+    assert_eq!(blocked.tick(), SimulationTick::new(640));
+    assert_eq!(
+        blocked.surface().get(stone).unwrap().position(),
+        junction,
+        "once forage becomes available a hungry scout clears the cache at a real den visit"
+    );
+    for state in [&blocked, &loose, &ready] {
+        assert_eq!(
+            calculate_matter_accounting(state).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(&registries, state), Ok(()));
+    }
+}
+
+#[test]
 fn full_den_preserves_its_inert_cache_when_fresh_food_is_not_reachable() {
     let (registries, mut state, [den, _, _, _]) = setup();
     let creation = validate_create_surface_resources(

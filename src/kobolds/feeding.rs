@@ -13,7 +13,9 @@ use crate::surface::{
 use crate::survival::{FoodFreshness, freshness_from_history};
 
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
-use super::scavenging::{den_cache_space, is_servant_era_salvage, reachable_inherited_salvage};
+use super::scavenging::{
+    den_cache_space, is_contestable_drop, is_servant_era_salvage, reachable_inherited_salvage,
+};
 use super::{
     SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
 };
@@ -96,7 +98,11 @@ pub(super) fn apply_scheduled_den_care(
     let wary_at_den = colony.wary_until.is_some_and(|until| at < until);
     let junction = colony.route[1];
     let eaten = if at_den && !pressured {
-        consume_den_meal(registries, state, from, at, Mass::ZERO)
+        // A complete serving has priority over smaller fragments at this
+        // physical location. A starving resident still eats any remaining
+        // fresh scrap, but a partial bite is not a whole 20 g meal.
+        consume_den_meal(registries, state, from, at, SCOUT_MEAL_MASS)
+            .or_else(|| consume_den_meal(registries, state, from, at, Mass::ZERO))
     } else {
         None
     };
@@ -125,9 +131,9 @@ pub(super) fn apply_scheduled_den_care(
             .checked_add_span(TickSpan::new(SCOUT_MEAL_INTERVAL_TICKS))
             .expect("bounded simulation cannot overflow meal schedule");
     }
-    if eaten.is_some() {
+    if eaten.is_some_and(|(_, mass)| mass >= SCOUT_MEAL_MASS) {
         colony.hungry = false;
-    } else if due {
+    } else if due || eaten.is_some() {
         colony.hungry = true;
     }
     (eaten, discarded, cleared_cache)
@@ -170,6 +176,25 @@ fn clear_inert_cache_for_food(
     if !den_cache_space(state, den).is_zero() {
         return None;
     }
+    // Releasing inert custody is justified only by the food mass that this
+    // particular parcel would actually make room for, and by an available
+    // collection action. A wild patch under forage cooldown cannot feed a
+    // hungry resident yet, while an already loose edible parcel can.
+    let source = state
+        .surface()
+        .available_resources_at(Some(den))
+        .find(|resource| {
+            resource.kind() == SurfaceResourceKind::Drop
+                && resource.commodity().form() != crate::content::FORM_FOOD
+                && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+        })?;
+    let released_capacity = source.remaining_mass();
+    let source_id = source.id();
+    let forage_ready = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .is_some_and(|colony| colony.next_forage_at.is_none_or(|due| at >= due));
     let player = state.logistics().player().map(|record| record.position());
     let fresh_nearby = std::iter::once(junction)
         .chain(
@@ -190,26 +215,26 @@ fn clear_inert_cache_for_food(
                 && state
                     .surface()
                     .available_resources_at(Some(position))
-                    .any(|resource| {
-                        matches!(
-                            food_condition(registries, resource, at),
-                            Some(FoodFreshness::Fresh { .. })
-                        )
+                    .any(|resource| match resource.kind() {
+                        SurfaceResourceKind::Opportunity => {
+                            forage_ready
+                                && !released_capacity.is_zero()
+                                && scout_wants_food_opportunity(registries, resource, at)
+                        }
+                        SurfaceResourceKind::Drop => {
+                            resource.commodity().form() == crate::content::FORM_FOOD
+                                && is_contestable_drop(resource, released_capacity)
+                                && matches!(
+                                    food_condition(registries, resource, at),
+                                    Some(FoodFreshness::Fresh { .. })
+                                )
+                        }
                     })
         });
     if !fresh_nearby || !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
-    let source = state
-        .surface()
-        .available_resources_at(Some(den))
-        .find(|resource| {
-            resource.kind() == SurfaceResourceKind::Drop
-                && resource.commodity().form() != crate::content::FORM_FOOD
-                && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
-        })?
-        .id();
-    relocate_scavenged_drop_step(state, source, den, junction).then_some(source)
+    relocate_scavenged_drop_step(state, source_id, den, junction).then_some(source_id)
 }
 
 /// A reported machine threat gives the old servant culture a concrete
