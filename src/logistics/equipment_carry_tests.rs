@@ -66,6 +66,11 @@ fn admitted_pick_fixture() -> (
 #[test]
 fn portable_equipment_shares_body_capacity_and_round_trips_persistence() {
     let (registries, mut state, pick) = admitted_pick_fixture();
+    assert!(state.logistics().has_valid_equipment_position_index());
+    assert_eq!(
+        state.logistics().equipment_locations_near(ORIGIN, 0),
+        vec![(pick, ORIGIN)]
+    );
     let before = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("equipment carry initial assessment disappeared"));
     assert_eq!(before.capacity(), Mass::from_milligrams(25_000_000));
@@ -76,6 +81,13 @@ fn portable_equipment_shares_body_capacity_and_round_trips_persistence() {
         .unwrap_or_else(|error| panic!("equipment carry pickup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("equipment carry pickup commit failed: {error}"));
+    assert!(state.logistics().has_valid_equipment_position_index());
+    assert!(
+        state
+            .logistics()
+            .equipment_locations_near(ORIGIN, 2)
+            .is_empty()
+    );
     let carried = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("equipment carry assessment disappeared"));
     assert_eq!(carried.capacity(), Mass::from_milligrams(25_000_000));
@@ -107,6 +119,11 @@ fn portable_equipment_shares_body_capacity_and_round_trips_persistence() {
         .unwrap_or_else(|error| panic!("equipment carry drop failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("equipment carry drop commit failed: {error}"));
+    assert!(state.logistics().has_valid_equipment_position_index());
+    assert_eq!(
+        state.logistics().equipment_locations_near(ORIGIN, 0),
+        vec![(pick, ORIGIN)]
+    );
     let dropped = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("equipment carry final assessment disappeared"));
     assert_eq!(dropped.capacity(), Mass::from_milligrams(25_000_000));

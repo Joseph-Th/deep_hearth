@@ -346,6 +346,9 @@ pub struct LogisticsState {
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     equipment_locations: BTreeMap<EquipmentId, VoxelCoord>,
+    /// Rebuildable stationary-equipment spatial index; carried equipment is not indexed here.
+    #[serde(skip)]
+    equipment_by_position: BTreeMap<VoxelCoord, BTreeSet<EquipmentId>>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     energy_store_locations: BTreeMap<EnergyStoreId, VoxelCoord>,
     /// Local-light and spatial access index reconstructed solely from location custody.
@@ -370,6 +373,7 @@ impl LogisticsState {
             pending_primary_break: None,
             stockpile_locations: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
+            equipment_by_position: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
             energy_stores_by_position: BTreeMap::new(),
             fluid_store_locations: BTreeMap::new(),
@@ -430,6 +434,13 @@ impl LogisticsState {
         for edge in &self.traversable_edges {
             Self::index_traversal_edge(&mut self.traversal_neighbors, *edge);
         }
+        self.equipment_by_position.clear();
+        for (equipment, position) in &self.equipment_locations {
+            self.equipment_by_position
+                .entry(*position)
+                .or_default()
+                .insert(*equipment);
+        }
         self.energy_stores_by_position.clear();
         for (store, position) in &self.energy_store_locations {
             self.energy_stores_by_position
@@ -445,6 +456,36 @@ impl LogisticsState {
             expected.entry(*position).or_default().insert(*store);
         }
         self.energy_stores_by_position == expected
+    }
+
+    pub(crate) fn has_valid_equipment_position_index(&self) -> bool {
+        let mut expected = BTreeMap::<VoxelCoord, BTreeSet<EquipmentId>>::new();
+        for (equipment, position) in &self.equipment_locations {
+            expected.entry(*position).or_default().insert(*equipment);
+        }
+        self.equipment_by_position == expected
+    }
+
+    /// Bounded spatial observation of stationary equipment, stable by equipment identity.
+    pub(crate) fn equipment_locations_near(
+        &self,
+        position: VoxelCoord,
+        radius: u8,
+    ) -> Vec<(EquipmentId, VoxelCoord)> {
+        let reach = i64::from(radius);
+        let low = VoxelCoord::new(position.x().saturating_sub(reach), i64::MIN, i64::MIN);
+        let high = VoxelCoord::new(position.x().saturating_add(reach), i64::MAX, i64::MAX);
+        let mut nearby = self
+            .equipment_by_position
+            .range(low..=high)
+            .filter(|(at, _)| {
+                at.y().abs_diff(position.y()) <= u64::from(radius)
+                    && at.z().abs_diff(position.z()) <= u64::from(radius)
+            })
+            .flat_map(|(at, equipment)| equipment.iter().map(move |id| (*id, *at)))
+            .collect::<Vec<_>>();
+        nearby.sort_unstable_by_key(|(equipment, _)| *equipment);
+        nearby
     }
 
     /// Returns the world voxel of one equipment instance managed by logistics.
@@ -534,10 +575,10 @@ impl LogisticsState {
     /// equipment-owner records or inspect remote logistics references.
     pub(crate) fn player_local_equipment(&self) -> impl Iterator<Item = EquipmentId> + '_ {
         let player_position = self.player.map(PlayerLogisticsRecord::position);
-        let mut stationary = self
-            .equipment_locations()
-            .filter(move |(_, position)| Some(*position) == player_position)
-            .map(|(equipment, _)| equipment)
+        let mut stationary = player_position
+            .into_iter()
+            .flat_map(|position| self.equipment_by_position.get(&position))
+            .flat_map(|equipment| equipment.iter().copied())
             .peekable();
         let mut carried = self
             .carried_equipment()
@@ -729,6 +770,12 @@ impl LogisticsState {
             );
             let previous = self.equipment_locations.insert(*equipment, death_position);
             assert!(previous.is_none());
+            assert!(
+                self.equipment_by_position
+                    .entry(death_position)
+                    .or_default()
+                    .insert(*equipment)
+            );
         }
         self.carried_equipment.clear();
         for selection in &mut self.quick_access_slots {
@@ -897,7 +944,24 @@ impl LogisticsState {
         );
         let previous = self.equipment_locations.insert(equipment, position);
         assert!(previous.is_none());
+        assert!(
+            self.equipment_by_position
+                .entry(position)
+                .or_default()
+                .insert(equipment)
+        );
         self.revision = next_revision;
+    }
+
+    fn remove_stationary_equipment_index(&mut self, equipment: EquipmentId, position: VoxelCoord) {
+        let at_position = self
+            .equipment_by_position
+            .get_mut(&position)
+            .expect("located equipment must appear in its spatial index");
+        assert!(at_position.remove(&equipment));
+        if at_position.is_empty() {
+            self.equipment_by_position.remove(&position);
+        }
     }
 
     pub(crate) fn apply_equipment_location_removal(
@@ -914,6 +978,7 @@ impl LogisticsState {
             Some(expected_position),
             "equipment location changed after validation"
         );
+        self.remove_stationary_equipment_index(equipment, expected_position);
         self.revision = next_revision;
     }
 
@@ -935,6 +1000,7 @@ impl LogisticsState {
             Some(expected_position),
             "equipment location changed after pickup validation"
         );
+        self.remove_stationary_equipment_index(equipment, expected_position);
         let insertion = match self.carried_equipment.binary_search(&equipment) {
             Ok(_) => panic!("validated equipment pickup cannot duplicate carried custody"),
             Err(index) => index,
@@ -1016,6 +1082,12 @@ impl LogisticsState {
                 .insert(equipment, position)
                 .is_none(),
             "equipment drop cannot replace a stationary location"
+        );
+        assert!(
+            self.equipment_by_position
+                .entry(position)
+                .or_default()
+                .insert(equipment)
         );
         self.revision = next_revision;
     }

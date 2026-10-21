@@ -10,6 +10,7 @@ use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLife
 
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
+use super::visibility::scout_visible_from;
 use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
 
 /// Survival food always precedes inert cargo, but mobilized scavengers use
@@ -291,7 +292,8 @@ pub(super) fn reachable_far_drop(
                 })
         })
         .filter(|(_, first, goal)| {
-            unguarded_unlit_cell(registries, state, junction, *first, player_position)
+            scout_visible_from(registries, state, junction, *goal)
+                && unguarded_unlit_cell(registries, state, junction, *first, player_position)
                 && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
         })
         .min_by_key(|(priority, _, _)| *priority)
@@ -357,7 +359,8 @@ pub(super) fn reachable_far_food(
                 })
         })
         .filter(|(_, first, goal)| {
-            unguarded_unlit_cell(registries, state, junction, *first, player_position)
+            scout_visible_from(registries, state, junction, *goal)
+                && unguarded_unlit_cell(registries, state, junction, *first, player_position)
                 && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
         })
         .min_by_key(|(id, first, goal)| (*id, *first, *goal))
@@ -459,7 +462,8 @@ pub(super) fn reachable_inherited_salvage(
                     })
             })
             .filter(|(_, first, goal)| {
-                unguarded_unlit_cell(registries, state, junction, *first, player_position)
+                scout_visible_from(registries, state, junction, *goal)
+                    && unguarded_unlit_cell(registries, state, junction, *first, player_position)
                     && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
             })
             .min_by_key(|(priority, first, goal)| (*priority, *first, *goal))
@@ -470,3 +474,7 @@ pub(super) fn reachable_inherited_salvage(
 #[cfg(test)]
 #[path = "scavenging_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "loot_sight_tests.rs"]
+mod loot_sight_tests;

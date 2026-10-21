@@ -290,6 +290,11 @@ fn dead_player_respawns_with_recoverable_exact_local_custody() {
         state.logistics().stationary_equipment_position(pick),
         Some(death)
     );
+    assert!(state.logistics().has_valid_equipment_position_index());
+    assert_eq!(
+        state.logistics().equipment_locations_near(death, 0),
+        vec![(pick, death)]
+    );
     assert!(!state.logistics().is_equipment_carried(pick));
     assert_eq!(state.logistics().active_selection(), None);
     assert_eq!(

@@ -51,6 +51,7 @@ pub enum LogisticsValidationError {
     UnknownLocatedEquipment {
         equipment: EquipmentId,
     },
+    EquipmentPositionIndexInconsistent,
     CarriedEquipmentWithoutPlayer {
         equipment: EquipmentId,
     },
@@ -204,6 +205,9 @@ impl Display for LogisticsValidationError {
                 "equipment location references missing equipment {}",
                 equipment.value()
             ),
+            Self::EquipmentPositionIndexInconsistent => {
+                formatter.write_str("equipment spatial lookup disagrees with location custody")
+            }
             Self::CarriedEquipmentWithoutPlayer { equipment } => write!(
                 formatter,
                 "equipment {} is marked player-carried without a logistics player",
@@ -711,6 +715,9 @@ fn validate_equipment_locations(
     equipment: &EquipmentState,
     structures: &StructureState,
 ) -> Result<(), LogisticsValidationError> {
+    if !state.has_valid_equipment_position_index() {
+        return Err(LogisticsValidationError::EquipmentPositionIndexInconsistent);
+    }
     for (equipment_id, position) in state.equipment_locations() {
         let record = equipment.get_equipment(equipment_id).ok_or(
             LogisticsValidationError::UnknownLocatedEquipment {

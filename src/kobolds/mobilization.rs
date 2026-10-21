@@ -101,14 +101,15 @@ impl KoboldColony {
     }
 }
 
-/// Nearby, unobstructed nonthermal machinery marks progress beyond campfire
-/// survival. Even an empty store is installed, tangible engineered equipment.
+/// Only tangible, locally seen installations can change the colony's expectations.
+/// A stationary industrial machine is evidence even before it is powered or mounted;
+/// portable tools, carried equipment, and distant workshop records are not.
 pub(super) fn scout_sees_engineered_machinery(
     registries: &Registries,
     state: &AppState,
     scout: VoxelCoord,
 ) -> bool {
-    state
+    let engineered_store = state
         .logistics()
         .energy_store_locations_near(scout, 2)
         .into_iter()
@@ -121,9 +122,32 @@ pub(super) fn scout_sees_engineered_machinery(
             };
             definition.carrier() != EnergyCarrier::Thermal
                 && scout_visible_from(registries, state, scout, position)
-        })
+        });
+    engineered_store
+        || state
+            .logistics()
+            .equipment_locations_near(scout, 2)
+            .into_iter()
+            .any(|(equipment, position)| {
+                let distance = u128::from(scout.x().abs_diff(position.x()))
+                    + u128::from(scout.y().abs_diff(position.y()))
+                    + u128::from(scout.z().abs_diff(position.z()));
+                distance <= 2
+                    && state
+                        .equipment()
+                        .get_equipment(equipment)
+                        .and_then(|record| {
+                            registries.equipment().get_equipment(record.definition())
+                        })
+                        .is_some_and(|definition| definition.requires_structural_support())
+                    && scout_visible_from(registries, state, scout, position)
+            })
 }
 
 #[cfg(test)]
 #[path = "mobilization_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "machinery_witness_tests.rs"]
+mod machinery_witness_tests;
