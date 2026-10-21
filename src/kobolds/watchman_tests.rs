@@ -447,6 +447,323 @@ fn directly_frightened_watchman_can_still_flee_home_on_a_real_route_edge() {
 }
 
 #[test]
+fn permanent_watchman_is_visible_at_the_den_before_any_funded_sortie() {
+    let (registries, mut state, route) = scenario(EnergyCarrier::Mechanical, None);
+    validate_admit_player(&registries, &state, route[1])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let nearby = available_nearby_kobold_scouts(&registries, &state).collect::<Vec<_>>();
+    assert!(nearby.iter().any(|resident| {
+        resident.role() == KoboldRole::Watchman
+            && resident.position() == route[0]
+            && !resident.is_mobilized()
+    }));
+    assert!(nearby.iter().any(|resident| {
+        resident.role() == KoboldRole::Scout && resident.position() == route[0]
+    }));
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(validate_loaded_state(&registries, &restored), Ok(()));
+}
+
+#[test]
+fn den_watchman_warns_a_homebound_scout_of_an_intruder_at_visual_range() {
+    let (registries, mut warned, route) = scenario(EnergyCarrier::Mechanical, None);
+    advance_to(&registries, &mut warned, 195);
+    assert_eq!(
+        warned
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[0]
+    );
+    let visitor = VoxelCoord::new(route[0].x() - 2, 0, route[0].z());
+    validate_admit_player(&registries, &warned, visitor)
+        .unwrap()
+        .commit(&mut warned)
+        .unwrap();
+    let mut distant = warned.clone();
+    relocate_player_for_test(&mut distant, VoxelCoord::new(visitor.x() - 1, 0, 0));
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &warned,
+        route[0]
+    ));
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &warned,
+        route[0],
+        visitor
+    ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &distant,
+        route[0],
+        distant.logistics().player().unwrap().position()
+    ));
+    advance_to(&registries, &mut warned, 200);
+    advance_to(&registries, &mut distant, 200);
+    let staying = warned.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(staying.scout_position(), route[0]);
+    assert_eq!(staying.wary_until, Some(SimulationTick::new(240)));
+    assert!(!staying.watch_alarm_pending);
+    assert!(!staying.watch_counterpatrol_pending);
+    assert_eq!(
+        distant
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1],
+        "without a witnessed intrusion the ordinary patrol must still leave its den"
+    );
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &warned)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    relocate_player_for_test(&mut warned, VoxelCoord::new(15, 0, 15));
+    relocate_player_for_test(&mut replay, VoxelCoord::new(15, 0, 15));
+    advance_to(&registries, &mut warned, 235);
+    advance_to(&registries, &mut replay, 235);
+    assert_eq!(warned, replay);
+    assert_eq!(
+        warned
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[0]
+    );
+    assert_eq!(validate_loaded_state(&registries, &warned), Ok(()));
+}
+
+#[test]
+fn den_watchman_observes_intrusion_only_after_an_opaque_corner_is_opened() {
+    use crate::content::{BLOCK_STATE_STONE, build_registries};
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = crate::core::state::AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(0, 0, 1);
+    let visitor = VoxelCoord::new(-2, 0, 1);
+    let corner = VoxelCoord::new(-1, 0, 1);
+    let other_corner = VoxelCoord::new(-2, 0, 0);
+    let shelter = VoxelCoord::new(-4, 0, 0);
+    for (a, b) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, a, b);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    for chunk in [
+        ChunkCoord::containing(den),
+        ChunkCoord::containing(junction),
+    ] {
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(7),
+            chunk,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    }
+    for position in [den, junction, tip, visitor, corner, other_corner, shelter] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(position.x(), -1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(position.x(), y, position.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    advance_to(&registries, &mut state, 180);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        junction
+    );
+    validate_admit_player(&registries, &state, visitor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mut hidden = state.clone();
+    set_generated_block_for_test(registries.world(), &mut hidden, corner, BLOCK_STATE_STONE);
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        den,
+        visitor
+    ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &hidden,
+        den,
+        visitor
+    ));
+    assert!(
+        !available_nearby_kobold_scouts(&registries, &hidden)
+            .any(|s| s.role() == KoboldRole::Watchman)
+    );
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .any(|s| s.role() == KoboldRole::Watchman && s.position() == den)
+    );
+
+    advance_to(&registries, &mut state, 185);
+    advance_to(&registries, &mut hidden, 185);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        tip
+    );
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    assert!(
+        !hidden
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    assert_eq!(validate_loaded_state(&registries, &hidden), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &hidden)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for resident in [&mut hidden, &mut replay] {
+        set_generated_block_for_test(registries.world(), resident, corner, BlockStateId::AIR);
+    }
+    advance_to(&registries, &mut hidden, 190);
+    advance_to(&registries, &mut replay, 190);
+    assert_eq!(hidden, replay);
+    assert!(
+        hidden
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    for resident in [&mut hidden, &mut replay] {
+        relocate_player_for_test(resident, shelter);
+    }
+    advance_to(&registries, &mut hidden, 195);
+    advance_to(&registries, &mut replay, 195);
+    assert_eq!(hidden, replay);
+    assert_eq!(
+        hidden.kobold_state().colony.as_ref().unwrap().wary_until,
+        Some(SimulationTick::new(235)),
+    );
+    assert_eq!(validate_loaded_state(&registries, &hidden), Ok(()));
+}
+
+#[test]
+fn unfunded_watchman_remembers_a_real_den_intrusion_until_scout_returns() {
+    let (registries, mut state, route) = scenario(EnergyCarrier::Mechanical, None);
+    advance_to(&registries, &mut state, 180);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1],
+    );
+    let visitor = VoxelCoord::new(route[0].x() - 1, route[0].y(), route[0].z());
+    validate_admit_player(&registries, &state, visitor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        route[0],
+        visitor
+    ));
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &state,
+        route[1]
+    ));
+
+    advance_to(&registries, &mut state, 185);
+    let alarmed = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(alarmed.scout_position(), route[2]);
+    assert_eq!(alarmed.watch_position(), route[0]);
+    assert!(alarmed.watch_alarm_pending);
+    assert!(alarmed.wary_until.is_none());
+    assert_eq!(alarmed.watch_ready_at, SimulationTick::new(180));
+    assert!(!alarmed.watch_counterpatrol_pending);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let away = VoxelCoord::new(15, 0, 15);
+    relocate_player_for_test(&mut state, away);
+    relocate_player_for_test(&mut restored, away);
+    advance_to(&registries, &mut state, 195);
+    advance_to(&registries, &mut restored, 195);
+    assert_eq!(state, restored);
+    let informed = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(informed.scout_position(), route[0]);
+    assert!(!informed.watch_alarm_pending);
+    assert_eq!(informed.wary_until, Some(SimulationTick::new(235)));
+    assert!(
+        !informed.watch_counterpatrol_pending,
+        "a den report without machinery or rations does not create a paid outer patrol"
+    );
+    assert!(informed.watch_deployed_at.is_none());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn watchman_is_an_opening_den_resident_but_only_organizes_after_report_and_a_full_meal() {
     let (registries, mut alerted, route) =
         scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));

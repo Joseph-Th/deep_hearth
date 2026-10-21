@@ -474,9 +474,7 @@ impl KoboldState {
             })
             .chain(self.colony.iter().filter_map(move |colony| {
                 let guard = colony.watch_position();
-                (colony.watch_ready_at.value() > FIRST_SCOUT_TICK
-                    && scout_visible_from(registries, state, guard, position))
-                .then_some(KoboldSighting {
+                scout_visible_from(registries, state, guard, position).then_some(KoboldSighting {
                     role: KoboldRole::Watchman,
                     position: guard,
                     has_noticed_player_drop: false,

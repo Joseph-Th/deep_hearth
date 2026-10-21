@@ -2345,11 +2345,18 @@ fn opaque_terrain_conceals_a_close_scout_until_line_of_sight_is_cleared() {
     let conserved = calculate_matter_accounting(&state).unwrap().total();
 
     set_generated_block_for_test(registries.world(), &mut state, junction, BLOCK_STATE_STONE);
+    let hidden_scout = available_nearby_kobold_scouts(&registries, &state).collect::<Vec<_>>();
     assert!(
-        available_nearby_kobold_scouts(&registries, &state)
-            .next()
-            .is_none(),
-        "distance cannot reveal a creature through full opaque stone"
+        hidden_scout
+            .iter()
+            .all(|resident| resident.role() != super::KoboldRole::Scout),
+        "a stone wall must conceal the scout across the junction"
+    );
+    assert!(
+        hidden_scout.iter().any(|resident| {
+            resident.role() == super::KoboldRole::Watchman && resident.position() == den
+        }),
+        "the original den resident remains physically visible beside the player"
     );
 
     set_generated_block_for_test(registries.world(), &mut state, junction, BlockStateId::AIR);
@@ -2600,6 +2607,15 @@ fn terrain_barrier_after_first_patrol_step_sends_scout_home_without_teleportatio
     set_generated_block_for_test(registries.world(), &mut loaded, tip, BlockStateId::AIR);
     advance_to_tick(&registries, &mut state, 200);
     advance_to_tick(&registries, &mut loaded, 200);
+    assert_eq!(state, loaded);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(
+        colony(&state).wary_until,
+        Some(SimulationTick::new(230)),
+        "the den watchman's physically delivered warning keeps the scout cautious after retreat"
+    );
+    advance_to_tick(&registries, &mut state, 235);
+    advance_to_tick(&registries, &mut loaded, 235);
     assert_eq!(state, loaded);
     assert_eq!(colony(&state).scout_position(), tip);
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);

@@ -40,8 +40,12 @@ impl KoboldColony {
             .expect("bounded scout caution cannot overflow");
         self.wary_until = Some(self.wary_until.map_or(until, |old| old.max(until)));
         self.watch_alarm_pending = false;
-        // A witnessed intrusion changes the next provisioned sortie's reach.
-        self.watch_counterpatrol_pending = true;
+        // The colony cannot order an outer picket before it has both an
+        // industrial report and a real prior provisioned watch. An ordinary
+        // den resident can still warn the scout without conjuring a sortie.
+        if self.mobilized_at.is_some() && self.watch_ready_at.value() > FIRST_SCOUT_TICK {
+            self.watch_counterpatrol_pending = true;
+        }
     }
 
     pub(super) fn validate_watchman(&self, now: SimulationTick) -> Result<(), &'static str> {
@@ -53,8 +57,8 @@ impl KoboldColony {
             || (self.mobilized_at.is_none()
                 && (ready != FIRST_SCOUT_TICK || self.watch_deployed_at.is_some()))
             || (self.watch_alarm_pending
-                && (self.watch_ready_at.value() == FIRST_SCOUT_TICK
-                    || (self.watch_deployed_at.is_none() && self.scout_step == 0)))
+                && self.watch_deployed_at.is_none()
+                && self.scout_step == 0)
             || self.watch_leg > 2
             || (self.watch_deployed_at.is_none() && self.watch_leg != 0)
             || (self.watch_counterpatrol_pending
@@ -136,14 +140,13 @@ pub(super) fn apply_watchman_tick(
     let guard = colony.watch_position();
     let player = state.logistics().player().map(|record| record.position());
     let player_nearby = living_player_deters_scout(registries, state, guard);
-    // A sentry can report a living person at the edge of visual range, even
-    // before that person moves close enough to drive it from its post. The
-    // report does not reach the scout until the sentry physically returns home.
-    let player_seen = colony.watch_deployed_at.is_some()
-        && state
-            .survival()
-            .player()
-            .is_some_and(|record| record.vitality() != Vitality::ZERO)
+    // The permanent resident sees a living person at the edge of visual range,
+    // at home or on patrol. Knowledge reaches the scout only when the pair
+    // physically meets at the den, not across an offscreen telepathic link.
+    let player_seen = state
+        .survival()
+        .player()
+        .is_some_and(|record| record.vitality() != Vitality::ZERO)
         && player.is_some_and(|position| scout_visible_from(registries, state, guard, position));
     let pressured = player_nearby
         || assess_local_illumination(registries, state, guard).level()
@@ -152,12 +155,13 @@ pub(super) fn apply_watchman_tick(
     let scout_position = colony.scout_position();
     // A witness retains the alarm even if a blocked return prevents reporting it.
     if player_seen {
-        state
-            .kobold_state_mut()
-            .colony
-            .as_mut()
-            .unwrap()
-            .watch_alarm_pending = true;
+        let witness = state.kobold_state_mut().colony.as_mut().unwrap();
+        witness.watch_alarm_pending = true;
+        // At home the guard may tell a co-located scout immediately. When the
+        // scout is out, the report remains pending until its physical return.
+        if witness.watch_deployed_at.is_none() {
+            witness.deliver_watch_alarm_at_den(at);
+        }
     }
     let Some((destination, next_leg)) = next else {
         return;
