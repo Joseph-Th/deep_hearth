@@ -1223,6 +1223,113 @@ fn outer_picket_responds_to_visible_flank_but_not_an_unseen_opaque_corner() {
 }
 
 #[test]
+fn watchman_in_the_junction_delays_a_hungry_scouts_cache_reorganization() {
+    use crate::content::{FORM_CHIP, MATERIAL_STONE};
+
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut state, 559);
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        Some(SimulationTick::new(195)),
+    );
+    let placements = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                route[0],
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(500_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_STONE),
+            )
+            .unwrap(),
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Opportunity,
+                route[3],
+                CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+                Mass::from_milligrams(300_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_WILD_NUTS),
+            )
+            .unwrap(),
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                route[0],
+                CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+                Mass::from_milligrams(20_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_WILD_NUTS),
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+    let stone = placements.first_resource_id();
+    placements.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 560);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), route[0]);
+    assert_eq!(colony.watch_position(), route[1]);
+    assert_eq!(colony.watch_deployed_at, Some(SimulationTick::new(560)));
+    assert_eq!(
+        crate::kobolds::scavenging::den_cache_space(&state, route[0]),
+        Mass::ZERO,
+    );
+
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut continuation = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 580);
+    advance_to(&registries, &mut continuation, 580);
+    assert_eq!(state, continuation);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[0],
+        "the sentry returns only after den care has already checked the occupied junction",
+    );
+    assert_eq!(
+        state.surface().get(stone).unwrap().position(),
+        route[0],
+        "the scout must not push its cache into an occupied cell",
+    );
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+
+    advance_to(&registries, &mut state, 600);
+    advance_to(&registries, &mut continuation, 600);
+    assert_eq!(state, continuation);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[0],
+    );
+    assert_eq!(
+        state.surface().get(stone).unwrap().position(),
+        route[1],
+        "when the watcher returns, an actual hungry resident clears its cache for food",
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved,
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn forged_outer_picket_legs_and_unearned_alarm_orders_fail_save_admission() {
     let (registries, mut state, route) =
         scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));

@@ -71,7 +71,8 @@ pub(super) fn scout_wants_drop(
 /// Sparse den care: a missed scheduled meal makes hunger persistent until
 /// the scout actually eats. It may eat a catch-up meal on a later den visit,
 /// but never backlogs missed servings or alters the original meal clock.
-/// Spoiled disposal and food-driven cache clearing stay on the regular sparse schedule.
+/// A hungry scout also tends a blocked den on its ordinary five-tick home visits,
+/// so newly accessible food need not wait for the next 400-tick meal deadline.
 pub(super) fn apply_scheduled_den_care(
     registries: &Registries,
     state: &mut AppState,
@@ -100,7 +101,7 @@ pub(super) fn apply_scheduled_den_care(
         None
     };
     // A wary scout must not move a parcel into the junction while sheltering.
-    let can_tend_den = due && at_den && !pressured && !wary_at_den && eaten.is_none();
+    let can_tend_den = (due || hungry) && at_den && !pressured && !wary_at_den && eaten.is_none();
     let discarded = can_tend_den
         .then(|| discard_spoiled_den_food(registries, state, from, junction, at))
         .flatten();
@@ -108,8 +109,10 @@ pub(super) fn apply_scheduled_den_care(
     // is entirely blocked and the scout can actually reach fresh provisions.
     let cleared_cache = (can_tend_den && discarded.is_none())
         .then(|| {
-            clear_inert_cache_for_food(registries, state, from, junction, at)
-                .or_else(|| clear_inert_cache_for_industry(registries, state, from, junction, at))
+            clear_inert_cache_for_food(registries, state, from, junction, at).or_else(|| {
+                due.then(|| clear_inert_cache_for_industry(registries, state, from, junction, at))
+                    .flatten()
+            })
         })
         .flatten();
     let colony = state
@@ -176,19 +179,23 @@ fn clear_inert_cache_for_food(
                 .filter(|position| *position != den),
         )
         .any(|position| {
-            state
-                .surface()
-                .available_resources_at(Some(position))
-                .any(|resource| {
-                    matches!(
-                        food_condition(registries, resource, at),
-                        Some(FoodFreshness::Fresh { .. })
-                    )
-                })
+            // A homebound scout cannot reorganize its cache for unseen supplies,
+            // or for a side patch that a visible living player is guarding.
+            super::visibility::scout_visible_from(registries, state, den, position)
                 && (position == junction
                     || (scout_can_enter(registries, state, position, player)
+                        && !scout_sees_guarded_cell(registries, state, junction, position)
                         && assess_local_illumination(registries, state, position).level()
                             < SCOUT_DETERRENT_LIGHT_LEVEL))
+                && state
+                    .surface()
+                    .available_resources_at(Some(position))
+                    .any(|resource| {
+                        matches!(
+                            food_condition(registries, resource, at),
+                            Some(FoodFreshness::Fresh { .. })
+                        )
+                    })
         });
     if !fresh_nearby || !den_exit_is_safe(registries, state, den, junction) {
         return None;
@@ -257,6 +264,13 @@ fn den_exit_is_safe(
     den: VoxelCoord,
     junction: VoxelCoord,
 ) -> bool {
+    // A sentry standing in the junction prevents the scout from physically
+    // pushing its discard or freed cache through the occupied route cell.
+    if state.kobold_state().colony.as_ref().is_some_and(|colony| {
+        colony.watch_deployed_at.is_some() && colony.watch_position() == junction
+    }) {
+        return false;
+    }
     scout_can_enter(
         registries,
         state,
