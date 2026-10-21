@@ -22,6 +22,7 @@ use super::super::PlayerLogisticsRecord;
 pub enum GroundMaterialTransferError {
     PlayerUninitialized,
     PlayerDead,
+    PlayerBusy,
     GroundStockpileNotLocated {
         stockpile: StockpileId,
     },
@@ -42,6 +43,9 @@ impl Display for GroundMaterialTransferError {
                 formatter.write_str("player logistics must be initialized before ground transfer")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot transfer ground material"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot transfer ground material while work is active")
+            }
             Self::GroundStockpileNotLocated { stockpile } => write!(
                 formatter,
                 "stockpile {} has no logistics-owned ground location",
@@ -81,6 +85,7 @@ impl Error for GroundMaterialTransferError {
             Self::Inventory(error) => Some(error),
             Self::PlayerUninitialized
             | Self::PlayerDead
+            | Self::PlayerBusy
             | Self::GroundStockpileNotLocated { .. }
             | Self::GroundStockpileNotAtPlayer { .. } => None,
         }
@@ -90,6 +95,7 @@ impl Error for GroundMaterialTransferError {
 /// Failure when a validated same-voxel ground transfer becomes stale before commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GroundMaterialTransferCommitError {
+    PlayerBecameBusy,
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     Inventory(MaterialRelocationCommitError),
@@ -98,6 +104,9 @@ pub enum GroundMaterialTransferCommitError {
 impl Display for GroundMaterialTransferCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player work started before ground transfer commit")
+            }
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "ground transfer expected survival revision {expected} but current revision is {actual}"
@@ -115,15 +124,11 @@ impl Error for GroundMaterialTransferCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Inventory(error) => Some(error),
-            Self::StaleSurvivalRevision { .. } | Self::StaleLogisticsRevision { .. } => None,
+            Self::PlayerBecameBusy
+            | Self::StaleSurvivalRevision { .. }
+            | Self::StaleLogisticsRevision { .. } => None,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GroundMaterialTransferDirection {
-    Pickup,
-    Drop,
 }
 
 /// Revision-bound exact material movement between the player and one co-located ground stockpile.
@@ -132,8 +137,6 @@ enum GroundMaterialTransferDirection {
 pub struct ValidatedGroundMaterialTransfer {
     player_action: PlayerActionGuard,
     expected_logistics_revision: u64,
-    direction: GroundMaterialTransferDirection,
-    destination: StockpileId,
     relocation: ValidatedMaterialRelocation,
 }
 
@@ -152,6 +155,9 @@ impl ValidatedGroundMaterialTransfer {
                 actual: stale.actual,
             }
         })?;
+        if state.player_work().active().is_some() {
+            return Err(GroundMaterialTransferCommitError::PlayerBecameBusy);
+        }
         self.relocation
             .commit(state)
             .map_err(GroundMaterialTransferCommitError::Inventory)
@@ -169,6 +175,9 @@ pub(in crate::logistics) fn validate_ground_access(
         .player()
         .copied()
         .ok_or(GroundMaterialTransferError::PlayerUninitialized)?;
+    if state.player_work().active().is_some() {
+        return Err(GroundMaterialTransferError::PlayerBusy);
+    }
     let ground = state
         .logistics()
         .stationary_stockpile_position(ground_stockpile)
@@ -205,8 +214,6 @@ pub fn validate_pickup_from_ground(
     Ok(ValidatedGroundMaterialTransfer {
         player_action,
         expected_logistics_revision: state.logistics().revision(),
-        direction: GroundMaterialTransferDirection::Pickup,
-        destination: player.carried_stockpile(),
         relocation,
     })
 }
@@ -245,8 +252,6 @@ pub fn validate_drop_to_ground(
     Ok(ValidatedGroundMaterialTransfer {
         player_action,
         expected_logistics_revision: state.logistics().revision(),
-        direction: GroundMaterialTransferDirection::Drop,
-        destination,
         relocation,
     })
 }

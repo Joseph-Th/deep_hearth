@@ -29,6 +29,7 @@ pub const PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS: u64 = 40;
 pub enum PlayerMaterialDropError {
     PlayerNotAdmitted,
     PlayerDead,
+    PlayerBusy,
     NoCarriedMaterial { commodity: CommodityKey },
     InventoryRevisionExhausted,
     SurfaceRevisionExhausted,
@@ -44,6 +45,9 @@ impl Display for PlayerMaterialDropError {
                 formatter.write_str("material drop requires an admitted player")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot drop carried material"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot drop carried material while work is active")
+            }
             Self::NoCarriedMaterial { commodity } => write!(
                 formatter,
                 "carried inventory contains no material {} form {} to drop",
@@ -75,6 +79,7 @@ impl Error for PlayerMaterialDropError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerMaterialDropCommitError {
+    PlayerBecameBusy,
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -108,6 +113,9 @@ pub enum PlayerMaterialDropCommitError {
 impl Display for PlayerMaterialDropCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player work started before material drop commit")
+            }
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "player survival revision changed from {expected} to {actual} before material drop"
@@ -232,6 +240,9 @@ impl ValidatedPlayerMaterialDrop {
                 actual: actual_position,
             });
         }
+        if state.player_work().active().is_some() {
+            return Err(PlayerMaterialDropCommitError::PlayerBecameBusy);
+        }
         if state.inventory().revision() != self.expected_inventory_revision {
             return Err(PlayerMaterialDropCommitError::StaleInventory {
                 expected: self.expected_inventory_revision,
@@ -273,6 +284,9 @@ pub fn validate_drop_player_material(
         }
         PlayerActionValidationError::PlayerDead => PlayerMaterialDropError::PlayerDead,
     })?;
+    if state.player_work().active().is_some() {
+        return Err(PlayerMaterialDropError::PlayerBusy);
+    }
     let player = state
         .logistics()
         .player()

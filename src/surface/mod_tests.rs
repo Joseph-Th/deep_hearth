@@ -2363,6 +2363,127 @@ fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
 }
 
 #[test]
+fn active_material_drop_cannot_interrupt_exclusive_gathering_work() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let mass = Mass::from_milligrams(250_000);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("busy-drop carried material failed: {error}"));
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap_or_else(|error| panic!("busy-drop active selection failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("busy-drop selection commit failed: {error}"));
+    let prepared_drop = validate_drop_player_material(&registries, &state, commodity)
+        .unwrap_or_else(|error| panic!("busy-drop initial validation failed: {error}"));
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        position,
+        stone,
+        Mass::from_milligrams(50_000),
+        TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("busy-drop opportunity invalid: {error}"));
+    let plan = validate_create_surface_resources(&registries, &state, [spec])
+        .unwrap_or_else(|error| panic!("busy-drop opportunity creation failed: {error}"));
+    let source = plan.first_resource_id();
+    plan.commit(&mut state)
+        .unwrap_or_else(|error| panic!("busy-drop opportunity commit failed: {error}"));
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+        source,
+        Mass::from_milligrams(50_000),
+    )
+    .unwrap_or_else(|error| panic!("busy-drop gathering admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("busy-drop gathering commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_drop_player_material(&registries, &state, commodity).err(),
+        Some(PlayerMaterialDropError::PlayerBusy)
+    );
+    assert_eq!(
+        prepared_drop.commit(&mut state),
+        Err(PlayerMaterialDropCommitError::PlayerBecameBusy)
+    );
+    assert_eq!(state, before);
+    let outcome = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_drop_active_selection(),
+    )
+    .unwrap_or_else(|error| panic!("busy-drop control failed: {error}"));
+    assert_eq!(
+        outcome.active_selection_drop(),
+        Some(&ActiveSelectionDropOutcome::MaterialRejected(
+            PlayerMaterialDropError::PlayerBusy
+        ))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(commodity)),
+        Some(mass)
+    );
+    assert!(state.player_work().active().is_some());
+    let total = calculate_matter_accounting(&before)
+        .unwrap_or_else(|error| panic!("busy-drop baseline conservation failed: {error}"))
+        .total();
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("busy-drop conservation failed: {error}"))
+            .total(),
+        total
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("busy-drop serialization failed: {error}"));
+    let saved: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("busy-drop decoding failed: {error}"));
+    let mut replay = saved
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("busy-drop trusted load failed: {error}"));
+    while state.player_work().active().is_some() {
+        let next = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("busy-drop completion failed: {error}"));
+        let replayed = advance_control_tick(&registries, &mut replay)
+            .unwrap_or_else(|error| panic!("busy-drop replay completion failed: {error}"));
+        assert_eq!(next, replayed);
+    }
+    assert_eq!(state, replay);
+    let completed_drop = validate_drop_player_material(&registries, &state, commodity)
+        .unwrap_or_else(|error| panic!("completed work should release drop: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("completed work drop commit failed: {error}"));
+    assert_eq!(completed_drop.dropped_mass(), mass);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("post-work drop conservation failed: {error}"))
+            .total(),
+        total
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn active_material_drop_preserves_exact_lot_profiles_and_delays_self_pickup() {
     let registries = build_registries();
     let mut state = AppState::new();

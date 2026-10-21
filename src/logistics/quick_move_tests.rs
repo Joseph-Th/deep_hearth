@@ -96,6 +96,111 @@ fn quick_move_from_local_container_fills_carried_capacity_and_keeps_remainder() 
 }
 
 #[test]
+fn quick_move_does_not_bypass_exclusive_player_work() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = local_container_with_wood(
+        &registries,
+        &mut state,
+        Mass::from_milligrams(2_000_000),
+        Mass::from_milligrams(1_000_000),
+    );
+    let carried = validate_admit_player(&registries, &state, POSITION)
+        .unwrap_or_else(|error| panic!("busy quick-move admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("busy quick-move admission commit failed: {error}"))
+        .carried_stockpile();
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("busy quick-move stack projection failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("busy quick-move stack disappeared"));
+    let prepared = validate_quick_move_player_stack(&registries, &state, &stack, carried)
+        .unwrap_or_else(|error| panic!("busy quick-move initial validation failed: {error}"));
+    let stone = crate::content::MATERIAL_STONE;
+    let spec = crate::surface::SurfaceResourceSpec::new(
+        crate::surface::SurfaceResourceKind::Opportunity,
+        POSITION,
+        CommodityKey::new(stone, crate::content::FORM_CHIP),
+        Mass::from_milligrams(50_000),
+        TEMPERATURE,
+        crate::material::MaterialComposition::pure(stone),
+    )
+    .unwrap_or_else(|error| panic!("busy quick-move gathering source invalid: {error}"));
+    let creation = crate::surface::validate_create_surface_resources(&registries, &state, [spec])
+        .unwrap_or_else(|error| panic!("busy quick-move gathering creation failed: {error}"));
+    let resource = creation.first_resource_id();
+    creation
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("busy quick-move gathering source commit failed: {error}"));
+    crate::surface::validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        crate::content::SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+        resource,
+        Mass::from_milligrams(50_000),
+    )
+    .unwrap_or_else(|error| panic!("busy quick-move gathering admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("busy quick-move gathering commit failed: {error}"));
+    let before = state.clone();
+    let current_stack = project_material_stacks(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("busy quick-move current projection failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("busy quick-move current stack disappeared"));
+    assert_eq!(
+        validate_quick_move_player_stack(&registries, &state, &current_stack, carried).err(),
+        Some(PlayerQuickMoveError::Transfer(
+            GroundMaterialTransferError::PlayerBusy
+        ))
+    );
+    assert_eq!(
+        prepared.commit(&mut state),
+        Err(GroundMaterialTransferCommitError::PlayerBecameBusy)
+    );
+    assert_eq!(state, before);
+    let total = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("busy quick-move matter baseline failed: {error}"))
+        .total();
+    let encoded = serde_json::to_vec(&crate::persistence::SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("busy quick-move serialization failed: {error}"));
+    let loaded: crate::persistence::LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("busy quick-move decode failed: {error}"));
+    let mut replay = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("busy quick-move trusted load failed: {error}"));
+    while state.player_work().active().is_some() {
+        let next = crate::simulation::advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("busy quick-move work completion failed: {error}"));
+        let replayed = crate::simulation::advance_control_tick(&registries, &mut replay)
+            .unwrap_or_else(|error| panic!("busy quick-move replay failed: {error}"));
+        assert_eq!(next, replayed);
+    }
+    assert_eq!(state, replay);
+    let refreshed = project_material_stacks(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("ready quick-move projection failed: {error}"))
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("ready quick-move source disappeared"));
+    let moved = validate_quick_move_player_stack(&registries, &state, &refreshed, carried)
+        .unwrap_or_else(|error| panic!("ready quick-move admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("ready quick-move commit failed: {error}"));
+    assert_eq!(moved.mass(), Mass::from_milligrams(1_000_000));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("post-work quick-move conservation failed: {error}"))
+            .total(),
+        total
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn quick_move_from_carried_custody_uses_container_remaining_capacity() {
     let registries = build_registries();
     let mut state = AppState::new();
