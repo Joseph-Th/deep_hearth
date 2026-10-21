@@ -9,7 +9,7 @@ use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
 
 use super::feeding::consume_den_meal;
-use super::patrol::{living_player_deters_scout, scout_can_enter};
+use super::patrol::{living_player_deters_scout, scout_can_enter, scout_sees_guarded_cell};
 use super::tracks::KoboldTrailKind;
 use super::visibility::scout_visible_from;
 use super::{
@@ -164,10 +164,7 @@ pub(super) fn apply_watchman_tick(
     };
     if !scout_can_enter(registries, state, destination, player)
         || (destination != den && scout_position == destination)
-        || (destination != den
-            && player
-                .is_some_and(|position| scout_visible_from(registries, state, guard, position))
-            && living_player_deters_scout(registries, state, destination))
+        || (destination != den && scout_sees_guarded_cell(registries, state, guard, destination))
         || assess_local_illumination(registries, state, destination).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL
     {

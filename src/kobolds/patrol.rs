@@ -190,6 +190,22 @@ pub(super) fn living_player_deters_scout(
         && super::visibility::scout_visible_from(registries, state, from, position)
 }
 
+/// The current scout position, not the future destination, supplies the
+/// sightline for preemptive guard avoidance. Returns false behind opaque
+/// terrain or when the observer is out of local sight range.
+pub(super) fn scout_sees_guarded_cell(
+    registries: &Registries,
+    state: &AppState,
+    from: VoxelCoord,
+    destination: VoxelCoord,
+) -> bool {
+    living_player_deters_scout(registries, state, destination)
+        && state
+            .logistics()
+            .player()
+            .is_some_and(|player| scout_visible_from(registries, state, from, player.position()))
+}
+
 #[derive(Clone, Copy)]
 struct ScoutMovePlan {
     step: u8,
@@ -248,12 +264,13 @@ fn plan_scout_move(
     // A scout can see a guarded destination from the previous route cell.
     // Approaching that clearing should prompt caution, not a free step into
     // the player's reach. This is checked only on the resident's slow clock.
-    let ahead_is_guarded = !proposed_returning
-        && proposed_step > colony.scout_step
-        && living_player_deters_scout(registries, state, proposed_position)
-        && player_position.is_some_and(|player| {
-            scout_visible_from(registries, state, colony.scout_position(), player)
-        });
+    let ahead_is_guarded = proposed_step != colony.scout_step
+        && scout_sees_guarded_cell(
+            registries,
+            state,
+            colony.scout_position(),
+            proposed_position,
+        );
     let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position)
         || (colony.watch_deployed_at.is_some() && proposed_position == colony.watch_position());
     // A detour chosen at the junction is not a reservation. Player pickup or
@@ -301,7 +318,12 @@ fn plan_scout_move(
         turned_back_at_barrier,
         cancelled_empty_cache_raid,
         physically_clear: step != colony.scout_step
-            && (returning || !(ahead_is_lit || ahead_is_guarded))
+            && (returning || !ahead_is_lit)
+            // Immediate flight already has priority over hypothetical next-cell
+            // deterrence. Only an unpressured scout can plan to hold short of a
+            // guarded homeward edge; a panicked scout still uses its real exit.
+            && (pressured
+                || !scout_sees_guarded_cell(registries, state, colony.scout_position(), position))
             && scout_can_enter(registries, state, position, player_position)
             && !(colony.watch_deployed_at.is_some() && position == colony.watch_position()),
     }

@@ -351,6 +351,18 @@ travels to a safe reachable scrap cache, then revisits the food when the player
 withdraws. Far destinations it cannot currently see remain uncertain and are
 rechecked from the next real route step. This remains a surface-indexed
 two-edge neighborhood search, not a world-wide threat map or full pathfinder.
+Returning scouts apply the same sightline-and-proximity test before each
+homeward edge, not only while approaching outward loot. A player visibly
+guarding the return junction can halt a laden scout short of that clearing:
+the frightened resident abandons its original loose parcel at its actual
+position, without traversing the guarded edge. Once the player withdraws,
+the scout can pick that same parcel up again and complete its real return
+route. A matched opaque-corner/generated-terrain encounter verifies that an
+unseen guard cannot preempt a return leg; the creature reacts only when it
+can see the player from where it actually stands. Already frightened scouts
+still prioritize immediate flight along a physical escape edge, dropping
+carried material rather than freezing in proximity to danger. All checks
+share one local visibility rule on the existing five-slow-tick cadence.
 Den capacity is reassessed on every actual return step. A scout already hauling
 a recoverable parcel continues carrying it over the intermediate edges even
 when another surface transaction fills the den in its absence. If the parcel

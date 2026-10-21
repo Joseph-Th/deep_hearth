@@ -423,7 +423,13 @@ fn player_intercepts_far_cache_before_scout_reaches_it() {
         .expect("camp parcel is still pickable");
     assert_eq!(pickup.resource(), parcel);
     assert_eq!(pickup.picked_mass(), Mass::from_milligrams(250_000));
-    crate::logistics::relocate_player_for_test(&mut state, tip);
+    // Observe the stale-goal cancellation from above the junction without
+    // guarding its return edge. A player standing at the old tip would now
+    // correctly intercept the homeward scout instead.
+    crate::logistics::relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(junction.x(), junction.y() + 2, junction.z()),
+    );
     while !state.control_tick().is_simulation_boundary() {
         let _ = advance_control_tick(&registries, &mut state).unwrap();
     }
@@ -2559,8 +2565,9 @@ fn terrain_barrier_after_first_patrol_step_sends_scout_home_without_teleportatio
     assert_eq!(colony(&state).scout_position(), junction);
     assert_eq!(state.world().block_at(tip), Some(BlockStateId::AIR));
 
-    // A local observer beyond the den sees the return, but is not close
-    // enough to intimidate a scout still at the junction.
+    // The observer beyond the den now actually guards the return edge.
+    // An obstructed scout must wait at the junction until both the route
+    // and the visible threat allow it to reach home.
     let beyond = VoxelCoord::new(
         den.x() + (den.x() - junction.x()),
         den.y(),
@@ -2574,24 +2581,25 @@ fn terrain_barrier_after_first_patrol_step_sends_scout_home_without_teleportatio
     set_generated_block_for_test(registries.world(), &mut state, tip, BLOCK_STATE_STONE);
     advance_to_tick(&registries, &mut state, 184);
     let outcome = advance_tick(&registries, &mut state).unwrap();
-    assert_eq!(colony(&state).scout_position(), den);
-    assert!(colony(&state).returning);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert!(!colony(&state).returning);
     assert_eq!(colony(&state).route, [den, junction, tip]);
-    assert_eq!(
-        outcome.kobold_scout().unwrap().turned_back_at_barrier(),
-        true
-    );
-    assert!(!outcome.kobold_scout().unwrap().fled_light());
+    assert_eq!(outcome.kobold_scout(), None);
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
     let mut loaded = decoded.into_state(&registries).unwrap();
     assert_eq!(state, loaded);
-    set_generated_block_for_test(registries.world(), &mut state, tip, BlockStateId::AIR);
-    set_generated_block_for_test(registries.world(), &mut loaded, tip, BlockStateId::AIR);
     crate::logistics::relocate_player_for_test(&mut state, spawn);
     crate::logistics::relocate_player_for_test(&mut loaded, spawn);
-    advance_to_tick(&registries, &mut state, 195);
-    advance_to_tick(&registries, &mut loaded, 195);
+    advance_to_tick(&registries, &mut state, 190);
+    advance_to_tick(&registries, &mut loaded, 190);
+    assert_eq!(state, loaded);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert!(colony(&state).returning);
+    set_generated_block_for_test(registries.world(), &mut state, tip, BlockStateId::AIR);
+    set_generated_block_for_test(registries.world(), &mut loaded, tip, BlockStateId::AIR);
+    advance_to_tick(&registries, &mut state, 200);
+    advance_to_tick(&registries, &mut loaded, 200);
     assert_eq!(state, loaded);
     assert_eq!(colony(&state).scout_position(), tip);
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);

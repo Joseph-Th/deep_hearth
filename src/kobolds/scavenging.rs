@@ -9,8 +9,7 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
-use super::patrol::{living_player_deters_scout, scout_can_enter};
-use super::visibility::scout_visible_from;
+use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
 
 /// Survival food always precedes inert cargo, but mobilized scavengers use
@@ -210,9 +209,8 @@ fn unguarded_unlit_cell(
     scout_can_enter(registries, state, position, player_position)
         // Current visibility, not the hypothetical view from a future step,
         // decides if a live player makes this destination too risky.
-        && !(player_position.is_some_and(|player| {
-            scout_visible_from(registries, state, scout, player)
-        }) && living_player_deters_scout(registries, state, position))
+        && !(player_position.is_some()
+            && scout_sees_guarded_cell(registries, state, scout, position))
         && assess_local_illumination(registries, state, position).level()
             < SCOUT_DETERRENT_LIGHT_LEVEL
 }

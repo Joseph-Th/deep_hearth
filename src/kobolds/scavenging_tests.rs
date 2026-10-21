@@ -327,6 +327,325 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
 }
 
 #[test]
+fn player_guards_homeward_junction_and_forces_scout_to_drop_its_haul() {
+    use crate::logistics::relocate_player_for_test;
+
+    let registries = build_registries();
+    let mut guarded = AppState::new();
+    let path = route(&mut guarded);
+    let created = validate_create_surface_resources(
+        &registries,
+        &guarded,
+        [drop(path.far_stone, false, 250_000)],
+    )
+    .unwrap();
+    let parcel = created.first_resource_id();
+    created.commit(&mut guarded).unwrap();
+    guarded
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while guarded.tick().value() < 195 {
+        let _ = advance_tick(&registries, &mut guarded).unwrap();
+    }
+    assert_eq!(
+        guarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scavenged_drop,
+        Some(parcel)
+    );
+    assert_eq!(
+        guarded.surface().get(parcel).unwrap().position(),
+        path.side_stone
+    );
+
+    let mut unattended = guarded.clone();
+    validate_admit_player(&registries, &guarded, path.tip)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    // From the side branch, the player is two cells away and can be seen,
+    // but only the *next* return cell is in direct deterrence range.
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &guarded,
+        path.side_stone
+    ));
+    assert!(crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &guarded,
+        path.junction
+    ));
+    let conserved = calculate_matter_accounting(&guarded).unwrap().total();
+    while guarded.tick().value() < 200 {
+        let _ = advance_control_tick(&registries, &mut guarded).unwrap();
+    }
+    while unattended.tick().value() < 200 {
+        let _ = advance_tick(&registries, &mut unattended).unwrap();
+    }
+    let colony = guarded.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), path.side_stone);
+    assert_eq!(colony.scavenged_drop, None);
+    assert_eq!(
+        colony.wary_until,
+        Some(crate::core::time::SimulationTick::new(240))
+    );
+    assert_eq!(
+        guarded.surface().get(parcel).unwrap().position(),
+        path.side_stone,
+        "a frightened scout must release its existing parcel instead of dragging it toward the player"
+    );
+    assert_eq!(
+        unattended
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.junction
+    );
+    assert_eq!(
+        unattended.surface().get(parcel).unwrap().position(),
+        path.junction
+    );
+
+    // When the guard withdraws, the same scout reclaims its real loose
+    // parcel and finishes the return route without cargo teleportation.
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &guarded)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for state in [&mut guarded, &mut replay] {
+        relocate_player_for_test(state, VoxelCoord::new(30, 0, 30));
+    }
+    while guarded.tick().value() < 210 {
+        assert_eq!(
+            advance_control_tick(&registries, &mut guarded).unwrap(),
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+        if guarded.tick().value() == 205 {
+            assert_eq!(
+                guarded.surface().get(parcel).unwrap().position(),
+                path.junction
+            );
+            assert_eq!(
+                guarded
+                    .kobold_state()
+                    .colony
+                    .as_ref()
+                    .unwrap()
+                    .scavenged_drop,
+                Some(parcel)
+            );
+        }
+    }
+    assert_eq!(guarded, replay);
+    assert_eq!(guarded.surface().get(parcel).unwrap().position(), path.den);
+    assert_eq!(
+        guarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scavenged_drop,
+        None
+    );
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+}
+
+#[test]
+fn returning_scout_does_not_anticipate_a_hidden_guard_around_stone() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut hidden = AppState::new();
+    let path = route(&mut hidden);
+    // Generate terrain on all three affected chunk sides, so path clearance
+    // and opacity come from the real world owner rather than authored graph
+    // traversal alone.
+    for coord in [
+        ChunkCoord::containing(path.den),
+        ChunkCoord::containing(path.junction),
+        ChunkCoord::containing(path.side_stone),
+    ] {
+        validate_generate_chunk(
+            &registries,
+            &hidden,
+            WorldGenerationSeed::new(7),
+            coord,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut hidden)
+        .unwrap();
+    }
+    let observer = VoxelCoord::new(1, 0, 0);
+    let blind_corner = VoxelCoord::new(1, 0, -1);
+    for cell in [
+        path.den,
+        path.junction,
+        path.tip,
+        path.side_stone,
+        path.far_stone,
+        observer,
+        blind_corner,
+    ] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut hidden,
+            VoxelCoord::new(cell.x(), -1, cell.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut hidden,
+                VoxelCoord::new(cell.x(), y, cell.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let created = validate_create_surface_resources(
+        &registries,
+        &hidden,
+        [drop(path.far_stone, false, 250_000)],
+    )
+    .unwrap();
+    let parcel = created.first_resource_id();
+    created.commit(&mut hidden).unwrap();
+    hidden
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while hidden.tick().value() < 195 {
+        let _ = advance_tick(&registries, &mut hidden).unwrap();
+    }
+    assert_eq!(
+        hidden.surface().get(parcel).unwrap().position(),
+        path.side_stone
+    );
+    let mut exposed = hidden.clone();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut hidden,
+        blind_corner,
+        BLOCK_STATE_STONE,
+    );
+    for state in [&mut hidden, &mut exposed] {
+        validate_admit_player(&registries, state, observer)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+    }
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &hidden,
+        path.side_stone,
+        observer
+    ));
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &exposed,
+        path.side_stone,
+        observer
+    ));
+    assert!(crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &hidden,
+        path.junction
+    ));
+    let matter_hidden = calculate_matter_accounting(&hidden).unwrap().total();
+    let matter_exposed = calculate_matter_accounting(&exposed).unwrap().total();
+    while hidden.tick().value() < 200 {
+        let _ = advance_control_tick(&registries, &mut hidden).unwrap();
+        let _ = advance_control_tick(&registries, &mut exposed).unwrap();
+    }
+    assert_eq!(
+        hidden
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.junction,
+        "a scout cannot react to danger it has not yet seen from its actual cell"
+    );
+    assert_eq!(
+        hidden.surface().get(parcel).unwrap().position(),
+        path.junction
+    );
+    assert_eq!(
+        hidden
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scavenged_drop,
+        Some(parcel),
+        "the occluded scout carries its original parcel across the real edge"
+    );
+    assert_eq!(
+        exposed
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.junction,
+        "an already frightened scout can still flee along its actual return edge"
+    );
+    assert_eq!(
+        exposed.surface().get(parcel).unwrap().position(),
+        path.side_stone
+    );
+    assert_eq!(
+        exposed
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scavenged_drop,
+        None,
+        "seeing the player up close forces the scout to abandon the same parcel"
+    );
+    assert!(
+        exposed
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .wary_until
+            .is_some()
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &exposed)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(exposed, replay);
+    assert_eq!(
+        calculate_matter_accounting(&hidden).unwrap().total(),
+        matter_hidden
+    );
+    assert_eq!(
+        calculate_matter_accounting(&exposed).unwrap().total(),
+        matter_exposed
+    );
+    assert_eq!(validate_loaded_state(&registries, &hidden), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &exposed), Ok(()));
+}
+
+#[test]
 fn filling_the_den_mid_haul_leaves_real_cargo_at_the_approach_for_player_recovery() {
     let registries = build_registries();
     let mut blocked = AppState::new();

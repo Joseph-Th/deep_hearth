@@ -12,9 +12,8 @@ use crate::surface::{
 };
 use crate::survival::{FoodFreshness, freshness_from_history};
 
-use super::patrol::{living_player_deters_scout, scout_can_enter};
+use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::scavenging::{den_cache_space, is_servant_era_salvage, reachable_inherited_salvage};
-use super::visibility::scout_visible_from;
 use super::{
     SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
 };
@@ -263,11 +262,7 @@ fn den_exit_is_safe(
         state,
         junction,
         state.logistics().player().map(|player| player.position()),
-    ) && !(state
-        .logistics()
-        .player()
-        .is_some_and(|player| scout_visible_from(registries, state, den, player.position()))
-        && living_player_deters_scout(registries, state, junction))
+    ) && !scout_sees_guarded_cell(registries, state, den, junction)
         && assess_local_illumination(registries, state, junction).level()
             < SCOUT_DETERRENT_LIGHT_LEVEL
 }
