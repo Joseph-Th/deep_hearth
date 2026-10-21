@@ -345,12 +345,23 @@ destination would be adjacent: use both present line of sight and reachable
 destination geometry, not hypothetical vision from the next step. Matched
 owner continuations compare a guarded approach with actual unattended salvage,
 save/replay of the caution window, and covered versus uncovered flanks.
+The same current-cell observation is used when ranking nearby scavenging
+alternatives: a scout avoids a visibly guarded preferred food cache and instead
+travels to a safe reachable scrap cache, then revisits the food when the player
+withdraws. Far destinations it cannot currently see remain uncertain and are
+rechecked from the next real route step. This remains a surface-indexed
+two-edge neighborhood search, not a world-wide threat map or full pathfinder.
 
 A deployed watchman can recognize a living player at its two-voxel sighting
 range without conflating mere observation with adjacent deterrence. The warning
 stays with that resident until it physically returns to the den; only then
 can the scout enter a wary period and the colony plan a later food-funded outer
 watch. These checks run on the existing five-slow-tick resident cadence.
+Outbound guard destinations also require a currently visible player before
+anticipatory deterrence; a player hidden by an opaque corner cannot freeze an
+otherwise provisioned outer picket. A matched generated-terrain watch encounter
+checks both sides of that corner after the guard's real den warning and second
+food-funded departure.
 No new per-control-tick sensing, omniscient colony state, or detached raid
 timer is introduced by these reactions.
 

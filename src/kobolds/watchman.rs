@@ -164,7 +164,10 @@ pub(super) fn apply_watchman_tick(
     };
     if !scout_can_enter(registries, state, destination, player)
         || (destination != den && scout_position == destination)
-        || (destination != den && living_player_deters_scout(registries, state, destination))
+        || (destination != den
+            && player
+                .is_some_and(|position| scout_visible_from(registries, state, guard, position))
+            && living_player_deters_scout(registries, state, destination))
         || assess_local_illumination(registries, state, destination).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL
     {

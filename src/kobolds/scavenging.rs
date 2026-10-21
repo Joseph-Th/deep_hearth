@@ -9,7 +9,8 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
-use super::patrol::scout_can_enter;
+use super::patrol::{living_player_deters_scout, scout_can_enter};
+use super::visibility::scout_visible_from;
 use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
 
 /// Survival food always precedes inert cargo, but mobilized scavengers use
@@ -202,10 +203,16 @@ fn detour_loot_priority(
 fn unguarded_unlit_cell(
     registries: &Registries,
     state: &AppState,
+    scout: VoxelCoord,
     position: VoxelCoord,
     player_position: Option<VoxelCoord>,
 ) -> bool {
     scout_can_enter(registries, state, position, player_position)
+        // Current visibility, not the hypothetical view from a future step,
+        // decides if a live player makes this destination too risky.
+        && !(player_position.is_some_and(|player| {
+            scout_visible_from(registries, state, scout, player)
+        }) && living_player_deters_scout(registries, state, position))
         && assess_local_illumination(registries, state, position).level()
             < SCOUT_DETERRENT_LIGHT_LEVEL
 }
@@ -241,7 +248,7 @@ pub(super) fn reachable_side_drop(
         })
         // Lighting propagation is more expensive than an indexed local parcel lookup.
         .filter(|(_, destination)| {
-            unguarded_unlit_cell(registries, state, *destination, player_position)
+            unguarded_unlit_cell(registries, state, junction, *destination, player_position)
         })
         .min_by_key(|(priority, _)| *priority)
         .map(|(_, destination)| destination)
@@ -286,8 +293,8 @@ pub(super) fn reachable_far_drop(
                 })
         })
         .filter(|(_, first, goal)| {
-            unguarded_unlit_cell(registries, state, *first, player_position)
-                && unguarded_unlit_cell(registries, state, *goal, player_position)
+            unguarded_unlit_cell(registries, state, junction, *first, player_position)
+                && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
         })
         .min_by_key(|(priority, _, _)| *priority)
         .map(|(_, first, goal)| (first, goal))
@@ -316,7 +323,7 @@ pub(super) fn reachable_side_food(
                 .map(|resource| (resource.id(), destination))
         })
         .filter(|(_, destination)| {
-            unguarded_unlit_cell(registries, state, *destination, player_position)
+            unguarded_unlit_cell(registries, state, junction, *destination, player_position)
         })
         .min_by_key(|(id, _)| *id)
         .map(|(_, destination)| destination)
@@ -352,8 +359,8 @@ pub(super) fn reachable_far_food(
                 })
         })
         .filter(|(_, first, goal)| {
-            unguarded_unlit_cell(registries, state, *first, player_position)
-                && unguarded_unlit_cell(registries, state, *goal, player_position)
+            unguarded_unlit_cell(registries, state, junction, *first, player_position)
+                && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
         })
         .min_by_key(|(id, first, goal)| (*id, *first, *goal))
         .map(|(_, first, goal)| (first, goal))
@@ -433,7 +440,9 @@ pub(super) fn reachable_inherited_salvage(
             engineered_drop_at(registries, state, first, capacity, at)
                 .map(|priority| (priority, first))
         })
-        .filter(|(_, first)| unguarded_unlit_cell(registries, state, *first, player_position))
+        .filter(|(_, first)| {
+            unguarded_unlit_cell(registries, state, junction, *first, player_position)
+        })
         .min_by_key(|(priority, first)| (*priority, *first))
         .map(|(_, first)| (first, None));
     side.or_else(|| {
@@ -452,8 +461,8 @@ pub(super) fn reachable_inherited_salvage(
                     })
             })
             .filter(|(_, first, goal)| {
-                unguarded_unlit_cell(registries, state, *first, player_position)
-                    && unguarded_unlit_cell(registries, state, *goal, player_position)
+                unguarded_unlit_cell(registries, state, junction, *first, player_position)
+                    && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
             })
             .min_by_key(|(priority, first, goal)| (*priority, *first, *goal))
             .map(|(_, first, goal)| (first, Some(goal)))

@@ -7,7 +7,8 @@ use crate::logistics::add_traversable_edge_for_test;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
-use crate::simulation::advance_tick;
+use crate::player::validate_admit_player;
+use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
 
@@ -201,4 +202,126 @@ fn scout_physically_hauls_portable_branch_cache_before_splitting_bulk_food() {
         conserved
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withdraws() {
+    use crate::logistics::relocate_player_for_test;
+
+    let registries = build_registries();
+    let mut guarded = AppState::new();
+    let path = route(&mut guarded);
+    let plan = validate_create_surface_resources(
+        &registries,
+        &guarded,
+        [
+            drop(path.side_food, true, 250_000),
+            drop(path.side_stone, false, 250_000),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut guarded).unwrap();
+    guarded
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    for _ in 0..180 {
+        let _ = advance_tick(&registries, &mut guarded).unwrap();
+    }
+    let mut unguarded = guarded.clone();
+    let player_guarding_food = VoxelCoord::new(2, 0, 0);
+    let player_not_guarding = VoxelCoord::new(4, 0, 0);
+    validate_admit_player(&registries, &guarded, player_guarding_food)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    validate_admit_player(&registries, &unguarded, player_not_guarding)
+        .unwrap()
+        .commit(&mut unguarded)
+        .unwrap();
+    let matter_before = calculate_matter_accounting(&guarded).unwrap().total();
+    let space = Mass::from_milligrams(500_000);
+    assert_eq!(
+        reachable_side_drop(
+            &registries,
+            &guarded,
+            path.junction,
+            path.den,
+            path.tip,
+            Some(player_guarding_food),
+            space,
+            guarded.tick(),
+            false,
+        ),
+        Some(path.side_stone),
+        "visible food protection redirects the actual local candidate search"
+    );
+    assert_eq!(
+        reachable_side_drop(
+            &registries,
+            &unguarded,
+            path.junction,
+            path.den,
+            path.tip,
+            Some(player_not_guarding),
+            space,
+            unguarded.tick(),
+            false,
+        ),
+        Some(path.side_food),
+        "without a threat the preferred fresh food is the first target"
+    );
+    for state in [&mut guarded, &mut unguarded] {
+        while state.tick().value() < 185 {
+            let _ = advance_control_tick(&registries, state).unwrap();
+        }
+    }
+    let position = |state: &AppState| {
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position()
+    };
+    assert_eq!(position(&guarded), path.side_stone);
+    assert_eq!(position(&unguarded), path.side_food);
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &guarded)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while guarded.tick().value() < 195 {
+        let a = advance_control_tick(&registries, &mut guarded).unwrap();
+        let b = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(a, b);
+    }
+    assert_eq!(guarded, replay);
+    assert_eq!(position(&guarded), path.den);
+    assert_eq!(
+        guarded.surface().get(ids[0]).unwrap().position(),
+        path.side_food
+    );
+    assert_eq!(guarded.surface().get(ids[1]).unwrap().position(), path.den);
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        matter_before
+    );
+    // The player gives up the food-guarding post; the same scout can take the
+    // source it previously avoided, with no route or inventory reset.
+    relocate_player_for_test(&mut guarded, player_not_guarding);
+    relocate_player_for_test(&mut replay, player_not_guarding);
+    while guarded.tick().value() < 215 {
+        let a = advance_control_tick(&registries, &mut guarded).unwrap();
+        let b = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(a, b);
+    }
+    assert_eq!(guarded, replay);
+    assert_eq!(guarded.surface().get(ids[0]).unwrap().position(), path.den);
+    assert_eq!(guarded.surface().get(ids[1]).unwrap().position(), path.den);
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
 }

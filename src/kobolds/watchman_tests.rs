@@ -654,6 +654,179 @@ fn player_can_turn_back_an_outer_picket_before_the_guard_enters_its_tip() {
 }
 
 #[test]
+fn outer_picket_responds_to_visible_flank_but_not_an_unseen_opaque_corner() {
+    use crate::content::{BLOCK_STATE_STONE, ENERGY_MECHANICAL_SMALL_DRIVE, build_registries};
+    use crate::core::quantity::Energy;
+    use crate::energy::add_energy_store_with_initial_for_fixture;
+    use crate::logistics::{add_traversable_edge_for_test, place_energy_store_for_fixture};
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = crate::core::state::AppState::new();
+    let route = [
+        VoxelCoord::new(-1, 0, 0),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(0, 0, 1),
+    ];
+    for (from, to) in [(route[0], route[1]), (route[1], route[2])] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state.kobold_state_mut().apply_opening_colony(route);
+    for coord in [
+        ChunkCoord::containing(route[0]),
+        ChunkCoord::containing(route[1]),
+    ] {
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(7),
+            coord,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    }
+    let corner = VoxelCoord::new(1, 0, 0);
+    let observer = VoxelCoord::new(1, 0, 1);
+    let camp = VoxelCoord::new(4, 0, 0);
+    for cell in [route[0], route[1], route[2], corner, observer, camp] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(cell.x(), -1, cell.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(cell.x(), y, cell.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    // Witnessed industry and finite den food are the only way this resident
+    // can organize its second, wider patrol.
+    let store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, store, route[1]);
+    advance_to(&registries, &mut state, 195);
+    ration(&registries, &mut state, route[0]);
+    advance_to(&registries, &mut state, 200);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[1]
+    );
+    validate_admit_player(&registries, &state, route[2])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to(&registries, &mut state, 205);
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_counterpatrol_pending
+    );
+    relocate_player_for_test(&mut state, camp);
+
+    let mut second_watch = None;
+    for tick in (210..=365).step_by(5) {
+        advance_to(&registries, &mut state, tick);
+        let watcher = state.kobold_state().colony.as_ref().unwrap();
+        if watcher.watch_deployed_at.is_some()
+            && watcher.watch_ready_at.value() >= 400
+            && watcher.watch_position() == route[1]
+        {
+            second_watch = Some(tick);
+            break;
+        }
+    }
+    let at_junction = second_watch.expect("a second provisioned watchman must really deploy");
+    let mut hidden = state.clone();
+    set_generated_block_for_test(registries.world(), &mut hidden, corner, BLOCK_STATE_STONE);
+    for state in [&mut hidden, &mut state] {
+        relocate_player_for_test(state, observer);
+    }
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &hidden,
+        route[1],
+        observer
+    ));
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        route[1],
+        observer
+    ));
+    assert!(crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &hidden,
+        route[2]
+    ));
+    let conserved = calculate_matter_accounting(&hidden).unwrap().total();
+    advance_to(&registries, &mut hidden, at_junction + 5);
+    advance_to(&registries, &mut state, at_junction + 5);
+    assert_eq!(
+        hidden
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[2],
+        "the sentry must not anticipate a player concealed at its next post"
+    );
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[0],
+        "a genuinely visible intruder sends the same sentry home"
+    );
+    advance_to(&registries, &mut hidden, at_junction + 10);
+    assert!(
+        hidden
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &hidden)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(hidden, restored);
+    assert_eq!(
+        calculate_matter_accounting(&hidden).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &hidden), Ok(()));
+}
+
+#[test]
 fn forged_outer_picket_legs_and_unearned_alarm_orders_fail_save_admission() {
     let (registries, mut state, route) =
         scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
