@@ -867,6 +867,95 @@ fn cache_stone(
 }
 
 #[test]
+fn a_partly_free_industrial_den_only_evicts_if_intact_salvage_does_not_fit() {
+    let (registries, mut short, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut short, 579);
+    let raw = |mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            route[0],
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(&registries, &short, [raw(250_000), raw(225_000)])
+        .unwrap();
+    let parcels = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut short).unwrap();
+    let short_copper = copper_winding(&registries, &mut short, route[3]);
+    let mut spacious = scenario(EnergyCarrier::Mechanical, Some(route_machinery())).1;
+    advance_to(&registries, &mut spacious, 579);
+    let plan = validate_create_surface_resources(&registries, &spacious, [raw(375_000)]).unwrap();
+    let spacious_stone = plan.first_resource_id();
+    plan.commit(&mut spacious).unwrap();
+    let spacious_copper = copper_winding(&registries, &mut spacious, route[3]);
+    let short_total = calculate_matter_accounting(&short).unwrap().total();
+    let spacious_total = calculate_matter_accounting(&spacious).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &short)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    advance_to(&registries, &mut short, 580);
+    advance_to(&registries, &mut spacious, 580);
+    advance_to(&registries, &mut replay, 580);
+    assert_eq!(short, replay);
+    assert_eq!(
+        short.surface().get(parcels[0]).unwrap().position(),
+        route[0]
+    );
+    assert_eq!(
+        short.surface().get(parcels[1]).unwrap().position(),
+        route[1],
+        "25 g was already free, so the smaller 225 g parcel can make enough room for 120 g copper"
+    );
+    assert_eq!(
+        spacious.surface().get(spacious_stone).unwrap().position(),
+        route[0],
+        "125 g of free space already fits an intact winding and must not trigger eviction"
+    );
+    advance_to(&registries, &mut short, 595);
+    advance_to(&registries, &mut spacious, 595);
+    advance_to(&registries, &mut replay, 595);
+    assert_eq!(short, replay);
+    assert_eq!(
+        short.surface().get(short_copper).unwrap().position(),
+        route[0]
+    );
+    assert_eq!(
+        spacious.surface().get(spacious_copper).unwrap().position(),
+        route[0]
+    );
+    assert_eq!(
+        short.surface().get(short_copper).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert_eq!(
+        spacious
+            .surface()
+            .get(spacious_copper)
+            .unwrap()
+            .remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&short).unwrap().total(),
+        short_total
+    );
+    assert_eq!(
+        calculate_matter_accounting(&spacious).unwrap().total(),
+        spacious_total
+    );
+    assert_eq!(validate_loaded_state(&registries, &short), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &spacious), Ok(()));
+}
+
+#[test]
 fn industrial_den_frees_just_enough_raw_stock_for_an_intact_component() {
     let (registries, mut state, route) =
         scenario(EnergyCarrier::Mechanical, Some(route_machinery()));

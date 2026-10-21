@@ -18,7 +18,8 @@ use super::scavenging::{
     reachable_inherited_salvage,
 };
 use super::{
-    SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
+    DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
+    SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
 };
 
 /// A food parcel is evaluated from its actual aging history, not its form alone.
@@ -107,17 +108,22 @@ pub(super) fn apply_scheduled_den_care(
     } else {
         None
     };
-    // A wary scout must not move a parcel into the junction while sheltering.
-    let can_tend_den = (due || hungry) && at_den && !pressured && !wary_at_den && eaten.is_none();
+    // A partial serving cannot end the hungry resident's den care. Once it
+    // eats an inadequate fragment, it may still free space for a proper next
+    // meal on the same scheduled home visit (through another real surface
+    // transaction). A complete serving stops further custody changes.
+    let complete_meal = eaten.is_some_and(|(_, mass)| mass >= SCOUT_MEAL_MASS);
+    let can_tend_den = (due || hungry) && at_den && !pressured && !wary_at_den && !complete_meal;
     let discarded = can_tend_den
         .then(|| discard_spoiled_den_food(registries, state, from, junction, at))
         .flatten();
-    // Food is a survival priority. Release one inert parcel only if the den
-    // is entirely blocked and the scout can actually reach fresh provisions.
+    // Food is a survival priority. Release inert cargo only when the remaining
+    // den capacity cannot hold the actual fresh food the scout can collect.
     let cleared_cache = (can_tend_den && discarded.is_none())
         .then(|| {
             clear_inert_cache_for_food(registries, state, from, junction, at).or_else(|| {
-                due.then(|| clear_inert_cache_for_industry(registries, state, from, junction, at))
+                (due && eaten.is_none())
+                    .then(|| clear_inert_cache_for_industry(registries, state, from, junction, at))
                     .flatten()
             })
         })
@@ -174,14 +180,56 @@ fn clear_inert_cache_for_food(
     junction: VoxelCoord,
     at: SimulationTick,
 ) -> Option<SurfaceResourceId> {
-    if !den_cache_space(state, den).is_zero() {
+    let free = den_cache_space(state, den);
+    if free >= SCOUT_MEAL_MASS || !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
-    // Releasing inert custody is justified only by the food mass that this
-    // particular parcel would actually make room for, and by an available
-    // collection action. A wild patch under forage cooldown cannot feed a
-    // hungry resident yet, while an already loose edible parcel can.
-    let source = state
+    // Some space is not necessarily *enough* space: a missed five-gram meal
+    // must not leave the scout endlessly foraging five-gram portions while
+    // the rest of the den is inert cargo. Consider only recoverable food seen
+    // from home, and only evict stock when that food exceeds free capacity.
+    let forage_ready = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .is_some_and(|colony| colony.next_forage_at.is_none_or(|due| at >= due));
+    let player = state.logistics().player().map(|record| record.position());
+    let wanted = std::iter::once(junction)
+        .chain(
+            state
+                .logistics()
+                .traversable_destinations(junction)
+                .filter(|position| *position != den),
+        )
+        .filter(|position| {
+            super::visibility::scout_visible_from(registries, state, den, *position)
+                && (*position == junction
+                    || (scout_can_enter(registries, state, *position, player)
+                        && !scout_sees_guarded_cell(registries, state, den, *position)
+                        && assess_local_illumination(registries, state, *position).level()
+                            < SCOUT_DETERRENT_LIGHT_LEVEL))
+        })
+        .flat_map(|position| state.surface().available_resources_at(Some(position)))
+        .filter(|resource| match resource.kind() {
+            SurfaceResourceKind::Opportunity => {
+                forage_ready && scout_wants_food_opportunity(registries, resource, at)
+            }
+            SurfaceResourceKind::Drop => {
+                resource.commodity().form() == crate::content::FORM_FOOD
+                    && is_contestable_drop(resource, SCOUT_MEAL_MASS)
+                    && matches!(
+                        food_condition(registries, resource, at),
+                        Some(FoodFreshness::Fresh { .. })
+                    )
+            }
+        })
+        .map(|resource| resource.remaining_mass().min(SCOUT_MEAL_MASS))
+        .max()?;
+    if wanted <= free {
+        return None;
+    }
+    let missing = wanted.milligrams() - free.milligrams();
+    let source_id = state
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
@@ -189,77 +237,26 @@ fn clear_inert_cache_for_food(
                 && resource.commodity().form() != crate::content::FORM_FOOD
                 && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
         })
-        // Free enough space for one actual 20 g ration if possible, keeping
-        // precision copper before lower-value scrap. Among suitable parcels,
-        // release the smallest one; if none can fit a ration, release the
-        // largest small parcel to make the partial catch worthwhile. This is
-        // based only on the resident's physically local den inventory.
+        // Among parcels that fill the actual shortage, preserve precision
+        // copper and release the least raw mass. If none fills it, releasing
+        // the largest parcel still enables a larger physical partial catch.
         .min_by_key(|resource| {
-            let mass = resource.remaining_mass();
+            let mass = resource.remaining_mass().milligrams();
             (
-                mass < SCOUT_MEAL_MASS,
+                mass < missing,
                 is_servant_era_salvage(resource),
-                if mass < SCOUT_MEAL_MASS {
-                    u64::MAX - mass.milligrams()
-                } else {
-                    mass.milligrams()
-                },
+                if mass < missing { u64::MAX - mass } else { mass },
                 resource.id(),
             )
-        })?;
-    let released_capacity = source.remaining_mass();
-    let source_id = source.id();
-    let forage_ready = state
-        .kobold_state()
-        .colony
-        .as_ref()
-        .is_some_and(|colony| colony.next_forage_at.is_none_or(|due| at >= due));
-    let player = state.logistics().player().map(|record| record.position());
-    let fresh_nearby = std::iter::once(junction)
-        .chain(
-            state
-                .logistics()
-                .traversable_destinations(junction)
-                .filter(|position| *position != den),
-        )
-        .any(|position| {
-            // A homebound scout cannot reorganize its cache for unseen supplies,
-            // or for a side patch that a visible living player is guarding.
-            super::visibility::scout_visible_from(registries, state, den, position)
-                && (position == junction
-                    || (scout_can_enter(registries, state, position, player)
-                        && !scout_sees_guarded_cell(registries, state, den, position)
-                        && assess_local_illumination(registries, state, position).level()
-                            < SCOUT_DETERRENT_LIGHT_LEVEL))
-                && state
-                    .surface()
-                    .available_resources_at(Some(position))
-                    .any(|resource| match resource.kind() {
-                        SurfaceResourceKind::Opportunity => {
-                            forage_ready
-                                && !released_capacity.is_zero()
-                                && scout_wants_food_opportunity(registries, resource, at)
-                        }
-                        SurfaceResourceKind::Drop => {
-                            resource.commodity().form() == crate::content::FORM_FOOD
-                                && is_contestable_drop(resource, released_capacity)
-                                && matches!(
-                                    food_condition(registries, resource, at),
-                                    Some(FoodFreshness::Fresh { .. })
-                                )
-                        }
-                    })
-        });
-    if !fresh_nearby || !den_exit_is_safe(registries, state, den, junction) {
-        return None;
-    }
+        })?
+        .id();
     relocate_scavenged_drop_step(state, source_id, den, junction).then_some(source_id)
 }
 
 /// A reported machine threat gives the old servant culture a concrete
-/// salvage objective. A full den may release *one* expendable inert parcel
-/// only when a precision copper component can truly be reached and brought
-/// back. The freed mass is custody, never an abstract purchase price.
+/// salvage objective. A den short of capacity may release *one* expendable
+/// inert parcel when it cannot fit an intact visible precision component.
+/// The freed mass is custody, never an abstract purchase price.
 fn clear_inert_cache_for_industry(
     registries: &Registries,
     state: &mut AppState,
@@ -268,12 +265,30 @@ fn clear_inert_cache_for_industry(
     at: SimulationTick,
 ) -> Option<SurfaceResourceId> {
     let colony = state.kobold_state().colony.as_ref()?;
-    if colony.mobilized_at.is_none() || !den_cache_space(state, den).is_zero() {
+    if colony.mobilized_at.is_none() {
         return None;
     }
     let tip = colony.route[2];
     let player = state.logistics().player().map(|record| record.position());
     if !den_exit_is_safe(registries, state, den, junction) {
+        return None;
+    }
+    let free = den_cache_space(state, den);
+    // If a whole visible component already fits, a raid needs no eviction.
+    // Do not expel local matter merely to take a different, larger haul.
+    if !free.is_zero()
+        && reachable_inherited_salvage(registries, state, junction, den, den, tip, player, free, at)
+            .is_some_and(|(first, far)| {
+                state
+                    .surface()
+                    .available_resources_at(Some(far.unwrap_or(first)))
+                    .any(|item| {
+                        is_servant_era_salvage(item)
+                            && is_portable_drop(item)
+                            && item.remaining_mass() <= free
+                    })
+            })
+    {
         return None;
     }
     // Only an actually visible precision source can justify an exchange.
@@ -291,7 +306,16 @@ fn clear_inert_cache_for_industry(
                 && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
         })
         .filter_map(|resource| {
-            let capacity = resource.remaining_mass();
+            // Adding a released parcel to any existing free space is bounded
+            // by the den's actual 500 g capacity, not the scout's carry limit.
+            let capacity = Mass::from_milligrams(
+                free.milligrams()
+                    .saturating_add(resource.remaining_mass().milligrams())
+                    .min(DEN_LOOSE_CACHE_LIMIT.milligrams()),
+            );
+            if capacity <= free {
+                return None;
+            }
             let (first, far) = reachable_inherited_salvage(
                 registries, state, junction, den, den, tip, player, capacity, at,
             )?;
@@ -304,11 +328,15 @@ fn clear_inert_cache_for_industry(
                         && is_portable_drop(candidate)
                         && candidate.remaining_mass() <= capacity
                 });
-            let mass = capacity.milligrams();
+            let mass = resource.remaining_mass().milligrams();
             Some((
                 (
                     !whole,
-                    if whole { mass } else { u64::MAX - mass },
+                    if whole {
+                        mass
+                    } else {
+                        u64::MAX - capacity.milligrams()
+                    },
                     resource.id(),
                 ),
                 resource.id(),
