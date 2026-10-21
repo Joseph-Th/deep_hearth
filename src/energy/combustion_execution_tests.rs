@@ -236,6 +236,150 @@ fn campfire_fixture() -> (
 }
 
 #[test]
+fn campfire_refueling_requires_idle_player_attention_and_preserves_work() {
+    let (registries, mut state, carried, fire) = campfire_fixture();
+    let _ = deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(3_000_000),
+    )
+    .unwrap_or_else(|error| panic!("busy refueling woodworking supply failed: {error}"));
+    let pending_fuel = validate_combust_fuel(&registries, &state, fire, carried)
+        .unwrap_or_else(|error| panic!("busy refueling pre-work validation failed: {error}"));
+    let job = validate_start_player_manual_craft(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        NonZeroU64::new(1).unwrap_or_else(|| panic!("one batch must exist")),
+        None,
+    )
+    .unwrap_or_else(|error| panic!("busy refueling woodworking admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("busy refueling woodworking commit failed: {error}"));
+    let before = state.clone();
+    assert_eq!(
+        validate_combust_fuel(&registries, &state, fire, carried).err(),
+        Some(CombustionError::PlayerBusy)
+    );
+    assert_eq!(
+        pending_fuel.commit(&mut state),
+        Err(super::CombustionCommitError::PlayerBecameBusy)
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        state.energy().get_store(fire).map(|record| record.stored()),
+        Some(crate::core::quantity::Energy::ZERO)
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("busy refueling save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|error| panic!("busy refueling decode failed: {error}"));
+    let mut replay = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("busy refueling trusted load failed: {error}"));
+    let completed_at = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("busy refueling work disappeared"))
+        .completes_at();
+    while state.tick() < completed_at {
+        let next = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("busy refueling work completion failed: {error}"));
+        let replayed = advance_tick(&registries, &mut replay)
+            .unwrap_or_else(|error| panic!("busy refueling replay failed: {error}"));
+        assert_eq!(next, replayed);
+    }
+    assert_eq!(state, replay);
+    assert!(state.player_work().active().is_none());
+    let total = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("busy refueling conservation baseline failed: {error}"))
+        .total();
+    let _ = validate_combust_fuel(&registries, &state, fire, carried)
+        .unwrap_or_else(|error| panic!("completed woodworking must permit refueling: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("completed woodworking refueling failed: {error}"));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("post-work fuel conservation failed: {error}"))
+            .total(),
+        total
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn assembling_another_campfire_requires_idle_player_attention() {
+    let (registries, mut state, carried, _) = campfire_fixture();
+    let _ = deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("busy assembly stone supply failed: {error}"));
+    let _ = deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(3_000_000),
+    )
+    .unwrap_or_else(|error| panic!("busy assembly woodworking supply failed: {error}"));
+    let pending =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap_or_else(|error| panic!("busy assembly pre-work validation failed: {error}"));
+    let job = validate_start_player_manual_craft(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        NonZeroU64::new(1).unwrap_or_else(|| panic!("one batch must exist")),
+        None,
+    )
+    .unwrap_or_else(|error| panic!("busy assembly woodworking admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("busy assembly woodworking commit failed: {error}"));
+    let before = state.clone();
+    assert_eq!(
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .err(),
+        Some(crate::energy::EnergyStoreAssemblyError::PlayerBusy)
+    );
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(crate::energy::EnergyStoreAssemblyCommitError::PlayerBecameBusy)
+    );
+    assert_eq!(state, before);
+    let completes_at = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("busy assembly woodworking job vanished"))
+        .completes_at();
+    while state.tick() < completes_at {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("busy assembly woodworking tick failed: {error}"));
+    }
+    assert!(state.player_work().active().is_none());
+    let total = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("busy assembly conservation baseline failed: {error}"))
+        .total();
+    let _ =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap_or_else(|error| panic!("completed woodworking must allow assembly: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("completed woodworking assembly failed: {error}"));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("post-work assembly conservation failed: {error}"))
+            .total(),
+        total
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn authored_combustion_conserves_fuel_matter_and_creates_finite_heat() {
     let (registries, mut state, carried, fire) = campfire_fixture();
     let before = calculate_matter_accounting(&state)

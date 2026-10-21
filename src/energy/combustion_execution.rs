@@ -25,6 +25,7 @@ use super::{EnergyStoreId, energy_store_occupancy};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CombustionError {
     PlayerDead,
+    PlayerBusy,
     StoreAccess(PlayerEnergyStoreAccessError),
     SourceAccess(PlayerStockpileAccessError),
     UnknownStore {
@@ -69,6 +70,7 @@ impl Display for CombustionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot combust fuel"),
+            Self::PlayerBusy => formatter.write_str("player cannot tend fuel while work is active"),
             Self::StoreAccess(error) => {
                 write!(formatter, "combustion store is inaccessible: {error}")
             }
@@ -155,6 +157,7 @@ impl Error for CombustionError {
             Self::SourceAccess(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::UnknownStore { .. }
             | Self::UnknownDefinition
             | Self::NoCombustionProfile { .. }
@@ -173,6 +176,7 @@ impl Error for CombustionError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CombustionCommitError {
+    PlayerBecameBusy,
     StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
@@ -184,6 +188,7 @@ pub enum CombustionCommitError {
 impl Display for CombustionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => formatter.write_str("player work started before fuel commit"),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "combustion survival revision changed from {expected} to {actual} before commit"
@@ -217,7 +222,8 @@ impl Error for CombustionCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvival { .. }
+            Self::PlayerBecameBusy
+            | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. }
@@ -255,6 +261,9 @@ impl ValidatedCombustion {
                 actual: stale.actual,
             }
         })?;
+        if state.logistics().player().is_some() && state.player_work().active().is_some() {
+            return Err(CombustionCommitError::PlayerBecameBusy);
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(CombustionCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -324,6 +333,9 @@ fn validate_combust_fuel_selected(
 ) -> Result<ValidatedCombustion, CombustionError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| CombustionError::PlayerDead)?;
+    if state.logistics().player().is_some() && state.player_work().active().is_some() {
+        return Err(CombustionError::PlayerBusy);
+    }
     let record = state
         .energy()
         .get_store(store)

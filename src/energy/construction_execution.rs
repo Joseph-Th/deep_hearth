@@ -23,6 +23,7 @@ use super::{EnergyStoreDefinitionId, EnergyStoreId};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreAssemblyError {
     PlayerDead,
+    PlayerBusy,
     Access(PlayerStockpileAccessError),
     UnknownDefinition {
         definition: EnergyStoreDefinitionId,
@@ -57,6 +58,9 @@ impl Display for EnergyStoreAssemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot assemble an energy store"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot assemble energy storage while work is active")
+            }
             Self::Access(error) => {
                 write!(formatter, "energy-store assembly access failed: {error}")
             }
@@ -123,6 +127,7 @@ impl Error for EnergyStoreAssemblyError {
             Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::UnknownDefinition { .. }
             | Self::NoAssemblyProfile { .. }
             | Self::UnknownSource { .. }
@@ -139,6 +144,7 @@ impl Error for EnergyStoreAssemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreAssemblyCommitError {
+    PlayerBecameBusy,
     StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
@@ -149,6 +155,9 @@ pub enum EnergyStoreAssemblyCommitError {
 impl Display for EnergyStoreAssemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player work started before energy-store assembly commit")
+            }
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "energy-store construction expected survival revision {expected} but current revision is {actual}"
@@ -177,7 +186,8 @@ impl Error for EnergyStoreAssemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvival { .. }
+            Self::PlayerBecameBusy
+            | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. } => None,
@@ -215,6 +225,9 @@ impl ValidatedEnergyStoreAssembly {
                 actual: stale.actual,
             }
         })?;
+        if state.logistics().player().is_some() && state.player_work().active().is_some() {
+            return Err(EnergyStoreAssemblyCommitError::PlayerBecameBusy);
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EnergyStoreAssemblyCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -265,6 +278,9 @@ pub fn validate_assemble_energy_store(
 ) -> Result<ValidatedEnergyStoreAssembly, EnergyStoreAssemblyError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| EnergyStoreAssemblyError::PlayerDead)?;
+    if state.logistics().player().is_some() && state.player_work().active().is_some() {
+        return Err(EnergyStoreAssemblyError::PlayerBusy);
+    }
     let definition_record = registries
         .energy()
         .get_store(definition)
