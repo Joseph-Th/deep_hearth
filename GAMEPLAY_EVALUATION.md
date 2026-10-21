@@ -351,6 +351,16 @@ travels to a safe reachable scrap cache, then revisits the food when the player
 withdraws. Far destinations it cannot currently see remain uncertain and are
 rechecked from the next real route step. This remains a surface-indexed
 two-edge neighborhood search, not a world-wide threat map or full pathfinder.
+Den capacity is reassessed on every actual return step. A scout already hauling
+a recoverable parcel continues carrying it over the intermediate edges even
+when another surface transaction fills the den in its absence. If the parcel
+cannot fit on the final den edge, the creature returns empty-handed and leaves
+that same identified parcel at the approach; player pickup can reclaim it.
+With capacity available, a matched continuation brings the same parcel home.
+The scout also declines to eject spoiled food or inert cache material toward
+a living player visibly guarding the exit, instead of offering free loot through
+an otherwise unsafe den-care step. These changes create no extra den storage,
+new material, or additional resident update cadence.
 
 A deployed watchman can recognize a living player at its two-voxel sighting
 range without conflating mere observation with adjacent deterrence. The warning

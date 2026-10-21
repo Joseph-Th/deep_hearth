@@ -9,7 +9,7 @@ use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
-use crate::simulation::advance_tick;
+use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
 
@@ -62,6 +62,78 @@ fn resource(position: VoxelCoord, kind: SurfaceResourceKind, food: bool) -> Surf
         MaterialComposition::pure(material),
     )
     .unwrap()
+}
+
+#[test]
+fn guarded_den_approach_blocks_cache_disposal_without_changing_real_supply() {
+    let (registries, mut guarded, [den, junction, _, side]) = setup();
+    let creation = validate_create_surface_resources(
+        &registries,
+        &guarded,
+        [
+            resource(den, SurfaceResourceKind::Drop, false),
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut guarded).unwrap();
+    let mut empty_approach = guarded.clone();
+    let initial_total = calculate_matter_accounting(&guarded).unwrap().total();
+
+    // At the side, the player is not near enough to frighten the den resident
+    // directly. But the scout can actually see the guarded junction, and
+    // should not place its stored parcel into that contested clearing.
+    validate_admit_player(&registries, &guarded, side)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &guarded,
+        den
+    ));
+    assert!(crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &guarded,
+        junction
+    ));
+    while guarded.tick().value() < 580 {
+        let _ = advance_control_tick(&registries, &mut guarded).unwrap();
+    }
+    let _ = advance_tick(&registries, &mut empty_approach).unwrap();
+    assert_eq!(guarded.tick(), SimulationTick::new(580));
+    assert_eq!(
+        guarded.surface().get(ids[0]).unwrap().position(),
+        den,
+        "guarded approach cannot be used for spoiled disposal or food cache clearing"
+    );
+    assert_eq!(
+        empty_approach.surface().get(ids[0]).unwrap().position(),
+        junction,
+        "the same hungry resident releases real inert custody when no player guards"
+    );
+    assert_eq!(
+        guarded.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(300_000),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        initial_total
+    );
+    assert_eq!(
+        calculate_matter_accounting(&empty_approach)
+            .unwrap()
+            .total(),
+        initial_total
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &guarded)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, guarded);
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
 }
 
 #[test]
@@ -167,7 +239,7 @@ fn full_den_preserves_its_inert_cache_when_fresh_food_is_not_reachable() {
 
 #[test]
 fn locally_observed_cache_clearing_is_real_and_player_occupied_exit_stops_it() {
-    let (registries, mut state, [den, junction, _, side]) = setup();
+    let (registries, mut state, [den, junction, _, _]) = setup();
     let creation = validate_create_surface_resources(
         &registries,
         &state,
@@ -189,7 +261,14 @@ fn locally_observed_cache_clearing_is_real_and_player_occupied_exit_stops_it() {
     assert_eq!(guarded.surface().get(stone).unwrap().position(), den);
     assert!(guarded.kobold_state().colony.as_ref().unwrap().hungry);
 
-    validate_admit_player(&registries, &state, side)
+    // An elevated witness can see the den and the scout's next step without
+    // physically guarding either same-height clearing. The old side observer
+    // now correctly prevents cache disposal into the threatened junction.
+    validate_admit_player(
+        &registries,
+        &state,
+        VoxelCoord::new(junction.x(), junction.y() + 1, junction.z()),
+    )
         .unwrap()
         .commit(&mut state)
         .unwrap();

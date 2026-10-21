@@ -316,6 +316,64 @@ fn scout_has_cause_for_caution(
     frightened || (barrier && lit_ahead && moved)
 }
 
+#[derive(Clone, Copy)]
+struct CargoDecision {
+    from: VoxelCoord,
+    to: VoxelCoord,
+    returning: bool,
+    frightened: bool,
+    den_space: Mass,
+    food_only: bool,
+    mobilized: bool,
+    at: SimulationTick,
+}
+
+/// Existing carried matter must be checked for identity and location before
+/// selecting new loot. Capacity limits the last den edge, not intermediate
+/// carriage: a newly filled den cannot cause a parcel to drop miles away.
+fn plan_returning_cargo(
+    registries: &Registries,
+    state: &AppState,
+    colony: &KoboldColony,
+    choice: CargoDecision,
+) -> (Option<SurfaceResourceId>, bool, Option<SurfaceResourceId>) {
+    let carried = colony.scavenged_drop.filter(|id| {
+        state.surface().get(*id).is_some_and(|resource| {
+            resource.position() == choice.from
+                && resource.lifecycle() == SurfaceResourceLifecycle::Available
+                && is_portable_drop(resource)
+                && scout_wants_drop(registries, resource, choice.at)
+        })
+    });
+    let blocked_at_den = choice.to == colony.route[0]
+        && carried.is_some_and(|id| {
+            state
+                .surface()
+                .get(id)
+                .is_some_and(|resource| resource.remaining_mass() > choice.den_space)
+        });
+    let candidate = if !choice.returning || choice.frightened {
+        None
+    } else if let Some(id) = carried {
+        (!blocked_at_den).then_some(id)
+    } else {
+        local_portable_source(
+            registries,
+            state,
+            choice.from,
+            choice.den_space,
+            choice.at,
+            choice.food_only,
+            choice.mobilized,
+        )
+    };
+    (carried, blocked_at_den, candidate)
+}
+
+fn scout_releases_cargo(frightened: bool, den_full: bool, can_move: bool) -> bool {
+    frightened || (den_full && can_move)
+}
+
 /// Deterministic slow-tick patrol with finite, interruptible return-trip scavenging.
 ///
 /// The scout waits one visit before collecting an exposed drop. On retreat it takes one
@@ -406,37 +464,28 @@ pub(crate) fn apply_kobold_scout_tick(
         next_tick,
         colony.hungry,
     );
-    // A scout only scavenges during retreat. Player pickup may have exhausted its
-    // previously dragged parcel between steps; never resurrect or replace that mass.
-    let available_drop_at = |id: SurfaceResourceId| {
-        state.surface().get(id).is_some_and(|resource| {
-            resource.position() == from
-                && resource.lifecycle() == SurfaceResourceLifecycle::Available
-                && is_portable_drop(resource)
-                && resource.remaining_mass() <= den_space
-                && scout_wants_drop(registries, resource, next_tick)
-        })
-    };
-    let abandoned_drop = frightened
-        .then_some(colony.scavenged_drop)
-        .flatten()
-        .filter(|id| available_drop_at(*id));
-    let dragged_candidate = (returning && !frightened)
-        .then(|| {
-            colony
-                .scavenged_drop
-                .filter(|id| available_drop_at(*id))
-                .or_else(|| {
-                    local_portable_source(
-                        registries, state, from, den_space, next_tick, food_only, mobilized,
-                    )
-                })
-        })
-        .flatten();
+    let (carried_drop, cargo_blocked_at_den, dragged_candidate) = plan_returning_cargo(
+        registries,
+        state,
+        colony,
+        CargoDecision {
+            from,
+            to: position,
+            returning,
+            frightened,
+            den_space,
+            food_only,
+            mobilized,
+            at: next_tick,
+        },
+    );
     // An exhausted surface revision must not let a creature move while silently
     // leaving still-held matter behind. No mutation is attempted when obstructed.
     let can_move =
         physically_clear && (dragged_candidate.is_none() || state.can_spend_surface_revisions(1));
+    let abandoned_drop = scout_releases_cargo(frightened, cargo_blocked_at_den, can_move)
+        .then_some(carried_drop)
+        .flatten();
     // Inspect the destination before any relocation. A scout dragging its own
     // parcel home has not discovered a second exposed item there.
     let discovered = can_move

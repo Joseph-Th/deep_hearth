@@ -12,8 +12,9 @@ use crate::surface::{
 };
 use crate::survival::{FoodFreshness, freshness_from_history};
 
-use super::patrol::scout_can_enter;
+use super::patrol::{living_player_deters_scout, scout_can_enter};
 use super::scavenging::{den_cache_space, is_servant_era_salvage, reachable_inherited_salvage};
+use super::visibility::scout_visible_from;
 use super::{
     SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
 };
@@ -149,7 +150,7 @@ fn discard_spoiled_den_food(
                 )
         })?
         .id();
-    den_exit_is_safe(registries, state, junction)
+    den_exit_is_safe(registries, state, den, junction)
         .then(|| relocate_scavenged_drop_step(state, source, den, junction))
         .filter(|moved| *moved)
         .map(|_| source)
@@ -190,7 +191,7 @@ fn clear_inert_cache_for_food(
                         && assess_local_illumination(registries, state, position).level()
                             < SCOUT_DETERRENT_LIGHT_LEVEL))
         });
-    if !fresh_nearby || !den_exit_is_safe(registries, state, junction) {
+    if !fresh_nearby || !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
     let source = state
@@ -233,7 +234,7 @@ fn clear_inert_cache_for_industry(
     let source_id = source.id();
     let released_capacity = source.remaining_mass();
     let player = state.logistics().player().map(|record| record.position());
-    if !den_exit_is_safe(registries, state, junction)
+    if !den_exit_is_safe(registries, state, den, junction)
         || reachable_inherited_salvage(
             registries,
             state,
@@ -251,14 +252,24 @@ fn clear_inert_cache_for_industry(
     relocate_scavenged_drop_step(state, source_id, den, junction).then_some(source_id)
 }
 
-fn den_exit_is_safe(registries: &Registries, state: &AppState, junction: VoxelCoord) -> bool {
+fn den_exit_is_safe(
+    registries: &Registries,
+    state: &AppState,
+    den: VoxelCoord,
+    junction: VoxelCoord,
+) -> bool {
     scout_can_enter(
         registries,
         state,
         junction,
         state.logistics().player().map(|player| player.position()),
-    ) && assess_local_illumination(registries, state, junction).level()
-        < SCOUT_DETERRENT_LIGHT_LEVEL
+    ) && !(state
+        .logistics()
+        .player()
+        .is_some_and(|player| scout_visible_from(registries, state, den, player.position()))
+        && living_player_deters_scout(registries, state, junction))
+        && assess_local_illumination(registries, state, junction).level()
+            < SCOUT_DETERRENT_LIGHT_LEVEL
 }
 
 /// Deplete one fresh, physically local food parcel and retain the exact mass

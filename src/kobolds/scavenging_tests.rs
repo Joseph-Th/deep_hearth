@@ -325,3 +325,125 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
     );
     assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
 }
+
+#[test]
+fn filling_the_den_mid_haul_leaves_real_cargo_at_the_approach_for_player_recovery() {
+    let registries = build_registries();
+    let mut blocked = AppState::new();
+    let path = route(&mut blocked);
+    let creation = validate_create_surface_resources(
+        &registries,
+        &blocked,
+        [drop(path.far_stone, false, 250_000)],
+    )
+    .unwrap();
+    let parcel = creation.first_resource_id();
+    creation.commit(&mut blocked).unwrap();
+    blocked
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while blocked.tick().value() < 195 {
+        let _ = advance_tick(&registries, &mut blocked).unwrap();
+    }
+    assert_eq!(
+        blocked
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scavenged_drop,
+        Some(parcel)
+    );
+    assert_eq!(
+        blocked.surface().get(parcel).unwrap().position(),
+        path.side_stone
+    );
+
+    // The scout is already carrying material when another physical surface
+    // transaction fills the den. The parcel must not teleport to the den,
+    // vanish, or drop prematurely at the distant cache branch.
+    let mut open_den = blocked.clone();
+    let blocker_plan =
+        validate_create_surface_resources(&registries, &blocked, [drop(path.den, false, 500_000)])
+            .unwrap();
+    let blocker = blocker_plan.first_resource_id();
+    blocker_plan.commit(&mut blocked).unwrap();
+    let conserved = calculate_matter_accounting(&blocked).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &blocked)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    for state in [&mut blocked, &mut replay, &mut open_den] {
+        while state.tick().value() < 200 {
+            let _ = advance_tick(&registries, state).unwrap();
+        }
+        assert_eq!(
+            state.surface().get(parcel).unwrap().position(),
+            path.junction
+        );
+        assert_eq!(
+            state.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+            Some(parcel),
+            "the creature still carries its original parcel, despite the newly full den"
+        );
+    }
+    assert_eq!(blocked, replay);
+    for state in [&mut blocked, &mut replay, &mut open_den] {
+        while state.tick().value() < 205 {
+            let _ = advance_tick(&registries, state).unwrap();
+        }
+        assert_eq!(
+            state
+                .kobold_state()
+                .colony
+                .as_ref()
+                .unwrap()
+                .scout_position(),
+            path.den
+        );
+        assert_eq!(
+            state.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+            None
+        );
+    }
+    assert_eq!(blocked, replay);
+    assert_eq!(
+        blocked.surface().get(parcel).unwrap().position(),
+        path.junction,
+        "cargo too large for the remaining space stays recoverable at the last real route cell"
+    );
+    assert_eq!(blocked.surface().get(blocker).unwrap().position(), path.den);
+    assert_eq!(open_den.surface().get(parcel).unwrap().position(), path.den);
+    assert_eq!(
+        calculate_matter_accounting(&blocked).unwrap().total(),
+        conserved
+    );
+
+    // The player can actually recover the abandoned parcel through the
+    // ordinary control-tick pickup operation, not by editing den inventory.
+    for state in [&mut blocked, &mut replay] {
+        validate_admit_player(&registries, state, path.junction)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+    }
+    let picked = advance_control_tick(&registries, &mut blocked)
+        .unwrap()
+        .surface_drop_pickup()
+        .expect("the abandoned parcel is a normal recoverable world item");
+    assert_eq!(picked.resource(), parcel);
+    assert_eq!(picked.picked_mass(), Mass::from_milligrams(250_000));
+    let second = advance_control_tick(&registries, &mut replay)
+        .unwrap()
+        .surface_drop_pickup()
+        .expect("the same item remains recoverable after loading");
+    assert_eq!(second, picked);
+    assert_eq!(blocked, replay);
+    assert_eq!(
+        calculate_matter_accounting(&blocked).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &blocked), Ok(()));
+}
