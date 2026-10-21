@@ -236,39 +236,100 @@ fn trace_generated_voxels<T>(
             return Ok(None);
         }
 
-        let mut tied = [false; 3];
-        for (index, cursor) in cursors.iter().enumerate() {
-            tied[index] = cursor.is_some_and(|cursor| cursor.same_distance(minimum));
-        }
-        let face = cursors
-            .iter()
-            .zip(tied)
-            .find_map(|(cursor, tied)| {
-                tied.then_some(cursor.and_then(|cursor| Some(cursor.face)))
-                    .flatten()
-            })
-            .unwrap_or_else(|| unreachable!("minimum cursor is tied with itself"));
-        for index in 0..3 {
-            if !tied[index] {
-                continue;
-            }
-            let cursor = cursors[index]
-                .as_mut()
-                .unwrap_or_else(|| unreachable!("tied axis has a traversal cursor"));
-            voxel = cursor.step_voxel(voxel)?;
-            cursor.advance();
-        }
-
-        let block_state = state
-            .world()
-            .block_at(voxel)
-            .ok_or(PlayerBlockTargetError::WorldAuthorityUnavailable { voxel })?;
-        match inspect(voxel, block_state, face) {
+        match advance_ray_boundary(
+            registries,
+            state,
+            &mut voxel,
+            &mut cursors,
+            minimum,
+            &mut inspect,
+        )? {
             VoxelTraceStep::Continue => {}
             VoxelTraceStep::Hit(target) => return Ok(Some(target)),
             VoxelTraceStep::Blocked => return Ok(None),
         }
     }
+}
+
+type RayCrossingCell = (VoxelCoord, CubeFace, BlockStateId);
+
+/// Include every face-adjacent cell touched on a tied boundary, not only the diagonal.
+/// Missing world truth fails closed before any interaction at that same distance.
+fn boundary_cells(
+    state: &AppState,
+    voxel: VoxelCoord,
+    cursors: &[Option<AxisCursor>; 3],
+    minimum: AxisCursor,
+) -> Result<([Option<RayCrossingCell>; 7], usize, [bool; 3]), PlayerBlockTargetError> {
+    let tied = std::array::from_fn(|index| {
+        cursors[index].is_some_and(|cursor| cursor.same_distance(minimum))
+    });
+    let tied_mask = tied.iter().enumerate().fold(0_u8, |mask, (index, tied)| {
+        mask | (u8::from(*tied) << index)
+    });
+    let mut touched = [None; 7];
+    let mut count = 0;
+    for axis_count in 1..=tied_mask.count_ones() {
+        for mask in 1..=tied_mask {
+            if mask & tied_mask != mask || mask.count_ones() != axis_count {
+                continue;
+            }
+            let mut candidate = voxel;
+            let mut face = None;
+            for (index, cursor) in cursors.iter().enumerate() {
+                if mask & (1 << index) == 0 {
+                    continue;
+                }
+                let cursor = cursor.unwrap_or_else(|| unreachable!("tied axis has a cursor"));
+                candidate = cursor.step_voxel(candidate)?;
+                face.get_or_insert(cursor.face);
+            }
+            let block_state = state
+                .world()
+                .block_at(candidate)
+                .ok_or(PlayerBlockTargetError::WorldAuthorityUnavailable { voxel: candidate })?;
+            touched[count] = Some((
+                candidate,
+                face.unwrap_or_else(|| unreachable!("crossed boundary has an entry face")),
+                block_state,
+            ));
+            count += 1;
+        }
+    }
+    Ok((touched, count, tied))
+}
+
+fn advance_ray_boundary<T>(
+    registries: &Registries,
+    state: &AppState,
+    voxel: &mut VoxelCoord,
+    cursors: &mut [Option<AxisCursor>; 3],
+    minimum: AxisCursor,
+    inspect: &mut impl FnMut(VoxelCoord, BlockStateId, CubeFace) -> VoxelTraceStep<T>,
+) -> Result<VoxelTraceStep<T>, PlayerBlockTargetError> {
+    let (touched, count, tied) = boundary_cells(state, *voxel, cursors, minimum)?;
+    // Occlusion takes precedence over air-space selection for simultaneous intersections.
+    for solid in [true, false] {
+        for &(candidate, face, block_state) in touched[..count].iter().flatten() {
+            if targetable_full_cube(registries, block_state) != solid {
+                continue;
+            }
+            match inspect(candidate, block_state, face) {
+                VoxelTraceStep::Continue => {}
+                outcome => return Ok(outcome),
+            }
+        }
+    }
+    for (index, is_tied) in tied.into_iter().enumerate() {
+        if is_tied {
+            let cursor = cursors[index]
+                .as_mut()
+                .unwrap_or_else(|| unreachable!("tied axis has a cursor"));
+            *voxel = cursor.step_voxel(*voxel)?;
+            cursor.advance();
+        }
+    }
+    Ok(VoxelTraceStep::Continue)
 }
 
 fn targetable_full_cube(registries: &Registries, state: BlockStateId) -> bool {

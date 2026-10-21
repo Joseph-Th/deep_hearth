@@ -1476,6 +1476,88 @@ fn player_block_targeting_uses_deterministic_axis_precedence_at_corner_entry() {
 }
 
 #[test]
+fn diagonal_block_targeting_checks_face_neighbors_before_corner_cell() {
+    let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
+    let eye_y = floor_y + 1;
+    let x_neighbor = VoxelCoord::new(1, eye_y, 0);
+    let z_neighbor = VoxelCoord::new(0, eye_y, 1);
+    let diagonal = VoxelCoord::new(1, eye_y, 1);
+    for voxel in [x_neighbor, z_neighbor, diagonal] {
+        set_generated_block_for_test(registries.world(), &mut state, voxel, BlockStateId::AIR);
+    }
+    let direction = ViewDirection::new(707_107, 0, 707_107)
+        .unwrap_or_else(|error| panic!("diagonal occlusion view failed: {error}"));
+    set_generated_block_for_test(registries.world(), &mut state, diagonal, BLOCK_STATE_STONE);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        z_neighbor,
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        raycast_player_block(&registries, &state, direction)
+            .unwrap_or_else(|error| panic!("Z-neighbor targeting failed: {error}"))
+            .map(PlayerBlockTarget::voxel),
+        Some(z_neighbor),
+        "a solid face neighbor must not be skipped to reach the diagonal block"
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        x_neighbor,
+        BLOCK_STATE_STONE,
+    );
+    let first = raycast_player_block(&registries, &state, direction)
+        .unwrap_or_else(|error| panic!("two-neighbor targeting failed: {error}"))
+        .unwrap_or_else(|| panic!("two blocked face neighbors were not targeted"));
+    assert_eq!(first.voxel(), x_neighbor);
+    assert_eq!(first.face(), CubeFace::West);
+}
+
+#[test]
+fn structural_air_targeting_cannot_select_through_a_solid_corner() {
+    let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
+    let eye_y = floor_y + 1;
+    let x_neighbor = VoxelCoord::new(1, eye_y, 0);
+    let z_neighbor = VoxelCoord::new(0, eye_y, 1);
+    let diagonal = VoxelCoord::new(1, eye_y, 1);
+    for voxel in [x_neighbor, z_neighbor, diagonal] {
+        set_generated_block_for_test(registries.world(), &mut state, voxel, BlockStateId::AIR);
+    }
+    let direction = ViewDirection::new(707_107, 0, 707_107)
+        .unwrap_or_else(|error| panic!("structural corner view failed: {error}"));
+    let select_diagonal = |voxel, _face| (voxel == diagonal).then_some(voxel);
+    assert_eq!(
+        raycast_player_air_voxel(&registries, &state, direction, select_diagonal),
+        Ok(Some(diagonal))
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        z_neighbor,
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        raycast_player_air_voxel(&registries, &state, direction, select_diagonal),
+        Ok(None),
+        "structural selection must not pass an occluding terrain corner"
+    );
+}
+
+#[test]
+fn diagonal_targeting_fails_closed_for_missing_face_neighbor_chunk() {
+    let (registries, state, floor_y) = generated_targeting_player_at(15, 15);
+    let direction = ViewDirection::new(707_107, 0, 707_107)
+        .unwrap_or_else(|error| panic!("missing-corner view failed: {error}"));
+    assert_eq!(
+        raycast_player_block(&registries, &state, direction),
+        Err(PlayerBlockTargetError::WorldAuthorityUnavailable {
+            voxel: VoxelCoord::new(16, floor_y + 1, 15),
+        })
+    );
+}
+
+#[test]
 fn player_block_targeting_derives_eye_origin_from_persisted_stance() {
     let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
     for x in 1..=4 {
