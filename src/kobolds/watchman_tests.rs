@@ -256,6 +256,60 @@ fn bright_den_holds_a_calm_guard_but_does_not_trap_one_already_in_bright_light()
             "energy and food spent are represented rather than silently lost"
         );
     }
+
+    // The blocked sentry has not paid for another sortie or fabricated any
+    // footprints while the den is bright. After the same chip fire loses
+    // enough real stored heat it must walk home, not stay indefinitely stuck
+    // at an expired light barrier or teleport to shelter.
+    let waiting_checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &waiting)).unwrap();
+    let mut waiting_replay = serde_json::from_slice::<LoadedSaveEnvelope>(&waiting_checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let return_tick = (225..=400)
+        .step_by(5)
+        .find(|&tick| {
+            advance_to(&registries, &mut waiting, tick);
+            advance_to(&registries, &mut waiting_replay, tick);
+            assert_eq!(waiting, waiting_replay);
+            let colony = waiting.kobold_state().colony.as_ref().unwrap();
+            if colony.watch_deployed_at.is_some() {
+                assert_eq!(colony.watch_position(), junction);
+                assert_eq!(colony.watch_tracks.len(), 1, "no footsteps while blocked");
+            }
+            colony.watch_deployed_at.is_none()
+        })
+        .expect("finite campfire must dim and permit an actual watchman return");
+    assert!(
+        return_tick > 220,
+        "bright den must delay the guard's return"
+    );
+    assert!(
+        assess_local_illumination(&registries, &waiting, den).level() < 3,
+        "the den light must actually dim below the watch deterrence threshold"
+    );
+    let returned = waiting.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(returned.watch_position(), den);
+    assert_eq!(returned.watch_tracks.len(), 2);
+    let home_track = returned.watch_tracks.last().unwrap();
+    assert_eq!(home_track.position(), junction);
+    assert_eq!(home_track.toward(), den);
+    assert_eq!(home_track.left_at(), SimulationTick::new(return_tick));
+    assert_eq!(
+        home_track.observed_activity(),
+        crate::kobolds::KoboldTrailKind::Walking,
+        "a safe return after the fire dims is an ordinary physical step"
+    );
+    assert_eq!(
+        waiting.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000),
+        "returning from a delayed watch spends no second meal"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&waiting).unwrap().total(),
+        waiting_total
+    );
+    assert_eq!(validate_loaded_state(&registries, &waiting), Ok(()));
 }
 
 #[test]

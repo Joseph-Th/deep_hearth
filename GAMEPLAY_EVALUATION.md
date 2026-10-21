@@ -419,8 +419,11 @@ the junction provokes a fleeing footprint and safe return through a lit den;
 a weaker chip fire at the den lights only the destination, so the calm sentry
 waits at its real junction post. If a player occupies the den instead, even a
 frightened sentry cannot pass through that body: its local warning remains
-undelivered. All three branches conserve represented matter, spend no
-unearned second ration, and validate/replay through trusted save/load.
+undelivered. The calm light-blocked branch now continues through actual
+finite chip-fire dissipation, verifying that the first safe return is a
+single ordinary junction-to-den footprint with no spurious waiting tracks
+or second ration. All three branches conserve represented matter and
+validate/replay through trusted save/load, including the full burn-down.
 No new per-control-tick sensing, omniscient colony state, or detached raid
 timer is introduced by these reactions.
 
