@@ -389,8 +389,29 @@ fn plan_returning_cargo(
                 .get(id)
                 .is_some_and(|resource| resource.remaining_mass() > choice.den_space)
         });
+    let switching_from_inert = choice.food_only
+        && carried.is_some_and(|id| {
+            state
+                .surface()
+                .get(id)
+                .is_some_and(|resource| resource.commodity().form() != crate::content::FORM_FOOD)
+        });
     let candidate = if !choice.returning || choice.frightened {
         None
+    } else if switching_from_inert {
+        // The scout may leave an inert parcel here to take fresh food at its
+        // actual position. A loose portable serving goes first; otherwise
+        // the return operation can split a local food pile or forage a patch.
+        // If no food transfer succeeds, the old parcel is hauled as before.
+        local_portable_source(
+            registries,
+            state,
+            choice.from,
+            choice.den_space,
+            choice.at,
+            true,
+            choice.mobilized,
+        )
     } else if let Some(id) = carried {
         (!blocked_at_den).then_some(id)
     } else {
@@ -409,6 +430,48 @@ fn plan_returning_cargo(
 
 fn scout_releases_cargo(frightened: bool, den_full: bool, can_move: bool) -> bool {
     frightened || (den_full && can_move)
+}
+
+/// A returning scout may not leave a still-held parcel behind merely because
+/// the surface owner has no revisions left for its actual physical transfer.
+/// A food exchange also needs a reserved revision for the old-cargo fallback.
+fn scout_cargo_movement_allowed(
+    state: &AppState,
+    physically_clear: bool,
+    returning: bool,
+    frightened: bool,
+    blocked_at_den: bool,
+    carried: Option<SurfaceResourceId>,
+    candidate: Option<SurfaceResourceId>,
+) -> (bool, bool) {
+    let keep_carried = carried.is_some() && returning && !frightened && !blocked_at_den;
+    let needs_revision = candidate.is_some() || keep_carried;
+    (
+        physically_clear && (!needs_revision || state.can_spend_surface_revisions(1)),
+        keep_carried,
+    )
+}
+
+/// Finish a locally attempted food exchange without abandoning the original
+/// parcel if the new transfer failed. Both parcels remain surface-owned; the
+/// boolean only records whether the scout truly switched its carried identity.
+fn finish_return_cargo_exchange(
+    state: &mut AppState,
+    from: VoxelCoord,
+    to: VoxelCoord,
+    carried: Option<SurfaceResourceId>,
+    moved: Option<SurfaceResourceId>,
+    can_keep_carried: bool,
+    new_parcel: Option<SurfaceResourceId>,
+) -> (Option<SurfaceResourceId>, bool) {
+    let relocated = moved.or_else(|| {
+        (can_keep_carried && new_parcel.is_none())
+            .then(|| carried.filter(|id| relocate_scavenged_drop_step(state, *id, from, to)))
+            .flatten()
+    });
+    let switched =
+        carried.is_some_and(|old| relocated.is_some_and(|new| new != old) || new_parcel.is_some());
+    (relocated, switched)
 }
 
 /// Deterministic slow-tick patrol with finite, interruptible return-trip scavenging.
@@ -517,13 +580,15 @@ pub(crate) fn apply_kobold_scout_tick(
             at: next_tick,
         },
     );
-    // An exhausted surface revision must not let a creature move while silently
-    // leaving still-held matter behind. No mutation is attempted when obstructed.
-    let can_move =
-        physically_clear && (dragged_candidate.is_none() || state.can_spend_surface_revisions(1));
-    let abandoned_drop = scout_releases_cargo(frightened, cargo_blocked_at_den, can_move)
-        .then_some(carried_drop)
-        .flatten();
+    let (can_move, continuing_carried_custody) = scout_cargo_movement_allowed(
+        state,
+        physically_clear,
+        returning,
+        frightened,
+        cargo_blocked_at_den,
+        carried_drop,
+        dragged_candidate,
+    );
     // Inspect the destination before any relocation. A scout dragging its own
     // parcel home has not discovered a second exposed item there.
     let discovered = can_move
@@ -535,14 +600,14 @@ pub(crate) fn apply_kobold_scout_tick(
             next_tick,
             [cleared_cache, discarded_food],
         );
-    let relocated_drop = if can_move {
+    let first_relocated = if can_move {
         dragged_candidate.filter(|id| relocate_scavenged_drop_step(state, *id, from, position))
     } else {
         None
     };
     // Whole portable parcels retain identity. Oversized exposed piles instead
     // yield a bounded daughter parcel, leaving the exact remainder at the source.
-    let bulk_source = (can_move && returning && !frightened && relocated_drop.is_none())
+    let bulk_source = (can_move && returning && !frightened && first_relocated.is_none())
         .then(|| {
             local_split_source(
                 registries, state, from, den_space, next_tick, food_only, mobilized,
@@ -567,7 +632,7 @@ pub(crate) fn apply_kobold_scout_tick(
     let forage_source = (can_move
         && returning
         && may_forage_on_return
-        && relocated_drop.is_none()
+        && first_relocated.is_none()
         && split_drop.is_none()
         && !frightened
         && forage_ready)
@@ -590,6 +655,22 @@ pub(crate) fn apply_kobold_scout_tick(
             forage_batch.min(den_space),
         )
     });
+    // Keep the original scrap only when no food transfer succeeded.
+    let (relocated_drop, switched_cargo) = finish_return_cargo_exchange(
+        state,
+        from,
+        position,
+        carried_drop,
+        first_relocated,
+        can_move && continuing_carried_custody,
+        split_drop
+            .map(|(id, _)| id)
+            .or(foraged_food.map(|(id, _)| id)),
+    );
+    let abandoned_drop = (scout_releases_cargo(frightened, cargo_blocked_at_den, can_move)
+        || switched_cargo)
+        .then_some(carried_drop)
+        .flatten();
     let next_step_at = next_tick
         .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
         .expect("bounded control-aligned simulation cannot overflow a scout schedule");

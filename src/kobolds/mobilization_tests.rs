@@ -108,6 +108,326 @@ fn advance_to(registries: &Registries, state: &mut AppState, tick: u64) {
 }
 
 #[test]
+fn far_raider_exchanges_inert_cargo_for_food_on_a_real_intermediate_edge() {
+    let (registries, mut state, route) = scenario(EnergyCarrier::Mechanical, None);
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut state, route[3], far);
+    advance_to(&registries, &mut state, 579);
+    let create = |position, kind, material, form, mass| {
+        SurfaceResourceSpec::new(
+            kind,
+            position,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [create(
+            far,
+            SurfaceResourceKind::Drop,
+            MATERIAL_STONE,
+            FORM_CHIP,
+            200_000,
+        )],
+    )
+    .unwrap();
+    let inert = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    advance_to(&registries, &mut state, 595);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[3]
+    );
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+        Some(inert)
+    );
+    assert_eq!(state.surface().get(inert).unwrap().position(), route[3]);
+
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [create(
+            route[3],
+            SurfaceResourceKind::Opportunity,
+            MATERIAL_WILD_NUTS,
+            FORM_FOOD,
+            300_000,
+        )],
+    )
+    .unwrap();
+    let patch = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 600);
+    advance_to(&registries, &mut replay, 600);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1]
+    );
+    assert_eq!(
+        state.surface().get(inert).unwrap().position(),
+        route[3],
+        "the discarded scrap retains its precise side-branch location"
+    );
+    assert_eq!(
+        state.surface().get(patch).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    let carried_food = state
+        .surface()
+        .available_resources_at(Some(route[1]))
+        .find(|record| record.commodity().form() == FORM_FOOD)
+        .unwrap()
+        .id();
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+        Some(carried_food)
+    );
+    advance_to(&registries, &mut state, 610);
+    advance_to(&registries, &mut replay, 610);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(carried_food).unwrap().position(),
+        route[0]
+    );
+    assert_eq!(
+        state.surface().get(carried_food).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+
+    let recovered = validate_admit_player(&registries, &state, route[3])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let pickup = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .surface_drop_pickup()
+        .expect("the abandoned parcel must be available for ordinary player pickup");
+    assert_eq!(pickup.resource(), inert);
+    assert_eq!(pickup.picked_mass(), Mass::from_milligrams(200_000));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovered.carried_stockpile())
+            .unwrap()
+            .stored_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hungry_returning_scout_switches_from_scrap_to_fresh_local_food() {
+    let (registries, mut carrying, route) = scenario(EnergyCarrier::Mechanical, None);
+    advance_to(&registries, &mut carrying, 579);
+    let stone = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route[2],
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(200_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(&registries, &carrying, [stone]).unwrap();
+    let inert = plan.first_resource_id();
+    plan.commit(&mut carrying).unwrap();
+    advance_to(&registries, &mut carrying, 590);
+    assert_eq!(
+        carrying
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1]
+    );
+    assert_eq!(
+        carrying
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scavenged_drop,
+        Some(inert)
+    );
+    assert!(carrying.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(carrying.surface().get(inert).unwrap().position(), route[1]);
+
+    let mut loose = carrying.clone();
+    let mut wild = carrying.clone();
+    let mut oversized = carrying.clone();
+    let unchanged = carrying.clone();
+    let food = |kind, mass| {
+        SurfaceResourceSpec::new(
+            kind,
+            route[1],
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &loose,
+        [food(SurfaceResourceKind::Drop, 60_000)],
+    )
+    .unwrap();
+    let loose_id = plan.first_resource_id();
+    plan.commit(&mut loose).unwrap();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &wild,
+        [food(SurfaceResourceKind::Opportunity, 500_000)],
+    )
+    .unwrap();
+    let patch = plan.first_resource_id();
+    plan.commit(&mut wild).unwrap();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &oversized,
+        [food(SurfaceResourceKind::Drop, 700_000)],
+    )
+    .unwrap();
+    let large = plan.first_resource_id();
+    plan.commit(&mut oversized).unwrap();
+    let totals = [
+        calculate_matter_accounting(&unchanged).unwrap().total(),
+        calculate_matter_accounting(&loose).unwrap().total(),
+        calculate_matter_accounting(&wild).unwrap().total(),
+        calculate_matter_accounting(&oversized).unwrap().total(),
+    ];
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &wild)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut carrying, 595);
+    advance_to(&registries, &mut loose, 595);
+    advance_to(&registries, &mut wild, 595);
+    advance_to(&registries, &mut oversized, 595);
+    advance_to(&registries, &mut replay, 595);
+    assert_eq!(wild, replay);
+
+    assert_eq!(
+        carrying.surface().get(inert).unwrap().position(),
+        route[0],
+        "without food, a scout must continue to drag the same inert parcel"
+    );
+    for state in [&loose, &wild, &oversized] {
+        assert_eq!(
+            state.surface().get(inert).unwrap().position(),
+            route[1],
+            "switching to nearby food leaves the original scrap recoverable here"
+        );
+        assert_eq!(
+            state
+                .kobold_state()
+                .colony
+                .as_ref()
+                .unwrap()
+                .scout_position(),
+            route[0]
+        );
+        assert!(
+            state
+                .kobold_state()
+                .colony
+                .as_ref()
+                .unwrap()
+                .scavenged_drop
+                .is_none()
+        );
+    }
+    assert_eq!(loose.surface().get(loose_id).unwrap().position(), route[0]);
+    assert_eq!(
+        loose.surface().get(loose_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(60_000)
+    );
+    assert_eq!(
+        wild.surface().get(patch).unwrap().remaining_mass(),
+        Mass::from_milligrams(400_000)
+    );
+    assert!(
+        wild.surface()
+            .available_resources_at(Some(route[0]))
+            .any(|resource| resource.commodity().form() == FORM_FOOD
+                && resource.remaining_mass() == Mass::from_milligrams(100_000))
+    );
+    assert_eq!(
+        oversized.surface().get(large).unwrap().remaining_mass(),
+        Mass::from_milligrams(450_000)
+    );
+    assert!(
+        oversized
+            .surface()
+            .available_resources_at(Some(route[0]))
+            .any(|resource| resource.commodity().form() == FORM_FOOD
+                && resource.remaining_mass() == Mass::from_milligrams(250_000))
+    );
+
+    advance_to(&registries, &mut loose, 600);
+    advance_to(&registries, &mut wild, 600);
+    advance_to(&registries, &mut oversized, 600);
+    advance_to(&registries, &mut replay, 600);
+    assert_eq!(wild, replay);
+    for (state, expected) in [
+        (&loose, totals[1]),
+        (&wild, totals[2]),
+        (&oversized, totals[3]),
+    ] {
+        assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+        assert_eq!(
+            calculate_matter_accounting(state)
+                .unwrap()
+                .consumed()
+                .milligrams(),
+            20_000
+        );
+        assert_eq!(
+            calculate_matter_accounting(state).unwrap().total(),
+            expected
+        );
+        assert_eq!(validate_loaded_state(&registries, state), Ok(()));
+    }
+    assert_eq!(
+        calculate_matter_accounting(&carrying).unwrap().total(),
+        totals[0]
+    );
+    assert_eq!(
+        calculate_matter_accounting(&unchanged).unwrap().total(),
+        totals[0]
+    );
+}
+
+#[test]
 fn scout_senses_guarded_next_clearing_and_retreats_without_entering_it() {
     use crate::kobolds::{KoboldTrailKind, available_nearby_kobold_tracks};
     use crate::logistics::relocate_player_for_test;
