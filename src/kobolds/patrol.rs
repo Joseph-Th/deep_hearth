@@ -213,6 +213,7 @@ struct ScoutMovePlan {
     detour: Option<(VoxelCoord, Option<VoxelCoord>)>,
     position: VoxelCoord,
     ahead_is_lit: bool,
+    returning_into_light: bool,
     ahead_is_guarded: bool,
     turned_back_at_barrier: bool,
     cancelled_empty_cache_raid: bool,
@@ -258,9 +259,15 @@ fn plan_scout_move(
         || colony.position_at_step(proposed_step),
         |(first, _)| first,
     );
-    let ahead_is_lit = !proposed_returning
-        && assess_local_illumination(registries, state, proposed_position).level()
-            >= SCOUT_DETERRENT_LIGHT_LEVEL;
+    let ahead_is_lit = assess_local_illumination(registries, state, proposed_position).level()
+        >= SCOUT_DETERRENT_LIGHT_LEVEL
+        && (!proposed_returning
+            || scout_visible_from(
+                registries,
+                state,
+                colony.scout_position(),
+                proposed_position,
+            ));
     // A scout can see a guarded destination from the previous route cell.
     // Approaching that clearing should prompt caution, not a free step into
     // the player's reach. This is checked only on the resident's slow clock.
@@ -308,16 +315,23 @@ fn plan_scout_move(
                 proposed_position,
             )
         };
+    let returning_into_light =
+        returning && !turned_back_at_barrier && !cancelled_empty_cache_raid && ahead_is_lit;
     ScoutMovePlan {
         step,
         returning,
         detour,
         position,
         ahead_is_lit,
+        returning_into_light,
         ahead_is_guarded,
         turned_back_at_barrier,
         cancelled_empty_cache_raid,
         physically_clear: step != colony.scout_step
+            // A calm returning scavenger must not carry food or scrap into a
+            // newly bright approach. A scout already in danger may still flee
+            // along its real edge instead of freezing beside the light.
+            && (pressured || !returning_into_light)
             && (returning || !ahead_is_lit)
             // Immediate flight already has priority over hypothetical next-cell
             // deterrence. Only an unpressured scout can plan to hold short of a
@@ -468,12 +482,13 @@ pub(crate) fn apply_kobold_scout_tick(
         detour,
         position,
         ahead_is_lit,
+        returning_into_light,
         ahead_is_guarded,
         turned_back_at_barrier,
         cancelled_empty_cache_raid,
         physically_clear,
     } = move_plan;
-    let frightened = pressured || ahead_is_guarded;
+    let frightened = pressured || ahead_is_guarded || returning_into_light;
     let may_forage_on_return = colony.can_forage_on_return(step);
     // Hunger prioritizes food when the scout can currently gather or move it.
     // Without a locally edible source, inert scavenging remains a real fallback.

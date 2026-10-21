@@ -363,6 +363,23 @@ can see the player from where it actually stands. Already frightened scouts
 still prioritize immediate flight along a physical escape edge, dropping
 carried material rather than freezing in proximity to danger. All checks
 share one local visibility rule on the existing five-slow-tick cadence.
+Bright terrain now guards homeward edges as well as outbound approaches:
+when the returning scout can see a newly lit next cell but its current cell
+remains below the deterrence threshold, it refuses to drag cargo into the
+light and abandons that same recoverable parcel at its actual position.
+A matched owner encounter uses real generated opaque terrain, an admitted
+actor assembling a stone-ring campfire from 1 kg of staged stone, and
+canonical combustion of a 500 g finite woodworking-chip fuel charge.
+The ordinary surface parcel and scout tracks remain unchanged during the
+blocked step, while an unlit comparison hauls the parcel normally. An alternate
+admitted-player control continuation reclaims all 250 g through ordinary
+local surface pickup while the light remains active, without changing the
+world matter total. After the source's represented heat passively dissipates
+below the junction's deterrence threshold, the scout reclaims the identified
+parcel and completes the route with true hauling spoor; strict save/load and
+matter totals agree.
+Light checks do not suppress a scout's immediate escape from danger already
+at its own cell. No virtual fire, new path search, or extra scout schedule.
 Den capacity is reassessed on every actual return step. A scout already hauling
 a recoverable parcel continues carrying it over the intermediate edges even
 when another surface transaction fills the den in its absence. If the parcel

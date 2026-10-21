@@ -646,6 +646,251 @@ fn returning_scout_does_not_anticipate_a_hidden_guard_around_stone() {
 }
 
 #[test]
+fn finite_junction_light_intercepts_homeward_cargo_then_dimming_reopens_the_route() {
+    use crate::content::{
+        BLOCK_STATE_STONE, CAMPFIRE_CHIP_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LUMP,
+        MATERIAL_STONE, MATERIAL_WOOD,
+    };
+    use crate::energy::{
+        assess_local_illumination, validate_assemble_energy_store, validate_combust_selected_fuel,
+    };
+    use crate::inventory::deposit_bulk_for_test;
+    use crate::logistics::relocate_player_for_test;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut lit = AppState::new();
+    let path = route(&mut lit);
+    for position in [path.den, path.junction, path.side_stone] {
+        validate_generate_chunk(
+            &registries,
+            &lit,
+            WorldGenerationSeed::new(7),
+            ChunkCoord::containing(position),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut lit)
+        .unwrap();
+    }
+    for position in [
+        path.den,
+        path.junction,
+        path.tip,
+        path.side_food,
+        path.side_stone,
+        path.far_food,
+        path.far_stone,
+    ] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut lit,
+            VoxelCoord::new(position.x(), -1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut lit,
+                VoxelCoord::new(position.x(), y, position.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let plan = validate_create_surface_resources(
+        &registries,
+        &lit,
+        [drop(path.far_stone, false, 250_000)],
+    )
+    .unwrap();
+    let cargo = plan.first_resource_id();
+    plan.commit(&mut lit).unwrap();
+    lit.kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while lit.tick().value() < 195 {
+        let _ = advance_tick(&registries, &mut lit).unwrap();
+    }
+    assert_eq!(
+        lit.surface().get(cargo).unwrap().position(),
+        path.side_stone
+    );
+    assert_eq!(
+        lit.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+        Some(cargo)
+    );
+    let mut dark = lit.clone();
+    validate_admit_player(&registries, &lit, path.junction)
+        .unwrap()
+        .commit(&mut lit)
+        .unwrap();
+    let stockpile = lit.logistics().player().unwrap().carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+            CAMPFIRE_CHIP_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut lit, stockpile, commodity, mass).unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(&registries, &lit, ENERGY_STONE_RING_CAMPFIRE, stockpile)
+            .unwrap()
+            .commit(&mut lit)
+            .unwrap();
+    validate_combust_selected_fuel(
+        &registries,
+        &lit,
+        fire,
+        stockpile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+    )
+    .unwrap()
+    .commit(&mut lit)
+    .unwrap();
+    // Admission, assembly and fueling use production owners. Move the player
+    // out of this particular showdown before the scout's next slow tick.
+    relocate_player_for_test(&mut lit, path.far_food);
+    assert_eq!(
+        assess_local_illumination(&registries, &lit, path.junction).level(),
+        3
+    );
+    assert_eq!(
+        assess_local_illumination(&registries, &lit, path.side_stone).level(),
+        2,
+        "one real edge away the fueled campfire is below the deterrence threshold"
+    );
+    let conserved = calculate_matter_accounting(&lit).unwrap().total();
+    let tracks_before = lit.kobold_state().colony.as_ref().unwrap().tracks.len();
+    while lit.tick().value() < 200 {
+        let _ = advance_tick(&registries, &mut lit).unwrap();
+        let _ = advance_tick(&registries, &mut dark).unwrap();
+    }
+    assert_eq!(
+        lit.kobold_state().colony.as_ref().unwrap().scout_position(),
+        path.side_stone,
+        "a calm scavenger must not walk into newly bright terrain with cargo"
+    );
+    assert_eq!(
+        lit.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+        None
+    );
+    assert_eq!(
+        lit.surface().get(cargo).unwrap().position(),
+        path.side_stone
+    );
+    assert_eq!(
+        lit.kobold_state().colony.as_ref().unwrap().tracks.len(),
+        tracks_before,
+        "standing still in bright terrain must not fabricate any physical footprint"
+    );
+    assert_eq!(
+        dark.kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.junction
+    );
+    assert_eq!(dark.surface().get(cargo).unwrap().position(), path.junction);
+    assert_eq!(
+        calculate_matter_accounting(&lit).unwrap().total(),
+        conserved
+    );
+
+    // A player can recover the abandoned real parcel while the campfire still
+    // guards the junction. The same production control-tick pickup changes
+    // custody, not the underlying identity or global matter balance.
+    let mut recovered = lit.clone();
+    let player_stockpile = recovered.logistics().player().unwrap().carried_stockpile();
+    let stock_before = recovered
+        .inventory()
+        .get_stockpile(player_stockpile)
+        .unwrap()
+        .stored_mass();
+    relocate_player_for_test(&mut recovered, path.side_stone);
+    let pickup = advance_control_tick(&registries, &mut recovered)
+        .unwrap()
+        .surface_drop_pickup()
+        .expect("the abandoned scout cargo must remain an ordinary local pickup");
+    assert_eq!(pickup.resource(), cargo);
+    assert_eq!(pickup.picked_mass(), Mass::from_milligrams(250_000));
+    assert_eq!(
+        recovered
+            .inventory()
+            .get_stockpile(player_stockpile)
+            .unwrap()
+            .stored_mass(),
+        stock_before
+            .checked_add(Mass::from_milligrams(250_000))
+            .unwrap()
+    );
+    relocate_player_for_test(&mut recovered, path.far_food);
+    assert_eq!(
+        calculate_matter_accounting(&recovered).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &recovered), Ok(()));
+
+    // The same represented energy visibly dims on the normal simulation
+    // clock. There is no AI-only burn timer or instantaneous light switch.
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &lit)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while lit.tick().value() < 550 && lit.surface().get(cargo).unwrap().position() != path.den {
+        assert_eq!(
+            advance_tick(&registries, &mut lit).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(lit, replay);
+    assert!(
+        lit.tick().value() < 550,
+        "the finite fire must dim enough for a bounded real return"
+    );
+    assert!(
+        assess_local_illumination(&registries, &lit, path.junction).level() < 3,
+        "finite energy loss must extinguish the deterrence threshold"
+    );
+    assert_eq!(
+        lit.kobold_state().colony.as_ref().unwrap().scout_position(),
+        path.den
+    );
+    assert_eq!(lit.surface().get(cargo).unwrap().position(), path.den);
+    assert!(
+        lit.kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .tracks
+            .iter()
+            .any(|track| {
+                track.position() == path.side_stone
+                    && track.toward() == path.junction
+                    && track.observed_activity() == crate::kobolds::KoboldTrailKind::Hauling
+            }),
+        "recovered cargo reaches the den only after a new real hauling edge"
+    );
+    assert_eq!(
+        lit.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+        None
+    );
+    assert_eq!(
+        calculate_matter_accounting(&lit).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &lit), Ok(()));
+}
+
+#[test]
 fn filling_the_den_mid_haul_leaves_real_cargo_at_the_approach_for_player_recovery() {
     let registries = build_registries();
     let mut blocked = AppState::new();
