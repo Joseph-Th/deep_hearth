@@ -867,6 +867,121 @@ fn cache_stone(
 }
 
 #[test]
+fn industrial_den_frees_just_enough_raw_stock_for_an_intact_component() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    let raw = |milligrams| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            route[0],
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [raw(5_000), raw(175_000), raw(320_000)],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let copper = copper_winding(&registries, &mut state, route[3]);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 595);
+    advance_to(&registries, &mut replay, 595);
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), route[0]);
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().position(),
+        route[1],
+        "the 175 g raw parcel can fit the full 120 g winding in one return"
+    );
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().position(),
+        route[0],
+        "unnecessary 320 g eviction would sacrifice too much local material"
+    );
+    assert_eq!(state.surface().get(copper).unwrap().position(), route[0]);
+    assert_eq!(
+        state.surface().get(copper).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn oversized_engineered_salvage_uses_the_largest_recoverable_den_space() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Electrical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    let raw = |milligrams| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            route[0],
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [raw(5_000), raw(175_000), raw(320_000)],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            route[3],
+            CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+            Mass::from_milligrams(700_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    let copper = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 595);
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), route[0]);
+    assert_eq!(state.surface().get(ids[1]).unwrap().position(), route[0]);
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().position(),
+        route[1],
+        "when no stored parcel fits a whole copper drop, freeing more space enables a useful split"
+    );
+    assert_eq!(
+        state.surface().get(copper).unwrap().remaining_mass(),
+        Mass::from_milligrams(380_000),
+        "the original oversized source keeps the exact mass not physically hauled",
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn alerted_colony_releases_low_value_cargo_and_recovers_actual_precision_copper() {
     let (registries, mut alerted, route) =
         scenario(EnergyCarrier::Mechanical, Some(route_machinery()));

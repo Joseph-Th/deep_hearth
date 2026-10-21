@@ -14,7 +14,8 @@ use crate::survival::{FoodFreshness, freshness_from_history};
 
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::scavenging::{
-    den_cache_space, is_contestable_drop, is_servant_era_salvage, reachable_inherited_salvage,
+    den_cache_space, is_contestable_drop, is_portable_drop, is_servant_era_salvage,
+    reachable_inherited_salvage,
 };
 use super::{
     SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
@@ -183,10 +184,28 @@ fn clear_inert_cache_for_food(
     let source = state
         .surface()
         .available_resources_at(Some(den))
-        .find(|resource| {
+        .filter(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() != crate::content::FORM_FOOD
                 && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+        })
+        // Free enough space for one actual 20 g ration if possible, keeping
+        // precision copper before lower-value scrap. Among suitable parcels,
+        // release the smallest one; if none can fit a ration, release the
+        // largest small parcel to make the partial catch worthwhile. This is
+        // based only on the resident's physically local den inventory.
+        .min_by_key(|resource| {
+            let mass = resource.remaining_mass();
+            (
+                mass < SCOUT_MEAL_MASS,
+                is_servant_era_salvage(resource),
+                if mass < SCOUT_MEAL_MASS {
+                    u64::MAX - mass.milligrams()
+                } else {
+                    mass.milligrams()
+                },
+                resource.id(),
+            )
         })?;
     let released_capacity = source.remaining_mass();
     let source_id = source.id();
@@ -253,34 +272,50 @@ fn clear_inert_cache_for_industry(
         return None;
     }
     let tip = colony.route[2];
-    let source = state
+    let player = state.logistics().player().map(|record| record.position());
+    if !den_exit_is_safe(registries, state, den, junction) {
+        return None;
+    }
+    // Only an actually visible precision source can justify an exchange.
+    // Prefer the smallest expendable parcel that will fit a whole manufactured
+    // component; otherwise free the largest available space for a real split.
+    // This avoids losing a huge raw cache just because its ID came first, or
+    // making repeated tiny raids when a single intact pickup is possible.
+    let source_id = state
         .surface()
         .available_resources_at(Some(den))
-        .find(|resource| {
+        .filter(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() != crate::content::FORM_FOOD
                 && !is_servant_era_salvage(resource)
                 && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
-        })?;
-    let source_id = source.id();
-    let released_capacity = source.remaining_mass();
-    let player = state.logistics().player().map(|record| record.position());
-    if !den_exit_is_safe(registries, state, den, junction)
-        || reachable_inherited_salvage(
-            registries,
-            state,
-            junction,
-            den,
-            den,
-            tip,
-            player,
-            released_capacity,
-            at,
-        )
-        .is_none()
-    {
-        return None;
-    }
+        })
+        .filter_map(|resource| {
+            let capacity = resource.remaining_mass();
+            let (first, far) = reachable_inherited_salvage(
+                registries, state, junction, den, den, tip, player, capacity, at,
+            )?;
+            let target = far.unwrap_or(first);
+            let whole = state
+                .surface()
+                .available_resources_at(Some(target))
+                .any(|candidate| {
+                    is_servant_era_salvage(candidate)
+                        && is_portable_drop(candidate)
+                        && candidate.remaining_mass() <= capacity
+                });
+            let mass = capacity.milligrams();
+            Some((
+                (
+                    !whole,
+                    if whole { mass } else { u64::MAX - mass },
+                    resource.id(),
+                ),
+                resource.id(),
+            ))
+        })
+        .min_by_key(|(priority, _)| *priority)?
+        .1;
     relocate_scavenged_drop_step(state, source_id, den, junction).then_some(source_id)
 }
 

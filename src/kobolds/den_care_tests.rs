@@ -65,6 +65,128 @@ fn resource(position: VoxelCoord, kind: SurfaceResourceKind, food: bool) -> Surf
 }
 
 #[test]
+fn hungry_den_releases_the_smallest_low_value_parcel_that_can_fit_a_meal() {
+    use crate::content::{FORM_ELECTRICAL_WINDING, MATERIAL_COPPER};
+
+    let (registries, mut state, [den, junction, _, _]) = setup();
+    let stored = |material, form, grams_mg| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(grams_mg),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    // The first-created den parcel is the precious item. Stable ID order
+    // alone must not decide which physical stock is thrown onto the junction.
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            stored(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 300_000),
+            stored(MATERIAL_STONE, FORM_CHIP, 180_000),
+            stored(MATERIAL_STONE, FORM_CHIP, 20_000),
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..11 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(state.tick(), SimulationTick::new(590));
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), den);
+    assert_eq!(state.surface().get(ids[1]).unwrap().position(), den);
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().position(),
+        junction,
+        "the scout must sacrifice the smallest eligible raw parcel, not the earliest ID"
+    );
+    assert_eq!(
+        state.surface().get(ids[3]).unwrap().remaining_mass(),
+        Mass::from_milligrams(280_000),
+        "new den capacity physically limits the next forage to exactly one ration",
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000,
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn complete_ration_takes_priority_over_preserving_a_valuable_cache() {
+    use crate::content::{FORM_ELECTRICAL_WINDING, MATERIAL_COPPER};
+
+    let (registries, mut state, [den, junction, _, _]) = setup();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                den,
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(10_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_STONE),
+            )
+            .unwrap(),
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                den,
+                CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+                Mass::from_milligrams(490_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_COPPER),
+            )
+            .unwrap(),
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().position(),
+        den,
+        "ten grams of cheap scrap cannot free a complete twenty-gram meal"
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().position(),
+        junction,
+        "survival takes precedence if only precious custody can fit one meal"
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(490_000),
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn guarded_den_approach_blocks_cache_disposal_without_changing_real_supply() {
     let (registries, mut guarded, [den, junction, _, side]) = setup();
     let creation = validate_create_surface_resources(
