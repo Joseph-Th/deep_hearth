@@ -51,6 +51,214 @@ fn ration_mass(
 }
 
 #[test]
+fn bright_den_holds_a_calm_guard_but_does_not_trap_one_already_in_bright_light() {
+    use crate::content::{
+        BLOCK_STATE_STONE, CAMPFIRE_CHIP_FUEL_MASS, CAMPFIRE_FUEL_MASS, ENERGY_ELECTRICAL_BUFFER,
+        ENERGY_STONE_RING_CAMPFIRE, FORM_CHIP, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD,
+        build_registries,
+    };
+    use crate::core::quantity::Energy;
+    use crate::energy::{
+        add_energy_store_with_initial_for_fixture, assess_local_illumination,
+        validate_assemble_energy_store, validate_combust_selected_fuel,
+    };
+    use crate::inventory::deposit_bulk_for_test;
+    use crate::logistics::{add_traversable_edge_for_test, place_energy_store_for_fixture};
+    use crate::surface::SurfaceResourceId;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut starting = crate::core::state::AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(0, 0, 1);
+    let withdraw_to = VoxelCoord::new(4, 0, 0);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut starting, from, to);
+    }
+    starting
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    for position in [den, junction] {
+        validate_generate_chunk(
+            &registries,
+            &starting,
+            WorldGenerationSeed::new(7),
+            ChunkCoord::containing(position),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut starting)
+        .unwrap();
+    }
+    for position in [den, junction, tip, withdraw_to] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut starting,
+            VoxelCoord::new(position.x(), -1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut starting,
+                VoxelCoord::new(position.x(), y, position.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let machine = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut starting,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut starting, machine, junction);
+    advance_to(&registries, &mut starting, 195);
+    let food: SurfaceResourceId = ration(&registries, &mut starting, den);
+    advance_to(&registries, &mut starting, 200);
+    assert_eq!(
+        starting
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        junction,
+        "a locally reported machine and a real 20 g ration fund the guard"
+    );
+    let ignite = |state: &mut crate::core::state::AppState,
+                  at: VoxelCoord,
+                  fuel_form,
+                  fuel_mass| {
+        validate_admit_player(&registries, state, at)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+        let carried = state.logistics().player().unwrap().carried_stockpile();
+        for (commodity, mass) in [
+            (
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(1_000_000),
+            ),
+            (CommodityKey::new(MATERIAL_WOOD, fuel_form), fuel_mass),
+        ] {
+            deposit_bulk_for_test(&registries, state, carried, commodity, mass).unwrap();
+        }
+        let fire =
+            validate_assemble_energy_store(&registries, state, ENERGY_STONE_RING_CAMPFIRE, carried)
+                .unwrap()
+                .commit(state)
+                .unwrap();
+        validate_combust_selected_fuel(
+            &registries,
+            state,
+            fire,
+            carried,
+            CommodityKey::new(MATERIAL_WOOD, fuel_form),
+        )
+        .unwrap()
+        .commit(state)
+        .unwrap();
+        relocate_player_for_test(state, withdraw_to);
+    };
+    let mut fleeing = starting.clone();
+    ignite(&mut fleeing, junction, FORM_LOG, CAMPFIRE_FUEL_MASS);
+    let mut waiting = starting.clone();
+    ignite(&mut waiting, den, FORM_CHIP, CAMPFIRE_CHIP_FUEL_MASS);
+    let fleeing_total = calculate_matter_accounting(&fleeing).unwrap().total();
+    let waiting_total = calculate_matter_accounting(&waiting).unwrap().total();
+    let mut occupied = fleeing.clone();
+    relocate_player_for_test(&mut occupied, den);
+    assert!(
+        assess_local_illumination(&registries, &fleeing, junction).level() >= 3
+            && assess_local_illumination(&registries, &fleeing, den).level() >= 3
+    );
+    assert!(
+        assess_local_illumination(&registries, &waiting, junction).level() < 3
+            && assess_local_illumination(&registries, &waiting, den).level() >= 3
+    );
+
+    advance_to(&registries, &mut fleeing, 205);
+    assert_eq!(
+        fleeing
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        den,
+        "a threatened guard must be able to flee through a lit home edge"
+    );
+    assert_eq!(
+        fleeing
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_tracks
+            .last()
+            .unwrap()
+            .observed_activity(),
+        crate::kobolds::KoboldTrailKind::Fleeing
+    );
+    advance_to(&registries, &mut occupied, 205);
+    let blocked_guard = occupied.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(
+        blocked_guard.watch_position(),
+        junction,
+        "emergency retreat must not override physical player occupancy"
+    );
+    assert!(blocked_guard.watch_deployed_at.is_some());
+    assert!(blocked_guard.watch_alarm_pending);
+    advance_to(&registries, &mut waiting, 220);
+    assert_eq!(
+        waiting
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        junction,
+        "a calm sentry must still refuse a destination guarded by bright light"
+    );
+    assert_eq!(
+        waiting.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000),
+        "blocked return and urgent flight both spend no new ration"
+    );
+
+    for (state, conserved) in [
+        (&mut fleeing, fleeing_total),
+        (&mut waiting, waiting_total),
+        (&mut occupied, fleeing_total),
+    ] {
+        let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        for _ in 0..10 {
+            assert_eq!(
+                crate::simulation::advance_control_tick(&registries, state).unwrap(),
+                crate::simulation::advance_control_tick(&registries, &mut replay).unwrap()
+            );
+        }
+        assert_eq!(*state, replay);
+        assert_eq!(validate_loaded_state(&registries, state), Ok(()));
+        assert_eq!(
+            calculate_matter_accounting(state).unwrap().total(),
+            conserved,
+            "energy and food spent are represented rather than silently lost"
+        );
+    }
+}
+
+#[test]
 fn guarded_home_approach_delays_watchman_warning_until_real_safe_return() {
     let (registries, mut held, route) =
         scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));

@@ -409,6 +409,18 @@ physical return leg completes; only then does the scout receive caution and
 authorize a later rationed counterpatrol. An unguarded matched watchman returns
 on schedule, and the delayed one spends no extra food while waiting. Immediate
 flight from a threat at the current post still takes priority over anticipation.
+The same emergency distinction now applies to finite local firelight: a
+watchman already exposed at its own post can flee one real edge home even if
+the den approach is also bright, instead of remaining stranded by the
+destination-light check. A matched generated-stone encounter uses a physically
+reported electrical store, a real 20 g deployment ration, assembled campfires,
+and canonically combusted timber or woodworking chips. Full-strength light at
+the junction provokes a fleeing footprint and safe return through a lit den;
+a weaker chip fire at the den lights only the destination, so the calm sentry
+waits at its real junction post. If a player occupies the den instead, even a
+frightened sentry cannot pass through that body: its local warning remains
+undelivered. All three branches conserve represented matter, spend no
+unearned second ration, and validate/replay through trusted save/load.
 No new per-control-tick sensing, omniscient colony state, or detached raid
 timer is introduced by these reactions.
 

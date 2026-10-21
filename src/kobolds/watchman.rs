@@ -169,8 +169,13 @@ pub(super) fn apply_watchman_tick(
         // report and its next sortie. Immediate flight from danger already
         // at the sentry's position still takes precedence.
         || (!pressured && scout_sees_guarded_cell(registries, state, guard, destination))
-        || assess_local_illumination(registries, state, destination).level()
-            >= SCOUT_DETERRENT_LIGHT_LEVEL
+        // Anticipating a bright post is useful while calm, but it must not
+        // trap an already frightened sentry on a lit position. Its emergency
+        // return still crosses one real edge; impassable and player-occupied
+        // destinations remain blocked above.
+        || (!pressured
+            && assess_local_illumination(registries, state, destination).level()
+                >= SCOUT_DETERRENT_LIGHT_LEVEL)
     {
         return;
     }
