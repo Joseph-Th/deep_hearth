@@ -17,7 +17,7 @@ pub use outcome::{
 use crate::core::state::{
     AppState, apply_clock_advance, apply_control_clock_advance, debug_assert_runtime_invariants,
 };
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
 use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
 use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
@@ -92,11 +92,49 @@ pub fn advance_control_tick_with_direct_input(
     state: &mut AppState,
     input: PlayerDirectControlInput,
 ) -> Result<ControlTickOutcome, TickError> {
-    let world_revision_before = state.world().revision();
     let current = state.control_tick();
     let next_control = current
         .checked_next()
         .ok_or(TickError::ControlClockExhausted { current })?;
+    // The slow boundary settles work and survival before accepting the final input.
+    // Normally that subsequent body decision is infallible for validated gameplay
+    // state. At exhaustion or a mutable work boundary, however, it can reject
+    // after the slow owners have committed. Isolate only these exceptional steps
+    // so an error cannot leave the caller with a partially advanced simulation.
+    if next_control.is_simulation_boundary()
+        && boundary_body_motion_needs_transaction(registries, state, input)
+    {
+        let mut staged = state.clone();
+        let outcome = advance_control_tick_unstaged(registries, &mut staged, input, next_control)?;
+        *state = staged;
+        return Ok(outcome);
+    }
+    advance_control_tick_unstaged(registries, state, input, next_control)
+}
+
+fn boundary_body_motion_needs_transaction(
+    registries: &Registries,
+    state: &AppState,
+    input: PlayerDirectControlInput,
+) -> bool {
+    if !player_body_uses_generated_world(state, registries.survival().physiology().locomotion()) {
+        return false;
+    }
+    !state.can_spend_logistics_revisions(1)
+        || (state.player_work().active().is_some()
+            && input.movement() != PlayerControlInput::NEUTRAL)
+        || decide_player_body_motion(registries, state, input.movement(), true).is_err()
+}
+
+/// Executes the already-admitted control step; the caller guards exceptional
+/// boundary movement with a staging copy before this may commit slow owners.
+fn advance_control_tick_unstaged(
+    registries: &Registries,
+    state: &mut AppState,
+    input: PlayerDirectControlInput,
+    next_control: ControlTick,
+) -> Result<ControlTickOutcome, TickError> {
+    let world_revision_before = state.world().revision();
     if next_control.simulation_tick() == state.tick() {
         let body_plan = decide_player_body_motion(registries, state, input.movement(), false)
             .map_err(TickError::PlayerBodyMotion)?;

@@ -1792,6 +1792,129 @@ fn clock_exhaustion_leaves_state_unchanged() {
 }
 
 #[test]
+fn exhausted_logistics_revision_rejects_boundary_motion_without_committing_slow_tick() {
+    let (registries, mut state, _) = generated_grounded_player_at(0, 0);
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("boundary-motion setup failed: {error}"));
+    }
+    assert_eq!(
+        state.control_tick().value(),
+        CONTROL_TICKS_PER_SIMULATION_TICK - 1
+    );
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("boundary-motion save encoding failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("boundary-motion save decoding failed: {error}"));
+    state = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("boundary-motion exhausted save invalid: {error}"));
+    let before = state.clone();
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("boundary-motion control invalid: {error}")),
+    );
+    assert_eq!(
+        advance_control_tick_with_input(&registries, &mut state, input),
+        Err(TickError::PlayerBodyMotion(
+            crate::logistics::PlayerBodyMotionError::LogisticsRevisionExhausted
+        ))
+    );
+    assert_eq!(
+        state, before,
+        "an error must not commit survival, work or clock advancement"
+    );
+    // Exhausted logistics may still simulate a fully neutral interval; it
+    // must not permanently freeze independent survival and production owners.
+    let neutral = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("neutral boundary should remain admissible: {error}"));
+    assert_eq!(
+        neutral.simulation().map(TickOutcome::tick),
+        Some(SimulationTick::new(1))
+    );
+    assert_eq!(state.logistics().revision(), u64::MAX);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn exhausted_logistics_revision_preserves_due_gathering_on_boundary_motion_error() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let resource = crate::surface::insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        crate::surface::SurfaceResourceSpec::new(
+            crate::surface::SurfaceResourceKind::Opportunity,
+            VoxelCoord::new(0, floor_y, 0),
+            CommodityKey::new(crate::content::MATERIAL_STONE, crate::content::FORM_CHIP),
+            Mass::from_milligrams(50_000),
+            Temperature::from_millikelvin(293_150),
+            crate::material::MaterialComposition::pure(crate::content::MATERIAL_STONE),
+        )
+        .unwrap_or_else(|error| panic!("boundary-gathering surface fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("boundary-gathering surface insertion failed: {error}"));
+    crate::surface::validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        crate::content::SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+        resource,
+        Mass::from_milligrams(50_000),
+    )
+    .unwrap_or_else(|error| panic!("boundary-gathering work admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("boundary-gathering work commit failed: {error}"));
+    assert!(matches!(
+        state.player_work().active(),
+        Some(PlayerWork::SurfaceGathering { work }) if work.completes_at() == SimulationTick::new(1)
+    ));
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("boundary-gathering setup step failed: {error}"));
+    }
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("boundary-gathering save encoding failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("boundary-gathering save decoding failed: {error}"));
+    let mut state = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("boundary-gathering trusted load failed: {error}"));
+    let before = state.clone();
+    let input = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("boundary-gathering control invalid: {error}")),
+    );
+    assert_eq!(
+        advance_control_tick_with_input(&registries, &mut state, input),
+        Err(TickError::PlayerBodyMotion(
+            crate::logistics::PlayerBodyMotionError::LogisticsRevisionExhausted
+        ))
+    );
+    assert_eq!(
+        state, before,
+        "the rejected control must not gather the source or release reserved work"
+    );
+    let neutral = advance_control_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("neutral due-gathering step failed: {error}"));
+    assert_eq!(
+        neutral
+            .simulation()
+            .and_then(TickOutcome::surface_gathering)
+            .map(|g| g.resource()),
+        Some(resource)
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn exhausted_survival_revision_reloaded_from_save_rejects_tick_atomically() {
     let registries = build_registries();
     let mut source = AppState::new();
