@@ -164,7 +164,11 @@ pub(super) fn apply_watchman_tick(
     };
     if !scout_can_enter(registries, state, destination, player)
         || (destination != den && scout_position == destination)
-        || (destination != den && scout_sees_guarded_cell(registries, state, guard, destination))
+        // Coming home is a real physical step too. A player watching the den
+        // entrance can hold a calm sentry at its post, delaying both the
+        // report and its next sortie. Immediate flight from danger already
+        // at the sentry's position still takes precedence.
+        || (!pressured && scout_sees_guarded_cell(registries, state, guard, destination))
         || assess_local_illumination(registries, state, destination).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL
     {

@@ -384,6 +384,14 @@ anticipatory deterrence; a player hidden by an opaque corner cannot freeze an
 otherwise provisioned outer picket. A matched generated-terrain watch encounter
 checks both sides of that corner after the guard's real den warning and second
 food-funded departure.
+The same sight-bound rule now applies when a calm watchman tries to return to
+its den. A player visibly guarding the entrance from beyond the guard's direct
+fear radius can delay that actual return and the resident's pending report.
+The warning remains with the watchman until the player withdraws and its
+physical return leg completes; only then does the scout receive caution and
+authorize a later rationed counterpatrol. An unguarded matched watchman returns
+on schedule, and the delayed one spends no extra food while waiting. Immediate
+flight from a threat at the current post still takes priority over anticipation.
 No new per-control-tick sensing, omniscient colony state, or detached raid
 timer is introduced by these reactions.
 

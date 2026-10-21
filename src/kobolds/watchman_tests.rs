@@ -51,6 +51,140 @@ fn ration_mass(
 }
 
 #[test]
+fn guarded_home_approach_delays_watchman_warning_until_real_safe_return() {
+    let (registries, mut held, route) =
+        scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut held, 195);
+    let ration = ration(&registries, &mut held, route[0]);
+    let conserved = calculate_matter_accounting(&held).unwrap().total();
+    advance_to(&registries, &mut held, 200);
+    assert_eq!(
+        held.kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[1]
+    );
+    let mut unguarded = held.clone();
+    // The player stands two cells behind the active junction watchman: close
+    // enough to see it and guard the den, but not close enough to frighten
+    // the guard at its current position.
+    let observer = VoxelCoord::new(route[0].x() - 1, route[0].y(), route[0].z());
+    validate_admit_player(&registries, &held, observer)
+        .unwrap()
+        .commit(&mut held)
+        .unwrap();
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &held,
+        route[1]
+    ));
+    assert!(crate::kobolds::patrol::scout_sees_guarded_cell(
+        &registries,
+        &held,
+        route[1],
+        route[0]
+    ));
+    advance_to(&registries, &mut held, 220);
+    advance_to(&registries, &mut unguarded, 220);
+    let waiting = held.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(waiting.watch_position(), route[1]);
+    assert!(waiting.watch_deployed_at.is_some());
+    assert!(waiting.watch_alarm_pending);
+    assert!(!waiting.watch_counterpatrol_pending);
+    assert_eq!(
+        unguarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[0],
+        "the identical provisioned patrol returns on time if the den is unguarded"
+    );
+    assert_eq!(
+        held.surface().get(ration).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000),
+        "waiting does not consume additional watch rations"
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &held)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for state in [&mut held, &mut replay] {
+        relocate_player_for_test(state, VoxelCoord::new(30, 0, 30));
+    }
+    advance_to(&registries, &mut held, 225);
+    advance_to(&registries, &mut replay, 225);
+    assert_eq!(held, replay);
+    let returned = held.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(returned.watch_position(), route[0]);
+    assert!(returned.watch_deployed_at.is_none());
+    assert!(!returned.watch_alarm_pending);
+    assert!(returned.watch_counterpatrol_pending);
+    assert!(
+        returned.wary_until.is_some(),
+        "the warning reaches the scout only after the same watchman actually gets home"
+    );
+    assert_eq!(
+        held.surface().get(ration).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&held).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &held), Ok(()));
+}
+
+#[test]
+fn directly_frightened_watchman_can_still_flee_home_on_a_real_route_edge() {
+    let (registries, mut threatened, route) =
+        scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut threatened, 195);
+    let food = ration(&registries, &mut threatened, route[0]);
+    let conserved = calculate_matter_accounting(&threatened).unwrap().total();
+    advance_to(&registries, &mut threatened, 200);
+    validate_admit_player(&registries, &threatened, route[2])
+        .unwrap()
+        .commit(&mut threatened)
+        .unwrap();
+    assert!(crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &threatened,
+        route[1]
+    ));
+    assert!(crate::kobolds::patrol::scout_sees_guarded_cell(
+        &registries,
+        &threatened,
+        route[1],
+        route[0]
+    ));
+    advance_to(&registries, &mut threatened, 205);
+    let colony = threatened.kobold_state().colony.as_ref().unwrap();
+    assert!(colony.watch_deployed_at.is_none());
+    assert_eq!(colony.watch_position(), route[0]);
+    assert_eq!(
+        colony.watch_tracks.last().unwrap().observed_activity(),
+        crate::kobolds::KoboldTrailKind::Fleeing
+    );
+    assert!(colony.watch_counterpatrol_pending);
+    assert_eq!(
+        threatened.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000),
+        "fleeing consumes no additional food"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&threatened).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &threatened), Ok(()));
+}
+
+#[test]
 fn watchman_is_an_opening_den_resident_but_only_organizes_after_report_and_a_full_meal() {
     let (registries, mut alerted, route) =
         scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
