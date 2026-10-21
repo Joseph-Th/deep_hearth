@@ -1,7 +1,80 @@
 //! Reclaiming a full finite kobold den opens capacity for future scavenging.
 use super::*;
 
+use deep_hearth::logistics::project_player_walk_path;
 use deep_hearth::surface::{available_adjacent_surface_resources, available_player_world_drops};
+use std::collections::{BTreeSet, VecDeque};
+
+fn distance_from_clearing(position: VoxelCoord, clearing: VoxelCoord) -> u64 {
+    position
+        .x()
+        .abs_diff(clearing.x())
+        .max(position.z().abs_diff(clearing.z()))
+}
+
+/// Walk beyond the visible foraging clearing using only walkable adjacent-body projections.
+/// The actor cannot use the hidden den/route as a navigation oracle. This also exercises
+/// off-graph world exploration rather than treating the authored opening edges as walls.
+fn find_unattended_observation_camp(
+    registries: &Registries,
+    state: &mut AppState,
+    source: VoxelCoord,
+    water: VoxelCoord,
+    clay: VoxelCoord,
+) -> Vec<VoxelCoord> {
+    let mut path = vec![water, clay];
+    if distance_from_clearing(clay, source) >= 3 {
+        return path;
+    }
+    // A ridge may block every directly outward step despite a short, walkable detour.
+    // Discover reachable same-height cells with the production locomotion projection;
+    // do not inspect generated terrain blocks or derive a route from hidden scout state.
+    let mut pending = VecDeque::from([Vec::<VoxelCoord>::new()]);
+    let mut observed = BTreeSet::from([clay]);
+    let mut chosen = None;
+    while let Some(steps) = pending.pop_front() {
+        if steps.len() >= 5 {
+            continue;
+        }
+        let position = steps.last().copied().unwrap_or(clay);
+        for (dx, dz) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
+            let (Some(x), Some(z)) = (position.x().checked_add(dx), position.z().checked_add(dz))
+            else {
+                continue;
+            };
+            let next = VoxelCoord::new(x, clay.y(), z);
+            if observed.contains(&next) {
+                continue;
+            }
+            let mut next_steps = steps.clone();
+            next_steps.push(next);
+            if project_player_walk_path(registries, state, &next_steps).is_err() {
+                continue;
+            }
+            observed.insert(next);
+            if distance_from_clearing(next, source) >= 3 {
+                chosen = Some(next_steps);
+                break;
+            }
+            pending.push_back(next_steps);
+        }
+        if chosen.is_some() {
+            break;
+        }
+    }
+    let chosen =
+        chosen.expect("the generated opening needs a reachable off-trail observation camp");
+    for next in chosen {
+        walk_continuous_body_adjacent_and_settle(
+            registries,
+            state,
+            next,
+            "leave the scavenger patrol's immediate vicinity",
+        );
+        path.push(next);
+    }
+    path
+}
 
 pub(super) fn exercise_kobold_den_cache(print: bool) {
     let registries = build_registries();
@@ -45,12 +118,35 @@ pub(super) fn exercise_kobold_den_cache(print: bool) {
         berry,
         "den raid withdraw from fork",
     );
+    // Merely reaching the original spawn need not leave a foraging patch unattended:
+    // the opening path can bend, leaving the player diagonally next to the scout.
+    // Withdraw toward the observed water branch and its clay continuation instead.
+    let water = state
+        .available_adjacent_traversal_destinations()
+        .find(|position| *position != fork && *position != spawn)
+        .expect("forage crossing must disclose the alternative water branch");
     walk_continuous_body_adjacent_and_settle(
         &registries,
         &mut state,
-        spawn,
-        "den raid leave source unattended",
+        water,
+        "den raid withdraw beyond the immediate scout clearing",
     );
+    let clay = state
+        .available_adjacent_traversal_destinations()
+        .find(|position| *position != berry)
+        .expect("water branch must disclose its further clay outcrop");
+    assert!(
+        fork.x().abs_diff(clay.x()) > 1 || fork.z().abs_diff(clay.z()) > 1,
+        "the observation camp must not inadvertently guard the forage source"
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        clay,
+        "den raid leave the scout's clearing unguarded",
+    );
+    let retreat = find_unattended_observation_camp(&registries, &mut state, fork, water, clay);
+    let unguarded_from = state.tick().value();
     // More than five successful six-minute forage intervals pass. The scout
     // remains finite even though the observed natural source still has food.
     advance_to(
@@ -60,6 +156,14 @@ pub(super) fn exercise_kobold_den_cache(print: bool) {
         TickEventAllowance::default(),
         "den cache fills during unattended patrol",
     );
+    for &destination in retreat.iter().rev().skip(1) {
+        walk_continuous_body_adjacent_and_settle(
+            &registries,
+            &mut state,
+            destination,
+            "den raid return from the off-trail observation camp",
+        );
+    }
     walk_continuous_body_adjacent_and_settle(
         &registries,
         &mut state,
@@ -134,20 +238,30 @@ pub(super) fn exercise_kobold_den_cache(print: bool) {
         berry,
         "withdraw toward original spawn",
     );
-    walk_continuous_body_adjacent_and_settle(
-        &registries,
-        &mut state,
-        spawn,
-        "let scout forage after raid",
-    );
+    for &destination in &retreat {
+        walk_continuous_body_adjacent_and_settle(
+            &registries,
+            &mut state,
+            destination,
+            "leave the emptied den unguarded on the observed route",
+        );
+    }
     let withdrawn_at = state.tick().value();
     advance_to(
         &registries,
         &mut state,
-        SimulationTick::new(withdrawn_at + 30),
+        SimulationTick::new(withdrawn_at + 50),
         TickEventAllowance::default(),
         "den reopens after player removes its cache",
     );
+    for &destination in retreat.iter().rev().skip(1) {
+        walk_continuous_body_adjacent_and_settle(
+            &registries,
+            &mut state,
+            destination,
+            "return from the off-trail observation camp",
+        );
+    }
     walk_continuous_body_adjacent_and_settle(
         &registries,
         &mut state,
@@ -177,8 +291,12 @@ pub(super) fn exercise_kobold_den_cache(print: bool) {
 
     if print {
         std::println!(
-            "PLAYER JOURNEY seed=0x{:016X} episode=coverage/rested/scavenger-den phase=raid-full-den observed=[source:{}mg reduced-to:{}mg cache:{}mg] choice=[recover-cache:ordinary-pickup] consequence=[carried:{}mg source-further-depleted:{}mg] matter-conserved=true world=ordinary-generated-opening",
+            "PLAYER JOURNEY seed=0x{:016X} episode=coverage/rested/scavenger-den phase=raid-full-den observation-camp=[recorded-route:{}legs off-graph:{}legs separation:{}voxels passive:{}t] observed=[source:{}mg reduced-to:{}mg cache:{}mg] choice=[recover-cache:ordinary-pickup] consequence=[carried:{}mg source-further-depleted:{}mg] matter-conserved=true world=ordinary-generated-opening",
             seed.value(),
+            retreat.len(),
+            retreat.len() - 2,
+            distance_from_clearing(*retreat.last().unwrap(), fork),
+            815 - unguarded_from,
             initial.milligrams(),
             remaining_when_full.milligrams(),
             hoard.milligrams(),

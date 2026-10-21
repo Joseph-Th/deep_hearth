@@ -10,7 +10,6 @@ use crate::spatial::VoxelCoord;
 use super::feeding::consume_den_meal;
 use super::patrol::{living_player_deters_scout, scout_can_enter};
 use super::tracks::KoboldTrailKind;
-use super::visibility::scout_visible_from;
 use super::{
     FIRST_SCOUT_TICK, KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_STEP_TICKS,
     SCOUT_WARY_INTERVAL_TICKS, WATCH_DURATION_TICKS, WATCH_RECOVERY_TICKS,
@@ -134,10 +133,9 @@ pub(super) fn apply_watchman_tick(
     let den = colony.route[0];
     let guard = colony.watch_position();
     let player = state.logistics().player().map(|record| record.position());
-    let player_seen = colony.watch_deployed_at.is_some()
-        && living_player_deters_scout(state, guard)
-        && player.is_some_and(|position| scout_visible_from(registries, state, guard, position));
-    let pressured = living_player_deters_scout(state, guard)
+    let player_nearby = living_player_deters_scout(registries, state, guard);
+    let player_seen = colony.watch_deployed_at.is_some() && player_nearby;
+    let pressured = player_nearby
         || assess_local_illumination(registries, state, guard).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
     let next = plan_watch_step(colony, at, pressured);
@@ -156,7 +154,7 @@ pub(super) fn apply_watchman_tick(
     };
     if !scout_can_enter(registries, state, destination, player)
         || (destination != den && scout_position == destination)
-        || (destination != den && living_player_deters_scout(state, destination))
+        || (destination != den && living_player_deters_scout(registries, state, destination))
         || assess_local_illumination(registries, state, destination).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL
     {

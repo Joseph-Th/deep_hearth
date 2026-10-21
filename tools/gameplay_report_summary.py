@@ -13,7 +13,10 @@ from tools.gameplay_summary.foundry_bootstrap import foundry_bootstrap_summary
 from tools.gameplay_summary.liberation import liberation_summary
 from tools.gameplay_summary.loop import player_loop_evidence
 from tools.gameplay_summary.player_experience import (
+    fieldwork_exact_local_player_experience,
     fieldwork_player_experience,
+    scavenger_den_player_experience,
+    settlement_portfolio_player_experience,
     wilderness_player_experience,
 )
 from tools.gameplay_summary.power import power_provider_summary
@@ -793,27 +796,36 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
                         f"protein:{(offered_protein + 5_000) // 10_000}%]"
                     )
                     break
-    selected.extend(ordinary_digests)
-    # Outcome totals conceal the lived cost of a wrong but rational decision. Show the
-    # maintained expedition's observation, capital commitment, delayed output, and response
-    # next to its aggregate fieldwork metrics, without treating it as a representative seed.
+    # Lead with witnessed choices and realized consequences. A long aggregate scorecard
+    # should support the player story, not make the reader hunt for it after thousands of
+    # characters of counters. Keep separate physical and proxy actors unmistakable.
     if any(digest.startswith("GAMEPLAY fieldwork") for digest in ordinary_digests):
         expedition = fieldwork_player_experience(lines)
         if expedition is not None:
             selected.append(expedition)
+        local_expedition = fieldwork_exact_local_player_experience(lines)
+        if local_expedition is not None:
+            selected.append(local_expedition)
     # Keep one lived, need-triggered adaptation alongside the opening digest. Aggregate choice
     # counts cannot show whether an initially sensible restraint can later become useful action.
     if any(digest.startswith("GAMEPLAY wilderness ") for digest in ordinary_digests):
         opening = wilderness_player_experience(lines)
         if opening is not None:
             selected.append(opening)
+        scavenger_den = scavenger_den_player_experience(lines)
+        if scavenger_den is not None:
+            selected.append(scavenger_den)
         if scoped_ordinary and nutrition_witness is not None:
             selected.append(nutrition_witness)
         if scoped_ordinary and casting_bed_witness is not None:
             selected.append(casting_bed_witness)
-        selected.extend(
-            line for line in lines if line.startswith("PLAYER ADAPTATION opening=stay-mobile ")
-        )
+        # The continued need and matched early-preparation tradeoff are folded into the
+        # single maintained player's experience above. Do not duplicate the verbose record.
+    if any(digest.startswith("GAMEPLAY settlement ") for digest in ordinary_digests):
+        portfolio = settlement_portfolio_player_experience(lines)
+        if portfolio is not None:
+            selected.append(portfolio)
+    selected.extend(ordinary_digests)
     # The player-loop digest is cross-system evidence. A scoped report intentionally omits
     # unrelated probe families, so synthesizing the loop from partial evidence would fill it with
     # misleading zero/n/a sections. Emit it only when every ordinary probe family is present.

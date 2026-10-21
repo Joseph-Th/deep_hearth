@@ -40,6 +40,65 @@ fn generated_opening() -> (crate::Registries, AppState, VoxelCoord) {
     (registries, state, spawn)
 }
 
+#[test]
+fn player_guards_diagonal_clearing_but_cannot_deter_through_an_opaque_corner() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, set_generated_block_for_test, validate_generate_chunk,
+    };
+
+    let (registries, mut state, _) = generated_opening();
+    let scout = colony(&state).route[1];
+    let observer = VoxelCoord::new(scout.x() + 1, scout.y(), scout.z() + 1);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x4B4F_424F_4C44),
+        ChunkCoord::containing(scout),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let x_corner = VoxelCoord::new(observer.x(), scout.y(), scout.z());
+    let z_corner = VoxelCoord::new(scout.x(), scout.y(), observer.z());
+    for position in [scout, observer, x_corner, z_corner] {
+        for y in position.y()..=position.y() + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(position.x(), y, position.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    validate_admit_player(&registries, &state, observer)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(super::patrol::living_player_deters_scout(
+        &registries,
+        &state,
+        scout
+    ));
+
+    set_generated_block_for_test(registries.world(), &mut state, x_corner, BLOCK_STATE_STONE);
+    assert!(
+        !super::patrol::living_player_deters_scout(&registries, &state, scout),
+        "a player hidden behind a real opaque corner must not intimidate a scout"
+    );
+    set_generated_block_for_test(registries.world(), &mut state, x_corner, BlockStateId::AIR);
+    assert!(super::patrol::living_player_deters_scout(
+        &registries,
+        &state,
+        scout
+    ));
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
 /// Gather every locally observed nut through the same player work owner used
 /// in gameplay. The real remaining surface source, not a flag on the scout,
 /// then drives its decision to seek the neighboring berry opportunity.
@@ -107,8 +166,9 @@ fn exhaust_junction_nuts(
             "authoritative surface gathering must finish before the scout arrives"
         );
     }
-    // Clay lies two graph edges from forage and three from the junction, so
-    // relocation in this owner test cannot intimidate either scout leg.
+    // Graph distance is not physical proximity: clay may be diagonally adjacent
+    // to the scout's clearing. Owner-level setup must put the observer beyond the
+    // actual local fear radius for a test of unguarded foraging.
     let water = state
         .logistics()
         .traversable_destinations(forage)
@@ -129,7 +189,10 @@ fn exhaust_junction_nuts(
         .traversable_destinations(water)
         .find(|position| *position != forage)
         .unwrap();
-    crate::logistics::relocate_player_for_test(state, clay);
+    crate::logistics::relocate_player_for_test(
+        state,
+        VoxelCoord::new(clay.x() + 4, clay.y(), clay.z() + 4),
+    );
     (junction, forage, source)
 }
 
@@ -1297,7 +1360,7 @@ fn spoiled_den_food_is_discarded_on_a_real_edge_and_not_raided_again() {
 fn nearby_player_can_observe_den_feeding_without_revealing_remote_inventory() {
     let (registries, mut state, _) = generated_opening();
     advance_to_tick(&registries, &mut state, 579);
-    let [den, _, tip] = colony(&state).route;
+    let [den, junction, _] = colony(&state).route;
     let available = state
         .surface()
         .available_resources_at(Some(den))
@@ -1308,14 +1371,26 @@ fn nearby_player_can_observe_den_feeding_without_revealing_remote_inventory() {
         .unwrap();
     let source = available.id();
     let original = available.remaining_mass();
-    validate_admit_player(&registries, &state, tip)
+    // The player can still see the two-voxel-away den without standing close
+    // enough to stop its meal, unlike the former diagonally adjacent route tip.
+    let observer = VoxelCoord::new(
+        junction.x() + (junction.x() - den.x()),
+        den.y(),
+        junction.z() + (junction.z() - den.z()),
+    );
+    validate_admit_player(&registries, &state, observer)
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    assert!(!super::patrol::living_player_deters_scout(
+        &registries,
+        &state,
+        den
+    ));
     let event = advance_tick(&registries, &mut state)
         .unwrap()
         .kobold_scout()
-        .expect("the scout is locally visible from the patrol tip");
+        .expect("the scout is visible beyond the den guarding radius");
     assert_eq!(
         event.consumed_food(),
         Some((source, Mass::from_milligrams(20_000)))

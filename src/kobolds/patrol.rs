@@ -169,20 +169,25 @@ pub(super) fn scout_can_enter(
                 .has_standing_clearance(registries.world(), position))
 }
 
-pub(super) fn living_player_deters_scout(state: &AppState, from: VoxelCoord) -> bool {
-    let near = state.logistics().player().is_some_and(|player| {
-        let position = player.position();
-        from.y() == position.y()
-            && from
-                .x()
-                .abs_diff(position.x())
-                .saturating_add(from.z().abs_diff(position.z()))
-                <= 1
-    });
-    near && state
-        .survival()
-        .player()
-        .is_some_and(|player| player.vitality() != Vitality::ZERO)
+pub(super) fn living_player_deters_scout(
+    registries: &Registries,
+    state: &AppState,
+    from: VoxelCoord,
+) -> bool {
+    let Some(position) = state.logistics().player().map(|player| player.position()) else {
+        return false;
+    };
+    // A diagonal neighbor is physically close enough to guard the same small clearing.
+    // A wall across the corner is not: fear requires a local line of sight, not merely a
+    // nearby player coordinate. Two-cell axial sightings remain outside deterrence range.
+    from.y() == position.y()
+        && from.x().abs_diff(position.x()) <= 1
+        && from.z().abs_diff(position.z()) <= 1
+        && state
+            .survival()
+            .player()
+            .is_some_and(|player| player.vitality() != Vitality::ZERO)
+        && super::visibility::scout_visible_from(registries, state, from, position)
 }
 
 #[derive(Clone, Copy)]
@@ -314,7 +319,7 @@ pub(crate) fn apply_kobold_scout_tick(
         .next_forage_at
         .is_none_or(|due| next_tick >= due);
     let player_position = state.logistics().player().map(|player| player.position());
-    let pressured_by_player = living_player_deters_scout(state, from);
+    let pressured_by_player = living_player_deters_scout(registries, state, from);
     // World-owned opaque blocks and live finite energy stores control this field.
     // Neither player-held torches nor hidden ambient/skylight are invented here.
     let pressured_by_light =

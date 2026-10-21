@@ -3328,6 +3328,102 @@ class GameplayReportContractTests(unittest.TestCase):
                 [*lines, lines[1]]
             )
 
+    def test_lived_wilderness_continuation_distinguishes_actual_fire_from_matched_plan(self) -> None:
+        opening = (
+            "WILDERNESS EXPERIENCE sample=maintained seed=0x1 "
+            "episode=maintained/rested/stay-mobile start=rested goal=stay-mobile "
+            "evidence=generated+exact-local movement=[body:continuous] "
+            "timing=[food-secured:21t/1.3m] "
+            "forage=[secured:500000mg left:5000000mg rest-runway:42.0h] "
+            "carrying=[peak:500000mg capacity:25000000mg] "
+            "water=[decision:defer-hydrated] storage-choice=[selected:defer] "
+            "tool-choice=[selected:defer] material-choice=[selected:defer] warmth=[fire:false]"
+        )
+        adaptation = (
+            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated:179t conditional-on-open-cover] "
+            "trigger=chilly/799000ppm after:179t/10.7m "
+            "reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:3t "
+            "fueled:199t comfort:806000ppm no-fire:776000ppm] "
+            "planned=[start:158t fueled:178t comfort:963500ppm "
+            "fire-runway:1087t vs-reactive:1108t]"
+        )
+        experienced = gameplay_report_summary.wilderness_player_experience([opening, adaptation])
+        assert experienced is not None
+        self.assertIn("fire:not-yet-built", experienced)
+        self.assertIn("continuation=[chilly-after:10.7m reacted:built-fire-at-199t", experienced)
+        self.assertIn("alternative=[matched-early-fire-at:178t", experienced)
+        self.assertIn("fuel-runway:1087t-vs-late:1108t", experienced)
+        self.assertNotIn("continuation=", gameplay_report_summary.wilderness_player_experience([opening]))
+        with self.assertRaisesRegex(ValueError, "duplicate PLAYER ADAPTATION"):
+            gameplay_report_summary.wilderness_player_experience([opening, adaptation, adaptation])
+        with self.assertRaisesRegex(ValueError, "warmth and finite-fuel tradeoff"):
+            gameplay_report_summary.wilderness_player_experience([
+                opening, adaptation.replace("comfort:963500ppm", "comfort:700000ppm"),
+            ])
+
+    def test_lived_field_expedition_never_inherits_proxy_actor_or_hidden_reserves(self) -> None:
+        expedition = (
+            "FIELDWORK EXPEDITION evidence=ordinary-exact-local "
+            "route=[body:continuous-generated-terrain edges:12 barren-sites:1 target-distance:2 haul-trips:2] "
+            "survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:40000000..45000000mg] "
+            "extraction=[order:30000000mg batches:60 ticks:292 complete:true] "
+            "haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg] "
+            "cache=[returned:30000000mg tool-dropped:true] matter=conserved"
+        )
+        summary = gameplay_report_summary.fieldwork_exact_local_player_experience([
+            "FIELDWORK FIXTURE DIAGNOSTIC initial-reserve=1000mg", expedition,
+        ])
+        assert summary is not None
+        self.assertIn("continuity=separate-generated-world", summary)
+        self.assertIn("barren-sites:1", summary)
+        self.assertIn("walked-edges:12 mined-batches:60 work:292t haul-trips:2", summary)
+        self.assertIn("recovered:30.00kg", summary)
+        self.assertNotIn("initial-reserve", summary)
+        with self.assertRaisesRegex(ValueError, "complete recovered delivery"):
+            gameplay_report_summary.fieldwork_exact_local_player_experience([
+                expedition.replace("returned:30000000mg", "returned:20000000mg"),
+            ])
+        with self.assertRaisesRegex(ValueError, "duplicate FIELDWORK EXPEDITION"):
+            gameplay_report_summary.fieldwork_exact_local_player_experience([expedition, expedition])
+
+    def test_lived_settlement_portfolio_does_not_count_idle_delegated_time_as_player_work(self) -> None:
+        portfolio = (
+            "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle "
+            "shared-bank=timber-frame-flywheel families=5 productive-batches=160 "
+            "charge-events=10 charge-attention=112t "
+            "parallel-maintenance=[component:stone-drill-bit attention:12t overlap:12t completed:true] "
+            "delegated=935t elapsed=1047t matter=conserved"
+        )
+        summary = gameplay_report_summary.settlement_portfolio_player_experience([portfolio])
+        assert summary is not None
+        self.assertIn("charge-labor:112t delegated:935t", summary)
+        self.assertIn("proved-parallel-work=[stone-drill-bit:12t]", summary)
+        self.assertIn("unobserved-freed-time=923t", summary)
+        with self.assertRaisesRegex(ValueError, "unexecuted parallel player work"):
+            gameplay_report_summary.settlement_portfolio_player_experience([
+                portfolio.replace("overlap:12t", "overlap:20t"),
+            ])
+
+    def test_scavenger_den_player_journey_reports_walked_retreat_and_real_recovery(self) -> None:
+        journey = (
+            "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-den "
+            "phase=raid-full-den "
+            "observation-camp=[recorded-route:4legs off-graph:2legs separation:3voxels passive:580t] "
+            "observed=[source:835922mg reduced-to:315922mg cache:500000mg] "
+            "choice=[recover-cache:ordinary-pickup] "
+            "consequence=[carried:500000mg source-further-depleted:100000mg] "
+            "matter-conserved=true world=ordinary-generated-opening"
+        )
+        played = gameplay_report_summary.scavenger_den_player_experience([journey])
+        assert played is not None
+        self.assertIn("retreat:4legs off-graph:2legs separation:3voxels", played)
+        self.assertIn("unattended:580t source:0.84kg->0.32kg", played)
+        self.assertIn("den:0.50kg renewed-foraging:0.10kg", played)
+        with self.assertRaisesRegex(ValueError, "meaningful world feedback"):
+            gameplay_report_summary.scavenger_den_player_experience([
+                journey.replace("separation:3voxels", "separation:1voxels"),
+            ])
+
     def test_default_gameplay_report_keeps_compact_semantic_summaries_only(self) -> None:
         lines = [
             "SIMULATION TIME physical-tick-us=3600000",
@@ -3418,7 +3514,6 @@ class GameplayReportContractTests(unittest.TestCase):
             "GAMEPLAY wilderness ",
             "GAMEPLAY wilderness-direct-use ",
             "PLAYER EXPERIENCE wilderness witness=maintained/rested/stay-mobile ",
-            "PLAYER ADAPTATION opening=stay-mobile ",
             "GAMEPLAY fantasy ",
             "GAMEPLAY world-interaction ",
             "GAMEPLAY loop ",

@@ -187,9 +187,17 @@ and tool wear, and report whether the reserve interval actually narrows. Keep th
 branch separate from the original decision. When the narrower upper bound disqualifies the site,
 the alternate actor searches another bounded site. That search may be barren; unexecuted
 extraction never counts as recovered ore.
+The concise report also carries a **separate** generated-world expedition that actually walks
+between survey sites, encounters barren ground, mines an observed reserve, and returns its ore
+through finite player carrying capacity. That expedition is not a continuation of the spatial-proxy
+maintained campaign; its distinct identity avoids attributing simulated search and actual
+transport costs to one fictitious actor.
 Concise reports retain one maintained exact-local wilderness player's first provisions,
 restraint, carried burden, remaining finite sources, and elapsed time. A separately executed
 cold-response continuation shows how that restraint changes when comfort becomes scarce.
+The compact maintained journey includes the later actual campfire intervention and a clearly
+marked matched earlier-preparation alternative, rather than repeating the entire verbose event
+or implying the early fire was built by the actual late-reacting player.
 Neither witness is a population estimate or a guaranteed resource opportunity.
 The generated two-food wilderness meal reports the live fruit and protein nutrition offered
 by its actual carried-stack portions. Broad reports summarize those offers in percentages,
@@ -318,6 +326,20 @@ Normal player pickup reclaims the stone and the same food parcel from the den;
 save/load and matter accounting remain stable. Owner tests also establish that
 a physically nearer inert parcel outranks distant food and that edible bulk
 matter takes priority when neither heavy pile can be carried whole.
+
+Close visible player presence deters a scout or watchman from its present clearing,
+including diagonal adjacency. A generated opaque corner blocks that intimidation;
+distance alone does not disclose the player through terrain. The den-cache experience
+therefore physically withdraws from the guarded area along an actor-observed water/clay
+route, searches a short off-graph route with canonical body-walk projections when terrain
+obstructs direct retreat, and walks back to reclaim conserved food. Merely standing at
+the authored spawn does not establish that a nearby source is unattended.
+
+The compact settlement-workshop experience distinguishes one executed shared-power
+worksite from separately evaluated machine-investment projects. It reports both human
+charging effort and delegated machine runtime, but counts only *executed parallel
+player work* as demonstrated reuse of freed attention. Delegated runtime without an
+observed secondary action is explicitly unobserved opportunity, not productive work.
 
 Broad cross-domain summaries identify the player role and evidence modes represented; they are
 not fantasy-achievement scores. Counts of scripted goals, successful fixtures, or passed
