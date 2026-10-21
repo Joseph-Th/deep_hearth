@@ -102,7 +102,11 @@ fn plan_watch_step(
 ) -> Option<(VoxelCoord, u8)> {
     let [den, junction, tip] = colony.route;
     match colony.watch_deployed_at {
-        None if colony.mobilized_at.is_some() && at >= colony.watch_ready_at && !pressured => {
+        None if colony.mobilized_at.is_some()
+            && at >= colony.watch_ready_at
+            && !colony.hungry
+            && !pressured =>
+        {
             Some((junction, 0))
         }
         Some(start) => match colony.watch_leg {
@@ -151,7 +155,11 @@ pub(super) fn apply_watchman_tick(
     let pressured = player_nearby
         || assess_local_illumination(registries, state, guard).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
-    let next = plan_watch_step(colony, at, pressured);
+    // A resident with an intruder in direct sight protects the den instead
+    // of starting a fresh food-funded excursion. An already deployed sentry
+    // uses the ordinary close-range deterrence and physical return rules.
+    let holding_den = colony.watch_deployed_at.is_none() && player_seen;
+    let next = plan_watch_step(colony, at, pressured || holding_den);
     let scout_position = colony.scout_position();
     // A witness retains the alarm even if a blocked return prevents reporting it.
     if player_seen {

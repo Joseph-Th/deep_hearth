@@ -51,6 +51,422 @@ fn ration_mass(
 }
 
 #[test]
+fn opening_a_real_stone_screen_keeps_a_watchman_home_for_a_visible_player() {
+    use crate::content::{BLOCK_STATE_STONE, ENERGY_ELECTRICAL_BUFFER, build_registries};
+    use crate::core::quantity::Energy;
+    use crate::energy::add_energy_store_with_initial_for_fixture;
+    use crate::logistics::{add_traversable_edge_for_test, place_energy_store_for_fixture};
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut world = crate::core::state::AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(0, 0, 1);
+    let screen = VoxelCoord::new(-2, 0, 0);
+    let visitor = VoxelCoord::new(-3, 0, 0);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut world, from, to);
+    }
+    world
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut world,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut world, store, junction);
+    advance_to(&registries, &mut world, 195);
+    assert!(
+        world
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .mobilized_at
+            .is_some()
+    );
+    for chunk in [
+        ChunkCoord::containing(den),
+        ChunkCoord::containing(junction),
+    ] {
+        validate_generate_chunk(
+            &registries,
+            &world,
+            WorldGenerationSeed::new(7),
+            chunk,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut world)
+        .unwrap();
+    }
+    for position in [den, junction, tip, screen, visitor] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut world,
+            VoxelCoord::new(position.x(), -1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut world,
+                VoxelCoord::new(position.x(), y, position.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let food = ration(&registries, &mut world, den);
+    validate_admit_player(&registries, &world, visitor)
+        .unwrap()
+        .commit(&mut world)
+        .unwrap();
+    let mut screened = world.clone();
+    set_generated_block_for_test(registries.world(), &mut screened, screen, BLOCK_STATE_STONE);
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &world,
+        den,
+        visitor
+    ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &screened,
+        den,
+        visitor
+    ));
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &world,
+        den
+    ));
+    let open_total = calculate_matter_accounting(&world).unwrap().total();
+    let screened_total = calculate_matter_accounting(&screened).unwrap().total();
+
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &screened)).unwrap();
+    let mut excavated = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut excavated,
+        screen,
+        BlockStateId::AIR,
+    );
+    let excavated_save = serde_json::to_vec(&SaveEnvelope::new(&registries, &excavated)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&excavated_save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut world, 200);
+    advance_to(&registries, &mut screened, 200);
+    advance_to(&registries, &mut excavated, 200);
+    advance_to(&registries, &mut replay, 200);
+    assert_eq!(
+        excavated, replay,
+        "the excavated world replays deterministically"
+    );
+    assert_eq!(
+        world.kobold_state(),
+        excavated.kobold_state(),
+        "opening the wall reproduces the sighting and the guard's choice, without rewriting world history"
+    );
+    assert_eq!(
+        world
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        den
+    );
+    assert!(
+        world
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_deployed_at
+            .is_none()
+    );
+    assert_eq!(
+        world.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(100_000),
+        "a resident on alert has not committed its physical patrol ration"
+    );
+    assert_eq!(
+        screened
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        junction
+    );
+    assert_eq!(
+        screened.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000),
+        "an unseen player cannot deter an otherwise provisioned patrol"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&world).unwrap().total(),
+        open_total
+    );
+    assert_eq!(
+        calculate_matter_accounting(&screened).unwrap().total(),
+        screened_total
+    );
+    assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &screened), Ok(()));
+}
+
+#[test]
+fn den_guard_stays_home_for_a_sighted_intruder_until_the_player_withdraws() {
+    let (registries, mut warned, route) =
+        scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut warned, 195);
+    let food = ration(&registries, &mut warned, route[0]);
+    let near = VoxelCoord::new(route[0].x() - 2, 0, route[0].z());
+    let far = VoxelCoord::new(route[0].x() - 3, 0, route[0].z());
+    let mut unwitnessed = warned.clone();
+    validate_admit_player(&registries, &warned, near)
+        .unwrap()
+        .commit(&mut warned)
+        .unwrap();
+    validate_admit_player(&registries, &unwitnessed, far)
+        .unwrap()
+        .commit(&mut unwitnessed)
+        .unwrap();
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &warned,
+        route[0],
+        near,
+    ));
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &warned,
+        route[0],
+    ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &unwitnessed,
+        route[0],
+        far,
+    ));
+    let conserved = calculate_matter_accounting(&warned).unwrap().total();
+    advance_to(&registries, &mut warned, 200);
+    advance_to(&registries, &mut unwitnessed, 200);
+    let watching = warned.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(
+        watching.watch_position(),
+        route[0],
+        "a visibly threatened home guard should not abandon the den for a new sortie"
+    );
+    assert!(watching.watch_deployed_at.is_none());
+    assert_eq!(
+        watching.wary_until,
+        Some(SimulationTick::new(240)),
+        "the shared real sighting still makes the co-located scout cautious"
+    );
+    assert_eq!(
+        warned.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(100_000),
+        "deferring duty must not silently spend the ration"
+    );
+    assert_eq!(
+        unwitnessed
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[1],
+        "an unseen visitor cannot preempt an otherwise funded patrol",
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &warned)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for state in [&mut warned, &mut replay] {
+        relocate_player_for_test(state, far);
+    }
+    advance_to(&registries, &mut warned, 205);
+    advance_to(&registries, &mut replay, 205);
+    assert_eq!(warned, replay);
+    assert_eq!(
+        warned
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[1],
+        "once the intruder leaves sight, the existing ration permits real movement",
+    );
+    assert_eq!(
+        warned.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&warned).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        calculate_matter_accounting(&unwitnessed).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &warned), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &unwitnessed), Ok(()));
+}
+
+#[test]
+fn starving_scout_reserves_the_den_meal_until_its_actual_return() {
+    use crate::logistics::add_traversable_edge_for_test;
+
+    let (registries, mut scarce, route) =
+        scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut scarce, route[3], far);
+    advance_to(&registries, &mut scarce, 559);
+    let cache = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        far,
+        CommodityKey::new(crate::content::MATERIAL_STONE, crate::content::FORM_CHIP),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(crate::content::MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &scarce, [cache])
+        .unwrap()
+        .commit(&mut scarce)
+        .unwrap();
+    advance_to(&registries, &mut scarce, 579);
+    assert_eq!(
+        scarce
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[3]
+    );
+    assert!(
+        scarce
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .mobilized_at
+            .is_some()
+    );
+    assert!(
+        scarce
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_deployed_at
+            .is_none()
+    );
+
+    let mut surplus = scarce.clone();
+    let scarce_food = ration_mass(
+        &registries,
+        &mut scarce,
+        route[0],
+        Mass::from_milligrams(20_000),
+    );
+    let surplus_food = ration_mass(
+        &registries,
+        &mut surplus,
+        route[0],
+        Mass::from_milligrams(40_000),
+    );
+    let scarce_matter = calculate_matter_accounting(&scarce).unwrap().total();
+    let surplus_matter = calculate_matter_accounting(&surplus).unwrap().total();
+
+    advance_to(&registries, &mut scarce, 580);
+    advance_to(&registries, &mut surplus, 580);
+    for state in [&scarce, &surplus] {
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        assert!(colony.hungry);
+        assert_eq!(colony.scout_position(), route[1]);
+        assert_eq!(colony.watch_position(), route[0]);
+        assert!(
+            colony.watch_deployed_at.is_none(),
+            "a homebound watchman must not consume food reserved for an overdue scout meal"
+        );
+        assert_eq!(colony.watch_ready_at, SimulationTick::new(180));
+    }
+    assert_eq!(
+        scarce.surface().get(scarce_food).unwrap().remaining_mass(),
+        Mass::from_milligrams(20_000)
+    );
+    assert_eq!(
+        surplus
+            .surface()
+            .get(surplus_food)
+            .unwrap()
+            .remaining_mass(),
+        Mass::from_milligrams(40_000)
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &scarce)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut scarce, 590);
+    advance_to(&registries, &mut replay, 590);
+    advance_to(&registries, &mut surplus, 590);
+    assert_eq!(scarce, replay);
+    assert_eq!(
+        scarce.surface().get(scarce_food).unwrap().remaining_mass(),
+        Mass::ZERO,
+        "the returning scout actually eats the saved finite ration"
+    );
+    assert_eq!(
+        surplus
+            .surface()
+            .get(surplus_food)
+            .unwrap()
+            .remaining_mass(),
+        Mass::ZERO,
+        "with enough real surplus, a funded sentry may deploy after the scout eats"
+    );
+    let hungry_resolved = scarce.kobold_state().colony.as_ref().unwrap();
+    assert!(!hungry_resolved.hungry);
+    assert_eq!(hungry_resolved.watch_position(), route[0]);
+    assert!(hungry_resolved.watch_deployed_at.is_none());
+    let defended = surplus.kobold_state().colony.as_ref().unwrap();
+    assert!(!defended.hungry);
+    assert_eq!(defended.watch_position(), route[1]);
+    assert_eq!(defended.watch_deployed_at, Some(SimulationTick::new(590)));
+    assert_eq!(
+        calculate_matter_accounting(&scarce).unwrap().total(),
+        scarce_matter
+    );
+    assert_eq!(
+        calculate_matter_accounting(&surplus).unwrap().total(),
+        surplus_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &scarce), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &surplus), Ok(()));
+}
+
+#[test]
 fn bright_den_holds_a_calm_guard_but_does_not_trap_one_already_in_bright_light() {
     use crate::content::{
         BLOCK_STATE_STONE, CAMPFIRE_CHIP_FUEL_MASS, CAMPFIRE_FUEL_MASS, ENERGY_ELECTRICAL_BUFFER,
