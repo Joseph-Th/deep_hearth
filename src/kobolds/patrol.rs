@@ -16,8 +16,8 @@ use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_foo
 use super::mobilization::observe_progress;
 use super::scavenging::{
     den_cache_space, finds_external_drop, has_local_scout_interest, is_portable_drop,
-    local_portable_source, local_split_source, reachable_detour_drop, reachable_far_food,
-    reachable_inherited_salvage, reachable_side_food, scout_goal_has_supplies,
+    is_servant_era_salvage, local_portable_source, local_split_source, reachable_detour_drop,
+    reachable_far_food, reachable_inherited_salvage, reachable_side_food, scout_goal_has_supplies,
     should_seek_local_food,
 };
 use super::visibility::scout_visible_from;
@@ -62,7 +62,7 @@ fn scout_raid_interest(
         .flatten();
     let local_food = colony.hungry
         && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
-    let exposed = has_local_scout_interest(
+    let exposed = (has_local_scout_interest(
         registries,
         state,
         from,
@@ -70,13 +70,15 @@ fn scout_raid_interest(
         forage_ready,
         at,
         colony.seeks_food_at_junction(),
-    ) && (inherited_target.is_none() || local_food)
+    ) || (colony.scout_step == 2 && local_food))
+        && (inherited_target.is_none() || local_food)
         && !continue_to_whole_far_cache(
             registries,
             state,
             colony,
             from,
             capacity,
+            forage_ready,
             at,
             player_position,
         );
@@ -93,6 +95,7 @@ fn continue_to_whole_far_cache(
     colony: &KoboldColony,
     from: VoxelCoord,
     capacity: Mass,
+    forage_ready: bool,
     at: SimulationTick,
     player_position: Option<VoxelCoord>,
 ) -> bool {
@@ -102,20 +105,52 @@ fn continue_to_whole_far_cache(
     let Some(goal) = colony.detour_goal else {
         return false;
     };
-    let whole_at = |position| {
-        local_portable_source(
-            registries,
-            state,
-            position,
-            capacity,
-            at,
-            colony.hungry,
-            colony.mobilized_at.is_some(),
-        )
-        .is_some()
+    let target = state
+        .surface()
+        .available_resources_at(Some(goal))
+        .filter(|resource| {
+            is_portable_drop(resource)
+                && resource.remaining_mass() <= capacity
+                && scout_wants_drop(registries, resource, at)
+        })
+        .min_by_key(|resource| {
+            (
+                colony.hungry && resource.commodity().form() != crate::content::FORM_FOOD,
+                colony.mobilized_at.is_some() && !is_servant_era_salvage(resource),
+                resource.id(),
+            )
+        });
+    let Some(target) = target else {
+        return false;
     };
-    !whole_at(from)
-        && whole_at(goal)
+    let target_food = target.commodity().form() == crate::content::FORM_FOOD;
+    let target_precision = colony.mobilized_at.is_some() && is_servant_era_salvage(target);
+    let local_food = colony.hungry
+        && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
+    let local_whole = local_portable_source(
+        registries,
+        state,
+        from,
+        capacity,
+        at,
+        target_food && colony.hungry,
+        colony.mobilized_at.is_some(),
+    );
+    let better_here = if local_food && !target_food {
+        true
+    } else if colony.hungry && target_food {
+        local_whole.is_some()
+            || (forage_ready
+                && state
+                    .surface()
+                    .available_resources_at(Some(from))
+                    .any(|resource| scout_wants_food_opportunity(registries, resource, at)))
+    } else if target_precision {
+        local_whole.is_some_and(|id| state.surface().get(id).is_some_and(is_servant_era_salvage))
+    } else {
+        local_whole.is_some()
+    };
+    !better_here
         && scout_visible_from(registries, state, from, goal)
         && scout_can_enter(registries, state, goal, player_position)
         && !scout_sees_guarded_cell(registries, state, from, goal)

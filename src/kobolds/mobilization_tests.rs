@@ -1351,6 +1351,112 @@ fn add_salvage_routes(state: &mut AppState, route: [VoxelCoord; 4]) -> (VoxelCoo
 }
 
 #[test]
+fn mobilized_scout_keeps_far_copper_goal_when_raw_scrap_appears_on_its_route() {
+    let (registries, mut world, route) =
+        scenario(EnergyCarrier::Electrical, Some(route_machinery()));
+    advance_to(&registries, &mut world, 195);
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut world, route[3], far);
+    let far_id = copper_winding(&registries, &mut world, far);
+    advance_to(&registries, &mut world, 205);
+    assert_eq!(
+        world
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[3]
+    );
+    assert_eq!(
+        world.kobold_state().colony.as_ref().unwrap().detour_goal,
+        Some(far)
+    );
+    let mut scrap = world.clone();
+    let mut precision = world.clone();
+    let local = |material, form| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            route[3],
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(100_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    let plan =
+        validate_create_surface_resources(&registries, &scrap, [local(MATERIAL_STONE, FORM_CHIP)])
+            .unwrap();
+    let scrap_id = plan.first_resource_id();
+    plan.commit(&mut scrap).unwrap();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &precision,
+        [local(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING)],
+    )
+    .unwrap();
+    let near_prec = plan.first_resource_id();
+    plan.commit(&mut precision).unwrap();
+    let conserved_scrap = calculate_matter_accounting(&scrap).unwrap().total();
+    let conserved_prec = calculate_matter_accounting(&precision).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &scrap)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut scrap, 210);
+    advance_to(&registries, &mut precision, 210);
+    advance_to(&registries, &mut replay, 210);
+    assert_eq!(scrap, replay);
+    assert_eq!(
+        scrap
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        far,
+        "ordinary newly exposed raw stone does not supersede witnessed copper"
+    );
+    assert_eq!(scrap.surface().get(scrap_id).unwrap().position(), route[3]);
+    assert_eq!(
+        precision
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1],
+        "a newly exposed intact precision part is the better, closer pickup"
+    );
+    assert_eq!(
+        precision.surface().get(near_prec).unwrap().position(),
+        route[1]
+    );
+    advance_to(&registries, &mut scrap, 225);
+    advance_to(&registries, &mut replay, 225);
+    advance_to(&registries, &mut precision, 225);
+    assert_eq!(scrap, replay);
+    assert_eq!(scrap.surface().get(far_id).unwrap().position(), route[0]);
+    assert_eq!(
+        precision.surface().get(near_prec).unwrap().position(),
+        route[0]
+    );
+    assert_eq!(precision.surface().get(far_id).unwrap().position(), far);
+    assert_eq!(
+        calculate_matter_accounting(&scrap).unwrap().total(),
+        conserved_scrap
+    );
+    assert_eq!(
+        calculate_matter_accounting(&precision).unwrap().total(),
+        conserved_prec
+    );
+    assert_eq!(validate_loaded_state(&registries, &scrap), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &precision), Ok(()));
+}
+
+#[test]
 fn mobilized_scout_targets_far_engineered_winding_over_nearer_raw_stone() {
     let (registries, mut mobilized, route) =
         scenario(EnergyCarrier::Electrical, Some(route_machinery()));

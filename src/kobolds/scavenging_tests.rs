@@ -65,6 +65,172 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
 }
 
 #[test]
+fn fresh_intermediate_forage_shortens_a_hungry_scouts_whole_food_raid() {
+    use crate::content::MATERIAL_WILD_NUTS;
+    use crate::core::time::SimulationTick;
+
+    let registries = build_registries();
+    let mut ready = AppState::new();
+    let path = route(&mut ready);
+    ready
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while ready.tick().value() < 580 {
+        let _ = advance_tick(&registries, &mut ready).unwrap();
+    }
+    let edible = |kind, position, mass| {
+        SurfaceResourceSpec::new(
+            kind,
+            position,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &ready,
+        [edible(SurfaceResourceKind::Drop, path.far_food, 120_000)],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut ready).unwrap();
+    while ready.tick().value() < 585 {
+        let _ = advance_tick(&registries, &mut ready).unwrap();
+    }
+    assert_eq!(
+        ready
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.side_food
+    );
+    assert_eq!(
+        ready.kobold_state().colony.as_ref().unwrap().detour_goal,
+        Some(path.far_food)
+    );
+    let plan = validate_create_surface_resources(
+        &registries,
+        &ready,
+        [edible(
+            SurfaceResourceKind::Opportunity,
+            path.side_food,
+            300_000,
+        )],
+    )
+    .unwrap();
+    let wild_id = plan.first_resource_id();
+    plan.commit(&mut ready).unwrap();
+    assert!(ready.kobold_state().colony.as_ref().unwrap().hungry);
+    assert!(
+        super::super::feeding::scout_wants_food_opportunity(
+            &registries,
+            ready.surface().get(wild_id).unwrap(),
+            SimulationTick::new(590),
+        ),
+        "the newly placed patch must be fresh when the scout returns"
+    );
+    assert!(super::has_local_scout_interest(
+        &registries,
+        &ready,
+        path.side_food,
+        Mass::from_milligrams(500_000),
+        true,
+        SimulationTick::new(590),
+        true,
+    ));
+    let mut cooldown = ready.clone();
+    // The scout has a real persisted forage-clock eligibility check, so a
+    // finite visible patch alone must not override a reachable intact drop.
+    cooldown
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap()
+        .next_forage_at = Some(SimulationTick::new(680));
+    let conserved = calculate_matter_accounting(&ready).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &ready)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..5 {
+        assert_eq!(
+            advance_tick(&registries, &mut ready).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        let _ = advance_tick(&registries, &mut cooldown).unwrap();
+    }
+    assert_eq!(ready, replay);
+    assert_eq!(ready.tick().value(), 590);
+    assert_eq!(
+        ready
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.junction,
+        "a ready nearby forage patch is preferable to walking an additional edge for a ration"
+    );
+    assert_eq!(
+        ready.surface().get(wild_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(
+        ready.surface().get(ids[0]).unwrap().position(),
+        path.far_food
+    );
+    assert_eq!(
+        cooldown
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.far_food,
+        "forage still on cooldown must not displace the planned intact food"
+    );
+    assert_eq!(
+        cooldown.surface().get(wild_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(300_000)
+    );
+    while ready.tick().value() < 600 {
+        assert_eq!(
+            advance_tick(&registries, &mut ready).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(ready, replay);
+    assert!(!ready.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        ready.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&ready)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&ready).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        calculate_matter_accounting(&cooldown).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &ready), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &cooldown), Ok(()));
+}
+
+#[test]
 fn hungry_scout_hauls_whole_distant_food_instead_of_splitting_a_nearer_cache() {
     use crate::content::MATERIAL_WILD_NUTS;
 
