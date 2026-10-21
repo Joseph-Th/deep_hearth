@@ -575,7 +575,7 @@ fn hungry_scout_opens_a_full_den_for_new_food_before_the_next_meal_deadline() {
 }
 
 #[test]
-fn a_side_food_patch_guarded_by_a_visible_player_does_not_displace_den_cargo() {
+fn unseen_side_guard_cannot_be_sensed_from_den_but_blocks_the_next_raid() {
     let (registries, mut guarded, [den, junction, _, side]) = setup();
     let plan = validate_create_surface_resources(
         &registries,
@@ -606,10 +606,44 @@ fn a_side_food_patch_guarded_by_a_visible_player_does_not_displace_den_cargo() {
         junction,
         side,
     ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &guarded,
+        den,
+        player,
+    ));
     let _ = advance_tick(&registries, &mut guarded).unwrap();
     let _ = advance_tick(&registries, &mut unguarded).unwrap();
-    assert_eq!(guarded.surface().get(inert).unwrap().position(), den);
+    assert_eq!(
+        guarded.surface().get(inert).unwrap().position(),
+        junction,
+        "the homebound scout must not act on a future view from the junction"
+    );
     assert_eq!(unguarded.surface().get(inert).unwrap().position(), junction);
+    for _ in 0..5 {
+        let _ = advance_tick(&registries, &mut guarded).unwrap();
+        let _ = advance_tick(&registries, &mut unguarded).unwrap();
+    }
+    assert_ne!(
+        guarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        side,
+        "the live guard is actually discovered at the junction before side entry"
+    );
+    assert_eq!(
+        unguarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        side,
+        "an unguarded fresh food patch remains physically accessible"
+    );
     assert_eq!(
         calculate_matter_accounting(&guarded).unwrap().total(),
         matter

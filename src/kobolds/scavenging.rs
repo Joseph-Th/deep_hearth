@@ -418,12 +418,15 @@ fn engineered_drop_at(
 }
 
 /// After a *delivered* industrial report, prioritize locally reachable precision
-/// copper parts even beyond nearer generic scrap. The target is not reserved;
-/// actual entry and source-local movement still recheck custody, clearance and light.
+/// copper parts even beyond nearer generic scrap. The caller supplies the
+/// scout's *current* observation voxel, which is the den during den care and
+/// the junction during actual branch planning. The target is not reserved;
+/// entry and source-local movement still recheck custody, clearance and light.
 pub(super) fn reachable_inherited_salvage(
     registries: &Registries,
     state: &AppState,
     junction: VoxelCoord,
+    observer: VoxelCoord,
     den: VoxelCoord,
     authored_tip: VoxelCoord,
     player_position: Option<VoxelCoord>,
@@ -442,7 +445,8 @@ pub(super) fn reachable_inherited_salvage(
                 .map(|priority| (priority, first))
         })
         .filter(|(_, first)| {
-            unguarded_unlit_cell(registries, state, junction, *first, player_position)
+            scout_visible_from(registries, state, observer, *first)
+                && unguarded_unlit_cell(registries, state, observer, *first, player_position)
         })
         .min_by_key(|(priority, first)| (*priority, *first))
         .map(|(_, first)| (first, None));
@@ -462,9 +466,9 @@ pub(super) fn reachable_inherited_salvage(
                     })
             })
             .filter(|(_, first, goal)| {
-                scout_visible_from(registries, state, junction, *goal)
-                    && unguarded_unlit_cell(registries, state, junction, *first, player_position)
-                    && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
+                scout_visible_from(registries, state, observer, *goal)
+                    && unguarded_unlit_cell(registries, state, observer, *first, player_position)
+                    && unguarded_unlit_cell(registries, state, observer, *goal, player_position)
             })
             .min_by_key(|(priority, first, goal)| (*priority, *first, *goal))
             .map(|(_, first, goal)| (first, Some(goal)))

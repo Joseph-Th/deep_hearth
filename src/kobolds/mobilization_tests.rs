@@ -958,5 +958,238 @@ fn empty_industrial_opportunity_and_a_player_occupied_den_exit_prevent_eviction(
     assert_eq!(validate_loaded_state(&registries, &no_target), Ok(()));
 }
 
+#[test]
+fn excavating_a_corner_exposes_industrial_salvage_to_the_resident_den() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = crate::content::build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(0, 0, 1);
+    let side = VoxelCoord::new(0, 0, -1);
+    let corner = VoxelCoord::new(-1, 0, -1);
+    for (a, b) in [(den, junction), (junction, tip), (junction, side)] {
+        add_traversable_edge_for_test(&mut state, a, b);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let machine = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        crate::content::ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, machine, junction);
+    advance_to(&registries, &mut state, 579);
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .mobilized_at
+            .is_some()
+    );
+    for chunk in [
+        ChunkCoord::containing(den),
+        ChunkCoord::containing(junction),
+        ChunkCoord::containing(side),
+        ChunkCoord::containing(corner),
+    ] {
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(7),
+            chunk,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    }
+    for position in [den, junction, tip, side, corner] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(position.x(), -1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(position.x(), y, position.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let stone = cache_stone(&registries, &mut state, den);
+    let copper = copper_winding(&registries, &mut state, side);
+    let mut hidden = state.clone();
+    set_generated_block_for_test(registries.world(), &mut hidden, corner, BLOCK_STATE_STONE);
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        den,
+        side,
+    ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &hidden,
+        den,
+        side,
+    ));
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &hidden,
+        junction,
+        side,
+    ));
+    let visible_total = calculate_matter_accounting(&state).unwrap().total();
+    let hidden_total = calculate_matter_accounting(&hidden).unwrap().total();
+    advance_to(&registries, &mut state, 580);
+    advance_to(&registries, &mut hidden, 580);
+    assert_eq!(state.surface().get(stone).unwrap().position(), junction);
+    assert_eq!(hidden.surface().get(stone).unwrap().position(), den);
+    assert_eq!(state.surface().get(copper).unwrap().position(), side);
+    assert_eq!(hidden.surface().get(copper).unwrap().position(), side);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        visible_total
+    );
+    assert_eq!(
+        calculate_matter_accounting(&hidden).unwrap().total(),
+        hidden_total
+    );
+    assert_eq!(validate_loaded_state(&registries, &hidden), Ok(()));
+
+    // Terrain changes before the den-care tick, not global source indexing,
+    // explain why a resident chooses to free its local cache.
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &hidden)).unwrap();
+    let mut loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for resident in [&mut hidden, &mut loaded] {
+        set_generated_block_for_test(registries.world(), resident, corner, BlockStateId::AIR);
+    }
+    // The next standard meal deadline is still the only industry-clearance
+    // occasion; merely exposing a hidden source does not grant an AI tick.
+    advance_to(&registries, &mut hidden, 980);
+    advance_to(&registries, &mut loaded, 980);
+    assert_eq!(hidden, loaded);
+    assert_eq!(hidden.surface().get(stone).unwrap().position(), junction);
+    assert_eq!(
+        calculate_matter_accounting(&hidden).unwrap().total(),
+        visible_total
+    );
+    assert_eq!(validate_loaded_state(&registries, &hidden), Ok(()));
+}
+
+#[test]
+fn den_cache_eviction_requires_scout_sight_but_far_salvage_is_found_on_patrol() {
+    let (registries, mut packed, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut packed, 579);
+    let (_, far) = add_salvage_routes(&mut packed, route);
+    let stone = cache_stone(&registries, &mut packed, route[0]);
+
+    let mut near = packed.clone();
+    let nearby_copper = copper_winding(&registries, &mut near, route[3]);
+    let mut distant = packed;
+    let far_copper = copper_winding(&registries, &mut distant, far);
+    assert_eq!(
+        crate::kobolds::scavenging::reachable_inherited_salvage(
+            &registries,
+            &distant,
+            route[1],
+            route[1],
+            route[0],
+            route[2],
+            None,
+            Mass::from_milligrams(500_000),
+            distant.tick(),
+        ),
+        Some((route[3], Some(far))),
+        "a scout at the junction can actually see the far copper"
+    );
+    assert_eq!(
+        crate::kobolds::scavenging::reachable_inherited_salvage(
+            &registries,
+            &distant,
+            route[1],
+            route[0],
+            route[0],
+            route[2],
+            None,
+            Mass::from_milligrams(500_000),
+            distant.tick(),
+        ),
+        None,
+        "the same material is outside the homebound scout's two-voxel view"
+    );
+    let near_matter = calculate_matter_accounting(&near).unwrap().total();
+    let distant_matter = calculate_matter_accounting(&distant).unwrap().total();
+    advance_to(&registries, &mut near, 580);
+    advance_to(&registries, &mut distant, 580);
+    assert_eq!(near.surface().get(stone).unwrap().position(), route[1]);
+    assert_eq!(
+        distant.surface().get(stone).unwrap().position(),
+        route[0],
+        "the homebound scout cannot evict custody for an unobserved distant cache"
+    );
+    assert_eq!(
+        near.surface().get(nearby_copper).unwrap().position(),
+        route[3]
+    );
+    assert_eq!(distant.surface().get(far_copper).unwrap().position(), far);
+    assert_eq!(
+        calculate_matter_accounting(&near).unwrap().total(),
+        near_matter
+    );
+    assert_eq!(
+        calculate_matter_accounting(&distant).unwrap().total(),
+        distant_matter
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &distant)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..25 {
+        assert_eq!(
+            advance_tick(&registries, &mut distant).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(distant, replay);
+    assert_eq!(distant.surface().get(stone).unwrap().position(), route[0]);
+    assert_eq!(distant.surface().get(far_copper).unwrap().position(), far);
+    assert_eq!(validate_loaded_state(&registries, &distant), Ok(()));
+
+    // Without the packed den, a real scout can discover the same distant
+    // copper when it walks out to the junction, and haul it home by each edge.
+    let (_, mut open, _) = scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut open, 579);
+    add_salvage_routes(&mut open, route);
+    let recovered = copper_winding(&registries, &mut open, far);
+    let conserved = calculate_matter_accounting(&open).unwrap().total();
+    advance_to(&registries, &mut open, 605);
+    assert_eq!(open.surface().get(recovered).unwrap().position(), route[0]);
+    assert_eq!(
+        calculate_matter_accounting(&open).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &open), Ok(()));
+}
+
 #[path = "watchman_tests.rs"]
 mod watchman_tests;

@@ -51,6 +51,7 @@ fn scout_raid_interest(
                 registries,
                 state,
                 junction,
+                from,
                 den,
                 tip,
                 player_position,

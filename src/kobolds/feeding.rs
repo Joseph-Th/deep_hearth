@@ -209,7 +209,7 @@ fn clear_inert_cache_for_food(
             super::visibility::scout_visible_from(registries, state, den, position)
                 && (position == junction
                     || (scout_can_enter(registries, state, position, player)
-                        && !scout_sees_guarded_cell(registries, state, junction, position)
+                        && !scout_sees_guarded_cell(registries, state, den, position)
                         && assess_local_illumination(registries, state, position).level()
                             < SCOUT_DETERRENT_LIGHT_LEVEL))
                 && state
@@ -270,6 +270,7 @@ fn clear_inert_cache_for_industry(
             registries,
             state,
             junction,
+            den,
             den,
             tip,
             player,
