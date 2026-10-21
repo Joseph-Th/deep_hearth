@@ -15,6 +15,7 @@ use super::super::{EnergyStoreDefinitionId, EnergyStoreId};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreUpgradeError {
     PlayerDead,
+    PlayerBusy,
     StoreAccess(PlayerEnergyStoreAccessError),
     SourceAccess(PlayerStockpileAccessError),
     UnknownStore {
@@ -68,6 +69,9 @@ impl Display for EnergyStoreUpgradeError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot upgrade an energy store"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot upgrade energy storage while work is active")
+            }
             Self::StoreAccess(error) => {
                 write!(formatter, "energy-store upgrade access failed: {error}")
             }
@@ -168,6 +172,7 @@ impl Error for EnergyStoreUpgradeError {
             Self::SourceAccess(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::UnknownStore { .. }
             | Self::UnknownTargetDefinition { .. }
             | Self::NoUpgradeProfile { .. }
@@ -187,6 +192,7 @@ impl Error for EnergyStoreUpgradeError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreUpgradeCommitError {
+    PlayerBecameBusy,
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -222,6 +228,9 @@ pub enum EnergyStoreUpgradeCommitError {
 impl Display for EnergyStoreUpgradeCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player work started before energy-store upgrade commit")
+            }
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "energy-store upgrade expected survival revision {expected} but current revision is {actual}"
@@ -270,7 +279,8 @@ impl Error for EnergyStoreUpgradeCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvival { .. }
+            Self::PlayerBecameBusy
+            | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. }

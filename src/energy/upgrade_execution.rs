@@ -52,6 +52,9 @@ impl ValidatedEnergyStoreUpgrade {
                 actual: stale.actual,
             }
         })?;
+        if state.logistics().player().is_some() && state.player_work().active().is_some() {
+            return Err(EnergyStoreUpgradeCommitError::PlayerBecameBusy);
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EnergyStoreUpgradeCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -125,6 +128,9 @@ pub fn validate_upgrade_energy_store(
 ) -> Result<ValidatedEnergyStoreUpgrade, EnergyStoreUpgradeError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| EnergyStoreUpgradeError::PlayerDead)?;
+    if state.logistics().player().is_some() && state.player_work().active().is_some() {
+        return Err(EnergyStoreUpgradeError::PlayerBusy);
+    }
     let record = state
         .energy()
         .get_store(store)

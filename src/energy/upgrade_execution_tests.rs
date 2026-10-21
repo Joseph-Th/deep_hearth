@@ -4,13 +4,14 @@ use super::*;
 
 use crate::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, FORM_FLYWHEEL, FORM_HANDLE,
+    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG,
     FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    build_registries,
+    PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::SimulationTick;
+use crate::crafting::validate_start_player_manual_craft;
 use crate::energy::{
     EnergySinkError, EnergyStoreRecord, EnergyValidationError,
     PlayerEnergyStoreUpgradeCatalogError, add_energy_store, calculate_explicit_energy_accounting,
@@ -27,9 +28,11 @@ use crate::logistics::{
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 use crate::survival::initialize_player_survival;
+use std::num::NonZeroU64;
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
@@ -53,6 +56,111 @@ fn assemble_stone_flywheel(registries: &Registries, state: &mut AppState) -> Ene
         .unwrap_or_else(|error| panic!("flywheel upgrade assembly validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("flywheel upgrade assembly commit failed: {error}"))
+}
+
+#[test]
+fn energy_store_upgrade_rejects_exclusive_work_without_consuming_reinforcement() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = assemble_stone_flywheel(&registries, &mut state);
+    let source = reinforcement_source(&registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    crate::logistics::place_energy_store_for_fixture(&mut state, store, position);
+    validate_place_ground_stockpile(&state, source, position)
+        .unwrap_or_else(|error| panic!("busy store upgrade source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("busy store upgrade source commit failed: {error}"));
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap_or_else(|error| panic!("busy store upgrade player admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("busy store upgrade player commit failed: {error}"))
+        .carried_stockpile();
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(3_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("busy store upgrade woodworking supply failed: {error}"));
+    let pending = validate_upgrade_energy_store(
+        &registries,
+        &state,
+        store,
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        source,
+    )
+    .unwrap_or_else(|error| panic!("busy store upgrade initial validation failed: {error}"));
+    let job = validate_start_player_manual_craft(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        NonZeroU64::new(1).unwrap_or_else(|| panic!("one batch must exist")),
+        None,
+    )
+    .unwrap_or_else(|error| panic!("busy store upgrade woodworking admission failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("busy store upgrade woodworking commit failed: {error}"));
+    let before = state.clone();
+    assert_eq!(
+        validate_upgrade_energy_store(
+            &registries,
+            &state,
+            store,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            source,
+        )
+        .err(),
+        Some(EnergyStoreUpgradeError::PlayerBusy)
+    );
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(EnergyStoreUpgradeCommitError::PlayerBecameBusy)
+    );
+    assert_eq!(state, before);
+    let total = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("busy store upgrade baseline failed: {error}"))
+        .total();
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("busy store upgrade serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("busy store upgrade decode failed: {error}"));
+    let mut replay = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("busy store upgrade trusted load failed: {error}"));
+    let completes_at = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("busy store upgrade job disappeared"))
+        .completes_at();
+    while state.tick() < completes_at {
+        let next = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("busy store upgrade completion failed: {error}"));
+        let replayed = advance_tick(&registries, &mut replay)
+            .unwrap_or_else(|error| panic!("busy store upgrade replay failed: {error}"));
+        assert_eq!(next, replayed);
+    }
+    assert_eq!(state, replay);
+    assert!(state.player_work().active().is_none());
+    let upgraded = validate_upgrade_energy_store(
+        &registries,
+        &state,
+        store,
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        source,
+    )
+    .unwrap_or_else(|error| panic!("idle store upgrade denied: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("idle store upgrade commit failed: {error}"));
+    assert_eq!(upgraded, store);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("post-work store conservation failed: {error}"))
+            .total(),
+        total
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
