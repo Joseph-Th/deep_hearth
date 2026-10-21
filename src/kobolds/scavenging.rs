@@ -448,31 +448,40 @@ pub(super) fn reachable_inherited_salvage(
             scout_visible_from(registries, state, observer, *first)
                 && unguarded_unlit_cell(registries, state, observer, *first, player_position)
         })
-        .min_by_key(|(priority, first)| (*priority, *first))
-        .map(|(_, first)| (first, None));
-    side.or_else(|| {
-        state
-            .logistics()
-            .traversable_destinations(junction)
-            .filter(|first| *first != den && *first != authored_tip)
-            .flat_map(|first| {
-                state
-                    .logistics()
-                    .traversable_destinations(first)
-                    .filter(move |goal| *goal != junction && *goal != den && *goal != authored_tip)
-                    .filter_map(move |goal| {
-                        engineered_drop_at(registries, state, goal, capacity, at)
-                            .map(|priority| (priority, first, goal))
-                    })
-            })
-            .filter(|(_, first, goal)| {
-                scout_visible_from(registries, state, observer, *goal)
-                    && unguarded_unlit_cell(registries, state, observer, *first, player_position)
-                    && unguarded_unlit_cell(registries, state, observer, *goal, player_position)
-            })
-            .min_by_key(|(priority, first, goal)| (*priority, *first, *goal))
-            .map(|(_, first, goal)| (first, Some(goal)))
-    })
+        .min_by_key(|(priority, first)| (*priority, *first));
+    // A complete nearby component is always preferable to a longer detour.
+    // When the nearer source must be split, look one edge farther for a whole
+    // component before choosing the extra handling work. Both alternatives
+    // remain bound to the scout's current sightline and real graph edges.
+    if let Some(((false, _), first)) = side {
+        return Some((first, None));
+    }
+    let far = state
+        .logistics()
+        .traversable_destinations(junction)
+        .filter(|first| *first != den && *first != authored_tip)
+        .flat_map(|first| {
+            state
+                .logistics()
+                .traversable_destinations(first)
+                .filter(move |goal| *goal != junction && *goal != den && *goal != authored_tip)
+                .filter_map(move |goal| {
+                    engineered_drop_at(registries, state, goal, capacity, at)
+                        .map(|priority| (priority, first, goal))
+                })
+        })
+        .filter(|(_, first, goal)| {
+            scout_visible_from(registries, state, observer, *goal)
+                && unguarded_unlit_cell(registries, state, observer, *first, player_position)
+                && unguarded_unlit_cell(registries, state, observer, *goal, player_position)
+        })
+        .min_by_key(|(priority, first, goal)| (*priority, *first, *goal));
+    match (side, far) {
+        (_, Some(((false, _), first, goal))) => Some((first, Some(goal))),
+        (Some((_, first)), _) => Some((first, None)),
+        (None, Some((_, first, goal))) => Some((first, Some(goal))),
+        (None, None) => None,
+    }
 }
 
 #[cfg(test)]

@@ -108,6 +108,172 @@ fn advance_to(registries: &Registries, state: &mut AppState, tick: u64) {
 }
 
 #[test]
+fn opening_a_stone_screen_exposes_an_intact_far_part_over_near_split_copper() {
+    use crate::content::{BLOCK_STATE_STONE, ENERGY_ELECTRICAL_BUFFER, build_registries};
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut visible = AppState::new();
+    let route = [
+        VoxelCoord::new(-1, 0, 0),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(0, 0, 1),
+        VoxelCoord::new(1, 0, 0),
+    ];
+    for (start, end) in [
+        (route[0], route[1]),
+        (route[1], route[2]),
+        (route[1], route[3]),
+    ] {
+        add_traversable_edge_for_test(&mut visible, start, end);
+    }
+    visible
+        .kobold_state_mut()
+        .apply_opening_colony([route[0], route[1], route[2]]);
+    let machine = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut visible,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut visible, machine, route[1]);
+    advance_to(&registries, &mut visible, 579);
+    let first = VoxelCoord::new(0, 0, -1);
+    let far = VoxelCoord::new(0, 0, -2);
+    add_traversable_edge_for_test(&mut visible, route[1], first);
+    add_traversable_edge_for_test(&mut visible, first, far);
+    let mut chunks = Vec::new();
+    for position in [route[0], route[1], route[2], route[3], first, far] {
+        let chunk = ChunkCoord::containing(position);
+        if !chunks.contains(&chunk) {
+            validate_generate_chunk(
+                &registries,
+                &visible,
+                WorldGenerationSeed::new(7),
+                chunk,
+                BLOCK_STATE_STONE,
+            )
+            .unwrap()
+            .commit(&mut visible)
+            .unwrap();
+            chunks.push(chunk);
+        }
+    }
+    for position in [route[0], route[1], route[2], route[3], first, far] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut visible,
+            VoxelCoord::new(position.x(), -1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut visible,
+                VoxelCoord::new(position.x(), y, position.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let copper = |position, amount| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+            Mass::from_milligrams(amount),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &visible,
+        [copper(route[3], 700_000), copper(far, 120_000)],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut visible).unwrap();
+    let mut screened = visible.clone();
+    set_generated_block_for_test(registries.world(), &mut screened, first, BLOCK_STATE_STONE);
+    assert!(super::super::visibility::scout_visible_from(
+        &registries,
+        &visible,
+        route[1],
+        far
+    ));
+    assert!(!super::super::visibility::scout_visible_from(
+        &registries,
+        &screened,
+        route[1],
+        far
+    ));
+    let open_total = calculate_matter_accounting(&visible).unwrap().total();
+    let screened_total = calculate_matter_accounting(&screened).unwrap().total();
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &visible)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    advance_to(&registries, &mut visible, 585);
+    advance_to(&registries, &mut screened, 585);
+    advance_to(&registries, &mut replay, 585);
+    assert_eq!(visible, replay);
+    assert_eq!(
+        visible
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        first,
+        "a real clear corridor reveals intact copper two edges out"
+    );
+    assert_eq!(
+        visible.kobold_state().colony.as_ref().unwrap().detour_goal,
+        Some(far)
+    );
+    assert_eq!(
+        screened
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[3],
+        "a stone screen blocks the distant target, leaving only the nearer split source"
+    );
+    advance_to(&registries, &mut visible, 605);
+    advance_to(&registries, &mut replay, 605);
+    assert_eq!(visible, replay);
+    assert_eq!(visible.surface().get(ids[1]).unwrap().position(), route[0]);
+    assert_eq!(
+        visible.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert_eq!(
+        visible.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(700_000)
+    );
+    assert_eq!(screened.surface().get(ids[1]).unwrap().position(), far);
+    assert_eq!(
+        calculate_matter_accounting(&visible).unwrap().total(),
+        open_total
+    );
+    assert_eq!(
+        calculate_matter_accounting(&screened).unwrap().total(),
+        screened_total
+    );
+    assert_eq!(validate_loaded_state(&registries, &visible), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &screened), Ok(()));
+}
+
+#[test]
 fn far_raider_exchanges_inert_cargo_for_food_on_a_real_intermediate_edge() {
     let (registries, mut state, route) = scenario(EnergyCarrier::Mechanical, None);
     let far = VoxelCoord::new(2, 0, 0);
@@ -425,6 +591,166 @@ fn hungry_returning_scout_switches_from_scrap_to_fresh_local_food() {
         calculate_matter_accounting(&unchanged).unwrap().total(),
         totals[0]
     );
+}
+
+#[test]
+fn intact_far_precision_part_beats_near_split_and_preserves_den_stock() {
+    let (registries, mut with_far, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut with_far, 579);
+    let first = VoxelCoord::new(0, 0, -1);
+    let far = VoxelCoord::new(-1, 0, -1);
+    add_traversable_edge_for_test(&mut with_far, route[1], first);
+    add_traversable_edge_for_test(&mut with_far, first, far);
+    let spec = |at, material, form, mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            at,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &with_far,
+        [
+            spec(route[0], MATERIAL_STONE, FORM_CHIP, 375_000),
+            spec(route[3], MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 700_000),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut with_far).unwrap();
+    let mut only_near = with_far.clone();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &with_far,
+        [spec(far, MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 120_000)],
+    )
+    .unwrap();
+    let whole = plan.first_resource_id();
+    plan.commit(&mut with_far).unwrap();
+    let total_far = calculate_matter_accounting(&with_far).unwrap().total();
+    let total_near = calculate_matter_accounting(&only_near).unwrap().total();
+    let capacity = Mass::from_milligrams(125_000);
+    assert_eq!(
+        super::super::scavenging::reachable_inherited_salvage(
+            &registries,
+            &with_far,
+            route[1],
+            route[0],
+            route[0],
+            route[2],
+            None,
+            capacity,
+            with_far.tick(),
+        ),
+        Some((first, Some(far))),
+        "an intact winding one authorized extra edge away wins over splitting 700 g of side copper"
+    );
+    assert_eq!(
+        super::super::scavenging::reachable_inherited_salvage(
+            &registries,
+            &only_near,
+            route[1],
+            route[0],
+            route[0],
+            route[2],
+            None,
+            capacity,
+            only_near.tick(),
+        ),
+        Some((route[3], None)),
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &with_far)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut with_far, 580);
+    advance_to(&registries, &mut replay, 580);
+    advance_to(&registries, &mut only_near, 580);
+    assert_eq!(with_far, replay);
+    assert_eq!(
+        with_far.surface().get(ids[0]).unwrap().position(),
+        route[0],
+        "a full visible component fits 125 g of already-free den space"
+    );
+    assert_eq!(
+        only_near.surface().get(ids[0]).unwrap().position(),
+        route[1],
+        "without an intact alternative, the scout can still free finite space for a split"
+    );
+
+    advance_to(&registries, &mut with_far, 605);
+    advance_to(&registries, &mut replay, 605);
+    assert_eq!(with_far, replay);
+    assert_eq!(with_far.surface().get(whole).unwrap().position(), route[0]);
+    assert_eq!(
+        with_far.surface().get(whole).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert_eq!(with_far.surface().get(ids[0]).unwrap().position(), route[0]);
+    assert_eq!(with_far.surface().get(ids[1]).unwrap().position(), route[3]);
+    assert_eq!(
+        calculate_matter_accounting(&with_far).unwrap().total(),
+        total_far
+    );
+    assert_eq!(
+        calculate_matter_accounting(&only_near).unwrap().total(),
+        total_near
+    );
+    assert_eq!(validate_loaded_state(&registries, &with_far), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &only_near), Ok(()));
+}
+
+#[test]
+fn nearer_whole_precision_part_still_wins_over_farther_whole() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    let first = VoxelCoord::new(0, 0, -1);
+    let far = VoxelCoord::new(-1, 0, -1);
+    add_traversable_edge_for_test(&mut state, route[1], first);
+    add_traversable_edge_for_test(&mut state, first, far);
+    let spec = |position, amount| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+            Mass::from_milligrams(amount),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap()
+    };
+    validate_create_surface_resources(
+        &registries,
+        &state,
+        [spec(route[3], 100_000), spec(far, 120_000)],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        super::super::scavenging::reachable_inherited_salvage(
+            &registries,
+            &state,
+            route[1],
+            route[1],
+            route[0],
+            route[2],
+            None,
+            Mass::from_milligrams(125_000),
+            state.tick(),
+        ),
+        Some((route[3], None)),
+        "an intact component next door is cheaper to haul than an intact two-edge alternative"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
