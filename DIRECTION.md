@@ -138,8 +138,9 @@ an authored finished storage body into the generated-air voxel adjacent to the p
 rejects missing world authority, terrain occupancy, player-body overlap, and existing stationary object custody.
 Direct drop transfers the selected carried commodity into exact finite surface parcels without flattening
 temperature, composition, particulate state, provenance, or storage age, and uses a short control-time self-pickup
-delay before ordinary automatic recovery. Inventory now also owns a revision-bound familiar material-stack
-projection derived from the same physical compatibility rules as lot coalescing, including current physical
+delay before ordinary automatic recovery. Automatic pickup skips a drop needing an unavailable
+new lot identity when a later compatible drop can merge into carried custody, without discarding
+that blocked parcel. Inventory now also owns a revision-bound familiar material-stack projection derived from the same physical compatibility rules as lot coalescing, including current physical
 storage-age exposure for freshness presentation. A projected stack can drive partial same-voxel carried↔ground/storage
 transfer by mass while inventory privately resolves exact lot slices and rejects stale projections. A single
 player-facing inventory projection composes carrying state, all nine hotbar bindings, carried equipment/stacks,

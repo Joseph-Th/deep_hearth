@@ -380,6 +380,82 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
 }
 
 #[test]
+fn automatic_pickup_skips_unallocatable_drop_and_merges_a_later_parcel() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let chips = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mut resources = Vec::new();
+    for commodity in [wood, chips] {
+        let specification = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            Mass::from_milligrams(50_000),
+            TEMPERATURE,
+            MaterialComposition::pure(commodity.material()),
+        )
+        .unwrap_or_else(|error| panic!("exhausted-pickup resource spec failed: {error}"));
+        resources.push(
+            insert_surface_resource_for_test(&registries, &mut state, specification)
+                .unwrap_or_else(|error| panic!("exhausted-pickup resource failed: {error}")),
+        );
+    }
+    let carried = admit_player(&registries, &mut state, position);
+    let existing = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        chips,
+        Mass::from_milligrams(20_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("exhausted-pickup carried lot failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("exhausted-pickup save failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("exhausted-pickup decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("exhausted-pickup trusted load failed: {error}"));
+    let before = calculate_matter_accounting(&loaded)
+        .unwrap_or_else(|error| panic!("exhausted-pickup baseline accounting failed: {error}"))
+        .total();
+    let outcome = advance_control_tick(&registries, &mut loaded)
+        .unwrap_or_else(|error| panic!("exhausted-pickup control tick failed: {error}"));
+    let pickup = outcome
+        .surface_drop_pickup()
+        .unwrap_or_else(|| panic!("mergeable later drop must not be starved"));
+    assert_eq!(pickup.resource(), resources[1]);
+    assert_eq!(pickup.lot(), existing);
+    assert_eq!(pickup.picked_mass(), Mass::from_milligrams(50_000));
+    assert_eq!(
+        loaded
+            .surface()
+            .available_resources_at(Some(position))
+            .find(|resource| resource.id() == resources[0])
+            .map(|resource| resource.remaining_mass()),
+        Some(Mass::from_milligrams(50_000))
+    );
+    assert_eq!(
+        loaded
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(chips)),
+        Some(Mass::from_milligrams(70_000))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&loaded)
+            .unwrap_or_else(|error| panic!("exhausted-pickup conservation failed: {error}"))
+            .total(),
+        before
+    );
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+}
+
+#[test]
 fn exposed_residue_footing_counts_distinct_densities_without_treating_nature_as_disposal() {
     let registries = build_registries();
     let mut state = AppState::new();

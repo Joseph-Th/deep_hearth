@@ -127,9 +127,10 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
             Err(MaterialIngressError::CapacityExceeded { .. }) => {
                 unreachable!("pickup mass is bounded by current carried available capacity")
             }
-            Err(MaterialIngressError::LotIdExhausted | MaterialIngressError::RevisionExhausted) => {
-                return None;
-            }
+            // A different parcel may coalesce into an existing carried lot without allocating
+            // an identity. One unallocatable candidate must not starve that independent pickup.
+            Err(MaterialIngressError::LotIdExhausted) => continue,
+            Err(MaterialIngressError::RevisionExhausted) => return None,
             Err(error) => {
                 panic!("runtime invariant broken: local surface drop pickup failed: {error}")
             }
