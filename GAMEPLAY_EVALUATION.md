@@ -335,6 +335,25 @@ route, searches a short off-graph route with canonical body-walk projections whe
 obstructs direct retreat, and walks back to reclaim conserved food. Merely standing at
 the authored spawn does not establish that a nearby source is unattended.
 
+The scout also assesses one *proposed outbound step* for a directly visible
+living player guarding the destination. If that clearing is threatened, it
+withdraws along its real route before approaching, leaves fleeing spoor, drops
+any actual carried parcel in place, and retains its finite caution deadline.
+It does not collect exposed food or scrap while fleeing. An opaque corner must
+conceal the player from the scout's **current** cell even when the proposed
+destination would be adjacent: use both present line of sight and reachable
+destination geometry, not hypothetical vision from the next step. Matched
+owner continuations compare a guarded approach with actual unattended salvage,
+save/replay of the caution window, and covered versus uncovered flanks.
+
+A deployed watchman can recognize a living player at its two-voxel sighting
+range without conflating mere observation with adjacent deterrence. The warning
+stays with that resident until it physically returns to the den; only then
+can the scout enter a wary period and the colony plan a later food-funded outer
+watch. These checks run on the existing five-slow-tick resident cadence.
+No new per-control-tick sensing, omniscient colony state, or detached raid
+timer is introduced by these reactions.
+
 The compact settlement-workshop experience distinguishes one executed shared-power
 worksite from separately evaluated machine-investment projects. It reports both human
 charging effort and delegated machine runtime, but counts only *executed parallel

@@ -587,10 +587,6 @@ fn scout_diverts_into_a_traversable_side_branch_but_retreats_when_guarded() {
         .expect("generated junction must connect an accessible forage approach");
     let drop = place_loose_stone_drop(&registries, &mut state, side);
     let total = calculate_matter_accounting(&state).unwrap().total();
-    validate_admit_player(&registries, &state, spawn)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
     advance_to_tick(&registries, &mut state, 180);
     assert_eq!(colony(&state).scout_position(), junction);
     assert_eq!(colony(&state).route[2], original_tip);
@@ -601,6 +597,12 @@ fn scout_diverts_into_a_traversable_side_branch_but_retreats_when_guarded() {
     assert_eq!(colony(&state).detour, Some(side));
     assert!(colony(&state).noticed_player_drop);
     assert_eq!(state.surface().get(drop).unwrap().position(), side);
+    // The scout enters the branch first. An actor already guarding this
+    // approach would now turn it back before entry.
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
 
     let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let loaded: LoadedSaveEnvelope = serde_json::from_slice(&save).unwrap();
@@ -648,15 +650,14 @@ fn scout_resumes_authored_patrol_after_the_side_cache_is_recovered() {
         .expect("the generated opening has an adjacent side branch");
     let parcel = place_loose_stone_drop(&registries, &mut state, side);
     let total = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), side);
+    assert_eq!(colony(&state).detour, Some(side));
     let carried = validate_admit_player(&registries, &state, spawn)
         .unwrap()
         .commit(&mut state)
         .unwrap()
         .carried_stockpile();
-
-    advance_to_tick(&registries, &mut state, 185);
-    assert_eq!(colony(&state).scout_position(), side);
-    assert_eq!(colony(&state).detour, Some(side));
 
     // Owner-level setup only: normal local pickup removes the bait. The player
     // must not need to edit a scout route to restore its ordinary behavior.
@@ -789,7 +790,7 @@ fn invalid_kobold_caution_deadlines_are_rejected_on_load() {
 
 #[test]
 fn invalid_temporary_scout_detours_are_rejected_on_load() {
-    let (registries, mut state, spawn) = generated_opening();
+    let (registries, mut state, _) = generated_opening();
     let [den, junction, original_tip] = colony(&state).route;
     let side = state
         .logistics()
@@ -797,10 +798,6 @@ fn invalid_temporary_scout_detours_are_rejected_on_load() {
         .find(|candidate| *candidate != den && *candidate != original_tip)
         .unwrap();
     place_loose_stone_drop(&registries, &mut state, side);
-    validate_admit_player(&registries, &state, spawn)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
     advance_to_tick(&registries, &mut state, 185);
     assert_eq!(colony(&state).detour, Some(side));
 

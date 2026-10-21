@@ -296,6 +296,72 @@ fn short_rations_cannot_deploy_watchman_and_a_player_can_trap_a_returning_guard(
 }
 
 #[test]
+fn watchman_spots_player_at_outer_visible_range_and_reports_only_after_return() {
+    let (registries, mut observed, route) =
+        scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
+    advance_to(&registries, &mut observed, 195);
+    ration(&registries, &mut observed, route[0]);
+    advance_to(&registries, &mut observed, 200);
+    assert_eq!(
+        observed
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        route[1]
+    );
+    let mut unobserved = observed.clone();
+    // At two voxels the visible person is not adjacent enough to force a
+    // retreat. A sentry nevertheless has real reason to report the intrusion.
+    validate_admit_player(&registries, &observed, VoxelCoord::new(0, 0, 2))
+        .unwrap()
+        .commit(&mut observed)
+        .unwrap();
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &observed,
+        route[1]
+    ));
+    let initial_matter = calculate_matter_accounting(&observed).unwrap().total();
+    advance_to(&registries, &mut observed, 205);
+    advance_to(&registries, &mut unobserved, 205);
+    let colony = observed.kobold_state().colony.as_ref().unwrap();
+    assert!(colony.watch_alarm_pending);
+    assert!(colony.watch_deployed_at.is_some());
+    assert!(colony.wary_until.is_none());
+    assert!(
+        !unobserved
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &observed)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 205..=220 {
+        let event = crate::simulation::advance_tick(&registries, &mut observed).unwrap();
+        let replay_event = crate::simulation::advance_tick(&registries, &mut replay).unwrap();
+        assert_eq!(event, replay_event);
+    }
+    assert_eq!(observed, replay);
+    let colony = observed.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.watch_position(), route[0]);
+    assert!(!colony.watch_alarm_pending);
+    assert!(colony.watch_counterpatrol_pending);
+    assert!(colony.wary_until.is_some());
+    assert_eq!(
+        calculate_matter_accounting(&observed).unwrap().total(),
+        initial_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &observed), Ok(()));
+}
+
+#[test]
 fn trusted_load_rejects_unreported_or_out_of_schedule_watch_deployments() {
     let (registries, mut state, route) =
         scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));

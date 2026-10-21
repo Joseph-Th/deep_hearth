@@ -108,6 +108,264 @@ fn advance_to(registries: &Registries, state: &mut AppState, tick: u64) {
 }
 
 #[test]
+fn scout_senses_guarded_next_clearing_and_retreats_without_entering_it() {
+    use crate::kobolds::{KoboldTrailKind, available_nearby_kobold_tracks};
+    use crate::logistics::relocate_player_for_test;
+
+    let (registries, mut guarded, route) = scenario(EnergyCarrier::Mechanical, None);
+    let food_or_scrap = put_resource(&registries, &mut guarded, route[2], false);
+    let mut distant = guarded.clone();
+    validate_admit_player(&registries, &guarded, VoxelCoord::new(0, 0, 2))
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    validate_admit_player(&registries, &distant, VoxelCoord::new(0, 0, 3))
+        .unwrap()
+        .commit(&mut distant)
+        .unwrap();
+    let initial_matter = calculate_matter_accounting(&guarded).unwrap().total();
+    advance_to(&registries, &mut guarded, 180);
+    advance_to(&registries, &mut distant, 180);
+    assert_eq!(
+        guarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1]
+    );
+    assert!(
+        !crate::kobolds::patrol::living_player_deters_scout(&registries, &guarded, route[1]),
+        "the player must not be in the scout's current direct fear radius"
+    );
+    advance_to(&registries, &mut guarded, 184);
+    advance_to(&registries, &mut distant, 184);
+    let guarded_event = advance_tick(&registries, &mut guarded).unwrap();
+    let distant_event = advance_tick(&registries, &mut distant).unwrap();
+    let watched = guarded.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(watched.scout_position(), route[0]);
+    assert_eq!(watched.wary_until, Some(SimulationTick::new(225)));
+    assert_eq!(
+        guarded
+            .surface()
+            .get(food_or_scrap)
+            .unwrap()
+            .remaining_mass(),
+        Mass::from_milligrams(750_000),
+        "preemptive fear must not collect the unattended resource while fleeing"
+    );
+    assert_eq!(
+        distant
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[2]
+    );
+    assert!(distant_event.kobold_scout().is_some());
+    assert!(
+        guarded_event.kobold_scout().is_none(),
+        "retreat into the den must not leak a remote unobserved event"
+    );
+    assert!(
+        available_nearby_kobold_tracks(&registries, &guarded).any(|trail| {
+            trail.position() == route[1]
+                && trail.toward() == route[0]
+                && trail.observed_activity() == KoboldTrailKind::Fleeing
+        })
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &guarded)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    // Remove the player after the warning. The subsequent caution must come
+    // from the resident's stored experience, not a repeated proximity query.
+    relocate_player_for_test(&mut guarded, VoxelCoord::new(0, 0, 4));
+    relocate_player_for_test(&mut replay, VoxelCoord::new(0, 0, 4));
+    advance_to(&registries, &mut guarded, 220);
+    advance_to(&registries, &mut replay, 220);
+    advance_to(&registries, &mut distant, 220);
+    assert_eq!(guarded, replay);
+    assert_eq!(
+        guarded
+            .surface()
+            .get(food_or_scrap)
+            .unwrap()
+            .remaining_mass(),
+        Mass::from_milligrams(750_000)
+    );
+    assert!(
+        distant
+            .surface()
+            .get(food_or_scrap)
+            .unwrap()
+            .remaining_mass()
+            < Mass::from_milligrams(750_000),
+        "the unguarded comparison must actually salvage finite world matter"
+    );
+    assert_eq!(
+        guarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[0]
+    );
+    advance_to(&registries, &mut guarded, 225);
+    advance_to(&registries, &mut replay, 225);
+    assert_eq!(guarded, replay);
+    assert_eq!(
+        guarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1]
+    );
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        initial_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+}
+
+#[test]
+fn scout_cannot_anticipate_a_player_hidden_around_an_opaque_corner() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = crate::content::build_registries();
+    let mut hidden = AppState::new();
+    let route = [
+        VoxelCoord::new(-1, 0, 0),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(0, 0, 1),
+    ];
+    for (from, to) in [(route[0], route[1]), (route[1], route[2])] {
+        add_traversable_edge_for_test(&mut hidden, from, to);
+    }
+    hidden.kobold_state_mut().apply_opening_colony(route);
+    // The fixed actor-owned route straddles the negative-x chunk boundary.
+    // Both chunks must exist so the real movement validator can check every
+    // step without treating absent chunk truth as a collision.
+    for coord in [
+        ChunkCoord::containing(route[0]),
+        ChunkCoord::containing(route[1]),
+    ] {
+        validate_generate_chunk(
+            &registries,
+            &hidden,
+            WorldGenerationSeed::new(7),
+            coord,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut hidden)
+        .unwrap();
+    }
+    let observer = VoxelCoord::new(1, 0, 1);
+    let blind_corner = VoxelCoord::new(1, 0, 0);
+    for cell in [route[0], route[1], route[2], observer, blind_corner] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut hidden,
+            VoxelCoord::new(cell.x(), -1, cell.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut hidden,
+                VoxelCoord::new(cell.x(), y, cell.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let mut visible = hidden.clone();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut hidden,
+        blind_corner,
+        BLOCK_STATE_STONE,
+    );
+    advance_to(&registries, &mut hidden, 180);
+    advance_to(&registries, &mut visible, 180);
+    for state in [&mut hidden, &mut visible] {
+        validate_admit_player(&registries, state, observer)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+    }
+    assert!(crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &hidden,
+        route[2]
+    ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &hidden,
+        route[1],
+        observer
+    ));
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &visible,
+        route[1],
+        observer
+    ));
+
+    advance_to(&registries, &mut hidden, 185);
+    advance_to(&registries, &mut visible, 185);
+    assert_eq!(
+        hidden
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[2],
+        "the scout must not react to an unseen person behind the corner"
+    );
+    assert_eq!(
+        visible
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[0],
+        "an identical exposed flank should force a preemptive retreat"
+    );
+    advance_to(&registries, &mut hidden, 190);
+    assert_eq!(
+        hidden
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route[1],
+        "the scout reacts once it actually reaches visual contact"
+    );
+    assert_eq!(
+        crate::kobolds::validate_loaded_kobolds(&registries, &hidden),
+        Ok(())
+    );
+    assert_eq!(
+        crate::kobolds::validate_loaded_kobolds(&registries, &visible),
+        Ok(())
+    );
+}
+
+#[test]
 fn seeing_industry_mobilizes_larger_real_salvage_and_survives_save_replay() {
     let (registries, mut alerted, route) =
         scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));

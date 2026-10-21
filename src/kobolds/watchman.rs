@@ -6,10 +6,12 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
+use crate::survival::Vitality;
 
 use super::feeding::consume_den_meal;
 use super::patrol::{living_player_deters_scout, scout_can_enter};
 use super::tracks::KoboldTrailKind;
+use super::visibility::scout_visible_from;
 use super::{
     FIRST_SCOUT_TICK, KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_STEP_TICKS,
     SCOUT_WARY_INTERVAL_TICKS, WATCH_DURATION_TICKS, WATCH_RECOVERY_TICKS,
@@ -134,7 +136,15 @@ pub(super) fn apply_watchman_tick(
     let guard = colony.watch_position();
     let player = state.logistics().player().map(|record| record.position());
     let player_nearby = living_player_deters_scout(registries, state, guard);
-    let player_seen = colony.watch_deployed_at.is_some() && player_nearby;
+    // A sentry can report a living person at the edge of visual range, even
+    // before that person moves close enough to drive it from its post. The
+    // report does not reach the scout until the sentry physically returns home.
+    let player_seen = colony.watch_deployed_at.is_some()
+        && state
+            .survival()
+            .player()
+            .is_some_and(|record| record.vitality() != Vitality::ZERO)
+        && player.is_some_and(|position| scout_visible_from(registries, state, guard, position));
     let pressured = player_nearby
         || assess_local_illumination(registries, state, guard).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;

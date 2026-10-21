@@ -197,6 +197,7 @@ struct ScoutMovePlan {
     detour: Option<(VoxelCoord, Option<VoxelCoord>)>,
     position: VoxelCoord,
     ahead_is_lit: bool,
+    ahead_is_guarded: bool,
     turned_back_at_barrier: bool,
     cancelled_empty_cache_raid: bool,
     physically_clear: bool,
@@ -244,6 +245,15 @@ fn plan_scout_move(
     let ahead_is_lit = !proposed_returning
         && assess_local_illumination(registries, state, proposed_position).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
+    // A scout can see a guarded destination from the previous route cell.
+    // Approaching that clearing should prompt caution, not a free step into
+    // the player's reach. This is checked only on the resident's slow clock.
+    let ahead_is_guarded = !proposed_returning
+        && proposed_step > colony.scout_step
+        && living_player_deters_scout(registries, state, proposed_position)
+        && player_position.is_some_and(|player| {
+            scout_visible_from(registries, state, colony.scout_position(), player)
+        });
     let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position)
         || (colony.watch_deployed_at.is_some() && proposed_position == colony.watch_position());
     // A detour chosen at the junction is not a reservation. Player pickup or
@@ -263,7 +273,7 @@ fn plan_scout_move(
     let turned_back_at_barrier = !proposed_returning
         && proposed_step > colony.scout_step
         && colony.scout_step > 0
-        && (ahead_is_lit || ahead_is_blocked);
+        && (ahead_is_lit || ahead_is_blocked || ahead_is_guarded);
     let (step, returning, detour, position) =
         if turned_back_at_barrier || cancelled_empty_cache_raid {
             let retreat_step = colony.scout_step - 1;
@@ -287,13 +297,23 @@ fn plan_scout_move(
         detour,
         position,
         ahead_is_lit,
+        ahead_is_guarded,
         turned_back_at_barrier,
         cancelled_empty_cache_raid,
         physically_clear: step != colony.scout_step
-            && (returning || !ahead_is_lit)
+            && (returning || !(ahead_is_lit || ahead_is_guarded))
             && scout_can_enter(registries, state, position, player_position)
             && !(colony.watch_deployed_at.is_some() && position == colony.watch_position()),
     }
+}
+
+fn scout_has_cause_for_caution(
+    frightened: bool,
+    barrier: bool,
+    lit_ahead: bool,
+    moved: bool,
+) -> bool {
+    frightened || (barrier && lit_ahead && moved)
 }
 
 /// Deterministic slow-tick patrol with finite, interruptible return-trip scavenging.
@@ -368,10 +388,12 @@ pub(crate) fn apply_kobold_scout_tick(
         detour,
         position,
         ahead_is_lit,
+        ahead_is_guarded,
         turned_back_at_barrier,
         cancelled_empty_cache_raid,
         physically_clear,
     } = move_plan;
+    let frightened = pressured || ahead_is_guarded;
     let may_forage_on_return = colony.can_forage_on_return(step);
     // Hunger prioritizes food when the scout can currently gather or move it.
     // Without a locally edible source, inert scavenging remains a real fallback.
@@ -395,11 +417,11 @@ pub(crate) fn apply_kobold_scout_tick(
                 && scout_wants_drop(registries, resource, next_tick)
         })
     };
-    let abandoned_drop = pressured
+    let abandoned_drop = frightened
         .then_some(colony.scavenged_drop)
         .flatten()
         .filter(|id| available_drop_at(*id));
-    let dragged_candidate = (returning && !pressured)
+    let dragged_candidate = (returning && !frightened)
         .then(|| {
             colony
                 .scavenged_drop
@@ -433,7 +455,7 @@ pub(crate) fn apply_kobold_scout_tick(
     };
     // Whole portable parcels retain identity. Oversized exposed piles instead
     // yield a bounded daughter parcel, leaving the exact remainder at the source.
-    let bulk_source = (can_move && returning && !pressured && relocated_drop.is_none())
+    let bulk_source = (can_move && returning && !frightened && relocated_drop.is_none())
         .then(|| {
             local_split_source(
                 registries, state, from, den_space, next_tick, food_only, mobilized,
@@ -460,7 +482,7 @@ pub(crate) fn apply_kobold_scout_tick(
         && may_forage_on_return
         && relocated_drop.is_none()
         && split_drop.is_none()
-        && !pressured
+        && !frightened
         && forage_ready)
         .then(|| {
             state
@@ -500,7 +522,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 .or_else(|| (step > 0).then(|| foraged_food.map(|(id, _)| id)).flatten()),
         );
         let activity = KoboldTrailKind::from_step(
-            pressured,
+            frightened,
             turned_back_at_barrier,
             relocated_drop.is_some() || cleared_cache.is_some() || discarded_food.is_some(),
             split_drop.is_some(),
@@ -510,13 +532,13 @@ pub(crate) fn apply_kobold_scout_tick(
         colony.report_progress_at_home(next_tick);
         colony.deliver_watch_alarm_at_den(next_tick);
     }
-    if pressured {
+    if frightened {
         // A trapped scout also relinquishes the parcel, enabling recovery without
         // inventing inaccessible enemy inventory or a damage/attack verb.
         colony.scavenged_drop = None;
     }
     colony.next_step_at = next_step_at;
-    if pressured || (turned_back_at_barrier && ahead_is_lit && can_move) {
+    if scout_has_cause_for_caution(frightened, turned_back_at_barrier, ahead_is_lit, can_move) {
         colony.wary_until = Some(
             next_tick
                 .checked_add_span(TickSpan::new(SCOUT_WARY_INTERVAL_TICKS))
@@ -554,7 +576,7 @@ pub(crate) fn apply_kobold_scout_tick(
         position: scout_position,
         discovered_player_drop: discovered,
         relocated_drop,
-        fled_player: pressured_by_player && can_move,
+        fled_player: (pressured_by_player || ahead_is_guarded) && can_move,
         fled_light: (pressured_by_light || (turned_back_at_barrier && ahead_is_lit)) && can_move,
         turned_back_at_barrier: turned_back_at_barrier && can_move,
         cancelled_empty_cache_raid: cancelled_empty_cache_raid && can_move,
