@@ -84,6 +84,26 @@ fn carry_field_box_material(registries: &Registries, state: &mut AppState) {
     .unwrap();
 }
 
+fn materialize_timber_member_at(registries: &Registries, state: &mut AppState, at: VoxelCoord) {
+    let bounds = VoxelBounds::new(at, VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap();
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap();
+    let member = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        false,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(registries, state, member, FORM_LOG);
+}
+
 #[test]
 fn heavy_castes_are_solid_on_the_actual_continuous_player_walk_sweep() {
     let (registries, mut state, route) = occupied_temple();
@@ -155,6 +175,85 @@ fn pointed_storage_cannot_materialize_inside_a_temple_warden() {
     );
     assert_eq!(state.inventory(), before.inventory());
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn trusted_load_rejects_stationary_enclosure_overlapping_a_temple_warden() {
+    let (registries, mut state, route) = occupied_temple();
+    carry_field_box_material(&registries, &mut state);
+    // The inventory allocation primitive deliberately delegates world-space
+    // authorization to its caller. Simulate tampered persisted custody by
+    // skipping that caller's placement check.
+    let _ = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        route[0],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &state,
+        route[0]
+    ));
+    assert!(
+        validate_loaded_state(&registries, &state).is_err(),
+        "trusted validation must reject infrastructure embedded in a resident"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let admitted = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries);
+    assert!(admitted.is_err());
+}
+
+#[test]
+fn trusted_load_rejects_timber_member_overlapping_a_temple_warden() {
+    let (registries, mut state, route) = occupied_temple();
+    let head = VoxelCoord::new(route[0].x(), route[0].y() + 1, route[0].z());
+    materialize_timber_member_at(&registries, &mut state, head);
+    assert!(crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &state,
+        head
+    ));
+    assert!(
+        validate_loaded_state(&registries, &state).is_err(),
+        "the trusted graph cannot admit constructed matter inside the guard"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+}
+
+#[test]
+fn trusted_load_rejects_member_inside_the_archivists_full_footprint() {
+    let (registries, mut state, route) = occupied_temple();
+    let [_, archivist] = crate::world::temple_residents_at(&registries, &state, route[0]).unwrap();
+    let upper_far_corner = VoxelCoord::new(archivist.x() + 1, archivist.y() + 2, archivist.z() - 1);
+    assert!(crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &state,
+        upper_far_corner
+    ));
+    materialize_timber_member_at(&registries, &mut state, upper_far_corner);
+    assert!(
+        validate_loaded_state(&registries, &state).is_err(),
+        "the archivist's full two-by-two-by-three body cannot contain a timber member"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
 }
 
 #[test]
@@ -242,23 +341,7 @@ fn vacated_warden_post_can_be_occupied_but_blocks_its_later_retreat() {
 fn warden_cannot_advance_into_an_authored_timber_member() {
     let (registries, mut state, route) = occupied_temple();
     let at = VoxelCoord::new(route[1].x(), route[1].y() + 1, route[1].z());
-    let bounds = VoxelBounds::new(at, VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap();
-    let geometry = StructuralElementGeometry::new(
-        bounds,
-        BASIC_TIMBER_POST_LENGTH,
-        BASIC_TIMBER_POST_CROSS_SECTION,
-    )
-    .unwrap();
-    let member = add_structural_element(
-        &registries,
-        &mut state,
-        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-        MATERIAL_WOOD,
-        geometry,
-        false,
-    )
-    .unwrap();
-    materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
+    materialize_timber_member_at(&registries, &mut state, at);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     advance_to(&registries, &mut state, 5);
     assert_eq!(

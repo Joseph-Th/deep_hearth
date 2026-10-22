@@ -664,6 +664,7 @@ pub(crate) fn validate_loaded_kobolds(
 ) -> Result<(), &'static str> {
     validate_consumed_matter(registries, state.kobold_state())?;
     temple_guard::validate_temple_wardens(registries, state)?;
+    temple_guard::validate_temple_infrastructure(registries, state)?;
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return state
             .kobold_state()

@@ -270,7 +270,8 @@ member bounds. A stationary enclosure or timber member can hold an otherwise cle
 lane; a displaced guardian cannot retreat through a newly occupied ancestral post.
 Loss of contact causes one-cell-at-a-time withdrawal. The kobold owner persists only displaced wardens in
 strictly sorted per-temple records. Trusted load rejects duplicates, nonexistent sites,
-blocked/absent occupancy and invalid route cursors. A resident stranded by later
+blocked/absent occupancy, invalid route cursors and constructed stationary objects
+or structural members intersecting generated resident bodies. A resident stranded by later
 floor excavation retains its saved position but cannot move without support.
 The normal post derives from terrain rather than a second creature ledger. Only the
 player's currently relevant site and the sparse set of actually displaced wardens

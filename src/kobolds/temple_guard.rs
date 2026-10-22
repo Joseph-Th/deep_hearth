@@ -182,6 +182,115 @@ pub(super) fn validate_temple_wardens(
     Ok(())
 }
 
+/// Loaded constructed custody must not intersect either generated temple caste.
+/// A forged enclosure location cannot become valid merely because ordinary
+/// pointed placement already rejects that position at runtime.
+pub(super) fn validate_temple_infrastructure(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), &'static str> {
+    let logistics = state.logistics();
+    let mut stationary = logistics
+        .stockpile_locations()
+        .map(|(_, position)| position)
+        .chain(
+            logistics
+                .equipment_locations()
+                .map(|(_, position)| position),
+        )
+        .chain(
+            logistics
+                .energy_store_locations()
+                .map(|(_, position)| position),
+        )
+        .chain(
+            logistics
+                .fluid_store_locations()
+                .map(|(_, position)| position),
+        );
+    if stationary.any(|position| {
+        state
+            .world()
+            .get_chunk(ChunkCoord::containing(position))
+            .is_some()
+            && super::temple_caste_occupies_voxel(registries, state, position)
+    }) {
+        return Err("stationary infrastructure intersects an occupied temple caste cell");
+    }
+    if state.structures().elements().next().is_none() {
+        return Ok(());
+    }
+    // Structural bounds may cover more than one voxel. Inspect the finite body
+    // cells of generated temples rather than enumerate potentially immense,
+    // untrusted structure bounds. Occupancy itself remains the caste owner's
+    // canonical predicate.
+    for chunk in state.world().chunks() {
+        let Some(x) = chunk.coord().world_min_x().and_then(|x| x.checked_add(8)) else {
+            continue;
+        };
+        let Some(z) = chunk.coord().world_min_z().and_then(|z| z.checked_add(8)) else {
+            continue;
+        };
+        let observer = VoxelCoord::new(x, -19, z);
+        let Some([post, archivist]) =
+            crate::world::temple_residents_at(registries, state, observer)
+        else {
+            continue;
+        };
+        validate_structural_clearance_at_temple(registries, state, post, archivist)?;
+    }
+    Ok(())
+}
+
+fn validate_structural_clearance_at_temple(
+    registries: &Registries,
+    state: &AppState,
+    post: VoxelCoord,
+    archivist: VoxelCoord,
+) -> Result<(), &'static str> {
+    let step = state
+        .kobold_state()
+        .temple_warden_step(ChunkCoord::containing(post));
+    let Some(warden_z) = post.z().checked_sub(i64::from(step)) else {
+        return Err("temple warden displaced beyond representable coordinates");
+    };
+    for dy in 0..=1 {
+        let cell = VoxelCoord::new(post.x(), post.y() + dy, warden_z);
+        if structure_intersects_temple_caste_cell(registries, state, cell) {
+            return Err("structural member intersects an occupied temple caste cell");
+        }
+    }
+    for dx in 0..=1 {
+        for dy in 0..=2 {
+            for dz in 0..=1 {
+                let Some(x) = archivist.x().checked_add(dx) else {
+                    return Err("temple archivist extent exceeds representable coordinates");
+                };
+                let Some(z) = archivist.z().checked_sub(dz) else {
+                    return Err("temple archivist extent exceeds representable coordinates");
+                };
+                let cell = VoxelCoord::new(x, archivist.y() + dy, z);
+                if structure_intersects_temple_caste_cell(registries, state, cell) {
+                    return Err("structural member intersects an occupied temple caste cell");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn structure_intersects_temple_caste_cell(
+    registries: &Registries,
+    state: &AppState,
+    cell: VoxelCoord,
+) -> bool {
+    super::temple_caste_occupies_voxel(registries, state, cell)
+        && state
+            .structures()
+            .elements()
+            .any(|element| element.bounds().has_voxel(cell))
+}
+
 #[cfg(test)]
 #[path = "temple_guard_tests.rs"]
 mod tests;
