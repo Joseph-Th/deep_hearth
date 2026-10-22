@@ -7,7 +7,7 @@ use crate::content::{
     build_registries,
 };
 use crate::core::quantity::{Mass, Temperature, Volume};
-use crate::core::state::{AppState, apply_clock_advance};
+use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::logistics::{add_traversable_edge_for_test, validate_allocate_ground_stockpile};
@@ -44,7 +44,11 @@ fn generated_profile(state: &AppState) -> Vec<(CommodityKey, Mass, VoxelCoord)> 
         .collect()
 }
 
-fn materialize_full_panel_at(registries: &Registries, state: &mut AppState, head: VoxelCoord) {
+fn plan_full_panel_at(
+    registries: &Registries,
+    state: &mut AppState,
+    head: VoxelCoord,
+) -> crate::structural::StructuralElementId {
     let geometry = StructuralElementGeometry::new(
         VoxelBounds::new(
             head,
@@ -56,7 +60,7 @@ fn materialize_full_panel_at(registries: &Registries, state: &mut AppState, head
     )
     .unwrap();
     assert!(geometry.covers_horizontal_footprint());
-    let member = add_structural_element(
+    add_structural_element(
         registries,
         state,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
@@ -64,7 +68,11 @@ fn materialize_full_panel_at(registries: &Registries, state: &mut AppState, head
         geometry,
         false,
     )
-    .unwrap();
+    .unwrap()
+}
+
+fn materialize_full_panel_at(registries: &Registries, state: &mut AppState, head: VoxelCoord) {
+    let member = plan_full_panel_at(registries, state, head);
     materialize_structural_element_for_test(registries, state, member, FORM_BOARD);
 }
 
@@ -93,6 +101,74 @@ fn terrain_generation_cannot_embed_existing_full_footprint_structural_matter() {
         "the terrain generator must not bury an already embodied full-footprint panel in stone"
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_embodied_timber_inside_existing_generated_stone() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    materialize_full_panel_at(&registries, &mut state, at);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(StateValidationError::StructureEmbeddedInSolidTerrain { voxel: at }),
+        "a saved material-backed panel embedded in generated stone must not be trusted"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+}
+
+#[test]
+fn empty_structural_blueprint_inside_generated_stone_is_not_physical_matter() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let mut state = AppState::new();
+    let member = plan_full_panel_at(&registries, &mut state, at);
+    assert!(
+        state
+            .structures()
+            .get_element(member)
+            .unwrap()
+            .embodied_material()
+            .is_empty()
+    );
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
 }
 
 #[test]

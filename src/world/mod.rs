@@ -23,6 +23,7 @@ pub use excavation::{
     ValidatedPlayerBlockExcavationStart, validate_start_player_block_excavation,
 };
 pub(crate) use generation::WorldGenerationProfile;
+pub(crate) use generation::first_embodied_structure_collision_in_world;
 pub(crate) use generation::temple_residents_at;
 pub(crate) use generation::temple_warden_route_at;
 pub use generation::{

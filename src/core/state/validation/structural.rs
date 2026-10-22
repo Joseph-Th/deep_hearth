@@ -161,6 +161,11 @@ pub(super) fn validate_structural_integrations(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
+    if let Some(voxel) =
+        crate::world::first_embodied_structure_collision_in_world(registries, state)
+    {
+        return Err(StateValidationError::StructureEmbeddedInSolidTerrain { voxel });
+    }
     validate_equipment_structural_loads(registries, state)?;
     validate_stockpile_structural_loads(registries, state)?;
     validate_fluid_structural_loads(registries, state)?;

@@ -290,6 +290,9 @@ structural members. The prospective overlap scan is clipped to the finite
 incoming chunk, not the potentially large authored member bounds, and atomic
 player-neighborhood generation applies the same protection. Inert construction
 plans and structures entirely above the generated ground remain admissible.
+Trusted save admission reuses the same chunk-clipped structural overlap test
+against existing generated terrain, rejecting embedded built matter with a
+specific obstructed voxel while preserving empty planned blueprints.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent

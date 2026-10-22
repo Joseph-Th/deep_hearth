@@ -48,6 +48,9 @@ pub enum StateValidationError {
     Fluid(FluidValidationError),
     Equipment(EquipmentValidationError),
     Structure(StructureValidationError),
+    StructureEmbeddedInSolidTerrain {
+        voxel: VoxelCoord,
+    },
     World(WorldValidationError),
     Surface(SurfaceResourceValidationError),
     Kobolds(&'static str),

@@ -13,6 +13,7 @@ impl Error for StateValidationError {
             Self::Fluid(error) => Some(error),
             Self::Equipment(error) => Some(error),
             Self::Structure(error) => Some(error),
+            Self::StructureEmbeddedInSolidTerrain { .. } => None,
             Self::World(error) => Some(error),
             Self::Surface(error) => Some(error),
             Self::Kobolds(_) => None,

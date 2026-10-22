@@ -666,6 +666,17 @@ fn first_structure_collision_in_generated_chunk(
     None
 }
 
+/// Trusted-load counterpart of prospective terrain admission. Both paths
+/// test the same physical bounds against exactly the existing block truth.
+pub(crate) fn first_embodied_structure_collision_in_world(
+    registries: &Registries,
+    state: &AppState,
+) -> Option<VoxelCoord> {
+    state.world().chunks().find_map(|chunk| {
+        first_structure_collision_in_generated_chunk(registries.world(), state, chunk)
+    })
+}
+
 fn temple_site_for_chunk(
     registry: &WorldRegistry,
     profile: WorldGenerationProfile,
