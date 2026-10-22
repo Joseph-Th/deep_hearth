@@ -17,6 +17,7 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceLifecycle};
 
 mod feeding;
+mod junkworks;
 mod mobilization;
 mod patrol;
 mod scavenging;
@@ -24,6 +25,7 @@ mod tracks;
 mod visibility;
 mod watchman;
 
+pub use junkworks::{KoboldJunkRig, KoboldJunkRigKind, available_nearby_kobold_junk_rig};
 pub use tracks::{KoboldTrack, KoboldTrailKind, available_nearby_kobold_tracks};
 
 pub(crate) use patrol::apply_kobold_scout_tick;
@@ -64,6 +66,18 @@ const WATCH_RECOVERY_TICKS: u64 = 100;
 pub enum KoboldRole {
     Scout,
     Watchman,
+    /// A large, armored temple-bred resident; no combat system is claimed.
+    TempleWarden,
+    /// A longer-lived heavy caste attending the surviving mnemonic machinery.
+    TempleArchivist,
+}
+
+/// Distinct physical presence, independent of an unimplemented damage/combat model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KoboldStature {
+    Small,
+    Heavy,
+    Massive,
 }
 
 /// Player-local observation of a physical kobold; remote dens and patrols are not exposed.
@@ -81,6 +95,15 @@ impl KoboldSighting {
     #[must_use]
     pub const fn role(self) -> KoboldRole {
         self.role
+    }
+
+    #[must_use]
+    pub const fn stature(self) -> KoboldStature {
+        match self.role {
+            KoboldRole::Scout | KoboldRole::Watchman => KoboldStature::Small,
+            KoboldRole::TempleWarden => KoboldStature::Heavy,
+            KoboldRole::TempleArchivist => KoboldStature::Massive,
+        }
     }
 
     #[must_use]
@@ -128,6 +151,7 @@ pub struct KoboldScoutEvent {
     consumed_food: Option<(SurfaceResourceId, Mass)>,
     discarded_food: Option<SurfaceResourceId>,
     cleared_cache: Option<SurfaceResourceId>,
+    heard_junk_alarm: bool,
 }
 
 impl KoboldScoutEvent {
@@ -205,6 +229,12 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn cleared_cache(self) -> Option<SurfaceResourceId> {
         self.cleared_cache
+    }
+
+    /// A nearby scout heard a real den clatter-rig warning and changed course.
+    #[must_use]
+    pub const fn heard_junk_alarm(self) -> bool {
+        self.heard_junk_alarm
     }
 }
 
@@ -487,6 +517,27 @@ impl KoboldState {
                     scavenged_material: None,
                 })
             }))
+            .chain(
+                crate::world::temple_residents_at(registries, state, position)
+                    .into_iter()
+                    .flat_map(|residents| {
+                        [
+                            (residents[0], KoboldRole::TempleWarden),
+                            (residents[1], KoboldRole::TempleArchivist),
+                        ]
+                    })
+                    .filter(move |(resident, _)| {
+                        scout_visible_from(registries, state, *resident, position)
+                    })
+                    .map(|(position, role)| KoboldSighting {
+                        role,
+                        position,
+                        has_noticed_player_drop: false,
+                        is_wary: false,
+                        mobilized: false,
+                        scavenged_material: None,
+                    }),
+            )
     }
 }
 

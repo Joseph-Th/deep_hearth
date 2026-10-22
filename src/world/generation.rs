@@ -1,5 +1,7 @@
 //! Deterministic terrain identity, explicit chunk generation, and player-neighborhood demand.
 
+pub(super) mod temple;
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -432,14 +434,39 @@ fn build_generated_chunk(
         .represented_mass_for_state(profile.solid_state())
         .unwrap_or_else(|| unreachable!("validated generation profile has a block definition"));
     let mut chunk = WorldChunk::new(coord);
+    // Alternate authored registries used by capability scenarios may not have ancient
+    // relic blocks. Such worlds retain their valid original terrain identity.
+    let temple = (registry
+        .get_state(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
+        .is_some()
+        && registry
+            .get_state(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+            .is_some())
+    .then(|| temple::TempleSite::for_chunk(profile.seed(), coord))
+    .flatten();
     for local_z in 0..CHUNK_SIDE {
         for local_x in 0..CHUNK_SIDE {
             let x = min_x + local_x as i64;
             let z = min_z + local_z as i64;
             let surface = terrain_height(profile.seed(), x, z);
             for y in WORLD_MIN_Y..=surface {
+                let position = VoxelCoord::new(x, y, z);
+                if let Some(state) = temple.and_then(|site| site.generated_state(position)) {
+                    if state != BlockStateId::AIR {
+                        let relic_mass = registry
+                            .represented_mass_for_state(state)
+                            .unwrap_or_else(|| unreachable!("temple state is an authored block"));
+                        chunk.set_block(
+                            position,
+                            state,
+                            crate::core::quantity::Mass::ZERO,
+                            relic_mass,
+                        );
+                    }
+                    continue;
+                }
                 chunk.set_block(
-                    VoxelCoord::new(x, y, z),
+                    position,
                     profile.solid_state(),
                     crate::core::quantity::Mass::ZERO,
                     solid_mass,
@@ -449,6 +476,33 @@ fn build_generated_chunk(
     }
     chunk.canonicalize_sections();
     Ok(chunk)
+}
+
+/// Locates stationary temple residents using only generated world identity. The kobold
+/// owner applies sight and range checks; no regional enemy map becomes player-visible.
+pub(crate) fn temple_residents_at(
+    registries: &Registries,
+    state: &AppState,
+    observer: VoxelCoord,
+) -> Option<[VoxelCoord; 2]> {
+    if registries
+        .world()
+        .get_state(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
+        .is_none()
+        || registries
+            .world()
+            .get_state(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+            .is_none()
+    {
+        return None;
+    }
+    let seed = state.world().generation_profile()?.seed();
+    let site = temple::TempleSite::for_chunk(seed, ChunkCoord::containing(observer))?;
+    let residents = [site.warden(), site.archivist()];
+    residents
+        .iter()
+        .all(|position| state.world().block_at(*position) == Some(BlockStateId::AIR))
+        .then_some(residents)
 }
 
 fn terrain_height(seed: WorldGenerationSeed, x: i64, z: i64) -> i64 {

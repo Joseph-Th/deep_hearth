@@ -196,6 +196,25 @@ synchronized indexes.
 
 Cross-owner operations coordinate owner APIs; they do not mutate another owner's private storage directly.
 
+Kobold junkworks use existing surface custody rather than minting an equipment instance: after a
+physical industrial sighting has reached the den, co-located precision-copper salvage plus
+stone-chip or shaped-timber striker forms an improvised mechanical alarm. The player-local
+`available_nearby_kobold_junk_rig` projection exposes actual component identities only from a
+visible den. `apply_watchman_tick` relays a witnessed warning only across the den-to-junction
+traversal edge to an actually adjacent scout. Timber-braced mechanisms sound every third scout
+clock opportunity; crude stone clappers every fifth. Missed beats retain the warning, and moving
+either loose part immediately disables the device. A successful warning makes the scout retreat
+through its ordinary route; it does not create a radio, energy source, or duplicate material.
+
+Generated terrain places one sealed temple vault within each eight-by-eight-chunk district's
+anchor column. Seed and chunk coordinates determine its buried center independently of chunk
+generation order. The rock roof and floor are full-cube world authority, and the interior is
+canonical air. Two dormant relic shells retain authored copper mass and excavate to conserved
+copper scrap, not instantly usable technology. Their hollow housings do not award entire cubic
+meters of refined copper. Two stationary heavy-caste temple residents are derived from the
+generated room and visible only through local sight checks. They are not summoned by player
+progress; movement, combat, ancient-machine restoration and relic interpretation are absent.
+
 This table is intentionally ordered exactly as the fields in `SystemState`; the documentation checker rejects
 owner additions, removals, or drift until the atlas is updated. A top-level directory absent from this table is
 not a root runtime owner merely because it contains domain logic.

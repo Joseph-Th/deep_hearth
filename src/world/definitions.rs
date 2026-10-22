@@ -103,6 +103,7 @@ impl BlockExcavationDefinition {
 pub struct BlockPhysicalDefinition {
     commodity: Option<CommodityKey>,
     represented_mass: Mass,
+    material_fill_fraction_ppm: u32,
     collision: BlockCollisionShape,
     opaque: bool,
     excavation: Option<BlockExcavationDefinition>,
@@ -131,6 +132,7 @@ impl BlockPhysicalDefinition {
         Self {
             commodity,
             represented_mass,
+            material_fill_fraction_ppm: 1_000_000,
             collision,
             opaque,
             excavation: None,
@@ -145,6 +147,27 @@ impl BlockPhysicalDefinition {
         );
         self.excavation = Some(excavation);
         self
+    }
+
+    /// The collision envelope may be full-size even when most of its volume is hollow.
+    /// Full-cube mass still must equal material density times this occupied fraction.
+    #[must_use]
+    pub fn with_material_fill_fraction(mut self, fraction_ppm: u32) -> Self {
+        assert!(
+            (1..=1_000_000).contains(&fraction_ppm),
+            "block material fill fraction must be positive and at most one million ppm"
+        );
+        assert!(
+            self.commodity.is_some() && self.collision == BlockCollisionShape::FullCube,
+            "hollow material fraction requires a material-backed full-cube collision envelope"
+        );
+        self.material_fill_fraction_ppm = fraction_ppm;
+        self
+    }
+
+    #[must_use]
+    pub const fn material_fill_fraction_ppm(self) -> u32 {
+        self.material_fill_fraction_ppm
     }
 
     #[must_use]
@@ -236,6 +259,11 @@ impl BlockDefinition {
     #[must_use]
     pub const fn represented_mass(&self) -> Mass {
         self.physical.represented_mass()
+    }
+
+    #[must_use]
+    pub const fn material_fill_fraction_ppm(&self) -> u32 {
+        self.physical.material_fill_fraction_ppm()
     }
 
     #[must_use]
@@ -372,9 +400,11 @@ impl WorldRegistry {
                             .unwrap_or_else(|| {
                                 unreachable!("registered commodity has a material definition")
                             });
+                    // One cubic metre contains 1,000,000 mg per kg; scaling by the
+                    // fill fraction in ppm cancels those million units exactly.
                     let expected_mass = Mass::from_milligrams(
                         u64::from(material.properties().density_kg_per_m3())
-                            .checked_mul(1_000_000)
+                            .checked_mul(u64::from(block.material_fill_fraction_ppm()))
                             .unwrap_or_else(|| {
                                 panic!("full-cube material mass exceeds supported range")
                             }),

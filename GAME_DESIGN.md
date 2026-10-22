@@ -232,6 +232,44 @@ imitate, restore, or summon what remains of their former masters. That ancestry 
 organization and priorities, but does not grant free machinery, supernatural information, or
 an invisible army. Distinguish what they actually possess from what they remember or covet.
 
+### Two faces of kobold technology
+
+Surface kobolds are inventive wreckers and scavenger-engineers. They cobble together machinery from
+parts stolen from the player, old mechanisms, stones, timber and anything else they can actually
+carry home. Their constructions should be ingenious but badly matched: a copper winding becomes a
+rattling alarm core, a timber handle braces a ratchet, and stone chips serve as an unreliable
+striker. Different substitutions change performance, noise, reliability, upkeep and the value of
+raiding versus defending local supplies. An unattended machine is an opportunity to steal
+components, not an instantly copied blueprint. Improvised devices do not benefit from inexplicable
+technology a scout has never observed or components it has not physically recovered. The player
+may reclaim the loose materials from a den, disabling its contraption without deleting matter.
+
+Far below those camps lie sealed temple districts, inherited from the period when kobolds
+maintained a civilization they did not create. They are not crude shacks upgraded by a difficulty
+modifier: stone precincts preserve dormant mnemonic archives, motive engines, conduits and
+machine-rooms whose original purpose is only partly remembered. Chambers exist as actual
+subterranean terrain and old devices as embodied salvageable material. A closed archive is not
+automatically readable, and a dead engine is not automatically usable. Excavating or repairing them
+should require geology, access, power, material reconstruction and interpretation rather than a
+species-specific magical unlock.
+
+The subterranean castes differ physically and socially from surface raiders. Small **scouts**
+and **watchmen** forage and improvise. Heavy **vault wardens** are temple-bred defenders
+accustomed to narrow ceremonial passages and guarding machinery. Massive **archivists** are
+older, stronger-bodied custodians of partial technical memory, not merely stronger scouts with
+larger health bars. Their survivals and allegiances are clues to their makers, whose identity
+remains uncertain. Temple inhabitants remain in real rooms; they must not emerge from nowhere
+whenever the player's technology advances. Combat, caste-specific physiology, negotiation,
+vault machine restoration and subterranean movement are future systems, not hidden exceptions
+to the present simulation. Their existing visual presence should foreshadow different risks.
+
+One early interaction bridges these societies: a mobilized den with physically co-located
+precision copper salvage and a suitable striker can sound a faulty mechanical warning over
+one adjacent route edge. Bare stone clatters less reliably than a timber-braced ratchet; missing
+parts or an unsuccessful beat leave the warning untransmitted. A successfully warned scout
+retreats using the ordinary route rules. This establishes the scavenged-technology vocabulary
+without granting kobolds free ranged communication, energy, weapons or distant knowledge.
+
 Enemy pressure must respond to the player's demonstrated progress, not just elapsed time or
 arbitrary level scaling. At first a lone kobold steals food and exposed scraps; after witnessing
 engineered equipment, repeated defenses, and increasingly capable industry, its colony should

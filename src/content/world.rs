@@ -7,12 +7,16 @@ use crate::world::{
     BlockPhysicalDefinition, BlockStateDefinition, BlockStateId, WorldRegistry,
 };
 
-use super::materials::{FORM_BLOCK, FORM_CHIP, MATERIAL_STONE};
-use super::textures::BLOCK_STONE;
+use super::materials::{FORM_BLOCK, FORM_CHIP, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_STONE};
+use super::textures::{BLOCK_COPPER, BLOCK_STONE};
 
 pub const WORLD_BLOCK_STONE: BlockDefinitionId = BlockDefinitionId::new(2);
+pub const WORLD_BLOCK_TEMPLE_ARCHIVE: BlockDefinitionId = BlockDefinitionId::new(3);
+pub const WORLD_BLOCK_TEMPLE_DRIVE: BlockDefinitionId = BlockDefinitionId::new(4);
 
 pub const BLOCK_STATE_STONE: BlockStateId = BlockStateId::new(2);
+pub const BLOCK_STATE_TEMPLE_ARCHIVE: BlockStateId = BlockStateId::new(3);
+pub const BLOCK_STATE_TEMPLE_DRIVE: BlockStateId = BlockStateId::new(4);
 
 pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistry {
     WorldRegistry::new(
@@ -41,10 +45,51 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                 )),
                 Some(BLOCK_STONE),
             ),
+            // Buried servant-era devices are physically present but no longer powered.
+            // Breaking them yields conserved copper scrap, not instant working machinery.
+            BlockDefinition::new(
+                WORLD_BLOCK_TEMPLE_ARCHIVE,
+                "sealed temple mnemonic archive",
+                BLOCK_STATE_TEMPLE_ARCHIVE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+                    // One thousandth of a cubic metre of metal in a full-sized housing.
+                    Mass::from_milligrams(8_960_000),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_material_fill_fraction(1_000)
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(500_000_000),
+                    CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_COPPER),
+            ),
+            BlockDefinition::new(
+                WORLD_BLOCK_TEMPLE_DRIVE,
+                "dormant temple motive engine",
+                BLOCK_STATE_TEMPLE_DRIVE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+                    Mass::from_milligrams(17_920_000),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_material_fill_fraction(2_000)
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(650_000_000),
+                    CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_COPPER),
+            ),
         ],
         [
             BlockStateDefinition::new(BlockStateId::AIR, BlockDefinitionId::AIR),
             BlockStateDefinition::new(BLOCK_STATE_STONE, WORLD_BLOCK_STONE),
+            BlockStateDefinition::new(BLOCK_STATE_TEMPLE_ARCHIVE, WORLD_BLOCK_TEMPLE_ARCHIVE),
+            BlockStateDefinition::new(BLOCK_STATE_TEMPLE_DRIVE, WORLD_BLOCK_TEMPLE_DRIVE),
         ],
     )
 }

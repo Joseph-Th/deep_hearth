@@ -23,6 +23,7 @@ pub use excavation::{
     ValidatedPlayerBlockExcavationStart, validate_start_player_block_excavation,
 };
 pub(crate) use generation::WorldGenerationProfile;
+pub(crate) use generation::temple_residents_at;
 pub use generation::{
     ChunkGenerationCommitError, ChunkGenerationError, ValidatedChunkGeneration,
     ValidatedPlayerChunkDemand, WorldGenerationSeed, validate_generate_chunk,
@@ -41,3 +42,7 @@ pub use validation::{WorldValidationError, validate_loaded_world};
 #[cfg(test)]
 #[path = "world_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "temple_tests.rs"]
+mod temple_tests;

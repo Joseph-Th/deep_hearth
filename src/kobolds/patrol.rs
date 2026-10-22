@@ -575,7 +575,8 @@ pub(crate) fn apply_kobold_scout_tick(
     // Den resources remain physically recoverable until they are actually eaten.
     let (consumed_food, discarded_food, cleared_cache) =
         apply_scheduled_den_care(registries, state, from, next_tick, pressured);
-    apply_watchman_tick(registries, state, next_tick);
+    let heard_junk_alarm = apply_watchman_tick(registries, state, next_tick);
+    let pressured = pressured || heard_junk_alarm;
     let colony = state
         .kobold_state()
         .colony
@@ -799,6 +800,7 @@ pub(crate) fn apply_kobold_scout_tick(
     let observed_clearing = cleared_cache.filter(|_| den_visible);
     let had_local_activity = [
         can_move,
+        heard_junk_alarm,
         abandoned_drop.is_some(),
         observed_meal.is_some(),
         observed_discard.is_some(),
@@ -810,6 +812,7 @@ pub(crate) fn apply_kobold_scout_tick(
             .is_some_and(|player| scout_visible_from(registries, state, scout_position, player));
     visible.then_some(KoboldScoutEvent {
         position: scout_position,
+        heard_junk_alarm,
         discovered_player_drop: discovered,
         relocated_drop,
         fled_player: (pressured_by_player || ahead_is_guarded) && can_move,
