@@ -71,7 +71,9 @@ pub(super) fn scout_can_enter(
                     .structures()
                     .elements()
                     .any(|element| {
-                        !element.embodied_material().is_empty() && element.bounds().has_voxel(cell)
+                        !element.embodied_material().is_empty()
+                            && element.geometry().covers_horizontal_footprint()
+                            && element.bounds().has_voxel(cell)
                     })
         })
 }

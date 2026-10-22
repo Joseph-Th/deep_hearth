@@ -587,6 +587,22 @@ pub fn available_nearby_kobold_scouts<'a>(
     })
 }
 
+/// Physical occupancy of the two small opening residents, independently of
+/// sight, warning state and surface cargo. Both stand two cells tall; the
+/// watchman has his own saved patrol position even while the scout is away.
+pub(crate) fn opening_kobold_occupies_voxel(state: &AppState, voxel: VoxelCoord) -> bool {
+    let Some(colony) = state.kobold_state().colony.as_ref() else {
+        return false;
+    };
+    [colony.scout_position(), colony.watch_position()]
+        .into_iter()
+        .any(|resident| {
+            voxel.x() == resident.x()
+                && voxel.z() == resident.z()
+                && (voxel.y() == resident.y() || resident.y().checked_add(1) == Some(voxel.y()))
+        })
+}
+
 /// Authoritative occupancy in this generated voxel, independent of local
 /// sight. A concealed caste is still solid; no remote-creature scan occurs.
 pub(crate) fn temple_caste_occupies_voxel(
@@ -619,6 +635,45 @@ pub(crate) fn temple_caste_occupies_voxel(
             .checked_add(2)
             .is_some_and(|head| (archivist.y()..=head).contains(&voxel.y()));
     heavy_guard || massive_archivist
+}
+
+/// An opening resident's body cannot coexist with constructed matter in a
+/// generated world. Ambient equipment, energy/fluid stores and unenclosed
+/// stockpiles remain shareable locality rather than full-cube collision.
+fn validate_opening_resident_infrastructure(
+    state: &AppState,
+    colony: &KoboldColony,
+) -> Result<(), &'static str> {
+    if state.world().generation_profile().is_none() {
+        return Ok(());
+    }
+    for resident in [colony.scout_position(), colony.watch_position()] {
+        let head_y = resident
+            .y()
+            .checked_add(1)
+            .ok_or("opening resident body extends outside representable coordinates")?;
+        for cell in [
+            resident,
+            VoxelCoord::new(resident.x(), head_y, resident.z()),
+        ] {
+            let enclosed = state.logistics().stockpile_locations().any(|(id, at)| {
+                at == cell
+                    && state
+                        .inventory()
+                        .get_stockpile(id)
+                        .is_some_and(|stockpile| stockpile.enclosure().is_some())
+            });
+            let structure = state.structures().elements().any(|element| {
+                !element.embodied_material().is_empty()
+                    && element.geometry().covers_horizontal_footprint()
+                    && element.bounds().has_voxel(cell)
+            });
+            if enclosed || structure {
+                return Err("constructed infrastructure intersects an opening kobold resident");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_meal_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'static str> {
@@ -673,6 +728,7 @@ pub(crate) fn validate_loaded_kobolds(
             .then_some(())
             .ok_or("uninhabited kobold state contains consumed matter");
     };
+    validate_opening_resident_infrastructure(state, colony)?;
     if colony.scout_step > 3
         || (colony.scout_step == 3 && (colony.returning || colony.detour_goal.is_none()))
         || !colony.route[0].is_face_adjacent_to(colony.route[1])

@@ -3,14 +3,18 @@
 use super::*;
 
 use crate::content::{
-    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE, FORM_LOG,
-    FORM_ROUGH_BOX_BODY, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE, FORM_BOARD,
+    FORM_LOG, FORM_ROUGH_BOX_BODY, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::Temperature;
 use crate::core::state::validate_loaded_state;
 use crate::inventory::{deposit_lot_for_test, validate_place_player_storage_at};
-use crate::logistics::{HorizontalControlInput, PlayerControlInput, relocate_player_for_test};
+use crate::logistics::{
+    HorizontalControlInput, PlayerControlInput, add_traversable_edge_for_test,
+    relocate_player_for_test,
+};
 use crate::logistics::{PlayerWalkProjectionError, project_player_adjacent_walk};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -84,6 +88,16 @@ fn carry_field_box_material(registries: &Registries, state: &mut AppState) {
     .unwrap();
 }
 
+fn opening_colony_in_temple_hall(state: &mut AppState, route: [VoxelCoord; 3]) {
+    let [post, junction, tip] = route;
+    relocate_player_for_test(state, junction);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([tip, junction, post]);
+    add_traversable_edge_for_test(state, tip, junction);
+    add_traversable_edge_for_test(state, junction, post);
+}
+
 fn plan_timber_member_at(
     registries: &Registries,
     state: &mut AppState,
@@ -110,6 +124,31 @@ fn plan_timber_member_at(
 fn materialize_timber_member_at(registries: &Registries, state: &mut AppState, at: VoxelCoord) {
     let member = plan_timber_member_at(registries, state, at);
     materialize_structural_element_for_test(registries, state, member, FORM_LOG);
+}
+
+fn materialize_full_footprint_panel_at(
+    registries: &Registries,
+    state: &mut AppState,
+    at: VoxelCoord,
+) {
+    let bounds = VoxelBounds::new(at, VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap();
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap();
+    assert!(geometry.covers_horizontal_footprint());
+    let member = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        false,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(registries, state, member, FORM_BOARD);
 }
 
 #[test]
@@ -183,6 +222,105 @@ fn pointed_storage_cannot_materialize_inside_a_temple_warden() {
     );
     assert_eq!(state.inventory(), before.inventory());
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn pointed_storage_cannot_materialize_inside_an_opening_scout_and_watchman() {
+    let (registries, mut state, route) = occupied_temple();
+    let tip = route[2];
+    // Both opening residents occupy their den. The target is an ordinary air
+    // cell, not one of the special temple resident positions.
+    opening_colony_in_temple_hall(&mut state, route);
+    let wall = VoxelCoord::new(tip.x(), tip.y(), tip.z() - 1);
+    set_generated_block_for_test(registries.world(), &mut state, wall, BLOCK_STATE_STONE);
+    assert!(!crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &state,
+        tip
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    carry_field_box_material(&registries, &mut state);
+    let prior = state.inventory().clone();
+    let direction = ViewDirection::new(0, -600_000, -800_000).unwrap();
+    let input = PlayerDirectControlInput::NEUTRAL.with_secondary(
+        SecondaryControlIntent::place_storage(STORAGE_ROUGH_TIMBER_FIELD_BOX, direction),
+    );
+    let action = advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+    assert_eq!(
+        action.secondary_action(),
+        Some(&SecondaryActionOutcome::StoragePlacementLocationOccupied { position: tip })
+    );
+    assert_eq!(state.inventory(), &prior);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn trusted_load_rejects_finished_enclosure_inside_an_opening_scout() {
+    let (registries, mut state, route) = occupied_temple();
+    let tip = route[2];
+    opening_colony_in_temple_hall(&mut state, route);
+    carry_field_box_material(&registries, &mut state);
+    // The stockpile allocation owner does not authorize placement geometry;
+    // corrupted persisted custody can otherwise embed a box in the scout.
+    let _ =
+        validate_place_player_storage_at(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX, tip)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    assert!(
+        validate_loaded_state(&registries, &state).is_err(),
+        "trusted admission must reject a built enclosure occupying an opening resident"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+}
+
+#[test]
+fn trusted_load_allows_slender_post_inside_opening_scouts_voxel() {
+    let (registries, mut state, route) = occupied_temple();
+    let tip = route[2];
+    opening_colony_in_temple_hall(&mut state, route);
+    let head = VoxelCoord::new(tip.x(), tip.y() + 1, tip.z());
+    let member = plan_timber_member_at(&registries, &mut state, head);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .is_ok()
+    );
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Ok(()),
+        "a narrow timber post does not fill the cell occupied by a small resident"
+    );
+}
+
+#[test]
+fn trusted_load_rejects_full_footprint_panel_inside_opening_scout() {
+    let (registries, mut state, route) = occupied_temple();
+    let tip = route[2];
+    opening_colony_in_temple_hall(&mut state, route);
+    let head = VoxelCoord::new(tip.x(), tip.y() + 1, tip.z());
+    materialize_full_footprint_panel_at(&registries, &mut state, head);
+    assert!(
+        validate_loaded_state(&registries, &state).is_err(),
+        "a solid cover panel crossing the scout's upper body must be rejected"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
 }
 
 #[test]
@@ -412,15 +550,27 @@ fn generated_world_scout_clearance_respects_constructed_enclosures_and_temple_ca
     let head = VoxelCoord::new(position.x(), position.y() + 1, position.z());
     materialize_timber_member_at(&registries, &mut member_state, head);
     assert!(
-        !crate::kobolds::patrol::scout_can_enter(
+        crate::kobolds::patrol::scout_can_enter(
             &registries,
             &member_state,
             position,
             distant_player
         ),
-        "a member in the upper occupied cell must obstruct the scout"
+        "a slender timber member cannot be treated as a full-voxel wall"
     );
     assert_eq!(validate_loaded_state(&registries, &member_state), Ok(()));
+    let mut panel_state = state.clone();
+    materialize_full_footprint_panel_at(&registries, &mut panel_state, head);
+    assert!(
+        !crate::kobolds::patrol::scout_can_enter(
+            &registries,
+            &panel_state,
+            position,
+            distant_player
+        ),
+        "a full-footprint panel in the upper body cell must obstruct the scout"
+    );
+    assert_eq!(validate_loaded_state(&registries, &panel_state), Ok(()));
     carry_field_box_material(&registries, &mut state);
     let _ = validate_place_player_storage_at(
         &registries,

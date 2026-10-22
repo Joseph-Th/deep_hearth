@@ -252,11 +252,17 @@ spares on later visits, with ordinary player interception and exact conserved
 custody even across save/load. No distant cargo is reserved or teleported.
 In generated-world patrols, a scout's two-cell standing footprint requires
 actual free space, including the player's airborne body cells, concealed temple
-residents, finished storage enclosures, and embodied structural members. Inert
+residents, finished storage enclosures, and embodied structural members whose
+geometry covers the complete horizontal voxel footprint. Narrow posts occupy
+only part of their bounding cells and need not obstruct a small scout. Inert
 zero-material blueprints reserve construction geometry but do not obstruct movement.
 Loose equipment, ambient stockpiles and placed energy/fluid stores are locality
 rather than full-cube collision; lighting independently deters scavengers. The authored
 pre-generation traversal graph retains its terrain-free opening rules.
+Pointed construction rejects the scout and watchman's actual two-cell bodies even
+when concealed from sight. Trusted load also rejects completed enclosures and
+full-footprint embodied members intersecting either persisted opening resident;
+unenclosed stockpiles, narrow posts and inactive blueprints remain non-obstructing.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent
@@ -287,7 +293,7 @@ homebound retreat to finish after the player leaves the chunk without inventing
 offscreen reinforcements. Horizontal and vertical player-body sweeps, stance clearance,
 grounding and read-only walk projections query identical temple-caste occupancy,
 including concealed residents. Pointed player storage and structural placement also
-reject occupied caste cells even when the target geometry itself is generated air.
+reject occupied caste and opening-kobold cells even when the target geometry itself is generated air.
 A warden checks both occupied body cells before moving into the player's space.
 Ordinary player admission, trusted-state validation and the respawn anchor also check
 that same occupied volume. Local sightings expose defensive posture and moving
