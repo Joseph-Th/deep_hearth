@@ -9,10 +9,22 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
-use super::junkworks::{den_needs_striker, is_junk_striker};
+use super::junkworks::{den_or_relay_needs_striker, is_junk_striker, is_staged_relay_component};
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::visibility::scout_visible_from;
 use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
+
+/// Selected staged repeater parts remain untouched by their own returning
+/// scavenger while the den signal source exists, even when only the first
+/// part has arrived. They are never reserved from player pickup.
+pub(super) fn scout_wants_loose_drop(
+    registries: &Registries,
+    state: &AppState,
+    resource: &crate::surface::SurfaceResourceRecord,
+    at: SimulationTick,
+) -> bool {
+    scout_wants_drop(registries, resource, at) && !is_staged_relay_component(state, resource)
+}
 
 /// Survival food always precedes inert cargo, but mobilized scavengers use
 /// inherited service-work knowledge to recognize shaped precision copper.
@@ -71,7 +83,7 @@ pub(super) fn finds_external_drop(
         .available_resources_at(Some(position))
         .any(|resource| {
             is_contestable_drop(resource, space)
-                && scout_wants_drop(registries, resource, at)
+                && scout_wants_loose_drop(registries, state, resource, at)
                 && !ignored.contains(&Some(resource.id()))
         })
 }
@@ -90,7 +102,8 @@ pub(super) fn scout_goal_has_supplies(
         .surface()
         .available_resources_at(Some(goal))
         .any(|resource| {
-            (is_contestable_drop(resource, space) && scout_wants_drop(registries, resource, at))
+            (is_contestable_drop(resource, space)
+                && scout_wants_loose_drop(registries, state, resource, at))
                 || (forage_ready
                     && !space.is_zero()
                     && scout_wants_food_opportunity(registries, resource, at))
@@ -112,8 +125,8 @@ pub(super) fn has_local_scout_interest(
         .surface()
         .available_resources_at(Some(position))
         .any(|resource| {
-            let loose =
-                is_contestable_drop(resource, space) && scout_wants_drop(registries, resource, at);
+            let loose = is_contestable_drop(resource, space)
+                && scout_wants_loose_drop(registries, state, resource, at);
             if seeking_food {
                 (loose && resource.commodity().form() == crate::content::FORM_FOOD)
                     || (forage_ready
@@ -153,14 +166,14 @@ pub(super) fn local_portable_source(
             .kobold_state()
             .colony
             .as_ref()
-            .is_some_and(|colony| den_needs_striker(state, colony.route[0]));
+            .is_some_and(|colony| den_or_relay_needs_striker(state, colony.route[0]));
     state
         .surface()
         .available_resources_at(Some(position))
         .filter(|resource| {
             is_portable_drop(resource)
                 && resource.remaining_mass() <= space
-                && scout_wants_drop(registries, resource, at)
+                && scout_wants_loose_drop(registries, state, resource, at)
                 && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
         })
         .min_by_key(|resource| scout_loot_priority(resource, mobilized, needs_striker))
@@ -183,13 +196,13 @@ pub(super) fn local_split_source(
             .kobold_state()
             .colony
             .as_ref()
-            .is_some_and(|colony| den_needs_striker(state, colony.route[0]));
+            .is_some_and(|colony| den_or_relay_needs_striker(state, colony.route[0]));
     state
         .surface()
         .available_resources_at(Some(position))
         .filter(|resource| {
             is_contestable_drop(resource, space)
-                && scout_wants_drop(registries, resource, at)
+                && scout_wants_loose_drop(registries, state, resource, at)
                 && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
                 && (!is_portable_drop(resource) || resource.remaining_mass() > space)
         })
@@ -264,7 +277,7 @@ pub(super) fn reachable_side_drop(
                 .available_resources_at(Some(destination))
                 .filter(|resource| {
                     is_contestable_drop(resource, capacity)
-                        && scout_wants_drop(registries, resource, at)
+                        && scout_wants_loose_drop(registries, state, resource, at)
                         && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
                 })
                 .min_by_key(|resource| detour_loot_priority(resource, capacity))
@@ -308,7 +321,7 @@ pub(super) fn reachable_far_drop(
                         .available_resources_at(Some(goal))
                         .filter(|resource| {
                             is_contestable_drop(resource, capacity)
-                                && scout_wants_drop(registries, resource, at)
+                                && scout_wants_loose_drop(registries, state, resource, at)
                                 && (!food_only
                                     || resource.commodity().form() == crate::content::FORM_FOOD)
                         })
@@ -366,7 +379,7 @@ pub(super) fn reachable_detour_drop(
             .any(|resource| {
                 is_portable_drop(resource)
                     && resource.remaining_mass() <= capacity
-                    && scout_wants_drop(registries, resource, at)
+                    && scout_wants_loose_drop(registries, state, resource, at)
                     && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
             })
     };
@@ -493,7 +506,7 @@ fn engineered_drop_at(
         .filter(|resource| {
             matches_salvage_goal(resource, needs_striker)
                 && is_contestable_drop(resource, space)
-                && scout_wants_drop(registries, resource, at)
+                && scout_wants_loose_drop(registries, state, resource, at)
         })
         .min_by_key(|resource| {
             (
@@ -528,7 +541,7 @@ pub(super) fn reachable_inherited_salvage(
     if capacity.is_zero() {
         return None;
     }
-    let needs_striker = den_needs_striker(state, den);
+    let needs_striker = den_or_relay_needs_striker(state, den);
     let side = state
         .logistics()
         .traversable_destinations(junction)

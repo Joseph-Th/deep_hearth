@@ -97,47 +97,110 @@ pub(super) fn den_needs_striker(state: &AppState, den: VoxelCoord) -> bool {
     has_core && !has_striker
 }
 
-pub(super) fn current_den_rig(state: &AppState, colony: &KoboldColony) -> Option<KoboldJunkRig> {
-    if colony.mobilized_at.is_none() {
-        return None;
-    }
-    let den = colony.route[0];
+/// Only drops currently on this voxel count as machine parts; stable parcel
+/// identity selects a core even when several remnants are piled together.
+fn selected_core_at(state: &AppState, position: VoxelCoord) -> Option<SurfaceResourceId> {
+    state
+        .surface()
+        .available_resources_at(Some(position))
+        .find(|resource| {
+            resource.kind() == SurfaceResourceKind::Drop
+                && is_servant_era_salvage(resource)
+                && resource.remaining_mass() >= CORE_MINIMUM
+        })
+        .map(|resource| resource.id())
+}
+
+fn selected_striker_at(
+    state: &AppState,
+    position: VoxelCoord,
+) -> Option<(SurfaceResourceId, KoboldJunkRigKind)> {
     let drops = || {
         state
             .surface()
-            .available_resources_at(Some(den))
+            .available_resources_at(Some(position))
             .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
     };
-    let core = drops()
-        .find(|resource| {
-            is_servant_era_salvage(resource) && resource.remaining_mass() >= CORE_MINIMUM
-        })?
-        .id();
-    let wooden = drops().find(|resource| {
+    if let Some(resource) = drops().find(|resource| {
         resource.commodity().material() == MATERIAL_WOOD
             && [FORM_HANDLE, FORM_BOARD].contains(&resource.commodity().form())
             && resource.remaining_mass() >= STRIKER_MINIMUM
-    });
-    let (striker, kind) = if let Some(resource) = wooden {
-        (resource.id(), KoboldJunkRigKind::TimberRatchet)
-    } else {
-        (
-            drops()
-                .find(|resource| {
-                    resource.commodity().material() == MATERIAL_STONE
-                        && resource.commodity().form() == FORM_CHIP
-                        && resource.remaining_mass() >= STRIKER_MINIMUM
-                })?
-                .id(),
-            KoboldJunkRigKind::StoneClatter,
-        )
-    };
+    }) {
+        return Some((resource.id(), KoboldJunkRigKind::TimberRatchet));
+    }
+    drops()
+        .find(|resource| {
+            resource.commodity().material() == MATERIAL_STONE
+                && resource.commodity().form() == FORM_CHIP
+                && resource.remaining_mass() >= STRIKER_MINIMUM
+        })
+        .map(|resource| (resource.id(), KoboldJunkRigKind::StoneClatter))
+}
+
+fn current_rig_at(
+    state: &AppState,
+    colony: &KoboldColony,
+    position: VoxelCoord,
+) -> Option<KoboldJunkRig> {
+    if colony.mobilized_at.is_none() {
+        return None;
+    }
+    let core = selected_core_at(state, position)?;
+    let (striker, kind) = selected_striker_at(state, position)?;
     Some(KoboldJunkRig {
-        position: den,
+        position,
         core,
         striker,
         kind,
     })
+}
+
+pub(super) fn current_den_rig(state: &AppState, colony: &KoboldColony) -> Option<KoboldJunkRig> {
+    current_rig_at(state, colony, colony.route[0])
+}
+
+/// A second, material-backed resonator at the junction. Without the den's
+/// working copper-and-striker source, the repeater cannot relay anything.
+pub(super) fn current_junction_relay(
+    state: &AppState,
+    colony: &KoboldColony,
+) -> Option<KoboldJunkRig> {
+    let _ = current_den_rig(state, colony)?;
+    current_rig_at(state, colony, colony.route[1])
+}
+
+/// Once the den's source device works, the scouts stage a second machine
+/// at their actual junction. The missing wooden/stone clapper becomes a
+/// salvage priority after a copper core is physically deposited there.
+pub(super) fn den_or_relay_needs_striker(state: &AppState, den: VoxelCoord) -> bool {
+    if den_needs_striker(state, den) {
+        return true;
+    }
+    let Some(colony) = state.kobold_state().colony.as_ref() else {
+        return false;
+    };
+    current_den_rig(state, colony).is_some()
+        && selected_core_at(state, colony.route[1]).is_some()
+        && selected_striker_at(state, colony.route[1]).is_none()
+}
+
+/// A returning scavenger will not haul home the specific copper or clapper
+/// already staged at its junction after the den rig becomes operational.
+/// It may still take extra parcels. The player can freely recover any part,
+/// and dismantling the den source releases the incomplete repeater as loot.
+pub(super) fn is_staged_relay_component(
+    state: &AppState,
+    resource: &SurfaceResourceRecord,
+) -> bool {
+    let Some(colony) = state.kobold_state().colony.as_ref() else {
+        return false;
+    };
+    if resource.position() != colony.route[1] || current_den_rig(state, colony).is_none() {
+        return false;
+    }
+    selected_core_at(state, colony.route[1]) == Some(resource.id())
+        || selected_striker_at(state, colony.route[1])
+            .is_some_and(|(striker, _)| striker == resource.id())
 }
 
 /// Show only a device at the player's genuinely observable den. This returns no
@@ -154,8 +217,23 @@ pub fn available_nearby_kobold_junk_rig(
         .flatten()
 }
 
-/// A watchman's warning can propagate over one actual connected edge, but only
-/// on a working beat and while the watcher is physically at the den.
+/// A player can inspect the local material arrangement even when its den
+/// source is disconnected. Remote signal availability is not exposed by sight.
+#[must_use]
+pub fn available_nearby_kobold_junk_relay(
+    registries: &Registries,
+    state: &AppState,
+) -> Option<KoboldJunkRig> {
+    let colony = state.kobold_state().colony.as_ref()?;
+    let player = state.logistics().player()?.position();
+    scout_visible_from(registries, state, colony.route[1], player)
+        .then(|| current_rig_at(state, colony, colony.route[1]))
+        .flatten()
+}
+
+/// A watchman's warning crosses one true den-to-junction edge. For a scout
+/// at the outer tip, a second connected edge and synchronized junction
+/// resonator are necessary; neither alone acts as a radio.
 ///
 /// The returned signal drives the scout's normal pressured retreat in this same
 /// authoritative step. No energy, matter, or alarm is fabricated at a distance.
@@ -163,14 +241,16 @@ pub(super) fn relay_watch_alarm(state: &mut AppState, at: SimulationTick) -> boo
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return false;
     };
+    let [den, junction, tip] = colony.route;
     if !colony.watch_alarm_pending
         || colony.watch_deployed_at.is_some()
-        || colony.scout_step != 1
+        || !(1..=2).contains(&colony.scout_step)
         || colony.mobilized_at.is_none_or(|reported| reported >= at)
-        || !state
-            .logistics()
-            .has_traversal_edge(colony.route[0], colony.route[1])
+        || !state.logistics().has_traversal_edge(den, junction)
         || !current_den_rig(state, colony).is_some_and(|rig| rig.sounds_at(at))
+        || (colony.scout_step == 2
+            && (!state.logistics().has_traversal_edge(junction, tip)
+                || !current_junction_relay(state, colony).is_some_and(|rig| rig.sounds_at(at))))
     {
         return false;
     }

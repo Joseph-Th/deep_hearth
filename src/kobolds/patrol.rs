@@ -12,14 +12,14 @@ use crate::surface::{
 };
 use crate::survival::Vitality;
 
-use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_food_opportunity};
-use super::junkworks::{den_needs_striker, is_junk_striker};
+use super::feeding::{apply_scheduled_den_care, scout_wants_food_opportunity};
+use super::junkworks::{den_or_relay_needs_striker, is_junk_striker};
 use super::mobilization::observe_progress;
 use super::scavenging::{
     den_cache_space, finds_external_drop, has_local_scout_interest, is_portable_drop,
     local_portable_source, local_split_source, matches_salvage_goal, reachable_detour_drop,
     reachable_far_food, reachable_inherited_salvage, reachable_side_food, scout_goal_has_supplies,
-    should_seek_local_food,
+    scout_wants_loose_drop, should_seek_local_food,
 };
 use super::visibility::scout_visible_from;
 use super::watchman::apply_watchman_tick;
@@ -70,7 +70,7 @@ fn scout_raid_interest(
         && colony.scout_step == 1
         && !colony.returning
         && !pressured
-        && den_needs_striker(state, colony.route[0])
+        && den_or_relay_needs_striker(state, colony.route[0])
         && state
             .surface()
             .available_resources_at(Some(colony.route[2]))
@@ -78,7 +78,7 @@ fn scout_raid_interest(
                 is_portable_drop(resource)
                     && resource.remaining_mass() <= capacity
                     && is_junk_striker(resource)
-                    && scout_wants_drop(registries, resource, at)
+                    && scout_wants_loose_drop(registries, state, resource, at)
             })
         && scout_visible_from(registries, state, from, colony.route[2])
         && scout_can_enter(registries, state, colony.route[2], player_position)
@@ -128,14 +128,15 @@ fn continue_to_whole_far_cache(
     let Some(goal) = colony.detour_goal else {
         return false;
     };
-    let needs_striker = colony.mobilized_at.is_some() && den_needs_striker(state, colony.route[0]);
+    let needs_striker =
+        colony.mobilized_at.is_some() && den_or_relay_needs_striker(state, colony.route[0]);
     let target = state
         .surface()
         .available_resources_at(Some(goal))
         .filter(|resource| {
             is_portable_drop(resource)
                 && resource.remaining_mass() <= capacity
-                && scout_wants_drop(registries, resource, at)
+                && scout_wants_loose_drop(registries, state, resource, at)
         })
         .min_by_key(|resource| {
             (
@@ -477,7 +478,7 @@ fn plan_returning_cargo(
             resource.position() == choice.from
                 && resource.lifecycle() == SurfaceResourceLifecycle::Available
                 && is_portable_drop(resource)
-                && scout_wants_drop(registries, resource, choice.at)
+                && scout_wants_loose_drop(registries, state, resource, choice.at)
         })
     });
     let blocked_at_den = choice.to == colony.route[0]

@@ -212,12 +212,25 @@ traversal edge to an actually adjacent scout. Timber-braced mechanisms sound eve
 clock opportunity; crude stone clappers every fifth. Missed beats retain the warning, and moving
 either loose part immediately disables the device. A successful warning makes the scout retreat
 through its ordinary route; it does not create a radio, energy source, or duplicate material.
+For a scout two edges out at the authored tip, `relay_watch_alarm` requires both current
+traversal edges and a second physically co-located copper-and-striker rig at the junction;
+both rigs must sound on the same tick. `available_nearby_kobold_junk_relay` reports that
+local arrangement from its own sightline even when the unseen den source is absent; it
+does not reveal remote den contents. No second machine ledger, stored signal or energy
+source is invented. The alarm remains pending if the path or either synchronized beat
+is unavailable.
 After mobilization, den inventory changes the scout's physical salvage objective: with a usable
 precision-copper core but no striker, its existing bounded patrol and two-edge detour search
 prefer shaped timber or stone chips over ordinary inert scraps. A usable striker on the
 original outer post may outweigh a nearer rock pile only while the part is actually visible,
 reachable, unlit, unguarded and den-fitting. Cache clearing protects assembled rig parts rather
-than expelling the alarm it depends on. No distant cargo is reserved or teleported.
+than expelling the alarm it depends on. Once the den rig is complete, its scout stages the
+first selected copper core and clapper at the junction instead of delivering them into the
+den's loose cache. A staged core without a clapper prioritizes the missing striker on real
+visible routes. Source and junction components remain the *same* surface parcel identities,
+selected deterministically from actual local drops. The scout ignores those staged parcels
+while the den signal exists, but can recover them again if the source rig is dismantled.
+Other exposed salvage remains contestable. No distant cargo is reserved or teleported.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent

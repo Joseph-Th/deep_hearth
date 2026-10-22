@@ -91,6 +91,381 @@ fn mobilized_den() -> (Registries, AppState) {
 }
 
 #[test]
+fn mismatched_stone_and_timber_mechanisms_wait_for_a_shared_clatter_beat() {
+    let (registries, mut state) = mobilized_den();
+    advance_to(&registries, &mut state, 205);
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_STONE, crate::content::FORM_CHIP),
+    );
+    put_drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    put_drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    let source = current_den_rig(&state, colony).unwrap();
+    let relay = current_junction_relay(&state, colony).unwrap();
+    assert_eq!(source.kind(), KoboldJunkRigKind::StoneClatter);
+    assert_eq!(relay.kind(), KoboldJunkRigKind::TimberRatchet);
+    assert!(!source.sounds_at(SimulationTick::new(210)));
+    assert!(relay.sounds_at(SimulationTick::new(210)));
+    assert!(source.sounds_at(SimulationTick::new(230)));
+    assert!(!relay.sounds_at(SimulationTick::new(230)));
+    assert!(source.sounds_at(SimulationTick::new(255)));
+    assert!(relay.sounds_at(SimulationTick::new(255)));
+    state
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap()
+        .watch_alarm_pending = true;
+    assert!(!relay_watch_alarm(&mut state, SimulationTick::new(210)));
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    assert!(!relay_watch_alarm(&mut state, SimulationTick::new(230)));
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    assert!(relay_watch_alarm(&mut state, SimulationTick::new(255)));
+    assert!(
+        !state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn disconnected_den_does_not_make_a_visible_junction_machine_disappear() {
+    let (registries, mut state) = mobilized_den();
+    let core = put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let striker = put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let relay_core = put_drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let relay_striker = put_drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let original = calculate_matter_accounting(&state).unwrap().total();
+    validate_admit_player(&registries, &state, JUNCTION)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        available_nearby_kobold_junk_relay(&registries, &state)
+            .map(|rig| (rig.core(), rig.striker())),
+        Some((relay_core, relay_striker))
+    );
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &mut state,
+        striker,
+        DEN,
+        VoxelCoord::new(-2, 0, 0)
+    ));
+    assert_eq!(state.surface().get(core).unwrap().position(), DEN);
+    assert!(
+        current_junction_relay(&state, state.kobold_state().colony.as_ref().unwrap()).is_none(),
+        "the two-hop warning cannot work without its den signal source"
+    );
+    assert_eq!(
+        available_nearby_kobold_junk_relay(&registries, &state)
+            .map(|rig| (rig.core(), rig.striker())),
+        Some((relay_core, relay_striker)),
+        "the same local visible machine remains when the upstream signal is lost"
+    );
+    assert!(
+        !is_staged_relay_component(&state, state.surface().get(relay_core).unwrap()),
+        "a disconnected relay is no longer reserved from the den scavenger"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn scavenger_stages_two_real_salvaged_parts_at_junction_to_build_repeater() {
+    let (registries, mut working) = mobilized_den();
+    let mut without_den_rig = working.clone();
+    let den_core = put_drop(
+        &registries,
+        &mut working,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let den_striker = put_drop(
+        &registries,
+        &mut working,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let copper = put_drop_at(
+        &registries,
+        &mut working,
+        TIP,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let comparison_copper = put_drop_at(
+        &registries,
+        &mut without_den_rig,
+        TIP,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let initial = calculate_matter_accounting(&working).unwrap().total();
+    let comparison_initial = calculate_matter_accounting(&without_den_rig)
+        .unwrap()
+        .total();
+    advance_to(&registries, &mut working, 215);
+    advance_to(&registries, &mut without_den_rig, 215);
+    assert_eq!(working.surface().get(copper).unwrap().position(), JUNCTION);
+    assert_eq!(
+        without_den_rig
+            .surface()
+            .get(comparison_copper)
+            .unwrap()
+            .position(),
+        DEN,
+        "a scout with no den source rig must still haul copper home normally"
+    );
+    assert!(
+        current_junction_relay(&working, working.kobold_state().colony.as_ref().unwrap()).is_none(),
+        "the single staged copper piece is not a functional repeater"
+    );
+    assert!(
+        is_staged_relay_component(&working, working.surface().get(copper).unwrap()),
+        "the first staged component remains at the remote post"
+    );
+    assert!(den_or_relay_needs_striker(&working, DEN));
+    let handle = put_drop_at(
+        &registries,
+        &mut working,
+        TIP,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &working)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut working, 235);
+    advance_to(&registries, &mut replay, 235);
+    assert_eq!(working, replay);
+    let relay = current_junction_relay(&working, working.kobold_state().colony.as_ref().unwrap())
+        .expect("the returning scavenger assembled the two-part junction repeater");
+    assert_eq!(relay.core(), copper);
+    assert_eq!(relay.striker(), handle);
+    assert_eq!(relay.kind(), KoboldJunkRigKind::TimberRatchet);
+    assert_eq!(working.surface().get(copper).unwrap().position(), JUNCTION);
+    assert_eq!(working.surface().get(handle).unwrap().position(), JUNCTION);
+    assert_eq!(working.surface().get(den_core).unwrap().position(), DEN);
+    assert_eq!(working.surface().get(den_striker).unwrap().position(), DEN);
+    assert!(!den_or_relay_needs_striker(&working, DEN));
+    assert_eq!(
+        calculate_matter_accounting(&working).unwrap().total(),
+        calculate_matter_accounting(&replay).unwrap().total()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&working).unwrap().total(),
+        initial
+            .checked_add(crate::core::quantity::AggregateMass::from_milligrams(
+                50_000
+            ))
+            .unwrap()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&without_den_rig)
+            .unwrap()
+            .total(),
+        comparison_initial
+    );
+    assert_eq!(validate_loaded_state(&registries, &working), Ok(()));
+}
+
+#[test]
+fn real_junction_resonator_relays_a_den_warning_to_the_outer_scout() {
+    let (registries, mut working) = mobilized_den();
+    advance_to(&registries, &mut working, 205);
+    assert_eq!(
+        working.kobold_state().colony.as_ref().unwrap().scout_step,
+        2
+    );
+    let salvage = put_drop_at(
+        &registries,
+        &mut working,
+        TIP,
+        CommodityKey::new(MATERIAL_STONE, crate::content::FORM_LUMP),
+    );
+    let den_core = put_drop(
+        &registries,
+        &mut working,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    put_drop(
+        &registries,
+        &mut working,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let relay_core = put_drop_at(
+        &registries,
+        &mut working,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let relay_striker = put_drop_at(
+        &registries,
+        &mut working,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let mut broken = working.clone();
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &mut broken,
+        relay_striker,
+        JUNCTION,
+        DEN,
+    ));
+    for state in [&mut working, &mut broken] {
+        validate_admit_player(&registries, state, OBSERVER)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+    }
+    let relay = current_junction_relay(&working, working.kobold_state().colony.as_ref().unwrap())
+        .expect("the second resonator is made of two physical loose parcels");
+    assert_eq!(relay.core(), relay_core);
+    assert_eq!(relay.striker(), relay_striker);
+    assert_eq!(relay.position(), JUNCTION);
+    assert!(relay.sounds_at(SimulationTick::new(210)));
+    assert!(!relay.sounds_at(SimulationTick::new(205)));
+    assert!(
+        current_junction_relay(&broken, broken.kobold_state().colony.as_ref().unwrap()).is_none()
+    );
+
+    let baseline = calculate_matter_accounting(&working).unwrap().total();
+    let broken_baseline = calculate_matter_accounting(&broken).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &working)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut working, 210);
+    advance_to(&registries, &mut replay, 210);
+    advance_to(&registries, &mut broken, 210);
+    assert_eq!(working, replay);
+    assert!(
+        working
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .wary_until
+            .is_some(),
+        "the alarm must actually put a distant scout into caution"
+    );
+    assert_eq!(
+        working.surface().get(salvage).unwrap().position(),
+        TIP,
+        "the alerted scout retreats without collecting dangerous scrap"
+    );
+    assert_eq!(
+        broken.surface().get(salvage).unwrap().position(),
+        JUNCTION,
+        "without the missing junction part, the same scout physically carries the scrap"
+    );
+    assert_eq!(working.surface().get(den_core).unwrap().position(), DEN);
+    assert_eq!(
+        working.surface().get(relay_core).unwrap().position(),
+        JUNCTION
+    );
+    assert_eq!(
+        calculate_matter_accounting(&working).unwrap().total(),
+        baseline
+    );
+    assert_eq!(
+        calculate_matter_accounting(&broken).unwrap().total(),
+        broken_baseline
+    );
+    assert_eq!(validate_loaded_state(&registries, &working), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &broken), Ok(()));
+    assert_eq!(
+        available_nearby_kobold_junk_relay(&registries, &working),
+        None
+    );
+    relocate_player_for_test(&mut working, JUNCTION);
+    assert_eq!(
+        available_nearby_kobold_junk_relay(&registries, &working)
+            .map(|rig| (rig.core(), rig.striker())),
+        Some((relay_core, relay_striker))
+    );
+    relocate_player_for_test(&mut working, VoxelCoord::new(15, 0, 15));
+    advance_to(&registries, &mut working, 215);
+    assert!(
+        current_junction_relay(&working, working.kobold_state().colony.as_ref().unwrap()).is_some(),
+        "the scout must not dismantle its own alarm network on the return trip"
+    );
+    assert_eq!(
+        working.surface().get(relay_core).unwrap().position(),
+        JUNCTION
+    );
+    assert_eq!(
+        working.surface().get(relay_striker).unwrap().position(),
+        JUNCTION
+    );
+    assert_eq!(
+        calculate_matter_accounting(&working).unwrap().total(),
+        baseline
+    );
+    assert_eq!(validate_loaded_state(&registries, &working), Ok(()));
+}
+
+#[test]
 fn scavenger_seeks_a_missing_wooden_striker_beyond_nearer_scrap() {
     let (registries, mut purposeful) = mobilized_den();
     put_drop_at(

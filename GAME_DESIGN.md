@@ -283,8 +283,15 @@ One early interaction bridges these societies: a mobilized den with physically c
 precision copper salvage and a suitable striker can sound a faulty mechanical warning over
 one adjacent route edge. Bare stone clatters less reliably than a timber-braced ratchet; missing
 parts or an unsuccessful beat leave the warning untransmitted. A successfully warned scout
-retreats using the ordinary route rules. This establishes the scavenged-technology vocabulary
-without granting kobolds free ranged communication, energy, weapons or distant knowledge.
+retreats using the ordinary route rules. A second copper core and shaped striker can now
+make a separate junction repeater: on a synchronized clatter beat, the den's warning reaches
+a scout two connected route edges away. An industrially mobilized scavenger physically
+delivers the extra copper to the junction, keeps the staged part there, then seeks the
+missing striker. It does not strip its own assembled repeater while the den source works.
+The player can intercept or take any component, breaking the relay without destroying or
+duplicating matter; an unpowered junction device remains locally visible as scrap machinery.
+This establishes the scavenged-technology vocabulary without granting kobolds free ranged
+communication, energy, weapons or distant knowledge.
 
 Enemy pressure must respond to the player's demonstrated progress, not just elapsed time or
 arbitrary level scaling. At first a lone kobold steals food and exposed scraps; after witnessing
