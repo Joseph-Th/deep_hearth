@@ -2029,6 +2029,33 @@ fn terrain_generation_preserves_surface_drop_above_generated_solid() {
 }
 
 #[test]
+fn trusted_load_rejects_exposed_matter_inside_generated_full_cube() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    let voxel = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    add_unloaded_surface_drop(&registries, &mut state, voxel);
+    let resource = state.surface().resources().next().unwrap().id();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Surface(
+            crate::surface::SurfaceResourceValidationError::EmbeddedInSolidWorld {
+                resource,
+                voxel,
+            }
+        )),
+        "a forged surface parcel inside a solid generated cell must not be admitted"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+}
+
+#[test]
 fn neighborhood_generation_rejects_burying_exposed_matter_atomically() {
     let registries = build_registries();
     let mut state = AppState::new();

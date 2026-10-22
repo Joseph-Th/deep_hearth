@@ -85,6 +85,8 @@ pub fn validate_loaded_state(
         &state.systems.surface,
         state.tick(),
         state.control_tick(),
+        registries.world(),
+        state.world(),
     )
     .map_err(StateValidationError::Surface)?;
     validate_loaded_kobolds(registries, state).map_err(StateValidationError::Kobolds)?;

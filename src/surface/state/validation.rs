@@ -9,7 +9,9 @@ use crate::material::{
     MaterialRegistry, ParticleSizeStateError, validate_material_particle_size_state,
     validate_material_phase_state,
 };
+use crate::spatial::VoxelCoord;
 use crate::surface::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
+use crate::world::{BlockCollisionShape, WorldRegistry, WorldState};
 
 use super::{
     SurfaceResourceId, SurfaceResourceLifecycle, SurfaceResourceRecord, SurfaceResourceState,
@@ -18,6 +20,10 @@ use super::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SurfaceResourceValidationError {
     InvalidLocationIndex,
+    EmbeddedInSolidWorld {
+        resource: SurfaceResourceId,
+        voxel: VoxelCoord,
+    },
     ZeroNextResourceId,
     NextIdNotAfterExisting {
         next: u32,
@@ -116,6 +122,14 @@ impl Display for SurfaceResourceValidationError {
         match self {
             Self::InvalidLocationIndex => formatter.write_str(
                 "surface resource position index does not match available parcel custody",
+            ),
+            Self::EmbeddedInSolidWorld { resource, voxel } => write!(
+                formatter,
+                "available surface resource {} is embedded in solid generated terrain at ({},{},{})",
+                resource.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
             ),
             Self::ZeroNextResourceId => {
                 formatter.write_str("surface next resource id must be nonzero")
@@ -278,6 +292,7 @@ impl Error for SurfaceResourceValidationError {
             Self::InvalidPhaseState { error, .. } => Some(error),
             Self::InvalidParticleSizeState { error, .. } => Some(error),
             Self::InvalidLocationIndex
+            | Self::EmbeddedInSolidWorld { .. }
             | Self::ZeroNextResourceId
             | Self::NextIdNotAfterExisting { .. }
             | Self::ZeroResourceId
@@ -475,6 +490,8 @@ pub(crate) fn validate_loaded_surface_resources(
     state: &SurfaceResourceState,
     current: SimulationTick,
     current_control: ControlTick,
+    world_registry: &WorldRegistry,
+    world: &WorldState,
 ) -> Result<(), SurfaceResourceValidationError> {
     if state.next_resource_id == 0 {
         return Err(SurfaceResourceValidationError::ZeroNextResourceId);
@@ -489,6 +506,17 @@ pub(crate) fn validate_loaded_surface_resources(
     }
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
+        if record.lifecycle() == SurfaceResourceLifecycle::Available
+            && world
+                .block_at(record.position())
+                .and_then(|block| world_registry.block_for_state(block))
+                .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        {
+            return Err(SurfaceResourceValidationError::EmbeddedInSolidWorld {
+                resource: *key,
+                voxel: record.position(),
+            });
+        }
     }
     if !state.has_valid_position_index() {
         return Err(SurfaceResourceValidationError::InvalidLocationIndex);

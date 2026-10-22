@@ -269,7 +269,9 @@ parcel in an ungenerated column. Single-chunk and atomic neighborhood admission
 check actual collision shapes for those positions; absent or air-shaped terrain
 does not obstruct exposed matter. Both generation plans bind the surface owner's
 revision, so a newly placed or moved parcel makes an earlier plan stale before
-any world mutation.
+any world mutation. Trusted save admission also rejects available surface
+matter inside existing generated full-cube blocks, without rejecting depleted
+history or valid parcels in ungenerated columns.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent

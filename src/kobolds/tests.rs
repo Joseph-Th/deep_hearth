@@ -2585,7 +2585,10 @@ fn terrain_barrier_after_first_patrol_step_sends_scout_home_without_teleportatio
         .commit(&mut state)
         .unwrap();
     let before = calculate_matter_accounting(&state).unwrap().total();
-    set_generated_block_for_test(registries.world(), &mut state, tip, BLOCK_STATE_STONE);
+    // Block standing head clearance without burying the finite natural
+    // opportunity already present on the trail floor at tip.
+    let tip_head = VoxelCoord::new(tip.x(), tip.y() + 1, tip.z());
+    set_generated_block_for_test(registries.world(), &mut state, tip_head, BLOCK_STATE_STONE);
     advance_to_tick(&registries, &mut state, 184);
     let outcome = advance_tick(&registries, &mut state).unwrap();
     assert_eq!(colony(&state).scout_position(), junction);
@@ -2603,8 +2606,8 @@ fn terrain_barrier_after_first_patrol_step_sends_scout_home_without_teleportatio
     assert_eq!(state, loaded);
     assert_eq!(colony(&state).scout_position(), den);
     assert!(colony(&state).returning);
-    set_generated_block_for_test(registries.world(), &mut state, tip, BlockStateId::AIR);
-    set_generated_block_for_test(registries.world(), &mut loaded, tip, BlockStateId::AIR);
+    set_generated_block_for_test(registries.world(), &mut state, tip_head, BlockStateId::AIR);
+    set_generated_block_for_test(registries.world(), &mut loaded, tip_head, BlockStateId::AIR);
     advance_to_tick(&registries, &mut state, 200);
     advance_to_tick(&registries, &mut loaded, 200);
     assert_eq!(state, loaded);
@@ -2637,7 +2640,14 @@ fn blocked_far_cache_goal_cancels_detour_and_preserves_original_parcel() {
     assert_eq!(colony(&state).scout_step, 2);
     assert_eq!(colony(&state).detour_goal, Some(spawn));
     let branch = colony(&state).scout_position();
-    set_generated_block_for_test(registries.world(), &mut state, spawn, BLOCK_STATE_STONE);
+    // Keep the cache's real drop exposed while closing the headroom above it.
+    let cache_head = VoxelCoord::new(spawn.x(), spawn.y() + 1, spawn.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        cache_head,
+        BLOCK_STATE_STONE,
+    );
     advance_to_tick(&registries, &mut state, 190);
     assert_eq!(colony(&state).scout_position(), junction);
     assert!(colony(&state).returning);
@@ -2650,8 +2660,18 @@ fn blocked_far_cache_goal_cancels_detour_and_preserves_original_parcel() {
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
     let mut loaded = decoded.into_state(&registries).unwrap();
-    set_generated_block_for_test(registries.world(), &mut state, spawn, BlockStateId::AIR);
-    set_generated_block_for_test(registries.world(), &mut loaded, spawn, BlockStateId::AIR);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        cache_head,
+        BlockStateId::AIR,
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut loaded,
+        cache_head,
+        BlockStateId::AIR,
+    );
     for _ in 0..30 {
         assert_eq!(
             advance_tick(&registries, &mut state).unwrap(),
