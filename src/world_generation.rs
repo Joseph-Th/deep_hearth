@@ -200,6 +200,10 @@ pub enum InitialWildernessGenerationCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurfaceIdentity {
         expected: u32,
         actual: u32,
@@ -246,6 +250,10 @@ impl Display for InitialWildernessGenerationCommitError {
             Self::StaleSurfaceRevision { expected, actual } => write!(
                 formatter,
                 "surface revision changed from {expected} to {actual} before wilderness commit"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "world revision changed from {expected} to {actual} before wilderness commit"
             ),
             Self::StaleSurfaceIdentity { expected, actual } => write!(
                 formatter,
@@ -324,6 +332,9 @@ impl ValidatedInitialWildernessGeneration {
                         expected,
                         actual,
                     }
+                }
+                SurfaceResourceCreationCommitError::WorldRevision { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StaleWorldRevision { expected, actual }
                 }
                 SurfaceResourceCreationCommitError::NextResourceId { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleSurfaceIdentity {

@@ -14,7 +14,10 @@ use crate::material::{
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::state::validation::{SurfaceResourceValidationError, validate_surface_resource_record};
+use super::state::validation::{
+    SurfaceResourceValidationError, validate_surface_resource_record,
+    validate_surface_resource_world_position,
+};
 use super::state::{
     SurfaceMaterialParcel, SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord,
 };
@@ -178,6 +181,10 @@ pub(crate) enum SurfaceResourceCreationCommitError {
         expected: u64,
         actual: u64,
     },
+    WorldRevision {
+        expected: u64,
+        actual: u64,
+    },
     NextResourceId {
         expected: u32,
         actual: u32,
@@ -197,6 +204,10 @@ impl Display for SurfaceResourceCreationCommitError {
                 formatter,
                 "surface resource revision changed from {expected} to {actual} before creation commit"
             ),
+            Self::WorldRevision { expected, actual } => write!(
+                formatter,
+                "world revision changed from {expected} to {actual} before surface creation commit"
+            ),
             Self::NextResourceId { expected, actual } => write!(
                 formatter,
                 "surface resource creation expected next id {expected} but found {actual} before commit"
@@ -211,6 +222,7 @@ impl Error for SurfaceResourceCreationCommitError {}
 pub(crate) struct ValidatedSurfaceResourceCreation {
     expected_tick: SimulationTick,
     expected_revision: u64,
+    expected_world_revision: u64,
     expected_next_resource_id: u32,
     records: Vec<SurfaceResourceRecord>,
     next_resource_id: u32,
@@ -234,6 +246,13 @@ impl ValidatedSurfaceResourceCreation {
             return Err(SurfaceResourceCreationCommitError::Revision {
                 expected: self.expected_revision,
                 actual: actual_revision,
+            });
+        }
+        let actual_world_revision = state.world().revision();
+        if actual_world_revision != self.expected_world_revision {
+            return Err(SurfaceResourceCreationCommitError::WorldRevision {
+                expected: self.expected_world_revision,
+                actual: actual_world_revision,
             });
         }
         let actual_next_resource_id = state.surface().next_resource_id();
@@ -327,11 +346,14 @@ pub(crate) fn validate_create_surface_resources_at(
             state.control_tick(),
         )
         .map_err(SurfaceResourceCreationError::InvalidResource)?;
+        validate_surface_resource_world_position(registries.world(), state.world(), &record)
+            .map_err(SurfaceResourceCreationError::InvalidResource)?;
         records.push(record);
     }
     Ok(ValidatedSurfaceResourceCreation {
         expected_tick: state.tick(),
         expected_revision,
+        expected_world_revision: state.world().revision(),
         expected_next_resource_id,
         records,
         next_resource_id,

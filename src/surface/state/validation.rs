@@ -485,6 +485,27 @@ pub(in crate::surface) fn validate_surface_resource_record(
     validate_material_profile(materials, key, record)
 }
 
+/// Shared physical placement rule for both new surface custody and decoded
+/// persistent custody. A missing world column is not yet solid authority.
+pub(in crate::surface) fn validate_surface_resource_world_position(
+    world_registry: &WorldRegistry,
+    world: &WorldState,
+    record: &SurfaceResourceRecord,
+) -> Result<(), SurfaceResourceValidationError> {
+    if record.lifecycle() == SurfaceResourceLifecycle::Available
+        && world
+            .block_at(record.position())
+            .and_then(|block| world_registry.block_for_state(block))
+            .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+    {
+        return Err(SurfaceResourceValidationError::EmbeddedInSolidWorld {
+            resource: record.id(),
+            voxel: record.position(),
+        });
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_loaded_surface_resources(
     materials: &MaterialRegistry,
     state: &SurfaceResourceState,
@@ -506,17 +527,7 @@ pub(crate) fn validate_loaded_surface_resources(
     }
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
-        if record.lifecycle() == SurfaceResourceLifecycle::Available
-            && world
-                .block_at(record.position())
-                .and_then(|block| world_registry.block_for_state(block))
-                .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
-        {
-            return Err(SurfaceResourceValidationError::EmbeddedInSolidWorld {
-                resource: *key,
-                voxel: record.position(),
-            });
-        }
+        validate_surface_resource_world_position(world_registry, world, record)?;
     }
     if !state.has_valid_position_index() {
         return Err(SurfaceResourceValidationError::InvalidLocationIndex);

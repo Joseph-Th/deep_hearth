@@ -272,6 +272,10 @@ revision, so a newly placed or moved parcel makes an earlier plan stale before
 any world mutation. Trusted save admission also rejects available surface
 matter inside existing generated full-cube blocks, without rejecting depleted
 history or valid parcels in ungenerated columns.
+Surface-resource creation uses that same physical-location rule before any
+parcel enters custody; creation plans bind the world revision, so generation
+or excavation changing block truth between validation and commit invalidates
+the pending parcel rather than creating matter in newly solid terrain.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent

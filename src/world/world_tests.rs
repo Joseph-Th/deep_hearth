@@ -2033,8 +2033,11 @@ fn trusted_load_rejects_exposed_matter_inside_generated_full_cube() {
     let registries = build_registries();
     let mut state = AppState::new();
     generate(&mut state, ChunkCoord::new(0, 0));
-    let voxel = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    // Test-only terrain mutation forges the invalid state after otherwise
+    // valid resource creation, bypassing ordinary placement checks.
+    let voxel = VoxelCoord::new(0, 100, 0);
     add_unloaded_surface_drop(&registries, &mut state, voxel);
+    set_generated_block_for_test(registries.world(), &mut state, voxel, BLOCK_STATE_STONE);
     let resource = state.surface().resources().next().unwrap().id();
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
@@ -2053,6 +2056,54 @@ fn trusted_load_rejects_exposed_matter_inside_generated_full_cube() {
             .into_state(&registries)
             .is_err()
     );
+}
+
+#[test]
+fn surface_creation_cannot_place_available_matter_inside_generated_stone() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    let voxel = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        voxel,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(25_000),
+        Temperature::from_millikelvin(293_150),
+        crate::material::MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    assert!(
+        validate_create_surface_resources(&registries, &state, [spec]).is_err(),
+        "ordinary surface creation must not commit a state that trusted load would reject"
+    );
+    assert!(state.surface().resources().next().is_none());
+}
+
+#[test]
+fn surface_creation_commit_cannot_cross_world_generation_that_would_bury_it() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let voxel = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        voxel,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(25_000),
+        Temperature::from_millikelvin(293_150),
+        crate::material::MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(&registries, &state, [spec]).unwrap();
+    let expected = state.world().revision();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    let actual = state.world().revision();
+    let before = state.clone();
+    assert_eq!(
+        plan.commit(&mut state),
+        Err(crate::surface::SurfaceResourceCreationCommitError::WorldRevision { expected, actual })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
