@@ -145,6 +145,16 @@ fn generating_an_unoccupied_temple_still_preserves_the_player_body_and_replays()
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    carry_field_box_material(&registries, &mut state);
+    let stockpile = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        route[2],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
     let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
     validate_generate_chunk(
         &registries,
@@ -157,12 +167,120 @@ fn generating_an_unoccupied_temple_still_preserves_the_player_body_and_replays()
     .commit(&mut state)
     .unwrap();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(route[2]),
+        "non-overlapping constructed custody remains available after generation"
+    );
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let decoded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
         .unwrap()
         .into_state(&registries)
         .unwrap();
     assert_eq!(decoded, state);
+}
+
+#[test]
+fn generating_a_temple_cannot_embed_its_warden_in_existing_storage_custody() {
+    let (registries, _, route) = occupied_temple();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, route[2])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    carry_field_box_material(&registries, &mut state);
+    let stockpile = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        route[0],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(route[0])
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel: route[0] }),
+        "the warden cannot materialize inside an already built enclosure"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn generating_a_temple_rejects_embodied_timber_in_the_archivists_upper_body() {
+    let (registries, generated, route) = occupied_temple();
+    let [_, archivist] =
+        crate::world::temple_residents_at(&registries, &generated, route[0]).unwrap();
+    let head = VoxelCoord::new(archivist.x() + 1, archivist.y() + 2, archivist.z() - 1);
+    let mut state = AppState::new();
+    materialize_timber_member_at(&registries, &mut state, head);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel: head })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn generated_neighborhood_rejects_a_temple_site_with_existing_material_custody() {
+    let (registries, _, route) = occupied_temple();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, route[2])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    carry_field_box_material(&registries, &mut state);
+    let _ = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        route[0],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(3, 3),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel: route[0] })
+    );
+    assert_eq!(state, before);
 }
 
 fn advance_to(registries: &Registries, state: &mut AppState, target: u64) {

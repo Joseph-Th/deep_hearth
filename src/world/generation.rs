@@ -71,6 +71,7 @@ pub enum ChunkGenerationError {
     ChunkCoordinateOverflow { chunk: ChunkCoord },
     PlayerBodyCollision { voxel: VoxelCoord },
     PlayerBodyTempleCasteCollision { voxel: VoxelCoord },
+    TempleCasteInfrastructureCollision { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
 }
@@ -114,6 +115,13 @@ impl Display for ChunkGenerationError {
             Self::PlayerBodyTempleCasteCollision { voxel } => write!(
                 formatter,
                 "terrain generation would instantiate a temple resident inside the player at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::TempleCasteInfrastructureCollision { voxel } => write!(
+                formatter,
+                "terrain generation would instantiate a temple resident inside constructed or stationary custody at voxel ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -325,6 +333,11 @@ pub fn validate_generate_chunk(
     {
         return Err(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel });
     }
+    if let Some(voxel) =
+        first_infrastructure_prospective_temple_collision(registries, state, profile, coord)
+    {
+        return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
+    }
     Ok(ValidatedChunkGeneration {
         expected_revision,
         expected_logistics_revision: state.logistics().revision(),
@@ -386,6 +399,11 @@ pub fn validate_generate_player_neighborhood(
                 first_player_prospective_temple_collision(registries, state, profile, coord)
             {
                 return Err(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel });
+            }
+            if let Some(voxel) =
+                first_infrastructure_prospective_temple_collision(registries, state, profile, coord)
+            {
+                return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
             }
             chunks.push(chunk);
         }
@@ -528,7 +546,35 @@ fn first_player_prospective_temple_collision(
     coord: ChunkCoord,
 ) -> Option<VoxelCoord> {
     state.logistics().player()?;
-    let site = temple_site_for_chunk(registries.world(), profile, coord)?;
+    first_prospective_temple_overlap(registries.world(), profile, coord, |voxel| {
+        crate::logistics::player_body_occupies_voxel(registries, state, voxel)
+    })
+}
+
+fn first_infrastructure_prospective_temple_collision(
+    registries: &Registries,
+    state: &AppState,
+    profile: WorldGenerationProfile,
+    coord: ChunkCoord,
+) -> Option<VoxelCoord> {
+    first_prospective_temple_overlap(registries.world(), profile, coord, |voxel| {
+        state.logistics().has_stationary_occupant_at(voxel)
+            || state.structures().elements().any(|element| {
+                !element.embodied_material().is_empty() && element.bounds().has_voxel(voxel)
+            })
+    })
+}
+
+/// Use one finite resident footprint for both player and durable-custody
+/// admission. All 36 candidate bounding cells are checked without scanning
+/// unrelated world history or constructing a temporary generated world.
+fn first_prospective_temple_overlap(
+    registry: &WorldRegistry,
+    profile: WorldGenerationProfile,
+    coord: ChunkCoord,
+    mut overlaps: impl FnMut(VoxelCoord) -> bool,
+) -> Option<VoxelCoord> {
+    let site = temple_site_for_chunk(registry, profile, coord)?;
     let warden = site.warden();
     let archivist = site.archivist();
     for y in warden.y()..=warden.y() + 2 {
@@ -536,7 +582,7 @@ fn first_player_prospective_temple_collision(
             for z in archivist.z() - 1..=warden.z() {
                 let voxel = VoxelCoord::new(x, y, z);
                 if crate::kobolds::initial_temple_caste_occupies_voxel(voxel, warden, archivist)
-                    && crate::logistics::player_body_occupies_voxel(registries, state, voxel)
+                    && overlaps(voxel)
                 {
                     return Some(voxel);
                 }
