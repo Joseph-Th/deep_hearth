@@ -145,6 +145,7 @@ impl Error for ChunkGenerationError {}
 pub enum ChunkGenerationCommitError {
     StaleWorldRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
     StalePlayerWorkRevision { expected: u64, actual: u64 },
     ChunkAppeared { chunk: ChunkCoord },
 }
@@ -159,6 +160,10 @@ impl Display for ChunkGenerationCommitError {
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "logistics revision changed from {expected} to {actual} before terrain generation commit"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "structure revision changed from {expected} to {actual} before terrain generation commit"
             ),
             Self::StalePlayerWorkRevision { expected, actual } => write!(
                 formatter,
@@ -181,6 +186,7 @@ impl Error for ChunkGenerationCommitError {}
 pub struct ValidatedChunkGeneration {
     expected_revision: u64,
     expected_logistics_revision: u64,
+    expected_structure_revision: u64,
     expected_player_work_revision: u64,
     next_revision: u64,
     profile: WorldGenerationProfile,
@@ -206,6 +212,13 @@ impl ValidatedChunkGeneration {
             return Err(ChunkGenerationCommitError::StaleLogisticsRevision {
                 expected: self.expected_logistics_revision,
                 actual: actual_logistics_revision,
+            });
+        }
+        let actual_structure_revision = state.structures().revision();
+        if actual_structure_revision != self.expected_structure_revision {
+            return Err(ChunkGenerationCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual: actual_structure_revision,
             });
         }
         let actual_player_work_revision = state.player_work().revision();
@@ -235,6 +248,7 @@ impl ValidatedChunkGeneration {
 pub struct ValidatedPlayerChunkDemand {
     expected_revision: u64,
     expected_logistics_revision: u64,
+    expected_structure_revision: u64,
     expected_player_work_revision: u64,
     next_revision: u64,
     profile: WorldGenerationProfile,
@@ -262,6 +276,13 @@ impl ValidatedPlayerChunkDemand {
             return Err(ChunkGenerationCommitError::StaleLogisticsRevision {
                 expected: self.expected_logistics_revision,
                 actual: actual_logistics_revision,
+            });
+        }
+        let actual_structure_revision = state.structures().revision();
+        if actual_structure_revision != self.expected_structure_revision {
+            return Err(ChunkGenerationCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual: actual_structure_revision,
             });
         }
         let actual_player_work_revision = state.player_work().revision();
@@ -341,6 +362,7 @@ pub fn validate_generate_chunk(
     Ok(ValidatedChunkGeneration {
         expected_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_structure_revision: state.structures().revision(),
         expected_player_work_revision: state.player_work().revision(),
         next_revision,
         profile,
@@ -422,6 +444,7 @@ pub fn validate_generate_player_neighborhood(
     Ok(Some(ValidatedPlayerChunkDemand {
         expected_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_structure_revision: state.structures().revision(),
         expected_player_work_revision: state.player_work().revision(),
         next_revision,
         profile,

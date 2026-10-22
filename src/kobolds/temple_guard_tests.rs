@@ -29,8 +29,8 @@ use crate::structural::{
 };
 use crate::survival::{Vitality, player_record};
 use crate::world::{
-    ChunkGenerationError, WorldGenerationSeed, set_generated_block_for_test,
-    validate_generate_chunk, validate_generate_player_neighborhood,
+    ChunkGenerationCommitError, ChunkGenerationError, WorldGenerationSeed,
+    set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 
 fn occupied_temple() -> (Registries, AppState, [VoxelCoord; 3]) {
@@ -281,6 +281,70 @@ fn generated_neighborhood_rejects_a_temple_site_with_existing_material_custody()
         Some(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel: route[0] })
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn temple_chunk_commit_rejects_structure_changed_after_generation_preflight() {
+    let (registries, _, route) = occupied_temple();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    let planned = validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    let expected = state.structures().revision();
+    materialize_timber_member_at(&registries, &mut state, route[0]);
+    let before = state.clone();
+    assert_eq!(
+        planned.commit(&mut state).err(),
+        Some(ChunkGenerationCommitError::StaleStructureRevision {
+            expected,
+            actual: before.structures().revision(),
+        }),
+        "a structure introduced after generation preflight must invalidate the plan"
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn neighborhood_generation_commit_rejects_new_construction_after_validation() {
+    let (registries, _, route) = occupied_temple();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, route[2])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(3, 3),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let demand = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap()
+        .unwrap();
+    let expected = state.structures().revision();
+    materialize_timber_member_at(&registries, &mut state, route[0]);
+    let before = state.clone();
+    assert_eq!(
+        demand.commit(&mut state).err(),
+        Some(ChunkGenerationCommitError::StaleStructureRevision {
+            expected,
+            actual: before.structures().revision(),
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn advance_to(registries: &Registries, state: &mut AppState, target: u64) {

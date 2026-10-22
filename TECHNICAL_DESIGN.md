@@ -281,6 +281,9 @@ stationary custody, and embodied structural bounds, even where the new temple
 floor and rooms contain air. The same finite body geometry is used by runtime
 occupancy and admission. A distant generation-profile change cannot spawn an
 invisible resident inside an ungenerated player location.
+Both generation plans retain the structural revision that authorized this
+check; materialization or other structural mutation before commit invalidates
+the pending plan rather than bypassing prospective occupancy admission.
 Archivists remain at their old posts with a solid two-by-two-cell floor footprint and
 three-cell body height; wardens occupy one-by-one-by-two cells. A warden follows a fixed
 three-cell, face-adjacent defensive route on the existing five-tick kobold clock when
