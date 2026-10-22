@@ -10,7 +10,7 @@ use crate::inventory::{
     PlayerStoragePlacementError, StockpileId, StorageDefinitionId,
     StorageEnclosureDismantlingOutcome,
 };
-use crate::kobolds::KoboldScoutEvent;
+use crate::kobolds::{KoboldAlarmPulse, KoboldScoutEvent};
 use crate::labor::{ManualPowerOutcome, StructuralConstructionWork, SurfaceGatheringWork};
 use crate::logistics::{
     PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
@@ -353,6 +353,7 @@ pub struct TickOutcome {
     pub(super) structural_dismantling: Option<StructuralDismantlingOutcome>,
     pub(super) field_prospecting: Option<FieldProspectingOutcome>,
     pub(super) kobold_scout: Option<KoboldScoutEvent>,
+    pub(super) kobold_alarm_pulses: Vec<KoboldAlarmPulse>,
     pub(super) survival: Option<SurvivalAssessment>,
 }
 
@@ -442,6 +443,13 @@ impl TickOutcome {
         self.kobold_scout
     }
 
+    /// Local percussion impulses from real kobold apparatus on this tick.
+    /// A hidden distant warning never appears in this read-side event channel.
+    #[must_use]
+    pub fn kobold_alarm_pulses(&self) -> &[KoboldAlarmPulse] {
+        &self.kobold_alarm_pulses
+    }
+
     /// Returns how many discrete observable event categories fired during this tick.
     ///
     /// The committed tick itself and the continuous survival assessment are not discrete events.
@@ -463,6 +471,7 @@ impl TickOutcome {
             structural_dismantling,
             field_prospecting,
             kobold_scout,
+            kobold_alarm_pulses,
             survival: _,
         } = self;
         [
@@ -478,6 +487,7 @@ impl TickOutcome {
             structural_dismantling.is_some(),
             field_prospecting.is_some(),
             kobold_scout.is_some(),
+            !kobold_alarm_pulses.is_empty(),
         ]
         .into_iter()
         .filter(|present| *present)

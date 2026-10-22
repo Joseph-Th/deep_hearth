@@ -27,7 +27,7 @@ mod visibility;
 mod watchman;
 
 pub use junkworks::{
-    KoboldJunkRig, KoboldJunkRigKind, available_nearby_kobold_junk_relay,
+    KoboldAlarmPulse, KoboldJunkRig, KoboldJunkRigKind, available_nearby_kobold_junk_relay,
     available_nearby_kobold_junk_rig,
 };
 pub use tracks::{KoboldTrack, KoboldTrailKind, available_nearby_kobold_tracks};

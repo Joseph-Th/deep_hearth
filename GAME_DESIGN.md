@@ -290,6 +290,12 @@ delivers the extra copper to the junction, keeps the staged part there, then see
 missing striker. It does not strip its own assembled repeater while the den source works.
 The player can intercept or take any component, breaking the relay without destroying or
 duplicating matter; an unpowered junction device remains locally visible as scrap machinery.
+Actual warning strikes now provide local audible clues: a nearby observer can hear the den
+clatter even without seeing the distant scout, and can distinguish a synchronized junction
+clatter when the two-hop warning succeeds. Off-beat or remote activity does not reveal
+hidden enemy locations; solid occluding terrain conservatively muffles perception until
+the game has a fuller acoustic model. Walking over exposed relay parts can collect them
+through the ordinary player pickup path, physically silencing that branch of the network.
 This establishes the scavenged-technology vocabulary without granting kobolds free ranged
 communication, energy, weapons or distant knowledge.
 

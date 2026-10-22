@@ -219,6 +219,17 @@ local arrangement from its own sightline even when the unseen den source is abse
 does not reveal remote den contents. No second machine ledger, stored signal or energy
 source is invented. The alarm remains pending if the path or either synchronized beat
 is unavailable.
+The committed slow-tick `TickOutcome::kobold_alarm_pulses` reports local, physical
+percussion independently of a visible `KoboldScoutEvent`. The watchman must retain
+a pending report and physically attend its den when its finite-material source rig
+sounds on the authored scout clock. On a successful two-edge warning, an assembled
+and synchronous junction relay also produces its own impulse. Only apparatus within
+the player's existing short, unobstructed local perception is returned; no remote
+den, pending signal or unseen scout is exposed. Missing parts and missed beats do
+not create false impulses. This transient receipt is not persisted, because all
+future-affecting warning state remains in the existing colony owner. Player pickup
+can remove the actual junction parcels at control rate before the slow beat, so
+observed sound and the scout's transmitted warning reflect the same final custody.
 After mobilization, den inventory changes the scout's physical salvage objective: with a usable
 precision-copper core but no striker, its existing bounded patrol and two-edge detour search
 prefer shaped timber or stone chips over ordinary inert scraps. A usable striker on the

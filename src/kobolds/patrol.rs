@@ -13,6 +13,7 @@ use crate::surface::{
 use crate::survival::Vitality;
 
 use super::feeding::{apply_scheduled_den_care, scout_wants_food_opportunity};
+use super::junkworks::KoboldAlarmPulse;
 use super::junkworks::{den_or_relay_needs_striker, is_junk_striker};
 use super::mobilization::observe_progress;
 use super::scavenging::{
@@ -582,18 +583,28 @@ pub(crate) fn apply_kobold_scout_tick(
     registries: &Registries,
     state: &mut AppState,
     next_tick: SimulationTick,
-) -> Option<KoboldScoutEvent> {
+) -> (Option<KoboldScoutEvent>, Vec<KoboldAlarmPulse>) {
     super::temple_guard::apply_temple_warden_tick(registries, state, next_tick);
-    let colony = state.kobold_state().colony.as_ref()?;
-    if colony.next_step_at > next_tick {
-        return None;
+    if state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .is_none_or(|colony| colony.next_step_at > next_tick)
+    {
+        return (None, Vec::new());
     }
+    let colony = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap_or_else(|| unreachable!("the guarded scout tick requires a colony"));
     let from = colony.scout_position();
     observe_progress(registries, state, next_tick, from);
     let forage_ready = state
         .kobold_state()
         .colony
-        .as_ref()?
+        .as_ref()
+        .unwrap_or_else(|| unreachable!("the kobold colony survived den progress observation"))
         .next_forage_at
         .is_none_or(|due| next_tick >= due);
     let player_position = state.logistics().player().map(|player| player.position());
@@ -607,7 +618,7 @@ pub(crate) fn apply_kobold_scout_tick(
     // Den resources remain physically recoverable until they are actually eaten.
     let (consumed_food, discarded_food, cleared_cache) =
         apply_scheduled_den_care(registries, state, from, next_tick, pressured);
-    let heard_junk_alarm = apply_watchman_tick(registries, state, next_tick);
+    let (heard_junk_alarm, alarm_pulses) = apply_watchman_tick(registries, state, next_tick);
     let pressured = pressured || heard_junk_alarm;
     let colony = state
         .kobold_state()
@@ -842,20 +853,24 @@ pub(crate) fn apply_kobold_scout_tick(
     let visible = had_local_activity
         && player_position
             .is_some_and(|player| scout_visible_from(registries, state, scout_position, player));
-    visible.then_some(KoboldScoutEvent {
-        position: scout_position,
-        heard_junk_alarm,
-        discovered_player_drop: discovered,
-        relocated_drop,
-        fled_player: (pressured_by_player || ahead_is_guarded) && can_move,
-        fled_light: (pressured_by_light || (turned_back_at_barrier && ahead_is_lit)) && can_move,
-        turned_back_at_barrier: turned_back_at_barrier && can_move,
-        cancelled_empty_cache_raid: cancelled_empty_cache_raid && can_move,
-        abandoned_drop,
-        foraged_food,
-        split_drop,
-        consumed_food: observed_meal,
-        discarded_food: observed_discard,
-        cleared_cache: observed_clearing,
-    })
+    (
+        visible.then_some(KoboldScoutEvent {
+            position: scout_position,
+            heard_junk_alarm,
+            discovered_player_drop: discovered,
+            relocated_drop,
+            fled_player: (pressured_by_player || ahead_is_guarded) && can_move,
+            fled_light: (pressured_by_light || (turned_back_at_barrier && ahead_is_lit))
+                && can_move,
+            turned_back_at_barrier: turned_back_at_barrier && can_move,
+            cancelled_empty_cache_raid: cancelled_empty_cache_raid && can_move,
+            abandoned_drop,
+            foraged_food,
+            split_drop,
+            consumed_food: observed_meal,
+            discarded_food: observed_discard,
+            cleared_cache: observed_clearing,
+        }),
+        alarm_pulses,
+    )
 }

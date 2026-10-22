@@ -90,6 +90,218 @@ fn mobilized_den() -> (Registries, AppState) {
     (registries, state)
 }
 
+/// Execute through the actual 20 Hz player-control boundary and extract the
+/// one slow tick's externally observable acoustic events.
+fn advance_to_with_pulses(
+    registries: &Registries,
+    state: &mut AppState,
+    until: u64,
+) -> (
+    Vec<KoboldAlarmPulse>,
+    Option<crate::kobolds::KoboldScoutEvent>,
+    usize,
+) {
+    let mut observed = (Vec::new(), None, 0);
+    while state.tick().value() < until {
+        let outcome = advance_control_tick(registries, state).unwrap();
+        if let Some(simulation) = outcome.simulation() {
+            observed = (
+                simulation.kobold_alarm_pulses().to_vec(),
+                simulation.kobold_scout(),
+                simulation.discrete_event_category_count(),
+            );
+        }
+    }
+    observed
+}
+
+fn two_hop_alarm_fixture() -> (Registries, AppState, SurfaceResourceId) {
+    let (registries, mut state) = mobilized_den();
+    advance_to(&registries, &mut state, 205);
+    assert_eq!(state.kobold_state().colony.as_ref().unwrap().scout_step, 2);
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    put_drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let clapper = put_drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    validate_admit_player(&registries, &state, OBSERVER)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    (registries, state, clapper)
+}
+
+#[test]
+fn percussion_reports_its_real_local_source_without_revealing_the_distant_scout() {
+    let (registries, mut near, _) = two_hop_alarm_fixture();
+    let baseline = calculate_matter_accounting(&near).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &near)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let (pulses, scout, count) = advance_to_with_pulses(&registries, &mut near, 210);
+    let (replayed_pulses, replayed_scout, replayed_count) =
+        advance_to_with_pulses(&registries, &mut replay, 210);
+    assert_eq!(near, replay);
+    assert_eq!(pulses, replayed_pulses);
+    assert_eq!(scout, replayed_scout);
+    assert_eq!(count, replayed_count);
+    assert_eq!(
+        pulses
+            .iter()
+            .map(|pulse| (pulse.position(), pulse.kind()))
+            .collect::<Vec<_>>(),
+        vec![(DEN, KoboldJunkRigKind::TimberRatchet)],
+        "only the nearby source is audible; the distant junction stays undisclosed"
+    );
+    assert_eq!(
+        scout, None,
+        "the source can be heard without exposing the remote scout as a sighting"
+    );
+    assert_eq!(
+        count, 1,
+        "one sound is one discrete observable event category"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&near).unwrap().total(),
+        baseline
+    );
+    assert_eq!(validate_loaded_state(&registries, &near), Ok(()));
+}
+
+#[test]
+fn a_player_beside_the_junction_hears_both_real_synchronized_apparatuses() {
+    let (registries, mut state, _) = two_hop_alarm_fixture();
+    relocate_player_for_test(&mut state, VoxelCoord::new(-1, 0, 1));
+    let (pulses, _, _) = advance_to_with_pulses(&registries, &mut state, 210);
+    assert_eq!(
+        pulses
+            .iter()
+            .map(|pulse| (pulse.position(), pulse.kind()))
+            .collect::<Vec<_>>(),
+        vec![
+            (DEN, KoboldJunkRigKind::TimberRatchet),
+            (JUNCTION, KoboldJunkRigKind::TimberRatchet)
+        ]
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn walking_onto_a_repeater_recovers_its_parts_and_silences_the_remote_clatter() {
+    let (registries, mut state, _) = two_hop_alarm_fixture();
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    relocate_player_for_test(&mut state, JUNCTION);
+    let (pulses, _, _) = advance_to_with_pulses(&registries, &mut state, 210);
+    assert_eq!(
+        pulses
+            .iter()
+            .map(|pulse| pulse.position())
+            .collect::<Vec<_>>(),
+        vec![DEN],
+        "a player collected the loose junction rig before its synchronized beat"
+    );
+    assert!(
+        current_junction_relay(&state, state.kobold_state().colony.as_ref().unwrap()).is_none(),
+        "player pickup must dismantle the actual second apparatus"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn offbeat_missing_relay_and_remote_listener_emit_no_spurious_alarm_pulses() {
+    let (registries, state, clapper) = two_hop_alarm_fixture();
+    let mut disconnected = state.clone();
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &mut disconnected,
+        clapper,
+        JUNCTION,
+        TIP
+    ));
+    let mut remote = state.clone();
+    relocate_player_for_test(&mut remote, VoxelCoord::new(15, 0, 15));
+    remote
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap()
+        .watch_alarm_pending = true;
+    let mut offbeat = state;
+    let den_striker = current_den_rig(&offbeat, offbeat.kobold_state().colony.as_ref().unwrap())
+        .unwrap()
+        .striker();
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &mut offbeat,
+        den_striker,
+        DEN,
+        VoxelCoord::new(-2, 0, 0)
+    ));
+    put_drop(
+        &registries,
+        &mut offbeat,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+    );
+    // 210 is a shared timber beat; the missing junction component prevents
+    // the second clatter but not the physically witnessed den strike.
+    let (disconnected_pulses, _, _) = advance_to_with_pulses(&registries, &mut disconnected, 210);
+    assert_eq!(
+        disconnected_pulses
+            .iter()
+            .map(|pulse| pulse.position())
+            .collect::<Vec<_>>(),
+        vec![DEN]
+    );
+    assert!(
+        disconnected
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending,
+        "a failed two-hop link retains the report for a later attempt"
+    );
+    let (remote_pulses, _, _) = advance_to_with_pulses(&registries, &mut remote, 210);
+    assert!(
+        remote_pulses.is_empty(),
+        "a player out of local hearing range receives no remote alarm data"
+    );
+    // At 210, the stone source is between its slower beats even though the
+    // timber junction resonator is ready. The local sound stays silent and
+    // the watchman's warning remains pending for an actual future strike.
+    let (offbeat_pulses, _, _) = advance_to_with_pulses(&registries, &mut offbeat, 210);
+    assert!(offbeat_pulses.is_empty());
+    assert!(
+        offbeat
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+    assert_eq!(validate_loaded_state(&registries, &offbeat), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &disconnected), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &remote), Ok(()));
+}
+
 #[test]
 fn mismatched_stone_and_timber_mechanisms_wait_for_a_shared_clatter_beat() {
     let (registries, mut state) = mobilized_den();

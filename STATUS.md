@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing with routed tailings, copper forming/casting, delegated cast-part work. Ore reduction and smelting-slag generation are absent. |
-| Opening wilderness acquisition | Kobolds raid, forage and track; light and guards limit patrols. Mobilized dens scavenge and stage finite alarm and junction-repeater parts, warning scouts across one or two intact route edges on intermittent beats; sentries need provisions. No combat. |
+| Opening wilderness acquisition | Kobold scouts raid, forage and track; light and guards limit patrols. Mobilized dens salvage two-hop alarms; local beats are audible without revealing hidden scouts. Sentries need food. No combat. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier

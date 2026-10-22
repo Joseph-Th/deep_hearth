@@ -9,7 +9,7 @@ use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
 
 use super::feeding::consume_den_meal;
-use super::junkworks::relay_watch_alarm;
+use super::junkworks::{KoboldAlarmPulse, locally_audible_alarm_pulses, relay_watch_alarm};
 use super::patrol::{living_player_deters_scout, scout_can_enter, scout_sees_guarded_cell};
 use super::tracks::KoboldTrailKind;
 use super::visibility::scout_visible_from;
@@ -137,9 +137,9 @@ pub(super) fn apply_watchman_tick(
     registries: &Registries,
     state: &mut AppState,
     at: SimulationTick,
-) -> bool {
+) -> (bool, Vec<KoboldAlarmPulse>) {
     let Some(colony) = state.kobold_state().colony.as_ref() else {
-        return false;
+        return (false, Vec::new());
     };
     let den = colony.route[0];
     let guard = colony.watch_position();
@@ -172,9 +172,26 @@ pub(super) fn apply_watchman_tick(
             witness.deliver_watch_alarm_at_den(at);
         }
     }
+    let pending_before_strike = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .is_some_and(|resident| resident.watch_alarm_pending);
+    let outward_scout = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .is_some_and(|resident| resident.scout_step == 2);
     let signaled = relay_watch_alarm(state, at);
+    let audible = locally_audible_alarm_pulses(
+        registries,
+        state,
+        at,
+        pending_before_strike,
+        signaled && outward_scout,
+    );
     let Some((destination, next_leg)) = next else {
-        return signaled;
+        return (signaled, audible);
     };
     if !scout_can_enter(registries, state, destination, player)
         || (destination != den && scout_position == destination)
@@ -191,7 +208,7 @@ pub(super) fn apply_watchman_tick(
             && assess_local_illumination(registries, state, destination).level()
                 >= SCOUT_DETERRENT_LIGHT_LEVEL)
     {
-        return signaled;
+        return (signaled, audible);
     }
     let moved = if destination == den {
         let watcher = state.kobold_state_mut().colony.as_mut().unwrap();
@@ -246,5 +263,5 @@ pub(super) fn apply_watchman_tick(
             .unwrap()
             .record_watch_track(guard, destination, at, activity);
     }
-    signaled
+    (signaled, audible)
 }

@@ -588,7 +588,7 @@ fn advance_simulation_tick(
         apply_storage_enclosure_dismantling_tick(state, storage_enclosure_dismantling_plan);
     apply_player_death_effects(state, player_death_effects);
     apply_player_work_tick(state, player_work_plan);
-    let kobold_scout = apply_kobold_scout_tick(registries, state, next_tick);
+    let (kobold_scout, kobold_alarm_pulses) = apply_kobold_scout_tick(registries, state, next_tick);
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
     if player_dead_after_tick {
@@ -614,6 +614,7 @@ fn advance_simulation_tick(
         structural_dismantling,
         field_prospecting,
         kobold_scout,
+        kobold_alarm_pulses,
         survival,
     })
 }

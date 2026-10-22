@@ -2,7 +2,7 @@
 //!
 //! This is a current-use assembly of exposed loose parts, not a free machine or a second
 //! material ledger. Taking either component away immediately makes the device unusable.
-//! There is no radio: a den resident can warn a scout only one real traversal edge away.
+//! There is no radio: the second edge needs a physical junction resonator.
 
 use crate::content::{FORM_BOARD, FORM_CHIP, FORM_HANDLE, MATERIAL_STONE, MATERIAL_WOOD};
 use crate::core::quantity::Mass;
@@ -24,6 +24,27 @@ const STRIKER_MINIMUM: Mass = Mass::from_milligrams(20_000);
 pub enum KoboldJunkRigKind {
     TimberRatchet,
     StoneClatter,
+}
+
+/// Player-local acoustic evidence of a real alarm strike, not an index of
+/// unobserved machinery or a second persistent signal ledger.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KoboldAlarmPulse {
+    position: VoxelCoord,
+    kind: KoboldJunkRigKind,
+}
+
+impl KoboldAlarmPulse {
+    #[must_use]
+    pub const fn position(self) -> VoxelCoord {
+        self.position
+    }
+
+    #[must_use]
+    pub const fn kind(self) -> KoboldJunkRigKind {
+        self.kind
+    }
 }
 
 /// An actual den arrangement made from still-recoverable loose parcels.
@@ -229,6 +250,52 @@ pub fn available_nearby_kobold_junk_relay(
     scout_visible_from(registries, state, colony.route[1], player)
         .then(|| current_rig_at(state, colony, colony.route[1]))
         .flatten()
+}
+
+/// Return only pulses from real striking apparatus near the player. The
+/// den watchman must hold an outstanding report and strike an on-beat source;
+/// the junction clatters only if both connected edges actually carried the
+/// warning outward on that same step. Conservative local air-line perception
+/// is used until there is a dedicated acoustic propagation model.
+pub(super) fn locally_audible_alarm_pulses(
+    registries: &Registries,
+    state: &AppState,
+    at: SimulationTick,
+    warning_pending: bool,
+    two_edge_transmission: bool,
+) -> Vec<KoboldAlarmPulse> {
+    let Some(player) = state.logistics().player().map(|record| record.position()) else {
+        return Vec::new();
+    };
+    let Some(colony) = state.kobold_state().colony.as_ref() else {
+        return Vec::new();
+    };
+    if !warning_pending
+        || colony.watch_deployed_at.is_some()
+        || colony.mobilized_at.is_none_or(|reported| reported >= at)
+    {
+        return Vec::new();
+    }
+    let Some(source) = current_den_rig(state, colony).filter(|rig| rig.sounds_at(at)) else {
+        return Vec::new();
+    };
+    let mut pulses = Vec::new();
+    if scout_visible_from(registries, state, source.position(), player) {
+        pulses.push(KoboldAlarmPulse {
+            position: source.position(),
+            kind: source.kind(),
+        });
+    }
+    if two_edge_transmission
+        && let Some(relay) = current_junction_relay(state, colony)
+        && scout_visible_from(registries, state, relay.position(), player)
+    {
+        pulses.push(KoboldAlarmPulse {
+            position: relay.position(),
+            kind: relay.kind(),
+        });
+    }
+    pulses
 }
 
 /// A watchman's warning crosses one true den-to-junction edge. For a scout
