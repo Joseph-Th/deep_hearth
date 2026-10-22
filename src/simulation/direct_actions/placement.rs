@@ -45,7 +45,8 @@ fn validate_direct_placement_position(
     if player_body_occupies_voxel(registries, state, position) {
         return Err(DirectPlacementTargetError::IntersectsPlayer { position });
     }
-    if state.logistics().has_stationary_occupant_at(position)
+    if crate::kobolds::temple_caste_occupies_voxel(registries, state, position)
+        || state.logistics().has_stationary_occupant_at(position)
         || state
             .structures()
             .elements()

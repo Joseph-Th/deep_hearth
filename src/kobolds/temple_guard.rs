@@ -34,6 +34,17 @@ fn clear_body_cell(state: &AppState, position: VoxelCoord) -> bool {
 fn clear_standing_cell(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
     position.y() > WORLD_MIN_Y
         && clear_body_cell(state, position)
+        // World air alone does not mean free space: built infrastructure has
+        // separate durable custody and blocks both occupied warden cells.
+        && [position, VoxelCoord::new(position.x(), position.y() + 1, position.z())]
+            .into_iter()
+            .all(|cell| {
+                !state.logistics().has_stationary_occupant_at(cell)
+                    && !state
+                        .structures()
+                        .elements()
+                        .any(|element| element.bounds().has_voxel(cell))
+            })
         && state
             .world()
             .block_at(VoxelCoord::new(

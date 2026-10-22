@@ -265,7 +265,9 @@ three-cell body height; wardens occupy one-by-one-by-two cells. A warden follows
 three-cell, face-adjacent defensive route on the existing five-tick kobold clock when
 a player is in its generated temple column. Its step toward a living, visible intruder
 requires real air at body and head, full-cube support underfoot and clearance from the
-actual continuous player body footprint, not just the player's current origin voxel.
+actual continuous player body footprint, stationary equipment and stores, and structural
+member bounds. A stationary enclosure or timber member can hold an otherwise clear
+lane; a displaced guardian cannot retreat through a newly occupied ancestral post.
 Loss of contact causes one-cell-at-a-time withdrawal. The kobold owner persists only displaced wardens in
 strictly sorted per-temple records. Trusted load rejects duplicates, nonexistent sites,
 blocked/absent occupancy and invalid route cursors. A resident stranded by later
@@ -276,9 +278,10 @@ are stepped; remote idle sanctuaries are not scanned or instantiated. This permi
 homebound retreat to finish after the player leaves the chunk without inventing
 offscreen reinforcements. Horizontal and vertical player-body sweeps, stance clearance,
 grounding and read-only walk projections query identical temple-caste occupancy,
-including concealed residents. A warden also checks both occupied body cells before
-moving into the player's space. Ordinary player admission, trusted-state validation
-and the respawn anchor also check
+including concealed residents. Pointed player storage and structural placement also
+reject occupied caste cells even when the target geometry itself is generated air.
+A warden checks both occupied body cells before moving into the player's space.
+Ordinary player admission, trusted-state validation and the respawn anchor also check
 that same occupied volume. Local sightings expose defensive posture and moving
 position, not an implicit attack. Combat, general pursuit/pathfinding, physiology,
 relic restoration and interpretation remain absent.

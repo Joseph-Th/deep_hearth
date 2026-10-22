@@ -2,13 +2,27 @@
 
 use super::*;
 
-use crate::content::{BLOCK_STATE_STONE, build_registries};
+use crate::content::{
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE, FORM_LOG,
+    FORM_ROUGH_BOX_BODY, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+};
+use crate::core::quantity::Temperature;
 use crate::core::state::validate_loaded_state;
+use crate::inventory::{deposit_lot_for_test, validate_place_player_storage_at};
 use crate::logistics::{HorizontalControlInput, PlayerControlInput, relocate_player_for_test};
 use crate::logistics::{PlayerWalkProjectionError, project_player_adjacent_walk};
+use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::{validate_admit_player, validate_respawn_player};
-use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
+use crate::simulation::{
+    PlayerDirectControlInput, SecondaryActionOutcome, SecondaryControlIntent, advance_control_tick,
+    advance_control_tick_with_direct_input, advance_control_tick_with_input,
+};
+use crate::spatial::{ViewDirection, VoxelBounds};
+use crate::structural::{
+    StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+};
 use crate::survival::{Vitality, player_record};
 use crate::world::{WorldGenerationSeed, set_generated_block_for_test, validate_generate_chunk};
 
@@ -51,6 +65,23 @@ fn defending_guard(registries: &Registries, state: &AppState) -> Option<bool> {
     crate::kobolds::available_nearby_kobold_scouts(registries, state)
         .find(|sighting| sighting.role() == crate::kobolds::KoboldRole::TempleWarden)
         .map(|sighting| sighting.is_defending())
+}
+
+fn carry_field_box_material(registries: &Registries, state: &mut AppState) {
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let _ = deposit_lot_for_test(
+        registries,
+        state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        definition.assembly_profile().input_mass(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -96,6 +127,147 @@ fn heavy_castes_are_solid_on_the_actual_continuous_player_walk_sweep() {
         "continuous collision must stop at the defender's face"
     );
     assert_eq!(visible_guard(&registries, &state), Some(route[1]));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn pointed_storage_cannot_materialize_inside_a_temple_warden() {
+    let (registries, mut state, route) = occupied_temple();
+    let guard = route[0];
+    relocate_player_for_test(&mut state, route[1]);
+    let wall = VoxelCoord::new(guard.x(), guard.y(), guard.z() + 1);
+    set_generated_block_for_test(registries.world(), &mut state, wall, BLOCK_STATE_STONE);
+    assert!(crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &state,
+        guard
+    ));
+    carry_field_box_material(&registries, &mut state);
+    let before = state.clone();
+    let facing_guard = ViewDirection::new(0, -600_000, 800_000).unwrap();
+    let input = PlayerDirectControlInput::NEUTRAL.with_secondary(
+        SecondaryControlIntent::place_storage(STORAGE_ROUGH_TIMBER_FIELD_BOX, facing_guard),
+    );
+    let outcome = advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::StoragePlacementLocationOccupied { position: guard })
+    );
+    assert_eq!(state.inventory(), before.inventory());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn warden_cannot_advance_into_a_real_stationary_enclosure() {
+    let (registries, mut state, route) = occupied_temple();
+    carry_field_box_material(&registries, &mut state);
+    let stockpile = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        route[1],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(route[1])
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 5);
+    advance_to(&registries, &mut replay, 5);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        0
+    );
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(route[1])
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn vacated_warden_post_can_be_occupied_but_blocks_its_later_retreat() {
+    let (registries, mut state, route) = occupied_temple();
+    advance_to(&registries, &mut state, 5);
+    let chunk = ChunkCoord::containing(route[0]);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 1);
+    assert!(!crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &state,
+        route[0]
+    ));
+    carry_field_box_material(&registries, &mut state);
+    let stockpile = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        route[0],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(route[2].x() + 4, route[2].y(), route[2].z()),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 10);
+    advance_to(&registries, &mut replay, 10);
+    assert_eq!(state, replay);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 1);
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(route[0])
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn warden_cannot_advance_into_an_authored_timber_member() {
+    let (registries, mut state, route) = occupied_temple();
+    let at = VoxelCoord::new(route[1].x(), route[1].y() + 1, route[1].z());
+    let bounds = VoxelBounds::new(at, VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap();
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap();
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        false,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    advance_to(&registries, &mut state, 5);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        0,
+        "the member in the warden's upper body cell must block its advance"
+    );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
