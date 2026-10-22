@@ -250,6 +250,12 @@ Other exposed salvage remains contestable. If a player removes relay parts, a
 returning scout can stage replacement copper and timber from real accessible
 spares on later visits, with ordinary player interception and exact conserved
 custody even across save/load. No distant cargo is reserved or teleported.
+In generated-world patrols, a scout's two-cell standing footprint requires
+actual free space, including the player's airborne body cells, concealed temple
+residents, finished storage enclosures, and structural members. Loose equipment,
+ambient stockpiles and placed energy/fluid stores are locality rather than
+full-cube collision; lighting independently deters scavengers. The authored
+pre-generation traversal graph retains its terrain-free opening rules.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent

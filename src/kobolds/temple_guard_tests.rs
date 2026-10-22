@@ -338,6 +338,63 @@ fn vacated_warden_post_can_be_occupied_but_blocks_its_later_retreat() {
 }
 
 #[test]
+fn generated_world_scout_clearance_respects_constructed_enclosures_and_temple_castes() {
+    let (registries, mut state, route) = occupied_temple();
+    let position = route[1];
+    let distant_player = Some(route[2]);
+    assert!(
+        crate::kobolds::patrol::scout_can_enter(&registries, &state, position, distant_player),
+        "the empty hall cell must be genuinely traversable"
+    );
+    let mut airborne = state.clone();
+    let above = VoxelCoord::new(position.x(), position.y() + 1, position.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut airborne,
+        VoxelCoord::new(position.x(), position.y() + 2, position.z()),
+        BlockStateId::AIR,
+    );
+    relocate_player_for_test(&mut airborne, above);
+    assert_eq!(validate_loaded_state(&registries, &airborne), Ok(()));
+    assert!(
+        !crate::kobolds::patrol::scout_can_enter(&registries, &airborne, position, Some(above)),
+        "a player occupying the scout's upper body cell must prevent entry"
+    );
+    assert!(
+        !crate::kobolds::patrol::scout_can_enter(&registries, &state, route[0], distant_player),
+        "a standing temple warden must block a second small actor"
+    );
+    let mut member_state = state.clone();
+    let head = VoxelCoord::new(position.x(), position.y() + 1, position.z());
+    materialize_timber_member_at(&registries, &mut member_state, head);
+    assert!(
+        !crate::kobolds::patrol::scout_can_enter(
+            &registries,
+            &member_state,
+            position,
+            distant_player
+        ),
+        "a member in the upper occupied cell must obstruct the scout"
+    );
+    assert_eq!(validate_loaded_state(&registries, &member_state), Ok(()));
+    carry_field_box_material(&registries, &mut state);
+    let _ = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        position,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(
+        !crate::kobolds::patrol::scout_can_enter(&registries, &state, position, distant_player),
+        "a stationary constructed enclosure must block the scout's body"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn warden_cannot_advance_into_an_authored_timber_member() {
     let (registries, mut state, route) = occupied_temple();
     let at = VoxelCoord::new(route[1].x(), route[1].y() + 1, route[1].z());

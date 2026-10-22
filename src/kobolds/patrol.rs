@@ -37,11 +37,41 @@ pub(super) fn scout_can_enter(
     position: VoxelCoord,
     player_position: Option<VoxelCoord>,
 ) -> bool {
-    player_position != Some(position)
-        && (state.world().generation_profile().is_none()
-            || state
-                .world()
-                .has_standing_clearance(registries.world(), position))
+    if player_position == Some(position) {
+        return false;
+    }
+    if state.world().generation_profile().is_none() {
+        return true;
+    }
+    let Some(head_y) = position.y().checked_add(1) else {
+        return false;
+    };
+    state
+        .world()
+        .has_standing_clearance(registries.world(), position)
+        && [
+            position,
+            VoxelCoord::new(position.x(), head_y, position.z()),
+        ]
+        .into_iter()
+        .all(|cell| {
+            !super::temple_caste_occupies_voxel(registries, state, cell)
+                && !crate::logistics::player_body_occupies_voxel(registries, state, cell)
+                // A physical enclosure obstructs passage. Co-located loose
+                // equipment and energy/fluid stores are locality markers,
+                // not full-cube terrain; illumination owns fire deterrence.
+                && !state.logistics().stockpile_locations().any(|(id, at)| {
+                    at == cell
+                        && state
+                            .inventory()
+                            .get_stockpile(id)
+                            .is_some_and(|stockpile| stockpile.enclosure().is_some())
+                })
+                && !state
+                    .structures()
+                    .elements()
+                    .any(|element| element.bounds().has_voxel(cell))
+        })
 }
 
 pub(super) fn living_player_deters_scout(
