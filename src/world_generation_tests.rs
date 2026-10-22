@@ -2,14 +2,15 @@
 
 use crate::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, BLOCK_STATE_STONE,
-    FLUID_WATER, FORM_BOARD, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CLAY,
-    MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    build_registries,
+    FLUID_WATER, FORM_BOARD, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES,
+    MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
+use crate::inventory::{deposit_lot_for_test, validate_place_player_storage_at};
 use crate::logistics::{add_traversable_edge_for_test, validate_allocate_ground_stockpile};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -74,6 +75,131 @@ fn plan_full_panel_at(
 fn materialize_full_panel_at(registries: &Registries, state: &mut AppState, head: VoxelCoord) {
     let member = plan_full_panel_at(registries, state, head);
     materialize_structural_element_for_test(registries, state, member, FORM_BOARD);
+}
+
+fn place_completed_field_box_at(
+    registries: &Registries,
+    state: &mut AppState,
+    at: VoxelCoord,
+) -> crate::inventory::StockpileId {
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        registries,
+        state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        definition.assembly_profile().input_mass(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_player_storage_at(registries, state, STORAGE_ROUGH_TIMBER_FIELD_BOX, at)
+        .unwrap()
+        .commit(state)
+        .unwrap()
+}
+
+#[test]
+fn terrain_generation_cannot_bury_a_completed_stationary_storage_enclosure() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(5, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let enclosure = place_completed_field_box_at(&registries, &mut state, at);
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(enclosure),
+        Some(at)
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::containing(at),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel: at }),
+        "generated solid rock cannot occupy the voxel of material-backed stationary storage"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn neighborhood_generation_rejects_burying_a_stationary_enclosure_atomically() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(3, 3),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_admit_player(&registries, &state, VoxelCoord::new(5, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    place_completed_field_box_at(&registries, &mut state, at);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel: at })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn terrain_generation_preserves_completed_enclosure_in_open_air() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, 100, 5);
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(6, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let enclosure = place_completed_field_box_at(&registries, &mut state, at);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.world().block_at(at), Some(BlockStateId::AIR));
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(enclosure),
+        Some(at)
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
 }
 
 #[test]

@@ -290,6 +290,10 @@ structural members. The prospective overlap scan is clipped to the finite
 incoming chunk, not the potentially large authored member bounds, and atomic
 player-neighborhood generation applies the same protection. Inert construction
 plans and structures entirely above the generated ground remain admissible.
+Prospective terrain generation also protects the occupied voxel of each
+completed stationary storage enclosure from newly created full-cube rock.
+Ordinary unenclosed ground stockpiles remain locality/custody rather than
+terrain obstacles; fully built boxes above generated terrain remain valid.
 Trusted save admission reuses the same chunk-clipped structural overlap test
 against existing generated terrain, rejecting embedded built matter with a
 specific obstructed voxel while preserving empty planned blueprints.

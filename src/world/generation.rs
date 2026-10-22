@@ -76,6 +76,7 @@ pub enum ChunkGenerationError {
     PlayerBodyTempleCasteCollision { voxel: VoxelCoord },
     TempleCasteInfrastructureCollision { voxel: VoxelCoord },
     StructureBuriedByTerrain { voxel: VoxelCoord },
+    StorageEnclosureBuriedByTerrain { voxel: VoxelCoord },
     SurfaceResourceCollision { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
@@ -134,6 +135,13 @@ impl Display for ChunkGenerationError {
             Self::StructureBuriedByTerrain { voxel } => write!(
                 formatter,
                 "terrain generation would bury embodied structural matter at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::StorageEnclosureBuriedByTerrain { voxel } => write!(
+                formatter,
+                "terrain generation would bury a completed storage enclosure at voxel ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -379,32 +387,7 @@ pub fn validate_generate_chunk(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("world headroom check includes chunk generation"));
     let chunk = build_generated_chunk(registry, profile, coord)?;
-    if let Some(voxel) = first_surface_resource_collision(registry, state, &chunk) {
-        return Err(ChunkGenerationError::SurfaceResourceCollision { voxel });
-    }
-    if let Some(voxel) = first_structure_collision_in_generated_chunk(registry, state, &chunk) {
-        return Err(ChunkGenerationError::StructureBuriedByTerrain { voxel });
-    }
-    if let Some(player) = state.logistics().player()
-        && let Some(voxel) = first_player_body_collision_in_chunk(
-            registry,
-            &chunk,
-            player.body(),
-            registries.survival().physiology().locomotion(),
-        )
-    {
-        return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
-    }
-    if let Some(voxel) =
-        first_player_prospective_temple_collision(registries, state, profile, coord)
-    {
-        return Err(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel });
-    }
-    if let Some(voxel) =
-        first_infrastructure_prospective_temple_collision(registries, state, profile, coord)
-    {
-        return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
-    }
+    validate_generated_chunk_occupancy(registries, state, profile, &chunk)?;
     Ok(ValidatedChunkGeneration {
         expected_revision,
         expected_surface_revision: state.surface().revision(),
@@ -456,33 +439,7 @@ pub fn validate_generate_player_neighborhood(
                 continue;
             }
             let chunk = build_generated_chunk(registries.world(), profile, coord)?;
-            if let Some(voxel) = first_surface_resource_collision(registries.world(), state, &chunk)
-            {
-                return Err(ChunkGenerationError::SurfaceResourceCollision { voxel });
-            }
-            if let Some(voxel) =
-                first_structure_collision_in_generated_chunk(registries.world(), state, &chunk)
-            {
-                return Err(ChunkGenerationError::StructureBuriedByTerrain { voxel });
-            }
-            if let Some(voxel) = first_player_body_collision_in_chunk(
-                registries.world(),
-                &chunk,
-                player.body(),
-                registries.survival().physiology().locomotion(),
-            ) {
-                return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
-            }
-            if let Some(voxel) =
-                first_player_prospective_temple_collision(registries, state, profile, coord)
-            {
-                return Err(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel });
-            }
-            if let Some(voxel) =
-                first_infrastructure_prospective_temple_collision(registries, state, profile, coord)
-            {
-                return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
-            }
+            validate_generated_chunk_occupancy(registries, state, profile, &chunk)?;
             chunks.push(chunk);
         }
     }
@@ -507,6 +464,50 @@ pub fn validate_generate_player_neighborhood(
         profile,
         chunks,
     }))
+}
+
+/// One shared physical admission for both direct and atomic neighborhood
+/// generation; future occupied-matter categories must be checked in both.
+fn validate_generated_chunk_occupancy(
+    registries: &Registries,
+    state: &AppState,
+    profile: WorldGenerationProfile,
+    chunk: &WorldChunk,
+) -> Result<(), ChunkGenerationError> {
+    let registry = registries.world();
+    if let Some(voxel) = first_surface_resource_collision(registry, state, chunk) {
+        return Err(ChunkGenerationError::SurfaceResourceCollision { voxel });
+    }
+    if let Some(voxel) = first_structure_collision_in_generated_chunk(registry, state, chunk) {
+        return Err(ChunkGenerationError::StructureBuriedByTerrain { voxel });
+    }
+    if let Some(voxel) =
+        first_stationary_enclosure_collision_in_generated_chunk(registry, state, chunk)
+    {
+        return Err(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel });
+    }
+    if let Some(player) = state.logistics().player()
+        && let Some(voxel) = first_player_body_collision_in_chunk(
+            registry,
+            chunk,
+            player.body(),
+            registries.survival().physiology().locomotion(),
+        )
+    {
+        return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
+    }
+    let coord = chunk.coord();
+    if let Some(voxel) =
+        first_player_prospective_temple_collision(registries, state, profile, coord)
+    {
+        return Err(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel });
+    }
+    if let Some(voxel) =
+        first_infrastructure_prospective_temple_collision(registries, state, profile, coord)
+    {
+        return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
+    }
+    Ok(())
 }
 
 fn validate_generation_profile(
@@ -616,6 +617,33 @@ fn first_surface_resource_collision(
                 && registry
                     .block_for_state(chunk.block_at(voxel))
                     .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
+        })
+}
+
+/// Finished stationary enclosure bodies are physical custody, unlike loose
+/// unenclosed stockpiles. Only their actual located voxels obstruct a future
+/// full-cube terrain block; no remote stockpile inventory is scanned.
+fn first_stationary_enclosure_collision_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    state
+        .logistics()
+        .stockpile_locations()
+        .filter(|&(id, _)| {
+            state
+                .inventory()
+                .get_stockpile(id)
+                .is_some_and(|stockpile| stockpile.enclosure().is_some())
+        })
+        .map(|(_, voxel)| voxel)
+        .find(|&voxel| {
+            ChunkCoord::containing(voxel) == chunk.coord()
+                && (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
+                && registry
+                    .block_for_state(chunk.block_at(voxel))
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
         })
 }
 
