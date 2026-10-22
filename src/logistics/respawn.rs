@@ -15,7 +15,8 @@ use crate::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 
 use super::{
     PlayerBodyState, PlayerLogisticsRecord, first_player_body_collision,
-    first_player_temple_caste_collision, player_body_fits_continuous_world,
+    first_player_structure_collision, first_player_temple_caste_collision,
+    player_body_fits_continuous_world,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +61,7 @@ pub(crate) enum PlayerLogisticsRespawnCommitError {
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StaleWorldRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
 }
 
 impl Display for PlayerLogisticsRespawnCommitError {
@@ -77,6 +79,10 @@ impl Display for PlayerLogisticsRespawnCommitError {
                 formatter,
                 "respawn expected world revision {expected} but current revision is {actual}"
             ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "respawn expected structure revision {expected} but current revision is {actual}"
+            ),
         }
     }
 }
@@ -89,6 +95,7 @@ pub(crate) struct ValidatedPlayerLogisticsRespawn {
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
     expected_world_revision: u64,
+    expected_structure_revision: u64,
     expected_player: PlayerLogisticsRecord,
     respawn_body: PlayerBodyState,
     used_spawn_anchor: bool,
@@ -115,6 +122,13 @@ impl ValidatedPlayerLogisticsRespawn {
             return Err(PlayerLogisticsRespawnCommitError::StaleWorldRevision {
                 expected: self.expected_world_revision,
                 actual: actual_world,
+            });
+        }
+        let actual_structure = state.structures().revision();
+        if actual_structure != self.expected_structure_revision {
+            return Err(PlayerLogisticsRespawnCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual: actual_structure,
             });
         }
         self.carried.precheck(state).map_err(|error| match error {
@@ -204,6 +218,8 @@ pub(crate) fn validate_player_logistics_respawn(
                 .is_none()
         })
         .filter(|body| first_player_temple_caste_collision(registries, state, *body).is_none());
+    let spawn_body = spawn_body
+        .filter(|body| first_player_structure_collision(registries, state, *body).is_none());
     let (respawn_body, used_spawn_anchor) = spawn_body.map_or_else(
         || {
             let body = player.body();
@@ -223,6 +239,7 @@ pub(crate) fn validate_player_logistics_respawn(
         expected_logistics_revision,
         next_logistics_revision,
         expected_world_revision: state.world().revision(),
+        expected_structure_revision: state.structures().revision(),
         expected_player: player,
         respawn_body,
         used_spawn_anchor,

@@ -274,6 +274,31 @@ pub(crate) fn first_player_temple_caste_collision(
     })
 }
 
+/// Fully spanning built structural members are solid to a continuous player
+/// body in generated terrain. Inert plans and narrow supports remain traversable.
+pub(crate) fn first_player_structure_collision(
+    registries: &Registries,
+    state: &AppState,
+    body: PlayerBodyState,
+) -> Option<VoxelCoord> {
+    if state.world().generation_profile().is_none() {
+        return None;
+    }
+    let locomotion = registries.survival().physiology().locomotion();
+    first_player_body_collision_where(body, locomotion, |voxel| {
+        structure_blocks_player_cell(state, voxel)
+    })
+}
+
+fn structure_blocks_player_cell(state: &AppState, voxel: VoxelCoord) -> bool {
+    state.world().generation_profile().is_some()
+        && state.structures().elements().any(|element| {
+            !element.embodied_material().is_empty()
+                && element.geometry().covers_horizontal_footprint()
+                && element.bounds().has_voxel(voxel)
+        })
+}
+
 pub(crate) fn first_player_body_collision_in_chunk(
     registry: &WorldRegistry,
     chunk: &WorldChunk,
@@ -1059,6 +1084,7 @@ fn supporting_floor_y(
 fn player_cell_blocks_motion(registries: &Registries, state: &AppState, voxel: VoxelCoord) -> bool {
     world_cell_blocks_motion(registries.world(), state.world(), voxel)
         || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
+        || structure_blocks_player_cell(state, voxel)
 }
 
 fn block_is_solid(registry: &WorldRegistry, state: crate::world::BlockStateId) -> bool {

@@ -24,6 +24,7 @@ pub(crate) enum InitializePlayerLogisticsError {
     PositionOutsideContinuousWorld { position: VoxelCoord },
     BodyIntersectsSolid { voxel: VoxelCoord },
     BodyIntersectsTempleCaste { voxel: VoxelCoord },
+    BodyIntersectsStructure { voxel: VoxelCoord },
     ZeroCarriedCapacity,
     StockpileIdExhausted,
     InventoryRevisionExhausted,
@@ -57,6 +58,13 @@ impl Display for InitializePlayerLogisticsError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::BodyIntersectsStructure { voxel } => write!(
+                formatter,
+                "player body intersects completed structural matter at ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::ZeroCarriedCapacity => {
                 formatter.write_str("player carried inventory capacity must be nonzero")
             }
@@ -81,6 +89,7 @@ pub(crate) enum InitializePlayerLogisticsCommitError {
     Logistics { expected: u64, actual: u64 },
     Inventory { expected: u64, actual: u64 },
     World { expected: u64, actual: u64 },
+    Structure { expected: u64, actual: u64 },
 }
 
 impl Display for InitializePlayerLogisticsCommitError {
@@ -98,6 +107,10 @@ impl Display for InitializePlayerLogisticsCommitError {
                 formatter,
                 "validated player logistics initialization expected world revision {expected} but current revision is {actual}"
             ),
+            Self::Structure { expected, actual } => write!(
+                formatter,
+                "validated player logistics initialization expected structure revision {expected} but current revision is {actual}"
+            ),
         }
     }
 }
@@ -110,6 +123,7 @@ impl Error for InitializePlayerLogisticsCommitError {}
 pub(crate) struct ValidatedPlayerLogisticsInitialization {
     expected_logistics_revision: u64,
     expected_world_revision: u64,
+    expected_structure_revision: u64,
     next_logistics_revision: u64,
     body: PlayerBodyState,
     carried: ValidatedEmptyStockpileAllocation,
@@ -138,6 +152,13 @@ impl ValidatedPlayerLogisticsInitialization {
             return Err(InitializePlayerLogisticsCommitError::World {
                 expected: self.expected_world_revision,
                 actual: actual_world_revision,
+            });
+        }
+        let actual_structure_revision = state.structures().revision();
+        if actual_structure_revision != self.expected_structure_revision {
+            return Err(InitializePlayerLogisticsCommitError::Structure {
+                expected: self.expected_structure_revision,
+                actual: actual_structure_revision,
             });
         }
         self.carried.precheck(state).map_err(|error| match error {
@@ -204,6 +225,7 @@ fn validate_initialization_with_capacity(
     Ok(ValidatedPlayerLogisticsInitialization {
         expected_logistics_revision,
         expected_world_revision: state.world().revision(),
+        expected_structure_revision: state.structures().revision(),
         next_logistics_revision,
         body,
         carried,
@@ -245,6 +267,11 @@ pub(crate) fn validate_player_logistics_initialization(
         crate::logistics::first_player_temple_caste_collision(registries, state, validated.body)
     {
         return Err(InitializePlayerLogisticsError::BodyIntersectsTempleCaste { voxel });
+    }
+    if let Some(voxel) =
+        crate::logistics::first_player_structure_collision(registries, state, validated.body)
+    {
+        return Err(InitializePlayerLogisticsError::BodyIntersectsStructure { voxel });
     }
     Ok(validated)
 }

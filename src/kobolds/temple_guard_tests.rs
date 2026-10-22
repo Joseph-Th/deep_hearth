@@ -10,18 +10,21 @@ use crate::content::{
     build_registries,
 };
 use crate::core::quantity::Temperature;
-use crate::core::state::validate_loaded_state;
+use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::inventory::{
     MaterialLotSelection, deposit_lot_for_test, validate_place_player_storage_at,
 };
 use crate::logistics::{
-    HorizontalControlInput, PlayerControlInput, add_traversable_edge_for_test,
-    relocate_player_for_test,
+    HorizontalControlInput, LogisticsValidationError, PlayerControlInput,
+    add_traversable_edge_for_test, relocate_player_for_test,
 };
 use crate::logistics::{PlayerWalkProjectionError, project_player_adjacent_walk};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
-use crate::player::{validate_admit_player, validate_respawn_player};
+use crate::player::{
+    PlayerAdmissionCommitError, PlayerAdmissionError, PlayerRespawnCommitError,
+    validate_admit_player, validate_respawn_player,
+};
 use crate::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, SecondaryControlIntent, advance_control_tick,
     advance_control_tick_with_direct_input, advance_control_tick_with_input,
@@ -765,7 +768,9 @@ fn trusted_load_rejects_full_footprint_panel_inside_opening_scout() {
     let tip = route[2];
     opening_colony_in_temple_hall(&mut state, route);
     let head = VoxelCoord::new(tip.x(), tip.y() + 1, tip.z());
-    let member = materialize_full_footprint_panel_at(&registries, &mut state, route[1]);
+    let safe = VoxelCoord::new(route[1].x(), route[1].y() + 3, route[1].z());
+    set_generated_block_for_test(registries.world(), &mut state, safe, BlockStateId::AIR);
+    let member = materialize_full_footprint_panel_at(&registries, &mut state, safe);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert!(
         forge_member_position_in_save(&registries, &state, member, head)
@@ -882,6 +887,102 @@ fn trusted_load_rejects_member_inside_the_archivists_full_footprint() {
             .is_err(),
         "the archivist's full two-by-two-by-three body cannot contain forged timber"
     );
+}
+
+#[test]
+fn player_walk_cannot_pass_through_a_completed_full_footprint_panel() {
+    let (registries, mut state, route) = occupied_temple();
+    assert!(
+        project_player_adjacent_walk(&registries, &state, route[1]).is_ok(),
+        "the empty hall lane must be walkable before any structure is erected"
+    );
+    materialize_full_footprint_panel_at(&registries, &mut state, route[1]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(
+        matches!(
+            project_player_adjacent_walk(&registries, &state, route[1]),
+            Err(PlayerWalkProjectionError::DestinationUnreachableBeforeBoundary { .. })
+        ),
+        "a full-footprint constructed panel must stop the continuous player body"
+    );
+}
+
+#[test]
+fn player_walk_can_still_share_a_cell_with_a_narrow_timber_post() {
+    let (registries, mut state, route) = occupied_temple();
+    materialize_timber_member_at(&registries, &mut state, route[1]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(
+        project_player_adjacent_walk(&registries, &state, route[1]).is_ok(),
+        "a slender structural post must not be treated as a full-voxel wall"
+    );
+}
+
+#[test]
+fn generated_player_admission_and_trusted_load_reject_completed_panel_overlap() {
+    let (registries, mut state, route) = occupied_temple();
+    materialize_full_footprint_panel_at(&registries, &mut state, route[1]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    relocate_player_for_test(&mut state, route[1]);
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Logistics(
+            LogisticsValidationError::PlayerBodyIntersectsStructure { voxel: route[1] }
+        ))
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+
+    let mut unadmitted = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &unadmitted,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut unadmitted)
+    .unwrap();
+    materialize_full_footprint_panel_at(&registries, &mut unadmitted, route[1]);
+    assert_eq!(
+        validate_admit_player(&registries, &unadmitted, route[1]).err(),
+        Some(PlayerAdmissionError::BodyIntersectsStructure { voxel: route[1] })
+    );
+}
+
+#[test]
+fn player_admission_commit_rejects_panel_built_after_body_clearance() {
+    let (registries, _, route) = occupied_temple();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let plan = validate_admit_player(&registries, &state, route[1]).unwrap();
+    let expected = state.structures().revision();
+    materialize_full_footprint_panel_at(&registries, &mut state, route[1]);
+    let before = state.clone();
+    assert_eq!(
+        plan.commit(&mut state).err(),
+        Some(PlayerAdmissionCommitError::StaleStructureRevision {
+            expected,
+            actual: state.structures().revision(),
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
@@ -1326,6 +1427,42 @@ fn massive_archivist_occupies_a_real_two_by_two_three_high_body() {
             voxel
         ));
     }
+}
+
+#[test]
+fn respawn_rechecks_structural_clearance_and_avoids_a_completed_panel() {
+    let (registries, mut state, route) = occupied_temple();
+    relocate_player_for_test(&mut state, route[1]);
+    let living = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            living.metabolic_energy(),
+            living.hydration(),
+            Vitality::ZERO,
+            living.nutrition(),
+            living.vitality_recovery_remainder(),
+        ),
+    );
+    let plan = validate_respawn_player(&registries, &state).unwrap();
+    let expected = state.structures().revision();
+    materialize_full_footprint_panel_at(&registries, &mut state, route[2]);
+    let actual = state.structures().revision();
+    let before = state.clone();
+    assert_eq!(
+        plan.commit(&mut state).err(),
+        Some(PlayerRespawnCommitError::StaleStructureRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    let outcome = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(!outcome.used_spawn_anchor());
+    assert_eq!(outcome.position(), route[1]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

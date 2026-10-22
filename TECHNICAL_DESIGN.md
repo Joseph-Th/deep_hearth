@@ -302,6 +302,11 @@ temple castes reject any embodied member across their complete body footprint;
 small opening residents reject full-footprint members but retain the existing
 allowance for narrow timber posts. Empty plans reserve geometry without
 creating actor collision, and forged saved overlaps remain inadmissible.
+Generated-world player movement, initial admission, respawn-anchor selection,
+and trusted loading likewise treat embodied, full-footprint structural cells
+as solid across the continuous body. Narrow posts and inert blueprints do not
+become voxel-wide walls. Player admission and respawn bind the structural
+revision so a panel erected after clearance validation invalidates commit.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent

@@ -42,6 +42,9 @@ pub enum PlayerAdmissionError {
     BodyIntersectsTempleCaste {
         voxel: VoxelCoord,
     },
+    BodyIntersectsStructure {
+        voxel: VoxelCoord,
+    },
     ZeroCarriedCapacity,
     StockpileIdExhausted,
     InventoryRevisionExhausted,
@@ -160,6 +163,13 @@ impl Display for PlayerAdmissionError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::BodyIntersectsStructure { voxel } => write!(
+                formatter,
+                "player body intersects completed structural matter at ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::ZeroCarriedCapacity => {
                 formatter.write_str("player carried inventory capacity must be nonzero")
             }
@@ -230,6 +240,7 @@ pub enum PlayerAdmissionCommitError {
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StaleWorldRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
 }
 
 impl Display for PlayerAdmissionCommitError {
@@ -251,6 +262,10 @@ impl Display for PlayerAdmissionCommitError {
                 formatter,
                 "validated player admission expected world revision {expected} but current revision is {actual}"
             ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "validated player admission expected structure revision {expected} but current revision is {actual}"
+            ),
         }
     }
 }
@@ -263,6 +278,7 @@ pub enum PlayerRespawnCommitError {
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StaleWorldRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
 }
 
 impl Display for PlayerRespawnCommitError {
@@ -283,6 +299,10 @@ impl Display for PlayerRespawnCommitError {
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "validated respawn expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "validated respawn expected structure revision {expected} but current revision is {actual}"
             ),
         }
     }
@@ -369,6 +389,9 @@ impl ValidatedPlayerRespawn {
                 PlayerLogisticsRespawnCommitError::StaleWorldRevision { expected, actual } => {
                     PlayerRespawnCommitError::StaleWorldRevision { expected, actual }
                 }
+                PlayerLogisticsRespawnCommitError::StaleStructureRevision { expected, actual } => {
+                    PlayerRespawnCommitError::StaleStructureRevision { expected, actual }
+                }
             })?;
         self.survival.apply(state);
         let logistics = self.logistics.apply(state);
@@ -450,6 +473,9 @@ fn map_logistics_error(error: InitializePlayerLogisticsError) -> PlayerAdmission
         InitializePlayerLogisticsError::BodyIntersectsTempleCaste { voxel } => {
             PlayerAdmissionError::BodyIntersectsTempleCaste { voxel }
         }
+        InitializePlayerLogisticsError::BodyIntersectsStructure { voxel } => {
+            PlayerAdmissionError::BodyIntersectsStructure { voxel }
+        }
         InitializePlayerLogisticsError::StockpileIdExhausted => {
             PlayerAdmissionError::StockpileIdExhausted
         }
@@ -509,6 +535,9 @@ fn map_logistics_commit_error(
         }
         InitializePlayerLogisticsCommitError::World { expected, actual } => {
             PlayerAdmissionCommitError::StaleWorldRevision { expected, actual }
+        }
+        InitializePlayerLogisticsCommitError::Structure { expected, actual } => {
+            PlayerAdmissionCommitError::StaleStructureRevision { expected, actual }
         }
     }
 }

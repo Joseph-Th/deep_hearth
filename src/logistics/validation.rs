@@ -124,6 +124,9 @@ pub enum LogisticsValidationError {
     PlayerBodyIntersectsTempleCaste {
         voxel: VoxelCoord,
     },
+    PlayerBodyIntersectsStructure {
+        voxel: VoxelCoord,
+    },
     PlayerBodyOutsideContinuousWorld,
     PlayerRespawnPositionOutsideContinuousWorld {
         position: VoxelCoord,
@@ -360,6 +363,13 @@ impl Display for LogisticsValidationError {
             Self::PlayerBodyIntersectsTempleCaste { voxel } => write!(
                 formatter,
                 "player body intersects temple resident at ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::PlayerBodyIntersectsStructure { voxel } => write!(
+                formatter,
+                "player body intersects completed structural matter at ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -786,6 +796,28 @@ fn validate_fluid_store_locations(
     Ok(())
 }
 
+fn validate_player_body_spatial_clearance(
+    registries: &Registries,
+    app: &AppState,
+    body: PlayerBodyState,
+) -> Result<(), LogisticsValidationError> {
+    let locomotion = registries.survival().physiology().locomotion();
+    if let Some(voxel) =
+        first_player_body_collision(registries.world(), app.world(), body, locomotion)
+    {
+        return Err(LogisticsValidationError::PlayerBodyIntersectsSolid { voxel });
+    }
+    if let Some(voxel) =
+        crate::logistics::first_player_temple_caste_collision(registries, app, body)
+    {
+        return Err(LogisticsValidationError::PlayerBodyIntersectsTempleCaste { voxel });
+    }
+    if let Some(voxel) = crate::logistics::first_player_structure_collision(registries, app, body) {
+        return Err(LogisticsValidationError::PlayerBodyIntersectsStructure { voxel });
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_loaded_logistics(
     registries: &Registries,
     app: &AppState,
@@ -872,16 +904,7 @@ pub(crate) fn validate_loaded_logistics(
                 },
             );
         }
-        if let Some(voxel) =
-            first_player_body_collision(registries.world(), app.world(), player.body(), locomotion)
-        {
-            return Err(LogisticsValidationError::PlayerBodyIntersectsSolid { voxel });
-        }
-        if let Some(voxel) =
-            crate::logistics::first_player_temple_caste_collision(registries, app, player.body())
-        {
-            return Err(LogisticsValidationError::PlayerBodyIntersectsTempleCaste { voxel });
-        }
+        validate_player_body_spatial_clearance(registries, app, player.body())?;
     }
     Ok(())
 }
