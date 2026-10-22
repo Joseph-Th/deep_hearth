@@ -454,12 +454,9 @@ fn validate_structural_construction_work(
             .structures()
             .supports(work.element())
             .is_some_and(|supports| {
-                supports.into_iter().any(|support| {
-                    state
-                        .structures()
-                        .get_element(support)
-                        .is_some_and(|record| record.lifecycle() == StructuralLifecycle::Active)
-                })
+                supports
+                    .into_iter()
+                    .any(|support| state.structures().get_element(support).is_some())
             })
     {
         return Err(PlayerWorkValidationError::StructuralConstructionElementUnsupported);

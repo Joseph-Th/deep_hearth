@@ -6,7 +6,7 @@ use crate::content::{
     FORM_LOG, MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Area, Length, Mass, Temperature};
+use crate::core::quantity::{Area, Force, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::inventory::{
     MaterialStackProjectionError, add_solid_stockpile_for_test, deposit_lot_for_test,
@@ -22,8 +22,9 @@ use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralConstructionCommitError, StructuralElementGeometry, StructuralLifecycle,
-    add_structural_element, materialize_structural_element_for_test,
-    validate_activate_structural_element,
+    StructuralLoadKind, add_structural_element, calculate_pristine_member_capacity,
+    materialize_structural_element_for_test, validate_activate_structural_element,
+    validate_set_structural_load, validate_start_player_structural_dismantling,
 };
 
 const ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
@@ -180,6 +181,116 @@ fn atomic_multi_supported_construction_persists_all_supports_and_activates() {
             .get_element(element)
             .map(|record| record.lifecycle()),
         Some(StructuralLifecycle::Active)
+    );
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+}
+
+#[test]
+fn multi_supported_construction_can_finish_when_one_of_two_posts_fails() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let left = active_fixture_support(
+        &registries,
+        &mut state,
+        VoxelCoord::new(1, 0, 0),
+        "multi-support partial failure left",
+    );
+    let right = active_fixture_support(
+        &registries,
+        &mut state,
+        VoxelCoord::new(1, 0, 2),
+        "multi-support partial failure right",
+    );
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 1))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        MEMBER_MASS,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let plan = MultiSupportedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        member_geometry_at(
+            VoxelCoord::new(1, 0, 1),
+            "partially failed supported member",
+        ),
+        vec![left, right],
+    );
+    let authorized = validate_start_player_multi_supported_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        plan,
+        &stack,
+    )
+    .unwrap();
+    let element = authorized.element();
+    let work = authorized.commit(&mut state).unwrap();
+    let record = state.structures().get_element(left).unwrap();
+    let profile = registries
+        .structural()
+        .get_profile(record.profile())
+        .unwrap();
+    let material = registries
+        .materials()
+        .get_material(record.material())
+        .unwrap();
+    let capacity =
+        calculate_pristine_member_capacity(profile, material, record.cross_section()).unwrap();
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        left,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(capacity.millinewtons() + 1),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state.structures().get_element(left).unwrap().lifecycle(),
+        StructuralLifecycle::Failed
+    );
+    assert_eq!(
+        state.structures().get_element(right).unwrap().lifecycle(),
+        StructuralLifecycle::Active
+    );
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut completed = 0;
+    while loaded.tick() < work.completes_at() {
+        let tick = advance_tick(&registries, &mut loaded).unwrap();
+        completed += usize::from(tick.structural_construction() == Some(element));
+    }
+    assert_eq!(completed, 1);
+    assert_eq!(
+        loaded
+            .structures()
+            .get_element(element)
+            .unwrap()
+            .lifecycle(),
+        StructuralLifecycle::Active
+    );
+    assert_eq!(
+        calculate_matter_accounting(&loaded).unwrap().total(),
+        before
     );
     assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
 }
@@ -438,6 +549,142 @@ fn atomic_supported_construction_persists_support_and_activates_after_hand_setti
             .total(),
         matter_before
     );
+}
+
+#[test]
+fn supported_construction_support_failure_interrupts_without_losing_material() {
+    let (registries, mut state, support, _carried, stack) = active_support_with_remaining_timber();
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("support-failure matter baseline failed: {error}"))
+        .total();
+    let validated = validate_start_player_supported_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        supported_member_plan(support),
+        &stack,
+    )
+    .unwrap_or_else(|error| panic!("support-failure construction validation failed: {error}"));
+    let element = validated.element();
+    let work = validated
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("support-failure construction commit failed: {error}"));
+
+    let support_record = state
+        .structures()
+        .get_element(support)
+        .unwrap_or_else(|| panic!("support-failure support disappeared before overload"));
+    let profile = registries
+        .structural()
+        .get_profile(support_record.profile())
+        .unwrap_or_else(|| panic!("support-failure profile disappeared"));
+    let material = registries
+        .materials()
+        .get_material(support_record.material())
+        .unwrap_or_else(|| panic!("support-failure material disappeared"));
+    let capacity =
+        calculate_pristine_member_capacity(profile, material, support_record.cross_section())
+            .unwrap_or_else(|| panic!("support-failure capacity disappeared"));
+    let overload = validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(
+            capacity
+                .millinewtons()
+                .checked_add(1)
+                .unwrap_or_else(|| panic!("support-failure load overflowed")),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("support-failure overload validation failed: {error}"));
+    let _ = overload
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("support-failure overload commit failed: {error}"));
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Failed)
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(element)
+            .map(|record| (record.lifecycle(), record.embodied_mass())),
+        Some((StructuralLifecycle::Planned, MEMBER_MASS))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("support-failure save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("support-failure decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("support-failure trusted load failed: {error}"));
+
+    while loaded.tick() < work.completes_at() {
+        let outcome = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("support-failure continuation failed: {error}"));
+        assert_ne!(outcome.structural_construction(), Some(element));
+    }
+
+    assert_eq!(loaded.player_work().active(), None);
+    assert_eq!(
+        loaded
+            .structures()
+            .get_element(element)
+            .map(|record| (record.lifecycle(), record.embodied_mass())),
+        Some((StructuralLifecycle::Planned, MEMBER_MASS))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&loaded)
+            .unwrap_or_else(|error| panic!("support-failure matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+
+    // The interrupted member remains embodied and is recovered through the
+    // ordinary player dismantling, labor and reserved inventory ingress path.
+    let dismantling = validate_start_player_structural_dismantling(
+        &registries,
+        &loaded,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap_or_else(|error| panic!("interrupted supported matter stranded: {error}"))
+    .commit(&mut loaded)
+    .unwrap_or_else(|error| panic!("supported recovery start failed: {error}"));
+    assert_eq!(dismantling.recovered_mass(), MEMBER_MASS);
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &loaded))
+        .unwrap_or_else(|error| panic!("supported recovery save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("supported recovery decode failed: {error}"));
+    let mut restored = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("supported recovery trusted load failed: {error}"));
+    while restored.tick() < dismantling.completes_at() {
+        let _ = advance_tick(&registries, &mut restored)
+            .unwrap_or_else(|error| panic!("supported recovery tick failed: {error}"));
+    }
+    assert_eq!(restored.structures().get_element(element), None);
+    assert_eq!(
+        restored
+            .inventory()
+            .get_stockpile(dismantling.recovery_destination())
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG))),
+        Some(MEMBER_MASS)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&restored)
+            .unwrap_or_else(|error| panic!("supported recovered matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &restored), Ok(()));
 }
 
 #[test]

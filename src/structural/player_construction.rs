@@ -19,7 +19,7 @@ use super::construction_execution::ValidatedStructuralConstruction;
 use super::{
     StructuralConstructionBindingError, StructuralConstructionCommitError,
     StructuralConstructionError, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
-    ValidatedStructuralMutation, bind_structural_construction_selection,
+    StructuralMutationError, ValidatedStructuralMutation, bind_structural_construction_selection,
     bounds_are_within_player_reach, resolve_required_mass, validate_activate_structural_element_in,
     validate_structural_construction, validate_structural_construction_for_planned_member,
 };
@@ -532,11 +532,22 @@ pub(crate) fn decide_structural_construction_tick(
     let work = state
         .player_work()
         .structural_construction_due_at(next_tick)?;
-    let activation =
-        validate_activate_structural_element_in(registries, projected_structures, work.element())
-            .unwrap_or_else(|error| {
-                panic!("admitted structural construction became invalid: {error}")
-            });
+    let activation = match validate_activate_structural_element_in(
+        registries,
+        projected_structures,
+        work.element(),
+    ) {
+        Ok(activation) => activation,
+        // A retained support may physically fail after construction admission. The already-
+        // embodied planned member stays conserved and recoverable, while this completion becomes
+        // an interrupted attempt rather than activating unsupported structure.
+        Err(StructuralMutationError::ActivationUnsupported { element })
+            if element == work.element() =>
+        {
+            return None;
+        }
+        Err(error) => panic!("admitted structural construction became invalid: {error}"),
+    };
     Some(StructuralConstructionTickPlan {
         element: work.element(),
         activation,
