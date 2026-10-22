@@ -28,7 +28,10 @@ use crate::structural::{
     StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
 };
 use crate::survival::{Vitality, player_record};
-use crate::world::{WorldGenerationSeed, set_generated_block_for_test, validate_generate_chunk};
+use crate::world::{
+    ChunkGenerationError, WorldGenerationSeed, set_generated_block_for_test,
+    validate_generate_chunk, validate_generate_player_neighborhood,
+};
 
 fn occupied_temple() -> (Registries, AppState, [VoxelCoord; 3]) {
     let registries = build_registries();
@@ -51,6 +54,115 @@ fn occupied_temple() -> (Registries, AppState, [VoxelCoord; 3]) {
         .commit(&mut state)
         .unwrap();
     (registries, state, route)
+}
+
+#[test]
+fn generating_a_temple_cannot_instantiate_a_guard_inside_an_admitted_player() {
+    let (registries, _, route) = occupied_temple();
+    let mut state = AppState::new();
+    let player_position = route[0];
+    validate_admit_player(&registries, &state, player_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    let chunk = ChunkCoord::new(0, 0);
+    assert_eq!(
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE).err(),
+        Some(ChunkGenerationError::PlayerBodyTempleCasteCollision {
+            voxel: player_position,
+        }),
+        "prospective temple residents remain solid even when their terrain is air"
+    );
+    assert_eq!(state, before, "rejected generation must not mutate state");
+}
+
+#[test]
+fn ungenerated_archivist_has_no_physical_body_but_generation_checks_prospective_geometry() {
+    let (registries, generated, route) = occupied_temple();
+    let [_, archivist] =
+        crate::world::temple_residents_at(&registries, &generated, route[0]).unwrap();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    let chunk = ChunkCoord::new(0, 0);
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, archivist)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(!crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &state,
+        archivist
+    ));
+    assert_eq!(
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE).err(),
+        Some(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel: archivist })
+    );
+}
+
+#[test]
+fn expanding_an_admitted_players_neighborhood_cannot_create_a_temporal_temple_overlap() {
+    let (registries, _, route) = occupied_temple();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, route[0])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    // Establish the immutable generator identity in a distant chunk. The
+    // player's own ungenerated sanctuary must still be checked as part of
+    // the later, atomically admitted neighborhood.
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(3, 3),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(
+        !crate::kobolds::temple_caste_occupies_voxel(&registries, &state, route[0]),
+        "a distant generated chunk must not instantiate an unloaded sanctuary"
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel: route[0] })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn generating_an_unoccupied_temple_still_preserves_the_player_body_and_replays() {
+    let (registries, _, route) = occupied_temple();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, route[2])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(decoded, state);
 }
 
 fn advance_to(registries: &Registries, state: &mut AppState, target: u64) {

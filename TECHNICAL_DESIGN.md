@@ -273,6 +273,12 @@ threshold aligned above the last buried step. Intervening host rock must still b
 excavated. Rooms are canonical air, their roofs and floors solid world blocks; three dormant
 copper shells have density-validated partial material fill, distinct hardness, and finite
 excavatable scrap. Heavy castes originate in separately observable temple room cells.
+The seeded sanctuary is fixed before loading, but its residents acquire physical
+occupancy only when that chunk is generated. Single-chunk generation and atomic
+player-neighborhood expansion preflight the prospective warden and archivist
+body cells against the entire continuous player footprint, even where the
+new temple floor and rooms contain air. A distant generation-profile change
+cannot spawn an invisible resident inside an ungenerated player location.
 Archivists remain at their old posts with a solid two-by-two-cell floor footprint and
 three-cell body height; wardens occupy one-by-one-by-two cells. A warden follows a fixed
 three-cell, face-adjacent defensive route on the existing five-tick kobold clock when

@@ -70,6 +70,7 @@ pub enum ChunkGenerationError {
     UnknownSolidState { state: BlockStateId },
     ChunkCoordinateOverflow { chunk: ChunkCoord },
     PlayerBodyCollision { voxel: VoxelCoord },
+    PlayerBodyTempleCasteCollision { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
 }
@@ -106,6 +107,13 @@ impl Display for ChunkGenerationError {
             Self::PlayerBodyCollision { voxel } => write!(
                 formatter,
                 "terrain generation would intersect the player body at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::PlayerBodyTempleCasteCollision { voxel } => write!(
+                formatter,
+                "terrain generation would instantiate a temple resident inside the player at voxel ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -312,6 +320,11 @@ pub fn validate_generate_chunk(
     {
         return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
     }
+    if let Some(voxel) =
+        first_player_prospective_temple_collision(registries, state, profile, coord)
+    {
+        return Err(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel });
+    }
     Ok(ValidatedChunkGeneration {
         expected_revision,
         expected_logistics_revision: state.logistics().revision(),
@@ -368,6 +381,11 @@ pub fn validate_generate_player_neighborhood(
                 registries.survival().physiology().locomotion(),
             ) {
                 return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
+            }
+            if let Some(voxel) =
+                first_player_prospective_temple_collision(registries, state, profile, coord)
+            {
+                return Err(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel });
             }
             chunks.push(chunk);
         }
@@ -436,17 +454,7 @@ fn build_generated_chunk(
     let mut chunk = WorldChunk::new(coord);
     // Alternate authored registries used by capability scenarios may not have ancient
     // relic blocks. Such worlds retain their valid original terrain identity.
-    let temple = (registry
-        .get_state(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
-        .is_some()
-        && registry
-            .get_state(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
-            .is_some()
-        && registry
-            .get_state(crate::content::BLOCK_STATE_TEMPLE_SEAL)
-            .is_some())
-    .then(|| temple::TempleSite::for_chunk(profile.seed(), coord))
-    .flatten();
+    let temple = temple_site_for_chunk(registry, profile, coord);
     for local_z in 0..CHUNK_SIDE {
         for local_x in 0..CHUNK_SIDE {
             let x = min_x + local_x as i64;
@@ -492,6 +500,52 @@ fn build_generated_chunk(
     Ok(chunk)
 }
 
+fn temple_site_for_chunk(
+    registry: &WorldRegistry,
+    profile: WorldGenerationProfile,
+    coord: ChunkCoord,
+) -> Option<temple::TempleSite> {
+    (registry
+        .get_state(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
+        .is_some()
+        && registry
+            .get_state(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+            .is_some()
+        && registry
+            .get_state(crate::content::BLOCK_STATE_TEMPLE_SEAL)
+            .is_some())
+    .then(|| temple::TempleSite::for_chunk(profile.seed(), coord))
+    .flatten()
+}
+
+/// A not-yet-generated temple is already part of the deterministic world
+/// identity. Check its finite resident footprint before publishing the chunk,
+/// including when the prospective terrain cells themselves are air.
+fn first_player_prospective_temple_collision(
+    registries: &Registries,
+    state: &AppState,
+    profile: WorldGenerationProfile,
+    coord: ChunkCoord,
+) -> Option<VoxelCoord> {
+    state.logistics().player()?;
+    let site = temple_site_for_chunk(registries.world(), profile, coord)?;
+    let warden = site.warden();
+    let archivist = site.archivist();
+    for y in warden.y()..=warden.y() + 2 {
+        for x in warden.x()..=warden.x() + 1 {
+            for z in archivist.z() - 1..=warden.z() {
+                let voxel = VoxelCoord::new(x, y, z);
+                if crate::kobolds::initial_temple_caste_occupies_voxel(voxel, warden, archivist)
+                    && crate::logistics::player_body_occupies_voxel(registries, state, voxel)
+                {
+                    return Some(voxel);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Resolves one site within the observer's own seeded world column. Absent
 /// authored relic definitions never produce an ancient sanctuary.
 fn temple_site_at(
@@ -499,23 +553,14 @@ fn temple_site_at(
     state: &AppState,
     observer: VoxelCoord,
 ) -> Option<temple::TempleSite> {
-    if registries
-        .world()
-        .get_state(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
-        .is_none()
-        || registries
-            .world()
-            .get_state(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
-            .is_none()
-        || registries
-            .world()
-            .get_state(crate::content::BLOCK_STATE_TEMPLE_SEAL)
-            .is_none()
-    {
-        return None;
-    }
-    let seed = state.world().generation_profile()?.seed();
-    temple::TempleSite::for_chunk(seed, ChunkCoord::containing(observer))
+    let profile = state.world().generation_profile()?;
+    let coord = ChunkCoord::containing(observer);
+    // A seeded site is deterministic, but its heavy occupants do not exist
+    // before the containing chunk is generated. Otherwise generating an
+    // unrelated distant chunk can retroactively overlap an admitted player
+    // at an unloaded sanctuary.
+    state.world().get_chunk(coord)?;
+    temple_site_for_chunk(registries.world(), profile, coord)
 }
 
 /// Returns original temple resident identities, not their current mutable

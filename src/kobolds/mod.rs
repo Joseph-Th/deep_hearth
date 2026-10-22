@@ -618,6 +618,17 @@ pub(crate) fn temple_caste_occupies_voxel(
         .kobold_state()
         .temple_warden_step(crate::world::ChunkCoord::containing(post));
     let warden = VoxelCoord::new(post.x(), post.y(), post.z() - i64::from(step));
+    initial_temple_caste_occupies_voxel(voxel, warden, archivist)
+}
+
+/// Pure body geometry shared by existing castes and the not-yet-instantiated
+/// residents of a prospective generated chunk. No generated-world profile
+/// or visibility observation is required to check the latter.
+pub(crate) fn initial_temple_caste_occupies_voxel(
+    voxel: VoxelCoord,
+    warden: VoxelCoord,
+    archivist: VoxelCoord,
+) -> bool {
     let heavy_guard = voxel.x() == warden.x()
         && voxel.z() == warden.z()
         && warden
