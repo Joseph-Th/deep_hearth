@@ -53,12 +53,14 @@ pub(crate) use state::{
 /// The surface owner retains matter and physical history. The caller owns creature movement
 /// legality; this function refuses any missing/depleted/non-drop parcel or stale location.
 pub(crate) fn relocate_scavenged_drop_step(
+    registries: &crate::registry::Registries,
     state: &mut crate::core::state::AppState,
     resource: SurfaceResourceId,
     from: crate::spatial::VoxelCoord,
     to: crate::spatial::VoxelCoord,
 ) -> bool {
     if !from.is_face_adjacent_to(to)
+        || state::validation::surface_position_has_full_cube(registries.world(), state.world(), to)
         || !state.surface().get(resource).is_some_and(|record| {
             record.kind() == SurfaceResourceKind::Drop
                 && record.lifecycle() == SurfaceResourceLifecycle::Available

@@ -487,16 +487,24 @@ pub(in crate::surface) fn validate_surface_resource_record(
 
 /// Shared physical placement rule for both new surface custody and decoded
 /// persistent custody. A missing world column is not yet solid authority.
+pub(in crate::surface) fn surface_position_has_full_cube(
+    world_registry: &WorldRegistry,
+    world: &WorldState,
+    position: VoxelCoord,
+) -> bool {
+    world
+        .block_at(position)
+        .and_then(|block| world_registry.block_for_state(block))
+        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+}
+
 pub(in crate::surface) fn validate_surface_resource_world_position(
     world_registry: &WorldRegistry,
     world: &WorldState,
     record: &SurfaceResourceRecord,
 ) -> Result<(), SurfaceResourceValidationError> {
     if record.lifecycle() == SurfaceResourceLifecycle::Available
-        && world
-            .block_at(record.position())
-            .and_then(|block| world_registry.block_for_state(block))
-            .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        && surface_position_has_full_cube(world_registry, world, record.position())
     {
         return Err(SurfaceResourceValidationError::EmbeddedInSolidWorld {
             resource: record.id(),

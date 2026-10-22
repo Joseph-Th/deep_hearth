@@ -364,6 +364,7 @@ fn scout_cargo_movement_allowed(
 /// parcel if the new transfer failed. Both parcels remain surface-owned; the
 /// boolean only records whether the scout truly switched its carried identity.
 fn finish_return_cargo_exchange(
+    registries: &Registries,
     state: &mut AppState,
     from: VoxelCoord,
     to: VoxelCoord,
@@ -374,7 +375,9 @@ fn finish_return_cargo_exchange(
 ) -> (Option<SurfaceResourceId>, bool) {
     let relocated = moved.or_else(|| {
         (can_keep_carried && new_parcel.is_none())
-            .then(|| carried.filter(|id| relocate_scavenged_drop_step(state, *id, from, to)))
+            .then(|| {
+                carried.filter(|id| relocate_scavenged_drop_step(registries, state, *id, from, to))
+            })
             .flatten()
     });
     let switched =
@@ -521,7 +524,8 @@ pub(crate) fn apply_kobold_scout_tick(
             [cleared_cache, discarded_food],
         );
     let first_relocated = if can_move {
-        dragged_candidate.filter(|id| relocate_scavenged_drop_step(state, *id, from, position))
+        dragged_candidate
+            .filter(|id| relocate_scavenged_drop_step(registries, state, *id, from, position))
     } else {
         None
     };
@@ -580,6 +584,7 @@ pub(crate) fn apply_kobold_scout_tick(
     });
     // Keep the original scrap only when no food transfer succeeded.
     let (relocated_drop, switched_cargo) = finish_return_cargo_exchange(
+        registries,
         state,
         from,
         position,

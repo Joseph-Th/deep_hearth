@@ -186,7 +186,7 @@ fn discard_spoiled_den_food(
         })?
         .id();
     den_exit_is_safe(registries, state, den, junction)
-        .then(|| relocate_scavenged_drop_step(state, source, den, junction))
+        .then(|| relocate_scavenged_drop_step(registries, state, source, den, junction))
         .filter(|moved| *moved)
         .map(|_| source)
 }
@@ -271,7 +271,7 @@ fn clear_inert_cache_for_food(
             )
         })?
         .id();
-    relocate_scavenged_drop_step(state, source_id, den, junction).then_some(source_id)
+    relocate_scavenged_drop_step(registries, state, source_id, den, junction).then_some(source_id)
 }
 
 /// A reported machine threat gives the old servant culture a concrete
@@ -368,7 +368,7 @@ fn clear_inert_cache_for_industry(
         })
         .min_by_key(|(priority, _)| *priority)?
         .1;
-    relocate_scavenged_drop_step(state, source_id, den, junction).then_some(source_id)
+    relocate_scavenged_drop_step(registries, state, source_id, den, junction).then_some(source_id)
 }
 
 fn den_exit_is_safe(

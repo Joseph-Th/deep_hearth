@@ -116,7 +116,11 @@ fn local_surface_index_tracks_creation_partial_use_relocation_and_depletion_acro
     );
     assert_eq!(nearby(&state, local), vec![ids[1], ids[2]]);
     assert!(super::relocate_scavenged_drop_step(
-        &mut state, ids[2], local, remote
+        &registries,
+        &mut state,
+        ids[2],
+        local,
+        remote
     ));
     assert_eq!(nearby(&state, local), vec![ids[1]]);
     assert_eq!(nearby(&state, remote), vec![ids[0], ids[2], ids[3]]);
@@ -144,6 +148,66 @@ fn local_surface_index_tracks_creation_partial_use_relocation_and_depletion_acro
             .checked_sub(AggregateMass::from_milligrams(200_000))
             .unwrap()
     );
+}
+
+#[test]
+fn scavenged_drop_cannot_relocate_into_generated_full_cube() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let air = VoxelCoord::new(5, 100, 5);
+    let solid = VoxelCoord::new(6, 100, 5);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::containing(air),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, solid, BLOCK_STATE_STONE);
+    assert_eq!(state.world().block_at(air), Some(BlockStateId::AIR));
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        air,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(100_000),
+        TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(&registries, &state, [spec]).unwrap();
+    let id = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert!(
+        !super::relocate_scavenged_drop_step(&registries, &mut state, id, air, solid),
+        "scavenger custody must not move available matter into a full-cube block"
+    );
+    assert_eq!(state, before);
+    set_generated_block_for_test(registries.world(), &mut state, solid, BlockStateId::AIR);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert!(super::relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        id,
+        air,
+        solid
+    ));
+    assert_eq!(state.surface().get(id).unwrap().position(), solid);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
 }
 
 #[test]

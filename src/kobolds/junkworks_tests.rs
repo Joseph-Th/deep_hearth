@@ -313,6 +313,7 @@ fn offbeat_missing_relay_and_remote_listener_emit_no_spurious_alarm_pulses() {
     let (registries, state, clapper) = two_hop_alarm_fixture();
     let mut disconnected = state.clone();
     assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
         &mut disconnected,
         clapper,
         JUNCTION,
@@ -331,6 +332,7 @@ fn offbeat_missing_relay_and_remote_listener_emit_no_spurious_alarm_pulses() {
         .unwrap()
         .striker();
     assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
         &mut offbeat,
         den_striker,
         DEN,
@@ -492,6 +494,7 @@ fn disconnected_den_does_not_make_a_visible_junction_machine_disappear() {
         Some((relay_core, relay_striker))
     );
     assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
         &mut state,
         striker,
         DEN,
@@ -659,6 +662,7 @@ fn real_junction_resonator_relays_a_den_warning_to_the_outer_scout() {
     );
     let mut broken = working.clone();
     assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
         &mut broken,
         relay_striker,
         JUNCTION,
@@ -917,7 +921,11 @@ fn taking_a_real_component_disables_the_den_alarm_without_consuming_material() {
     let conserved = calculate_matter_accounting(&state).unwrap().total();
     assert!(current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap()).is_some());
     assert!(crate::surface::relocate_scavenged_drop_step(
-        &mut state, striker, DEN, JUNCTION
+        &registries,
+        &mut state,
+        striker,
+        DEN,
+        JUNCTION
     ));
     assert!(den_needs_striker(&state, DEN));
     assert!(current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap()).is_none());
@@ -949,6 +957,7 @@ fn exceptional_control_snapshot_isolates_real_surface_custody_and_indexes() {
         "transaction snapshot must preserve all owner indexes"
     );
     assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
         &mut staged,
         core,
         DEN,

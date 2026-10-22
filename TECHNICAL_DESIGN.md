@@ -281,6 +281,10 @@ Surface-resource creation uses that same physical-location rule before any
 parcel enters custody; creation plans bind the world revision, so generation
 or excavation changing block truth between validation and commit invalidates
 the pending parcel rather than creating matter in newly solid terrain.
+Identity-preserving scavenger relocations also use the surface owner's
+full-cube test at their destination: an adjacent solid voxel refuses the
+transfer without changing custody or revisions, while a cleared destination
+allows the same conserved parcel identity to continue its physical route.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent
