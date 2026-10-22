@@ -23,7 +23,10 @@ use crate::surface::{
     SurfaceResourceSpec, available_adjacent_surface_resources, validate_create_surface_resources,
 };
 use crate::survival::{available_adjacent_drink_sources, available_local_drink_sources};
-use crate::world::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, validate_generate_chunk};
+use crate::world::{
+    ChunkCoord, ChunkGenerationError, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, validate_generate_chunk,
+    validate_generate_player_neighborhood,
+};
 
 use super::*;
 
@@ -63,6 +66,93 @@ fn materialize_full_panel_at(registries: &Registries, state: &mut AppState, head
     )
     .unwrap();
     materialize_structural_element_for_test(registries, state, member, FORM_BOARD);
+}
+
+#[test]
+fn terrain_generation_cannot_embed_existing_full_footprint_structural_matter() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let mut state = AppState::new();
+    materialize_full_panel_at(&registries, &mut state, at);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::containing(at),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::StructureBuriedByTerrain { voxel: at }),
+        "the terrain generator must not bury an already embodied full-footprint panel in stone"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn neighborhood_generation_rejects_burying_existing_structural_matter_atomically() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let mut state = AppState::new();
+    materialize_full_panel_at(&registries, &mut state, at);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(3, 3),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_admit_player(&registries, &state, VoxelCoord::new(5, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(ChunkGenerationError::StructureBuriedByTerrain { voxel: at })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn terrain_generation_preserves_embodied_construction_above_the_generated_ground() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, 100, 5);
+    let mut state = AppState::new();
+    materialize_full_panel_at(&registries, &mut state, at);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state.world().block_at(at),
+        Some(crate::world::BlockStateId::AIR)
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
 }
 
 #[test]

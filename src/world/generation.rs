@@ -13,7 +13,10 @@ use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::{BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MIN_Y, WorldChunk, WorldRegistry};
+use super::{
+    BlockCollisionShape, BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
+    WorldChunk, WorldRegistry,
+};
 
 const TERRAIN_LATTICE_SIDE: i64 = 8;
 const TERRAIN_HALF_RANGE: i64 = 4;
@@ -72,6 +75,7 @@ pub enum ChunkGenerationError {
     PlayerBodyCollision { voxel: VoxelCoord },
     PlayerBodyTempleCasteCollision { voxel: VoxelCoord },
     TempleCasteInfrastructureCollision { voxel: VoxelCoord },
+    StructureBuriedByTerrain { voxel: VoxelCoord },
     SurfaceResourceCollision { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
@@ -123,6 +127,13 @@ impl Display for ChunkGenerationError {
             Self::TempleCasteInfrastructureCollision { voxel } => write!(
                 formatter,
                 "terrain generation would instantiate a temple resident inside constructed or stationary custody at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::StructureBuriedByTerrain { voxel } => write!(
+                formatter,
+                "terrain generation would bury embodied structural matter at voxel ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -371,6 +382,9 @@ pub fn validate_generate_chunk(
     if let Some(voxel) = first_surface_resource_collision(registry, state, &chunk) {
         return Err(ChunkGenerationError::SurfaceResourceCollision { voxel });
     }
+    if let Some(voxel) = first_structure_collision_in_generated_chunk(registry, state, &chunk) {
+        return Err(ChunkGenerationError::StructureBuriedByTerrain { voxel });
+    }
     if let Some(player) = state.logistics().player()
         && let Some(voxel) = first_player_body_collision_in_chunk(
             registry,
@@ -445,6 +459,11 @@ pub fn validate_generate_player_neighborhood(
             if let Some(voxel) = first_surface_resource_collision(registries.world(), state, &chunk)
             {
                 return Err(ChunkGenerationError::SurfaceResourceCollision { voxel });
+            }
+            if let Some(voxel) =
+                first_structure_collision_in_generated_chunk(registries.world(), state, &chunk)
+            {
+                return Err(ChunkGenerationError::StructureBuriedByTerrain { voxel });
             }
             if let Some(voxel) = first_player_body_collision_in_chunk(
                 registries.world(),
@@ -598,6 +617,53 @@ fn first_surface_resource_collision(
                     .block_for_state(chunk.block_at(voxel))
                     .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
         })
+}
+
+/// A built member has physical matter even when its narrow cross-section
+/// does not fill the entire voxel. A newly generated full cube cannot
+/// intersect any such portion. Limit the scan to the finite new chunk rather
+/// than expanding potentially huge, user-authored member bounds.
+fn first_structure_collision_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    let min_x = chunk.coord().world_min_x()?;
+    let min_z = chunk.coord().world_min_z()?;
+    let last_x = min_x + (CHUNK_SIDE - 1) as i64;
+    let last_z = min_z + (CHUNK_SIDE - 1) as i64;
+    for element in state
+        .structures()
+        .elements()
+        .filter(|element| !element.embodied_material().is_empty())
+    {
+        let bounds = element.bounds();
+        let start = bounds.min();
+        let end = bounds.max_exclusive();
+        let x0 = start.x().max(min_x);
+        let x1 = (end.x() - 1).min(last_x);
+        let y0 = start.y().max(WORLD_MIN_Y);
+        let y1 = (end.y() - 1).min(WORLD_MAX_Y_EXCLUSIVE - 1);
+        let z0 = start.z().max(min_z);
+        let z1 = (end.z() - 1).min(last_z);
+        if x0 > x1 || y0 > y1 || z0 > z1 {
+            continue;
+        }
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                for y in y0..=y1 {
+                    let voxel = VoxelCoord::new(x, y, z);
+                    if registry
+                        .block_for_state(chunk.block_at(voxel))
+                        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+                    {
+                        return Some(voxel);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn temple_site_for_chunk(

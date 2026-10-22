@@ -285,6 +285,11 @@ Identity-preserving scavenger relocations also use the surface owner's
 full-cube test at their destination: an adjacent solid voxel refuses the
 transfer without changing custody or revisions, while a cleared destination
 allows the same conserved parcel identity to continue its physical route.
+Generated chunks also reject full-cube blocks intersecting already embodied
+structural members. The prospective overlap scan is clipped to the finite
+incoming chunk, not the potentially large authored member bounds, and atomic
+player-neighborhood generation applies the same protection. Inert construction
+plans and structures entirely above the generated ground remain admissible.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent
