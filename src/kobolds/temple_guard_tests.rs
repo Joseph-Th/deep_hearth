@@ -84,7 +84,11 @@ fn carry_field_box_material(registries: &Registries, state: &mut AppState) {
     .unwrap();
 }
 
-fn materialize_timber_member_at(registries: &Registries, state: &mut AppState, at: VoxelCoord) {
+fn plan_timber_member_at(
+    registries: &Registries,
+    state: &mut AppState,
+    at: VoxelCoord,
+) -> crate::structural::StructuralElementId {
     let bounds = VoxelBounds::new(at, VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap();
     let geometry = StructuralElementGeometry::new(
         bounds,
@@ -92,7 +96,7 @@ fn materialize_timber_member_at(registries: &Registries, state: &mut AppState, a
         BASIC_TIMBER_POST_CROSS_SECTION,
     )
     .unwrap();
-    let member = add_structural_element(
+    add_structural_element(
         registries,
         state,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
@@ -100,7 +104,11 @@ fn materialize_timber_member_at(registries: &Registries, state: &mut AppState, a
         geometry,
         false,
     )
-    .unwrap();
+    .unwrap()
+}
+
+fn materialize_timber_member_at(registries: &Registries, state: &mut AppState, at: VoxelCoord) {
+    let member = plan_timber_member_at(registries, state, at);
     materialize_structural_element_for_test(registries, state, member, FORM_LOG);
 }
 
@@ -229,6 +237,42 @@ fn trusted_load_rejects_timber_member_overlapping_a_temple_warden() {
             .unwrap()
             .into_state(&registries)
             .is_err()
+    );
+}
+
+#[test]
+fn trusted_load_allows_empty_blueprint_but_not_embodied_timber_at_warden_post() {
+    let (registries, mut state, route) = occupied_temple();
+    let head = VoxelCoord::new(route[0].x(), route[0].y() + 1, route[0].z());
+    let member = plan_timber_member_at(&registries, &mut state, head);
+    assert!(
+        state
+            .structures()
+            .get_element(member)
+            .unwrap()
+            .embodied_material()
+            .is_empty()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
+    assert!(
+        !state
+            .structures()
+            .get_element(member)
+            .unwrap()
+            .embodied_material()
+            .is_empty()
+    );
+    assert!(
+        validate_loaded_state(&registries, &state).is_err(),
+        "adding real material at the occupied post must invalidate the persisted structure"
     );
 }
 
@@ -390,6 +434,42 @@ fn generated_world_scout_clearance_respects_constructed_enclosures_and_temple_ca
     assert!(
         !crate::kobolds::patrol::scout_can_enter(&registries, &state, position, distant_player),
         "a stationary constructed enclosure must block the scout's body"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn empty_structural_blueprints_are_not_physical_patrol_obstacles() {
+    let (registries, mut state, route) = occupied_temple();
+    let head = VoxelCoord::new(route[1].x(), route[1].y() + 1, route[1].z());
+    let member = plan_timber_member_at(&registries, &mut state, head);
+    assert_eq!(
+        state
+            .structures()
+            .get_element(member)
+            .unwrap()
+            .embodied_mass(),
+        crate::core::quantity::Mass::ZERO
+    );
+    assert!(
+        crate::kobolds::patrol::scout_can_enter(&registries, &state, route[1], Some(route[2])),
+        "a planned member has no embodied matter and cannot block physical passage"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 5);
+    advance_to(&registries, &mut replay, 5);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        1,
+        "a warden can cross an inert blueprint but not constructed timber"
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

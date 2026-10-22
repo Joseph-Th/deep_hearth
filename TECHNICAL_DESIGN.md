@@ -252,9 +252,10 @@ spares on later visits, with ordinary player interception and exact conserved
 custody even across save/load. No distant cargo is reserved or teleported.
 In generated-world patrols, a scout's two-cell standing footprint requires
 actual free space, including the player's airborne body cells, concealed temple
-residents, finished storage enclosures, and structural members. Loose equipment,
-ambient stockpiles and placed energy/fluid stores are locality rather than
-full-cube collision; lighting independently deters scavengers. The authored
+residents, finished storage enclosures, and embodied structural members. Inert
+zero-material blueprints reserve construction geometry but do not obstruct movement.
+Loose equipment, ambient stockpiles and placed energy/fluid stores are locality
+rather than full-cube collision; lighting independently deters scavengers. The authored
 pre-generation traversal graph retains its terrain-free opening rules.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
@@ -271,13 +272,13 @@ three-cell body height; wardens occupy one-by-one-by-two cells. A warden follows
 three-cell, face-adjacent defensive route on the existing five-tick kobold clock when
 a player is in its generated temple column. Its step toward a living, visible intruder
 requires real air at body and head, full-cube support underfoot and clearance from the
-actual continuous player body footprint, stationary equipment and stores, and structural
-member bounds. A stationary enclosure or timber member can hold an otherwise clear
-lane; a displaced guardian cannot retreat through a newly occupied ancestral post.
+actual continuous player body footprint, stationary equipment and stores, and embodied
+structural member bounds. A stationary enclosure or built timber member can hold an
+otherwise clear lane; a displaced guardian cannot retreat through a newly occupied ancestral post.
 Loss of contact causes one-cell-at-a-time withdrawal. The kobold owner persists only displaced wardens in
 strictly sorted per-temple records. Trusted load rejects duplicates, nonexistent sites,
 blocked/absent occupancy, invalid route cursors and constructed stationary objects
-or structural members intersecting generated resident bodies. A resident stranded by later
+or embodied structural members intersecting generated resident bodies. A resident stranded by later
 floor excavation retains its saved position but cannot move without support.
 The normal post derives from terrain rather than a second creature ledger. Only the
 player's currently relevant site and the sparse set of actually displaced wardens

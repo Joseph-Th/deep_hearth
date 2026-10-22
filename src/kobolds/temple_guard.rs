@@ -43,7 +43,10 @@ fn clear_standing_cell(registries: &Registries, state: &AppState, position: Voxe
                     && !state
                         .structures()
                         .elements()
-                        .any(|element| element.bounds().has_voxel(cell))
+                        .any(|element| {
+                            !element.embodied_material().is_empty()
+                                && element.bounds().has_voxel(cell)
+                        })
             })
         && state
             .world()
@@ -217,7 +220,11 @@ pub(super) fn validate_temple_infrastructure(
     }) {
         return Err("stationary infrastructure intersects an occupied temple caste cell");
     }
-    if state.structures().elements().next().is_none() {
+    if !state
+        .structures()
+        .elements()
+        .any(|element| !element.embodied_material().is_empty())
+    {
         return Ok(());
     }
     // Structural bounds may cover more than one voxel. Inspect the finite body
@@ -285,10 +292,9 @@ fn structure_intersects_temple_caste_cell(
     cell: VoxelCoord,
 ) -> bool {
     super::temple_caste_occupies_voxel(registries, state, cell)
-        && state
-            .structures()
-            .elements()
-            .any(|element| element.bounds().has_voxel(cell))
+        && state.structures().elements().any(|element| {
+            !element.embodied_material().is_empty() && element.bounds().has_voxel(cell)
+        })
 }
 
 #[cfg(test)]

@@ -70,7 +70,9 @@ pub(super) fn scout_can_enter(
                 && !state
                     .structures()
                     .elements()
-                    .any(|element| element.bounds().has_voxel(cell))
+                    .any(|element| {
+                        !element.embodied_material().is_empty() && element.bounds().has_voxel(cell)
+                    })
         })
 }
 
