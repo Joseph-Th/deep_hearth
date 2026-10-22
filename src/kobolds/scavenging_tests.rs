@@ -65,6 +65,235 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
 }
 
 #[test]
+fn scout_forages_the_largest_recoverable_serving_not_the_oldest_crumb() {
+    use crate::content::MATERIAL_WILD_NUTS;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while state.tick().value() < 580 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.junction
+    );
+
+    let forage = |position, milligrams| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            forage(path.side_food, 1_000),
+            forage(path.side_stone, 2_000),
+            forage(path.side_stone, 150_000),
+        ],
+    )
+    .unwrap();
+    let ids = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut state).unwrap();
+    let maximum = super::super::SCOUT_FORAGE_BATCH;
+    assert_eq!(
+        super::reachable_side_food(
+            &registries,
+            &state,
+            path.junction,
+            path.den,
+            path.tip,
+            None,
+            state.tick(),
+            maximum,
+        ),
+        Some(path.side_stone),
+        "a nearly depleted patch must not win the forage cooldown"
+    );
+    assert_eq!(
+        super::best_local_forage(&registries, &state, path.side_stone, state.tick(), maximum),
+        Some((maximum, ids[2])),
+        "the physical forage must select the abundant parcel at the chosen site"
+    );
+
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 590 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(2_000)
+    );
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    while state.tick().value() < 600 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hungry_loose_food_raids_prefer_a_complete_meal_over_old_fragments() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            drop(path.side_food, true, 1_000),
+            drop(path.side_stone, true, 2_000),
+            drop(path.far_food, true, 100_000),
+        ],
+    )
+    .unwrap();
+    creation.commit(&mut state).unwrap();
+    let capacity = Mass::from_milligrams(500_000);
+    let choose = |state: &AppState| {
+        super::reachable_detour_drop(
+            &registries,
+            state,
+            path.junction,
+            path.den,
+            path.tip,
+            None,
+            capacity,
+            state.tick(),
+            true,
+        )
+    };
+    assert_eq!(
+        choose(&state),
+        Some((path.side_food, Some(path.far_food))),
+        "the complete distant ration must outrank nearby inadequate food"
+    );
+
+    let adequate = validate_create_surface_resources(
+        &registries,
+        &state,
+        [drop(path.side_stone, true, 30_000)],
+    )
+    .unwrap();
+    let full_local = adequate.first_resource_id();
+    adequate.commit(&mut state).unwrap();
+    assert_eq!(
+        choose(&state),
+        Some((path.side_stone, None)),
+        "an adequate nearby serving avoids the unnecessary extra route edge"
+    );
+    assert_eq!(
+        super::local_portable_source(
+            &registries,
+            &state,
+            path.side_stone,
+            capacity,
+            state.tick(),
+            true,
+            false,
+        ),
+        Some(full_local),
+        "the actual local transfer must not choose the older inadequate fragment"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn distant_forage_ranking_respects_recoverable_capacity_and_stable_ties() {
+    use crate::content::MATERIAL_WILD_NUTS;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    let forage = |position, milligrams| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            forage(path.far_food, 5_000),
+            forage(path.far_stone, 150_000),
+            forage(path.far_food, 150_000),
+        ],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let pick = |capacity| {
+        super::reachable_far_food(
+            &registries,
+            &state,
+            path.junction,
+            path.den,
+            path.tip,
+            None,
+            state.tick(),
+            capacity,
+        )
+    };
+    assert_eq!(
+        pick(super::super::SCOUT_FORAGE_BATCH),
+        Some((path.side_stone, path.far_stone)),
+        "a full serving wins over a small old patch, then the earlier full patch wins ties"
+    );
+    assert_eq!(
+        pick(Mass::from_milligrams(1_000)),
+        Some((path.side_food, path.far_food)),
+        "equal recoverable quantities use the original stable resource ID"
+    );
+    assert_eq!(pick(Mass::ZERO), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn fresh_intermediate_forage_shortens_a_hungry_scouts_whole_food_raid() {
     use crate::content::MATERIAL_WILD_NUTS;
     use crate::core::time::SimulationTick;

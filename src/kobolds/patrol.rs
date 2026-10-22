@@ -17,10 +17,10 @@ use super::junkworks::KoboldAlarmPulse;
 use super::junkworks::{den_or_relay_needs_striker, is_junk_striker};
 use super::mobilization::observe_progress;
 use super::scavenging::{
-    den_cache_space, finds_external_drop, has_local_scout_interest, is_portable_drop,
-    local_portable_source, local_split_source, matches_salvage_goal, reachable_detour_drop,
-    reachable_far_food, reachable_inherited_salvage, reachable_side_food, scout_goal_has_supplies,
-    scout_wants_loose_drop, should_seek_local_food,
+    best_local_forage, den_cache_space, finds_external_drop, has_local_scout_interest,
+    is_portable_drop, local_portable_source, local_split_source, matches_salvage_goal,
+    reachable_detour_drop, reachable_far_food, reachable_inherited_salvage, reachable_side_food,
+    scout_goal_has_supplies, scout_wants_loose_drop, should_seek_local_food,
 };
 use super::visibility::scout_visible_from;
 use super::watchman::apply_watchman_tick;
@@ -225,20 +225,31 @@ fn choose_outbound_detour(
             .any(|resource| scout_wants_food_opportunity(registries, resource, at));
         (forage_ready && !den_space.is_zero() && !local_food_remains)
             .then(|| {
-                reachable_side_food(registries, state, junction, den, tip, player_position, at)
-                    .map(|destination| (destination, None))
-                    .or_else(|| {
-                        reachable_far_food(
-                            registries,
-                            state,
-                            junction,
-                            den,
-                            tip,
-                            player_position,
-                            at,
-                        )
-                        .map(|(first, goal)| (first, Some(goal)))
-                    })
+                let maximum_mass = colony.forage_batch().min(den_space);
+                reachable_side_food(
+                    registries,
+                    state,
+                    junction,
+                    den,
+                    tip,
+                    player_position,
+                    at,
+                    maximum_mass,
+                )
+                .map(|destination| (destination, None))
+                .or_else(|| {
+                    reachable_far_food(
+                        registries,
+                        state,
+                        junction,
+                        den,
+                        tip,
+                        player_position,
+                        at,
+                        maximum_mass,
+                    )
+                    .map(|(first, goal)| (first, Some(goal)))
+                })
             })
             .flatten()
     };
@@ -749,11 +760,14 @@ pub(crate) fn apply_kobold_scout_tick(
         && !frightened
         && forage_ready)
         .then(|| {
-            state
-                .surface()
-                .available_resources_at(Some(from))
-                .find(|resource| scout_wants_food_opportunity(registries, resource, next_tick))
-                .map(|resource| resource.id())
+            best_local_forage(
+                registries,
+                state,
+                from,
+                next_tick,
+                forage_batch.min(den_space),
+            )
+            .map(|(_, id)| id)
         })
         .flatten();
     let foraged_food = forage_source.and_then(|source| {

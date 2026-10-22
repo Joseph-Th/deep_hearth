@@ -1,5 +1,7 @@
 //! Deterministic search for exposed scout loot and bounded recoverable portions.
 
+use std::cmp::Reverse;
+
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -12,7 +14,31 @@ use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
 use super::junkworks::{den_or_relay_needs_striker, is_junk_striker, is_staged_relay_component};
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::visibility::scout_visible_from;
-use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
+use super::{
+    DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS,
+};
+
+/// Choose the largest *recoverable* local forage portion, rather than the oldest
+/// nearly depleted patch. A forage attempt consumes the same long cooldown
+/// regardless of its yield. Identity only breaks ties between equal servings.
+/// Both scouting and the eventual physical transfer use this ranking.
+pub(super) fn best_local_forage(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+    maximum_mass: Mass,
+) -> Option<(Mass, SurfaceResourceId)> {
+    if maximum_mass.is_zero() {
+        return None;
+    }
+    state
+        .surface()
+        .available_resources_at(Some(position))
+        .filter(|resource| scout_wants_food_opportunity(registries, resource, at))
+        .map(|resource| (resource.remaining_mass().min(maximum_mass), resource.id()))
+        .max_by_key(|(mass, id)| (*mass, Reverse(*id)))
+}
 
 /// Selected staged repeater parts remain untouched by their own returning
 /// scavenger while the den signal source exists, even when only the first
@@ -26,6 +52,22 @@ pub(super) fn scout_wants_loose_drop(
     scout_wants_drop(registries, resource, at) && !is_staged_relay_component(state, resource)
 }
 
+/// Short food parcels cannot satisfy one meal. Prefer a complete local ration;
+/// among inadequate fragments, take the largest available serving first.
+/// All adequate servings remain tied so stable identity controls equal-value food.
+fn food_serving_priority(resource: &crate::surface::SurfaceResourceRecord) -> (bool, u64) {
+    let inadequate = resource.commodity().form() == crate::content::FORM_FOOD
+        && resource.remaining_mass() < SCOUT_MEAL_MASS;
+    (
+        inadequate,
+        if inadequate {
+            u64::MAX - resource.remaining_mass().milligrams()
+        } else {
+            0
+        },
+    )
+}
+
 /// Survival food always precedes inert cargo, but mobilized scavengers use
 /// inherited service-work knowledge to recognize shaped precision copper.
 /// Stable surface identity breaks every equal-value tie.
@@ -33,11 +75,14 @@ fn scout_loot_priority(
     resource: &crate::surface::SurfaceResourceRecord,
     mobilized: bool,
     needs_striker: bool,
-) -> (bool, bool, SurfaceResourceId) {
+) -> (bool, bool, bool, u64, SurfaceResourceId) {
     let not_food = resource.commodity().form() != crate::content::FORM_FOOD;
+    let (inadequate_food, partial_size) = food_serving_priority(resource);
     (
         not_food,
+        inadequate_food,
         !(mobilized && matches_salvage_goal(resource, needs_striker)),
+        partial_size,
         resource.id(),
     )
 }
@@ -226,14 +271,18 @@ pub(super) fn den_cache_space(state: &AppState, den: VoxelCoord) -> Mass {
 }
 
 /// Select whole, den-fitting parcels before sources requiring a split.
-/// Within each transfer-cost tier, edible loot wins, then stable surface identity.
+/// Within each transfer-cost tier, edible loot wins, then a complete meal,
+/// then the largest partial meal. Stable identity breaks remaining ties.
 fn detour_loot_priority(
     resource: &crate::surface::SurfaceResourceRecord,
     capacity: Mass,
-) -> (bool, bool, SurfaceResourceId) {
+) -> (bool, bool, bool, u64, SurfaceResourceId) {
+    let (inadequate_food, partial_size) = food_serving_priority(resource);
     (
         !is_portable_drop(resource) || resource.remaining_mass() > capacity,
         resource.commodity().form() != crate::content::FORM_FOOD,
+        inadequate_food,
+        partial_size,
         resource.id(),
     )
 }
@@ -372,19 +421,25 @@ pub(super) fn reachable_detour_drop(
             return Some((first, None));
         }
     }
-    let whole_at = |position| {
+    let whole_at = |position, minimum_mass| {
         state
             .surface()
             .available_resources_at(Some(position))
             .any(|resource| {
                 is_portable_drop(resource)
                     && resource.remaining_mass() <= capacity
+                    && resource.remaining_mass() >= minimum_mass
                     && scout_wants_loose_drop(registries, state, resource, at)
                     && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
             })
     };
-    if let Some(first) = side.filter(|first| whole_at(*first)) {
-        return Some((first, None));
+    // A tiny intact fragment should not defeat a genuinely adequate ration
+    // one more route edge away. When no full meal can be carried, retain the
+    // existing whole-before-split, distance-first fallback for partial food.
+    if food_only {
+        if let Some(first) = side.filter(|first| whole_at(*first, SCOUT_MEAL_MASS)) {
+            return Some((first, None));
+        }
     }
     let far = reachable_far_drop(
         registries,
@@ -397,15 +452,23 @@ pub(super) fn reachable_detour_drop(
         at,
         food_only,
     );
-    if let Some((first, goal)) = far.filter(|(_, goal)| whole_at(*goal)) {
+    if food_only {
+        if let Some((first, goal)) = far.filter(|(_, goal)| whole_at(*goal, SCOUT_MEAL_MASS)) {
+            return Some((first, Some(goal)));
+        }
+    }
+    if let Some(first) = side.filter(|first| whole_at(*first, Mass::ZERO)) {
+        return Some((first, None));
+    }
+    if let Some((first, goal)) = far.filter(|(_, goal)| whole_at(*goal, Mass::ZERO)) {
         return Some((first, Some(goal)));
     }
     side.map(|first| (first, None))
         .or_else(|| far.map(|(first, goal)| (first, Some(goal))))
 }
 
-/// When junction wild food is exhausted, investigate only adjacent traversable
-/// food patches. Stable surface identity decides between qualifying patches.
+/// When junction wild food is exhausted, prefer the largest real forage serving
+/// among adjacent traversable patches, with stable identity resolving equal yields.
 pub(super) fn reachable_side_food(
     registries: &Registries,
     state: &AppState,
@@ -414,23 +477,21 @@ pub(super) fn reachable_side_food(
     authored_tip: VoxelCoord,
     player_position: Option<VoxelCoord>,
     at: SimulationTick,
+    maximum_mass: Mass,
 ) -> Option<VoxelCoord> {
     state
         .logistics()
         .traversable_destinations(junction)
         .filter(|destination| *destination != den && *destination != authored_tip)
         .filter_map(|destination| {
-            state
-                .surface()
-                .available_resources_at(Some(destination))
-                .find(|resource| scout_wants_food_opportunity(registries, resource, at))
-                .map(|resource| (resource.id(), destination))
+            best_local_forage(registries, state, destination, at, maximum_mass)
+                .map(|(mass, id)| (mass, id, destination))
         })
-        .filter(|(_, destination)| {
+        .filter(|(_, _, destination)| {
             unguarded_unlit_cell(registries, state, junction, *destination, player_position)
         })
-        .min_by_key(|(id, _)| *id)
-        .map(|(_, destination)| destination)
+        .max_by_key(|(mass, id, _)| (*mass, Reverse(*id)))
+        .map(|(_, _, destination)| destination)
 }
 
 /// Seek finite natural food beyond one real intermediate route junction.
@@ -444,6 +505,7 @@ pub(super) fn reachable_far_food(
     authored_tip: VoxelCoord,
     player_position: Option<VoxelCoord>,
     at: SimulationTick,
+    maximum_mass: Mass,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
     state
         .logistics()
@@ -455,20 +517,19 @@ pub(super) fn reachable_far_food(
                 .traversable_destinations(first)
                 .filter(move |goal| *goal != junction && *goal != den && *goal != authored_tip)
                 .filter_map(move |goal| {
-                    state
-                        .surface()
-                        .available_resources_at(Some(goal))
-                        .find(|source| scout_wants_food_opportunity(registries, source, at))
-                        .map(|source| (source.id(), first, goal))
+                    best_local_forage(registries, state, goal, at, maximum_mass)
+                        .map(|(mass, id)| (mass, id, first, goal))
                 })
         })
-        .filter(|(_, first, goal)| {
+        .filter(|(_, _, first, goal)| {
             scout_visible_from(registries, state, junction, *goal)
                 && unguarded_unlit_cell(registries, state, junction, *first, player_position)
                 && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
         })
-        .min_by_key(|(id, first, goal)| (*id, *first, *goal))
-        .map(|(_, first, goal)| (first, goal))
+        .max_by_key(|(mass, id, first, goal)| {
+            (*mass, Reverse(*id), Reverse(*first), Reverse(*goal))
+        })
+        .map(|(_, _, first, goal)| (first, goal))
 }
 
 /// Remnants of precision craft matter more to former machine-servants than
