@@ -20,12 +20,14 @@ use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::{PlayerAdmissionCommitError, validate_admit_player};
+use crate::registry::Registries;
 use crate::simulation::{
     ActiveSelectionDropOutcome, PlayerDirectControlInput, PrimaryActionOutcome,
     PrimaryControlIntent, QuickAccessSelectionOutcome, advance_control_tick,
     advance_control_tick_with_direct_input, advance_control_tick_with_input,
 };
 use crate::spatial::{CubeFace, VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, VoxelCoord};
+use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
 use crate::survival::{Vitality, player_record, project_survival_resource_budget};
 
 use super::*;
@@ -1928,6 +1930,142 @@ fn terrain_generation_rejects_player_body_overlap_without_world_mutation() {
         Some(ChunkGenerationError::PlayerBodyCollision {
             voxel: player_voxel,
         })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn terrain_generation_rejects_burying_existing_exposed_surface_matter() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    add_unloaded_surface_drop(&registries, &mut state, position);
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE
+        )
+        .err(),
+        Some(ChunkGenerationError::SurfaceResourceCollision { voxel: position }),
+        "generated full-cube terrain cannot bury an existing exposed material parcel"
+    );
+    assert_eq!(state, before);
+}
+
+fn add_unloaded_surface_drop(registries: &Registries, state: &mut AppState, position: VoxelCoord) {
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        commodity,
+        Mass::from_milligrams(25_000),
+        Temperature::from_millikelvin(293_150),
+        crate::material::MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(registries, state, [spec])
+        .unwrap()
+        .commit(state)
+        .unwrap();
+}
+
+#[test]
+fn terrain_generation_commit_rejects_surface_matter_added_after_preflight() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let planned = validate_generate_chunk(
+        &registries,
+        &state,
+        SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    let expected = state.surface().revision();
+    add_unloaded_surface_drop(&registries, &mut state, VoxelCoord::new(0, WORLD_MIN_Y, 0));
+    let before = state.clone();
+    assert_eq!(
+        planned.commit(&mut state),
+        Err(ChunkGenerationCommitError::StaleSurfaceRevision {
+            expected,
+            actual: state.surface().revision(),
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn terrain_generation_preserves_surface_drop_above_generated_solid() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 100, 0);
+    add_unloaded_surface_drop(&registries, &mut state, position);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.world().block_at(position), Some(BlockStateId::AIR));
+    assert_eq!(
+        state
+            .surface()
+            .available_resources_at(Some(position))
+            .count(),
+        1
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn neighborhood_generation_rejects_burying_exposed_matter_atomically() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 100, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    generate(&mut state, ChunkCoord::new(3, 3));
+    let buried = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    add_unloaded_surface_drop(&registries, &mut state, buried);
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(ChunkGenerationError::SurfaceResourceCollision { voxel: buried })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn neighborhood_generation_commit_rejects_new_surface_resources() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 100, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    generate(&mut state, ChunkCoord::new(3, 3));
+    let plan = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap()
+        .unwrap();
+    let expected = state.surface().revision();
+    add_unloaded_surface_drop(&registries, &mut state, VoxelCoord::new(0, WORLD_MIN_Y, 0));
+    let actual = state.surface().revision();
+    let before = state.clone();
+    assert_eq!(
+        plan.commit(&mut state),
+        Err(ChunkGenerationCommitError::StaleSurfaceRevision { expected, actual })
     );
     assert_eq!(state, before);
 }

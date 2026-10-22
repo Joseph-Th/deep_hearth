@@ -72,6 +72,7 @@ pub enum ChunkGenerationError {
     PlayerBodyCollision { voxel: VoxelCoord },
     PlayerBodyTempleCasteCollision { voxel: VoxelCoord },
     TempleCasteInfrastructureCollision { voxel: VoxelCoord },
+    SurfaceResourceCollision { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
 }
@@ -126,6 +127,13 @@ impl Display for ChunkGenerationError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::SurfaceResourceCollision { voxel } => write!(
+                formatter,
+                "terrain generation would bury exposed surface matter at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::PlayerDemandCoordinateOverflow { center } => write!(
                 formatter,
                 "player chunk demand around ({},{}) exceeds the supported chunk-coordinate range",
@@ -144,6 +152,7 @@ impl Error for ChunkGenerationError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChunkGenerationCommitError {
     StaleWorldRevision { expected: u64, actual: u64 },
+    StaleSurfaceRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleStructureRevision { expected: u64, actual: u64 },
     StalePlayerWorkRevision { expected: u64, actual: u64 },
@@ -156,6 +165,10 @@ impl Display for ChunkGenerationCommitError {
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "world revision changed from {expected} to {actual} before terrain generation commit"
+            ),
+            Self::StaleSurfaceRevision { expected, actual } => write!(
+                formatter,
+                "surface revision changed from {expected} to {actual} before terrain generation commit"
             ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
@@ -185,6 +198,7 @@ impl Error for ChunkGenerationCommitError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedChunkGeneration {
     expected_revision: u64,
+    expected_surface_revision: u64,
     expected_logistics_revision: u64,
     expected_structure_revision: u64,
     expected_player_work_revision: u64,
@@ -205,6 +219,13 @@ impl ValidatedChunkGeneration {
             return Err(ChunkGenerationCommitError::StaleWorldRevision {
                 expected: self.expected_revision,
                 actual,
+            });
+        }
+        let actual_surface_revision = state.surface().revision();
+        if actual_surface_revision != self.expected_surface_revision {
+            return Err(ChunkGenerationCommitError::StaleSurfaceRevision {
+                expected: self.expected_surface_revision,
+                actual: actual_surface_revision,
             });
         }
         let actual_logistics_revision = state.logistics().revision();
@@ -247,6 +268,7 @@ impl ValidatedChunkGeneration {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedPlayerChunkDemand {
     expected_revision: u64,
+    expected_surface_revision: u64,
     expected_logistics_revision: u64,
     expected_structure_revision: u64,
     expected_player_work_revision: u64,
@@ -269,6 +291,13 @@ impl ValidatedPlayerChunkDemand {
             return Err(ChunkGenerationCommitError::StaleWorldRevision {
                 expected: self.expected_revision,
                 actual,
+            });
+        }
+        let actual_surface_revision = state.surface().revision();
+        if actual_surface_revision != self.expected_surface_revision {
+            return Err(ChunkGenerationCommitError::StaleSurfaceRevision {
+                expected: self.expected_surface_revision,
+                actual: actual_surface_revision,
             });
         }
         let actual_logistics_revision = state.logistics().revision();
@@ -339,6 +368,9 @@ pub fn validate_generate_chunk(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("world headroom check includes chunk generation"));
     let chunk = build_generated_chunk(registry, profile, coord)?;
+    if let Some(voxel) = first_surface_resource_collision(registry, state, &chunk) {
+        return Err(ChunkGenerationError::SurfaceResourceCollision { voxel });
+    }
     if let Some(player) = state.logistics().player()
         && let Some(voxel) = first_player_body_collision_in_chunk(
             registry,
@@ -361,6 +393,7 @@ pub fn validate_generate_chunk(
     }
     Ok(ValidatedChunkGeneration {
         expected_revision,
+        expected_surface_revision: state.surface().revision(),
         expected_logistics_revision: state.logistics().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_player_work_revision: state.player_work().revision(),
@@ -409,6 +442,10 @@ pub fn validate_generate_player_neighborhood(
                 continue;
             }
             let chunk = build_generated_chunk(registries.world(), profile, coord)?;
+            if let Some(voxel) = first_surface_resource_collision(registries.world(), state, &chunk)
+            {
+                return Err(ChunkGenerationError::SurfaceResourceCollision { voxel });
+            }
             if let Some(voxel) = first_player_body_collision_in_chunk(
                 registries.world(),
                 &chunk,
@@ -443,6 +480,7 @@ pub fn validate_generate_player_neighborhood(
         .unwrap_or_else(|| unreachable!("world headroom check includes player chunk demand"));
     Ok(Some(ValidatedPlayerChunkDemand {
         expected_revision,
+        expected_surface_revision: state.surface().revision(),
         expected_logistics_revision: state.logistics().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_player_work_revision: state.player_work().revision(),
@@ -539,6 +577,27 @@ fn build_generated_chunk(
     }
     chunk.canonicalize_sections();
     Ok(chunk)
+}
+
+/// Newly generated solid cells must not conceal finite loose material that
+/// was already assigned surface custody in an ungenerated column. Depleted
+/// historical parcels have no physical residue to obstruct terrain admission.
+fn first_surface_resource_collision(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    state
+        .surface()
+        .resources()
+        .filter(|resource| !resource.remaining_mass().is_zero())
+        .map(|resource| resource.position())
+        .find(|&voxel| {
+            ChunkCoord::containing(voxel) == chunk.coord()
+                && registry
+                    .block_for_state(chunk.block_at(voxel))
+                    .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
+        })
 }
 
 fn temple_site_for_chunk(

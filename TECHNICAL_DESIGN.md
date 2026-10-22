@@ -264,6 +264,13 @@ when concealed from sight. Trusted load also rejects completed enclosures and
 full-footprint embodied members intersecting either persisted opening resident;
 unenclosed stockpiles, narrow posts and inactive blueprints remain non-obstructing.
 
+Newly generated solid terrain cannot bury an existing, available surface-resource
+parcel in an ungenerated column. Single-chunk and atomic neighborhood admission
+check actual collision shapes for those positions; absent or air-shaped terrain
+does not obstruct exposed matter. Both generation plans bind the surface owner's
+revision, so a newly placed or moved parcel makes an earlier plan stale before
+any world mutation.
+
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent
 of chunk loading order; the spawn chunk is not a guaranteed ancient-copper cache. The precinct
