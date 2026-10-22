@@ -31,13 +31,16 @@ pub enum KoboldJunkRigKind {
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KoboldAlarmPulse {
-    position: VoxelCoord,
+    /// An audible but unseen device has no disclosed exact origin.
+    position: Option<VoxelCoord>,
     kind: KoboldJunkRigKind,
 }
 
 impl KoboldAlarmPulse {
+    /// Identified source only when visually observable; hearing alone never
+    /// reveals hidden apparatus coordinates.
     #[must_use]
-    pub const fn position(self) -> VoxelCoord {
+    pub const fn position(self) -> Option<VoxelCoord> {
         self.position
     }
 
@@ -255,8 +258,8 @@ pub fn available_nearby_kobold_junk_relay(
 /// Return only pulses from real striking apparatus near the player. The
 /// den watchman must hold an outstanding report and strike an on-beat source;
 /// the junction clatters only if both connected edges actually carried the
-/// warning outward on that same step. Conservative local air-line perception
-/// is used until there is a dedicated acoustic propagation model.
+/// warning outward on that same step. A bounded local air route controls sound;
+/// only direct sight identifies the exact origin.
 pub(super) fn locally_audible_alarm_pulses(
     registries: &Registries,
     state: &AppState,
@@ -280,18 +283,20 @@ pub(super) fn locally_audible_alarm_pulses(
         return Vec::new();
     };
     let mut pulses = Vec::new();
-    if scout_visible_from(registries, state, source.position(), player) {
+    if super::acoustics::can_hear_junk_rig(registries, state, source, player) {
         pulses.push(KoboldAlarmPulse {
-            position: source.position(),
+            position: scout_visible_from(registries, state, source.position(), player)
+                .then_some(source.position()),
             kind: source.kind(),
         });
     }
     if two_edge_transmission
         && let Some(relay) = current_junction_relay(state, colony)
-        && scout_visible_from(registries, state, relay.position(), player)
+        && super::acoustics::can_hear_junk_rig(registries, state, relay, player)
     {
         pulses.push(KoboldAlarmPulse {
-            position: relay.position(),
+            position: scout_visible_from(registries, state, relay.position(), player)
+                .then_some(relay.position()),
             kind: relay.kind(),
         });
     }

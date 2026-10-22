@@ -293,9 +293,15 @@ duplicating matter; an unpowered junction device remains locally visible as scra
 Actual warning strikes now provide local audible clues: a nearby observer can hear the den
 clatter even without seeing the distant scout, and can distinguish a synchronized junction
 clatter when the two-hop warning succeeds. Off-beat or remote activity does not reveal
-hidden enemy locations; solid occluding terrain conservatively muffles perception until
-the game has a fuller acoustic model. Walking over exposed relay parts can collect them
-through the ordinary player pickup path, physically silencing that branch of the network.
+hidden enemy locations. Unlike sight, clatter can carry around nearby corners along
+short, open air passages; solid rock and unloaded terrain block it. Bare stone
+clappers carry farther than damped wooden ratchets. The listener hears the kind
+of mechanism but cannot identify the exact position of a source that is hidden
+from view. Walking over exposed relay parts can collect them through the ordinary
+player pickup path, physically silencing that branch of the network. When the
+player departs, a scavenger with reachable spare parts can physically rebuild
+the damaged repeater on subsequent patrols; repeated sabotage therefore has a
+material and travel cost rather than instantly making equipment reappear.
 This establishes the scavenged-technology vocabulary without granting kobolds free ranged
 communication, energy, weapons or distant knowledge.
 

@@ -223,9 +223,14 @@ The committed slow-tick `TickOutcome::kobold_alarm_pulses` reports local, physic
 percussion independently of a visible `KoboldScoutEvent`. The watchman must retain
 a pending report and physically attend its den when its finite-material source rig
 sounds on the authored scout clock. On a successful two-edge warning, an assembled
-and synchronous junction relay also produces its own impulse. Only apparatus within
-the player's existing short, unobstructed local perception is returned; no remote
-den, pending signal or unseen scout is exposed. Missing parts and missed beats do
+and synchronous junction relay also produces its own impulse. Local perception
+now follows a bounded 3-step timber or 5-step stone-clapper air route: generated
+worlds use a face-connected search through non-colliding voxels, rejecting solid
+rock and unloaded cells, whereas the pre-generation opening uses a short
+Manhattan-radius approximation without inventing terrain. A bend may carry
+sound without carrying light or a sightline; in that case the pulse has
+`position() == None` rather than exposing the unseen rig coordinates. The
+actual mechanism type remains audible. Missing parts and missed beats do
 not create false impulses. This transient receipt is not persisted, because all
 future-affecting warning state remains in the existing colony owner. Player pickup
 can remove the actual junction parcels at control rate before the slow beat, so
@@ -241,7 +246,10 @@ den's loose cache. A staged core without a clapper prioritizes the missing strik
 visible routes. Source and junction components remain the *same* surface parcel identities,
 selected deterministically from actual local drops. The scout ignores those staged parcels
 while the den signal exists, but can recover them again if the source rig is dismantled.
-Other exposed salvage remains contestable. No distant cargo is reserved or teleported.
+Other exposed salvage remains contestable. If a player removes relay parts, a
+returning scout can stage replacement copper and timber from real accessible
+spares on later visits, with ordinary player interception and exact conserved
+custody even across save/load. No distant cargo is reserved or teleported.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent

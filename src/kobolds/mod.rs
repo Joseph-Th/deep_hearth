@@ -16,6 +16,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceLifecycle};
 
+mod acoustics;
 mod feeding;
 mod junkworks;
 mod mobilization;

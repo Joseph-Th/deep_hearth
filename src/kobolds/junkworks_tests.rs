@@ -149,6 +149,84 @@ fn two_hop_alarm_fixture() -> (Registries, AppState, SurfaceResourceId) {
 }
 
 #[test]
+fn scavenger_rebuilds_player_sabotaged_repeater_using_real_spare_parcels() {
+    let (registries, mut state, _) = two_hop_alarm_fixture();
+    relocate_player_for_test(&mut state, JUNCTION);
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    assert!(
+        current_junction_relay(&state, state.kobold_state().colony.as_ref().unwrap()).is_none(),
+        "ordinary player pickup must actually disable the warning network"
+    );
+    // Depart before the watchman's next slow observation; the scout must
+    // physically fetch replacements, not conjure them while the player watches.
+    relocate_player_for_test(&mut state, VoxelCoord::new(15, 0, 15));
+    let spare_copper = put_drop_at(
+        &registries,
+        &mut state,
+        TIP,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let spare_striker = put_drop_at(
+        &registries,
+        &mut state,
+        TIP,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let mut guarded = state.clone();
+    relocate_player_for_test(&mut guarded, JUNCTION);
+    advance_to(&registries, &mut guarded, 230);
+    assert_eq!(
+        guarded.surface().get(spare_copper).unwrap().position(),
+        TIP,
+        "a guarded junction is not a destination the scout may enter to repair its machine"
+    );
+    assert_eq!(
+        guarded.surface().get(spare_striker).unwrap().position(),
+        TIP
+    );
+    assert!(
+        current_junction_relay(&guarded, guarded.kobold_state().colony.as_ref().unwrap()).is_none()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        before
+    );
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+    advance_to(&registries, &mut state, 215);
+    assert!(
+        state.surface().get(spare_copper).unwrap().position() == JUNCTION
+            || state.surface().get(spare_striker).unwrap().position() == JUNCTION,
+        "the first repair component must arrive on an actual returning route step"
+    );
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 230);
+    advance_to(&registries, &mut replay, 230);
+    assert_eq!(state, replay);
+    let repaired = current_junction_relay(&state, state.kobold_state().colony.as_ref().unwrap())
+        .expect("the den scout must restore its missing repeater through scavenging");
+    assert!(
+        [spare_copper, spare_striker].contains(&repaired.core())
+            || [spare_copper, spare_striker].contains(&repaired.striker()),
+        "at least one newly recovered spare must be part of the repaired apparatus"
+    );
+    assert_eq!(
+        state.surface().get(spare_copper).unwrap().position(),
+        JUNCTION
+    );
+    assert_eq!(
+        state.surface().get(spare_striker).unwrap().position(),
+        JUNCTION
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn percussion_reports_its_real_local_source_without_revealing_the_distant_scout() {
     let (registries, mut near, _) = two_hop_alarm_fixture();
     let baseline = calculate_matter_accounting(&near).unwrap().total();
@@ -169,8 +247,11 @@ fn percussion_reports_its_real_local_source_without_revealing_the_distant_scout(
             .iter()
             .map(|pulse| (pulse.position(), pulse.kind()))
             .collect::<Vec<_>>(),
-        vec![(DEN, KoboldJunkRigKind::TimberRatchet)],
-        "only the nearby source is audible; the distant junction stays undisclosed"
+        vec![
+            (Some(DEN), KoboldJunkRigKind::TimberRatchet),
+            (None, KoboldJunkRigKind::TimberRatchet),
+        ],
+        "the more distant repeater can be heard but must not reveal its hidden location"
     );
     assert_eq!(
         scout, None,
@@ -198,8 +279,8 @@ fn a_player_beside_the_junction_hears_both_real_synchronized_apparatuses() {
             .map(|pulse| (pulse.position(), pulse.kind()))
             .collect::<Vec<_>>(),
         vec![
-            (DEN, KoboldJunkRigKind::TimberRatchet),
-            (JUNCTION, KoboldJunkRigKind::TimberRatchet)
+            (Some(DEN), KoboldJunkRigKind::TimberRatchet),
+            (Some(JUNCTION), KoboldJunkRigKind::TimberRatchet)
         ]
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
@@ -216,7 +297,7 @@ fn walking_onto_a_repeater_recovers_its_parts_and_silences_the_remote_clatter() 
             .iter()
             .map(|pulse| pulse.position())
             .collect::<Vec<_>>(),
-        vec![DEN],
+        vec![Some(DEN)],
         "a player collected the loose junction rig before its synchronized beat"
     );
     assert!(
@@ -268,7 +349,7 @@ fn offbeat_missing_relay_and_remote_listener_emit_no_spurious_alarm_pulses() {
             .iter()
             .map(|pulse| pulse.position())
             .collect::<Vec<_>>(),
-        vec![DEN]
+        vec![Some(DEN)]
     );
     assert!(
         disconnected
