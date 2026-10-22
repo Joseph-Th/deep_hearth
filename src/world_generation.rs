@@ -204,6 +204,10 @@ pub enum InitialWildernessGenerationCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurfaceIdentity {
         expected: u32,
         actual: u32,
@@ -255,6 +259,10 @@ impl Display for InitialWildernessGenerationCommitError {
                 formatter,
                 "world revision changed from {expected} to {actual} before wilderness commit"
             ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "structure revision changed from {expected} to {actual} before wilderness commit"
+            ),
             Self::StaleSurfaceIdentity { expected, actual } => write!(
                 formatter,
                 "next surface resource id changed from {expected} to {actual} before wilderness commit"
@@ -286,6 +294,7 @@ impl Error for InitialWildernessGenerationCommitError {}
 pub struct ValidatedInitialWildernessGeneration {
     expected_control_tick: ControlTick,
     expected_tick: SimulationTick,
+    expected_structure_revision: u64,
     surface_generation: ValidatedSurfaceResourceCreation,
     water_generation: ValidatedFluidGeneration,
     water_position: VoxelCoord,
@@ -343,6 +352,15 @@ impl ValidatedInitialWildernessGeneration {
                     }
                 }
             })?;
+        let actual_structure_revision = state.structures().revision();
+        if actual_structure_revision != self.expected_structure_revision {
+            return Err(
+                InitialWildernessGenerationCommitError::StaleStructureRevision {
+                    expected: self.expected_structure_revision,
+                    actual: actual_structure_revision,
+                },
+            );
+        }
         self.water_generation
             .precheck(state)
             .map_err(|error| match error {
@@ -414,6 +432,34 @@ fn player_initialization_flags(state: &AppState) -> (bool, bool) {
     )
 }
 
+/// Generated-world opening residents require two unoccupied body cells.
+/// Inert blueprints and slender support posts may coexist within a voxel,
+/// but a material-backed full-footprint member cannot.
+fn opening_resident_has_physical_clearance(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    let Some(head_y) = position.y().checked_add(1) else {
+        return false;
+    };
+    state
+        .world()
+        .has_standing_clearance(registries.world(), position)
+        && [
+            position,
+            VoxelCoord::new(position.x(), head_y, position.z()),
+        ]
+        .into_iter()
+        .all(|cell| {
+            !state.structures().elements().any(|element| {
+                !element.embodied_material().is_empty()
+                    && element.geometry().covers_horizontal_footprint()
+                    && element.bounds().has_voxel(cell)
+            })
+        })
+}
+
 /// Validates one deterministic opening opportunity for a fresh built-in world.
 ///
 /// This establishes one short connected horizontal opening graph. Forage is one step from spawn;
@@ -459,9 +505,7 @@ pub fn validate_generate_initial_wilderness(
     }
     let layout = if state.world().generation_profile().is_some() {
         generated_opening_layout_matching(seed, spawn, |position| {
-            state
-                .world()
-                .has_standing_clearance(registries.world(), position)
+            opening_resident_has_physical_clearance(registries, state, position)
         })
         .ok_or(InitialWildernessGenerationError::NoTraversableTerrainLayout)?
     } else {
@@ -613,6 +657,7 @@ pub fn validate_generate_initial_wilderness(
     Ok(ValidatedInitialWildernessGeneration {
         expected_control_tick: state.control_tick(),
         expected_tick: state.tick(),
+        expected_structure_revision: state.structures().revision(),
         surface_generation,
         water_generation,
         water_position,

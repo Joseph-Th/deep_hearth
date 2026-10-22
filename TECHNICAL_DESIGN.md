@@ -259,6 +259,11 @@ zero-material blueprints reserve construction geometry but do not obstruct movem
 Loose equipment, ambient stockpiles and placed energy/fluid stores are locality
 rather than full-cube collision; lighting independently deters scavengers. The authored
 pre-generation traversal graph retains its terrain-free opening rules.
+Generated-world opening layout selection also checks both resident body cells
+against embodied full-footprint members before placing the den and watchman.
+Wilderness creation binds the structure revision at admission and rejects commit
+if construction changes the clearance decision; slender supports and unbuilt
+plans do not claim full-cell collision.
 Pointed construction rejects the scout and watchman's actual two-cell bodies even
 when concealed from sight. Trusted load also rejects completed enclosures and
 full-footprint embodied members intersecting either persisted opening resident;

@@ -1,8 +1,10 @@
 //! Contracts for deterministic fresh-world wilderness opening generation.
 
 use crate::content::{
-    BLOCK_STATE_STONE, FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES,
-    MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD, build_registries,
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, BLOCK_STATE_STONE,
+    FLUID_WATER, FORM_BOARD, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CLAY,
+    MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    build_registries,
 };
 use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};
@@ -13,7 +15,10 @@ use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::advance_control_tick;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
+use crate::structural::{
+    StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+};
 use crate::surface::{
     SurfaceResourceSpec, available_adjacent_surface_resources, validate_create_surface_resources,
 };
@@ -34,6 +39,30 @@ fn generated_profile(state: &AppState) -> Vec<(CommodityKey, Mass, VoxelCoord)> 
             )
         })
         .collect()
+}
+
+fn materialize_full_panel_at(registries: &Registries, state: &mut AppState, head: VoxelCoord) {
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(
+            head,
+            VoxelCoord::new(head.x() + 1, head.y() + 1, head.z() + 1),
+        )
+        .unwrap(),
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap();
+    assert!(geometry.covers_horizontal_footprint());
+    let member = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        false,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(registries, state, member, FORM_BOARD);
 }
 
 #[test]
@@ -86,6 +115,109 @@ fn terrain_backed_wilderness_generation_selects_only_standable_opening_layout() 
             .into_iter()
             .all(|(from, to)| state.logistics().has_traversal_edge(from, to)),
         "terrain-aware opening generation must persist exactly the selected traversable topology"
+    );
+}
+
+#[test]
+fn opening_generation_never_places_residents_inside_embodied_full_footprint_panel() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let horizontal = VoxelCoord::new(8, 0, 8);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(horizontal),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(8, y, 8)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let spawn = VoxelCoord::new(8, surface_y + 1, 8);
+    let layout = generated_opening_layout_matching(seed, spawn, |position| {
+        state
+            .world()
+            .has_standing_clearance(registries.world(), position)
+    })
+    .unwrap();
+    let den = layout.material_branch;
+    let head = VoxelCoord::new(den.x(), den.y() + 1, den.z());
+    materialize_full_panel_at(&registries, &mut state, head);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    match validate_generate_initial_wilderness(&registries, &state, seed, spawn) {
+        Ok(plan) => {
+            plan.commit(&mut state).unwrap();
+            assert!(
+                !crate::kobolds::opening_kobold_occupies_voxel(&state, head),
+                "an opening resident must not overlap the embodied full-footprint panel"
+            );
+            assert_eq!(
+                crate::core::state::validate_loaded_state(&registries, &state),
+                Ok(())
+            );
+        }
+        Err(InitialWildernessGenerationError::NoTraversableTerrainLayout) => {
+            assert_eq!(state, before);
+        }
+        Err(error) => panic!("unexpected opening generation failure: {error}"),
+    }
+}
+
+#[test]
+fn opening_generation_commit_rejects_construction_added_after_clearance_admission() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let horizontal = VoxelCoord::new(8, 0, 8);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(horizontal),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(8, y, 8)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let spawn = VoxelCoord::new(8, surface_y + 1, 8);
+    let layout = generated_opening_layout_matching(seed, spawn, |position| {
+        state
+            .world()
+            .has_standing_clearance(registries.world(), position)
+    })
+    .unwrap();
+    let planned = validate_generate_initial_wilderness(&registries, &state, seed, spawn).unwrap();
+    let expected = state.structures().revision();
+    let den = layout.material_branch;
+    materialize_full_panel_at(
+        &registries,
+        &mut state,
+        VoxelCoord::new(den.x(), den.y() + 1, den.z()),
+    );
+    let actual = state.structures().revision();
+    let before = state.clone();
+    assert_eq!(
+        planned.commit(&mut state),
+        Err(InitialWildernessGenerationCommitError::StaleStructureRevision { expected, actual }),
+        "wilderness creation must reject a stale structural clearance snapshot"
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
     );
 }
 
