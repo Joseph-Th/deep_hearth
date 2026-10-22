@@ -3,7 +3,7 @@
 use super::*;
 
 use crate::content::{
-    FORM_LOG, MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    BLOCK_STATE_STONE, FORM_LOG, MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
@@ -25,6 +25,10 @@ use crate::structural::{
     validate_plan_player_supported_structural_element,
 };
 use crate::survival::{Vitality, player_record};
+use crate::world::{
+    BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+    validate_generate_chunk,
+};
 
 const MEMBER_MASS_MG: u64 = 6_500_000;
 
@@ -231,6 +235,109 @@ fn admitted_player_with_planned_member() -> (
     )
     .unwrap_or_else(|error| panic!("player construction carried timber failed: {error}"));
     (registries, state, element, lot)
+}
+
+#[test]
+fn player_construction_cannot_materialize_member_inside_generated_stone() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5354_5255_4354_5552),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let player = VoxelCoord::new(0, 0, 0);
+    set_generated_block_for_test(registries.world(), &mut state, player, BlockStateId::AIR);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(0, 1, 0),
+        BlockStateId::AIR,
+    );
+    validate_admit_player(&registries, &state, player)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let element = validate_plan_player_grounded_structural_element(
+        &registries,
+        &state,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            local_member_geometry(),
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(MEMBER_MASS_MG),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let target = VoxelCoord::new(1, 0, 0);
+    set_generated_block_for_test(registries.world(), &mut state, target, BLOCK_STATE_STONE);
+    assert_eq!(state.world().block_at(target), Some(BLOCK_STATE_STONE));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            element,
+            &[MaterialLotSelection::new(
+                lot,
+                Mass::from_milligrams(MEMBER_MASS_MG)
+            )],
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::Material(
+            StructuralConstructionError::EmbeddedInSolidTerrain {
+                element,
+                voxel: target,
+            }
+        )),
+        "construction cannot transfer finite carried timber into a full-cube block"
+    );
+    assert_eq!(state, before);
+    set_generated_block_for_test(registries.world(), &mut state, target, BlockStateId::AIR);
+    let plan = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        element,
+        &[MaterialLotSelection::new(
+            lot,
+            Mass::from_milligrams(MEMBER_MASS_MG),
+        )],
+    )
+    .unwrap();
+    let expected = state.world().revision();
+    set_generated_block_for_test(registries.world(), &mut state, target, BLOCK_STATE_STONE);
+    let actual = state.world().revision();
+    let before = state.clone();
+    assert_eq!(
+        plan.commit(&mut state).err(),
+        Some(PlayerStructuralConstructionCommitError::Material(
+            StructuralConstructionCommitError::StaleWorldRevision { expected, actual }
+        ))
+    );
+    assert_eq!(
+        state, before,
+        "stale construction must not consume material"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut AppState) {

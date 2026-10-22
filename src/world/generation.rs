@@ -11,7 +11,7 @@ use crate::core::state::AppState;
 use crate::logistics::first_player_body_collision_in_chunk;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
 use super::{
     BlockCollisionShape, BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
@@ -628,42 +628,62 @@ fn first_structure_collision_in_generated_chunk(
     state: &AppState,
     chunk: &WorldChunk,
 ) -> Option<VoxelCoord> {
+    state
+        .structures()
+        .elements()
+        .filter(|element| !element.embodied_material().is_empty())
+        .find_map(|element| {
+            first_solid_block_intersecting_bounds(registry, chunk, element.bounds())
+        })
+}
+
+fn first_solid_block_intersecting_bounds(
+    registry: &WorldRegistry,
+    chunk: &WorldChunk,
+    bounds: VoxelBounds,
+) -> Option<VoxelCoord> {
     let min_x = chunk.coord().world_min_x()?;
     let min_z = chunk.coord().world_min_z()?;
     let last_x = min_x + (CHUNK_SIDE - 1) as i64;
     let last_z = min_z + (CHUNK_SIDE - 1) as i64;
-    for element in state
-        .structures()
-        .elements()
-        .filter(|element| !element.embodied_material().is_empty())
-    {
-        let bounds = element.bounds();
-        let start = bounds.min();
-        let end = bounds.max_exclusive();
-        let x0 = start.x().max(min_x);
-        let x1 = (end.x() - 1).min(last_x);
-        let y0 = start.y().max(WORLD_MIN_Y);
-        let y1 = (end.y() - 1).min(WORLD_MAX_Y_EXCLUSIVE - 1);
-        let z0 = start.z().max(min_z);
-        let z1 = (end.z() - 1).min(last_z);
-        if x0 > x1 || y0 > y1 || z0 > z1 {
-            continue;
-        }
-        for z in z0..=z1 {
-            for x in x0..=x1 {
-                for y in y0..=y1 {
-                    let voxel = VoxelCoord::new(x, y, z);
-                    if registry
-                        .block_for_state(chunk.block_at(voxel))
-                        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
-                    {
-                        return Some(voxel);
-                    }
+    let start = bounds.min();
+    let end = bounds.max_exclusive();
+    let x0 = start.x().max(min_x);
+    let x1 = (end.x() - 1).min(last_x);
+    let y0 = start.y().max(WORLD_MIN_Y);
+    let y1 = (end.y() - 1).min(WORLD_MAX_Y_EXCLUSIVE - 1);
+    let z0 = start.z().max(min_z);
+    let z1 = (end.z() - 1).min(last_z);
+    if x0 > x1 || y0 > y1 || z0 > z1 {
+        return None;
+    }
+    for z in z0..=z1 {
+        for x in x0..=x1 {
+            for y in y0..=y1 {
+                let voxel = VoxelCoord::new(x, y, z);
+                if registry
+                    .block_for_state(chunk.block_at(voxel))
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+                {
+                    return Some(voxel);
                 }
             }
         }
     }
     None
+}
+
+/// Prospective materialization clearance. Inert plans may overlap stone;
+/// embodying their material must first prove the entire reserved volume clear.
+pub(crate) fn first_solid_block_in_structural_bounds(
+    registries: &Registries,
+    state: &AppState,
+    bounds: VoxelBounds,
+) -> Option<VoxelCoord> {
+    state
+        .world()
+        .chunks()
+        .find_map(|chunk| first_solid_block_intersecting_bounds(registries.world(), chunk, bounds))
 }
 
 /// Trusted-load counterpart of prospective terrain admission. Both paths

@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::inventory::StockpileStructuralLoadError;
 use crate::material::{FormId, MaterialId};
+use crate::spatial::VoxelCoord;
 
 use super::super::geometry::StructuralGeometryError;
 use super::super::{
@@ -28,6 +29,10 @@ pub enum StructuralConstructionError {
     },
     AlreadyMaterialized {
         element: StructuralElementId,
+    },
+    EmbeddedInSolidTerrain {
+        element: StructuralElementId,
+        voxel: VoxelCoord,
     },
     MaterialMismatch {
         element: StructuralElementId,
@@ -117,6 +122,14 @@ impl Display for StructuralConstructionError {
                 "structural element {} already owns construction matter",
                 element.value()
             ),
+            Self::EmbeddedInSolidTerrain { element, voxel } => write!(
+                formatter,
+                "structural element {} cannot receive matter inside solid terrain at ({},{},{})",
+                element.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::MaterialMismatch {
                 element,
                 expected,
@@ -167,6 +180,9 @@ impl Error for StructuralConstructionError {
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownElement { element: _element }
             | Self::AlreadyMaterialized { element: _element }
+            | Self::EmbeddedInSolidTerrain {
+                element: _element, ..
+            }
             | Self::SelfWeightOverflow { element: _element } => None,
             Self::UnknownProfile {
                 element: _element,
@@ -210,6 +226,7 @@ impl Error for StructuralConstructionError {
 /// A validated construction transfer can no longer commit because an owning subsystem changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StructuralConstructionCommitError {
+    StaleWorldRevision { expected: u64, actual: u64 },
     StaleStructureRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StateChanged { element: StructuralElementId },
@@ -219,6 +236,10 @@ pub enum StructuralConstructionCommitError {
 impl Display for StructuralConstructionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "validated construction expected world revision {expected} but current revision is {actual}"
+            ),
             Self::StaleStructureRevision { expected, actual } => write!(
                 formatter,
                 "validated construction expected structural revision {expected} but current revision is {actual}"
@@ -244,6 +265,7 @@ impl Error for StructuralConstructionCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
+            Self::StaleWorldRevision { .. } => None,
             Self::StaleStructureRevision {
                 expected: _expected,
                 actual: _actual,

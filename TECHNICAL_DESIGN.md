@@ -293,6 +293,10 @@ plans and structures entirely above the generated ground remain admissible.
 Trusted save admission reuses the same chunk-clipped structural overlap test
 against existing generated terrain, rejecting embedded built matter with a
 specific obstructed voxel while preserving empty planned blueprints.
+Materializing an inert structural plan now requires that its full bounds
+avoid generated full-cube terrain, using the same finite chunk-clipped test.
+Both standalone and atomic player construction tokens bind the world revision:
+terrain changes after validation reject commit before consuming materials.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent

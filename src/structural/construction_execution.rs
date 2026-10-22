@@ -36,6 +36,7 @@ pub(crate) use requirement::resolve_structural_material_requirement;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedStructuralConstruction {
     element: StructuralElementId,
+    expected_world_revision: u64,
     expected_structure_revision: u64,
     next_structure_revision: u64,
     material: Vec<ConsumedMaterialTrace>,
@@ -55,6 +56,12 @@ impl ValidatedStructuralConstruction {
         &self,
         state: &AppState,
     ) -> Result<(), StructuralConstructionCommitError> {
+        if state.world().revision() != self.expected_world_revision {
+            return Err(StructuralConstructionCommitError::StaleWorldRevision {
+                expected: self.expected_world_revision,
+                actual: state.world().revision(),
+            });
+        }
         let actual_structure_revision = state.structures().revision();
         if actual_structure_revision != self.expected_structure_revision {
             return Err(StructuralConstructionCommitError::StaleStructureRevision {
@@ -104,6 +111,12 @@ impl ValidatedStructuralConstruction {
         record: &StructuralElementRecord,
         projected_structure_revision: u64,
     ) -> Result<(), StructuralConstructionCommitError> {
+        if state.world().revision() != self.expected_world_revision {
+            return Err(StructuralConstructionCommitError::StaleWorldRevision {
+                expected: self.expected_world_revision,
+                actual: state.world().revision(),
+            });
+        }
         let actual_projected_revision = state.structures().revision().checked_add(1).ok_or(
             StructuralConstructionCommitError::StaleStructureRevision {
                 expected: self.expected_structure_revision,
@@ -183,6 +196,7 @@ pub(crate) fn validate_structural_construction_for_planned_member(
         return Err(StructuralConstructionError::UnknownElement { element });
     }
     validate_structural_construction_target(registries, element, record)?;
+    validate_structural_construction_world(registries, state, record)?;
     validate_structural_construction_material(
         registries,
         element,
@@ -249,6 +263,7 @@ pub(crate) fn validate_structural_construction_for_planned_member(
     .ok_or(StructuralConstructionError::SelfWeightOverflow { element })?;
     Ok(ValidatedStructuralConstruction {
         element,
+        expected_world_revision: state.world().revision(),
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),
@@ -256,6 +271,22 @@ pub(crate) fn validate_structural_construction_for_planned_member(
         egress,
         stockpile_load: None,
     })
+}
+
+fn validate_structural_construction_world(
+    registries: &Registries,
+    state: &AppState,
+    record: &StructuralElementRecord,
+) -> Result<(), StructuralConstructionError> {
+    if let Some(voxel) =
+        crate::world::first_solid_block_in_structural_bounds(registries, state, record.bounds())
+    {
+        return Err(StructuralConstructionError::EmbeddedInSolidTerrain {
+            element: record.id(),
+            voxel,
+        });
+    }
+    Ok(())
 }
 
 fn validate_structural_construction_target(
@@ -387,6 +418,7 @@ pub(crate) fn validate_structural_construction(
         .get_element(element)
         .ok_or(StructuralConstructionError::UnknownElement { element })?;
     validate_structural_construction_target(registries, element, record)?;
+    validate_structural_construction_world(registries, state, record)?;
     validate_structural_construction_material(
         registries,
         element,
@@ -422,6 +454,7 @@ pub(crate) fn validate_structural_construction(
     .ok_or(StructuralConstructionError::SelfWeightOverflow { element })?;
     Ok(ValidatedStructuralConstruction {
         element,
+        expected_world_revision: state.world().revision(),
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),

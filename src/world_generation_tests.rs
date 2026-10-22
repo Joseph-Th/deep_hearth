@@ -24,8 +24,8 @@ use crate::surface::{
 };
 use crate::survival::{available_adjacent_drink_sources, available_local_drink_sources};
 use crate::world::{
-    ChunkCoord, ChunkGenerationError, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, validate_generate_chunk,
-    validate_generate_player_neighborhood,
+    BlockStateId, ChunkCoord, ChunkGenerationError, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
+    set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 
 use super::*;
@@ -119,7 +119,12 @@ fn trusted_load_rejects_embodied_timber_inside_existing_generated_stone() {
     .unwrap()
     .commit(&mut state)
     .unwrap();
+    // Forged saves can bypass ordinary construction admission. Build the
+    // member in clear generated air, then use the test-only terrain mutation
+    // to synthesize the invalid overlap that trusted loading must reject.
+    set_generated_block_for_test(registries.world(), &mut state, at, BlockStateId::AIR);
     materialize_full_panel_at(&registries, &mut state, at);
+    set_generated_block_for_test(registries.world(), &mut state, at, BLOCK_STATE_STONE);
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
         Err(StateValidationError::StructureEmbeddedInSolidTerrain { voxel: at }),
