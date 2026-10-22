@@ -65,6 +65,182 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
 }
 
 #[test]
+fn hungry_scout_continues_to_a_distant_full_patch_past_a_nearby_crumb() {
+    use crate::content::MATERIAL_WILD_NUTS;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while state.tick().value() < 580 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let forage = |position, milligrams| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            forage(path.side_food, 1_000),
+            forage(path.side_stone, 1_000),
+            forage(path.far_stone, 150_000),
+        ],
+    )
+    .unwrap();
+    let ids = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut state).unwrap();
+    let capacity = super::super::SCOUT_FORAGE_BATCH;
+    let choose = |state: &AppState| {
+        super::reachable_detour_food(
+            &registries,
+            state,
+            path.junction,
+            path.den,
+            path.tip,
+            None,
+            state.tick(),
+            capacity,
+            super::super::SCOUT_MEAL_MASS,
+        )
+    };
+    assert_eq!(
+        choose(&state),
+        Some((path.side_stone, Some(path.far_stone)))
+    );
+    let mut with_complete_near = state.clone();
+    validate_create_surface_resources(
+        &registries,
+        &with_complete_near,
+        [forage(path.side_food, 30_000)],
+    )
+    .unwrap()
+    .commit(&mut with_complete_near)
+    .unwrap();
+    assert_eq!(
+        choose(&with_complete_near),
+        Some((path.side_food, None)),
+        "an adequate nearby ration avoids the extra physical route edge"
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 585 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    let scout = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(scout.scout_position(), path.side_stone);
+    assert_eq!(scout.detour_goal, Some(path.far_stone));
+    let mut with_unrelated_goal_scrap = state.clone();
+    let creation = validate_create_surface_resources(
+        &registries,
+        &with_unrelated_goal_scrap,
+        [drop(path.far_stone, false, 5_000)],
+    )
+    .unwrap();
+    let scrap = creation.first_resource_id();
+    creation.commit(&mut with_unrelated_goal_scrap).unwrap();
+    let scrap_conserved = calculate_matter_accounting(&with_unrelated_goal_scrap)
+        .unwrap()
+        .total();
+    while state.tick().value() < 590 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        let _ = advance_tick(&registries, &mut with_unrelated_goal_scrap).unwrap();
+    }
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.far_stone,
+        "the small intermediate patch must not cancel an adequate distant forage goal"
+    );
+    assert_eq!(
+        with_unrelated_goal_scrap
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.far_stone,
+        "new inert scrap at the goal must not conceal the originally sought food patch"
+    );
+    while state.tick().value() < 610 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        let _ = advance_tick(&registries, &mut with_unrelated_goal_scrap).unwrap();
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        with_unrelated_goal_scrap
+            .surface()
+            .get(ids[2])
+            .unwrap()
+            .remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    assert_eq!(
+        with_unrelated_goal_scrap
+            .surface()
+            .get(scrap)
+            .unwrap()
+            .remaining_mass(),
+        Mass::from_milligrams(5_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&with_unrelated_goal_scrap)
+            .unwrap()
+            .total(),
+        scrap_conserved
+    );
+    assert_eq!(
+        validate_loaded_state(&registries, &with_unrelated_goal_scrap),
+        Ok(())
+    );
+}
+
+#[test]
 fn scout_forages_the_largest_recoverable_serving_not_the_oldest_crumb() {
     use crate::content::MATERIAL_WILD_NUTS;
 

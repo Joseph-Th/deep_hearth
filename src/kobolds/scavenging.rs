@@ -532,6 +532,57 @@ pub(super) fn reachable_far_food(
         .map(|(_, _, first, goal)| (first, goal))
 }
 
+/// Nearby patches save travel, but a distant complete meal is more useful
+/// than a local crumb when a single forage triggers the same recovery clock.
+/// When both patches are insufficient, prefer the larger recoverable serving.
+/// Only previously admitted, sighted and guarded route candidates compete.
+pub(super) fn reachable_detour_food(
+    registries: &Registries,
+    state: &AppState,
+    junction: VoxelCoord,
+    den: VoxelCoord,
+    authored_tip: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+    at: SimulationTick,
+    maximum_mass: Mass,
+    meal_shortage: Mass,
+) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
+    let side = reachable_side_food(
+        registries,
+        state,
+        junction,
+        den,
+        authored_tip,
+        player_position,
+        at,
+        maximum_mass,
+    );
+    let far = reachable_far_food(
+        registries,
+        state,
+        junction,
+        den,
+        authored_tip,
+        player_position,
+        at,
+        maximum_mass,
+    );
+    match (side, far) {
+        (Some(first), Some((second, goal))) => {
+            let side_mass = best_local_forage(registries, state, first, at, maximum_mass)?.0;
+            let far_mass = best_local_forage(registries, state, goal, at, maximum_mass)?.0;
+            if side_mass >= meal_shortage || side_mass >= far_mass {
+                Some((first, None))
+            } else {
+                Some((second, Some(goal)))
+            }
+        }
+        (Some(first), None) => Some((first, None)),
+        (None, Some((first, goal))) => Some((first, Some(goal))),
+        (None, None) => None,
+    }
+}
+
 /// Remnants of precision craft matter more to former machine-servants than
 /// raw rock or copper ore. This only classifies existing, authored loose goods:
 /// an installed or carried machine is never loot in this surface-resource query.
