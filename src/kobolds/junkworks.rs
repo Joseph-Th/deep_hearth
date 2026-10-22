@@ -10,7 +10,7 @@ use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::surface::{SurfaceResourceId, SurfaceResourceKind};
+use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
 
 use super::scavenging::is_servant_era_salvage;
 use super::visibility::scout_visible_from;
@@ -76,7 +76,28 @@ impl KoboldJunkRig {
     }
 }
 
-fn current_den_rig(state: &AppState, colony: &KoboldColony) -> Option<KoboldJunkRig> {
+pub(super) fn is_junk_striker(resource: &SurfaceResourceRecord) -> bool {
+    let commodity = resource.commodity();
+    ((commodity.material() == MATERIAL_WOOD
+        && [FORM_HANDLE, FORM_BOARD].contains(&commodity.form()))
+        || (commodity.material() == MATERIAL_STONE && commodity.form() == FORM_CHIP))
+        && resource.remaining_mass() >= STRIKER_MINIMUM
+}
+
+pub(super) fn den_needs_striker(state: &AppState, den: VoxelCoord) -> bool {
+    let mut has_core = false;
+    let mut has_striker = false;
+    for resource in state.surface().available_resources_at(Some(den)) {
+        if resource.kind() != SurfaceResourceKind::Drop {
+            continue;
+        }
+        has_core |= is_servant_era_salvage(resource) && resource.remaining_mass() >= CORE_MINIMUM;
+        has_striker |= is_junk_striker(resource);
+    }
+    has_core && !has_striker
+}
+
+pub(super) fn current_den_rig(state: &AppState, colony: &KoboldColony) -> Option<KoboldJunkRig> {
     if colony.mobilized_at.is_none() {
         return None;
     }

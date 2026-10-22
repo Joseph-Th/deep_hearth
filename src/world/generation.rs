@@ -441,6 +441,9 @@ fn build_generated_chunk(
         .is_some()
         && registry
             .get_state(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+            .is_some()
+        && registry
+            .get_state(crate::content::BLOCK_STATE_TEMPLE_SEAL)
             .is_some())
     .then(|| temple::TempleSite::for_chunk(profile.seed(), coord))
     .flatten();
@@ -451,6 +454,14 @@ fn build_generated_chunk(
             let surface = terrain_height(profile.seed(), x, z);
             for y in WORLD_MIN_Y..=surface {
                 let position = VoxelCoord::new(x, y, z);
+                if temple.is_some_and(|site| site.surface_seal(surface, position)) {
+                    let seal = crate::content::BLOCK_STATE_TEMPLE_SEAL;
+                    let seal_mass = registry
+                        .represented_mass_for_state(seal)
+                        .expect("validated temple content supplies a seal");
+                    chunk.set_block(position, seal, crate::core::quantity::Mass::ZERO, seal_mass);
+                    continue;
+                }
                 if let Some(state) = temple.and_then(|site| site.generated_state(position)) {
                     if state != BlockStateId::AIR {
                         let relic_mass = registry
@@ -478,13 +489,14 @@ fn build_generated_chunk(
     Ok(chunk)
 }
 
-/// Locates stationary temple residents using only generated world identity. The kobold
-/// owner applies sight and range checks; no regional enemy map becomes player-visible.
+/// Locates the individual stationary temple residents using generated world identity.
+/// Obstructing one original cell conceals only that resident, not the entire garrison.
+/// The kobold owner applies sight and range checks without exposing regional maps.
 pub(crate) fn temple_residents_at(
     registries: &Registries,
     state: &AppState,
     observer: VoxelCoord,
-) -> Option<[VoxelCoord; 2]> {
+) -> Option<[Option<VoxelCoord>; 2]> {
     if registries
         .world()
         .get_state(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
@@ -493,16 +505,18 @@ pub(crate) fn temple_residents_at(
             .world()
             .get_state(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
             .is_none()
+        || registries
+            .world()
+            .get_state(crate::content::BLOCK_STATE_TEMPLE_SEAL)
+            .is_none()
     {
         return None;
     }
     let seed = state.world().generation_profile()?.seed();
     let site = temple::TempleSite::for_chunk(seed, ChunkCoord::containing(observer))?;
-    let residents = [site.warden(), site.archivist()];
-    residents
-        .iter()
-        .all(|position| state.world().block_at(*position) == Some(BlockStateId::AIR))
-        .then_some(residents)
+    Some([site.warden(), site.archivist()].map(|position| {
+        (state.world().block_at(position) == Some(BlockStateId::AIR)).then_some(position)
+    }))
 }
 
 fn terrain_height(seed: WorldGenerationSeed, x: i64, z: i64) -> i64 {

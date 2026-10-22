@@ -12,10 +12,11 @@ use crate::surface::{
 };
 use crate::survival::{FoodFreshness, freshness_from_history};
 
+use super::junkworks::{current_den_rig, den_needs_striker};
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::scavenging::{
     den_cache_space, is_contestable_drop, is_portable_drop, is_servant_era_salvage,
-    reachable_inherited_salvage,
+    matches_salvage_goal, reachable_inherited_salvage,
 };
 use super::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
@@ -289,6 +290,8 @@ fn clear_inert_cache_for_industry(
         return None;
     }
     let tip = colony.route[2];
+    let needs_striker = den_needs_striker(state, den);
+    let protected_striker = current_den_rig(state, colony).map(|rig| rig.striker());
     let player = state.logistics().player().map(|record| record.position());
     if !den_exit_is_safe(registries, state, den, junction) {
         return None;
@@ -303,7 +306,7 @@ fn clear_inert_cache_for_industry(
                     .surface()
                     .available_resources_at(Some(far.unwrap_or(first)))
                     .any(|item| {
-                        is_servant_era_salvage(item)
+                        matches_salvage_goal(item, needs_striker)
                             && is_portable_drop(item)
                             && item.remaining_mass() <= free
                     })
@@ -323,6 +326,7 @@ fn clear_inert_cache_for_industry(
             resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() != crate::content::FORM_FOOD
                 && !is_servant_era_salvage(resource)
+                && Some(resource.id()) != protected_striker
                 && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
         })
         .filter_map(|resource| {
@@ -344,7 +348,7 @@ fn clear_inert_cache_for_industry(
                 .surface()
                 .available_resources_at(Some(target))
                 .any(|candidate| {
-                    is_servant_era_salvage(candidate)
+                    matches_salvage_goal(candidate, needs_striker)
                         && is_portable_drop(candidate)
                         && candidate.remaining_mass() <= capacity
                 });

@@ -13,10 +13,11 @@ use crate::surface::{
 use crate::survival::Vitality;
 
 use super::feeding::{apply_scheduled_den_care, scout_wants_drop, scout_wants_food_opportunity};
+use super::junkworks::{den_needs_striker, is_junk_striker};
 use super::mobilization::observe_progress;
 use super::scavenging::{
     den_cache_space, finds_external_drop, has_local_scout_interest, is_portable_drop,
-    is_servant_era_salvage, local_portable_source, local_split_source, reachable_detour_drop,
+    local_portable_source, local_split_source, matches_salvage_goal, reachable_detour_drop,
     reachable_far_food, reachable_inherited_salvage, reachable_side_food, scout_goal_has_supplies,
     should_seek_local_food,
 };
@@ -62,6 +63,28 @@ fn scout_raid_interest(
         .flatten();
     let local_food = colony.hungry
         && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
+    // A shaped striker on the authored outer patrol is a real salvage goal too.
+    // A fed kobold bypasses nearer inert rock only while the part is still
+    // visible, den-fitting, physically reachable, unguarded, and unlit.
+    let missing_striker_at_tip = colony.mobilized_at.is_some()
+        && colony.scout_step == 1
+        && !colony.returning
+        && !pressured
+        && den_needs_striker(state, colony.route[0])
+        && state
+            .surface()
+            .available_resources_at(Some(colony.route[2]))
+            .any(|resource| {
+                is_portable_drop(resource)
+                    && resource.remaining_mass() <= capacity
+                    && is_junk_striker(resource)
+                    && scout_wants_drop(registries, resource, at)
+            })
+        && scout_visible_from(registries, state, from, colony.route[2])
+        && scout_can_enter(registries, state, colony.route[2], player_position)
+        && !scout_sees_guarded_cell(registries, state, from, colony.route[2])
+        && assess_local_illumination(registries, state, colony.route[2]).level()
+            < SCOUT_DETERRENT_LIGHT_LEVEL;
     let exposed = (has_local_scout_interest(
         registries,
         state,
@@ -71,7 +94,7 @@ fn scout_raid_interest(
         at,
         colony.seeks_food_at_junction(),
     ) || (colony.scout_step == 2 && local_food))
-        && (inherited_target.is_none() || local_food)
+        && ((inherited_target.is_none() && !missing_striker_at_tip) || local_food)
         && !continue_to_whole_far_cache(
             registries,
             state,
@@ -105,6 +128,7 @@ fn continue_to_whole_far_cache(
     let Some(goal) = colony.detour_goal else {
         return false;
     };
+    let needs_striker = colony.mobilized_at.is_some() && den_needs_striker(state, colony.route[0]);
     let target = state
         .surface()
         .available_resources_at(Some(goal))
@@ -116,7 +140,7 @@ fn continue_to_whole_far_cache(
         .min_by_key(|resource| {
             (
                 colony.hungry && resource.commodity().form() != crate::content::FORM_FOOD,
-                colony.mobilized_at.is_some() && !is_servant_era_salvage(resource),
+                colony.mobilized_at.is_some() && !matches_salvage_goal(resource, needs_striker),
                 resource.id(),
             )
         });
@@ -124,7 +148,8 @@ fn continue_to_whole_far_cache(
         return false;
     };
     let target_food = target.commodity().form() == crate::content::FORM_FOOD;
-    let target_precision = colony.mobilized_at.is_some() && is_servant_era_salvage(target);
+    let target_precision =
+        colony.mobilized_at.is_some() && matches_salvage_goal(target, needs_striker);
     let local_food = colony.hungry
         && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
     let local_whole = local_portable_source(
@@ -146,7 +171,12 @@ fn continue_to_whole_far_cache(
                     .available_resources_at(Some(from))
                     .any(|resource| scout_wants_food_opportunity(registries, resource, at)))
     } else if target_precision {
-        local_whole.is_some_and(|id| state.surface().get(id).is_some_and(is_servant_era_salvage))
+        local_whole.is_some_and(|id| {
+            state
+                .surface()
+                .get(id)
+                .is_some_and(|drop| matches_salvage_goal(drop, needs_striker))
+        })
     } else {
         local_whole.is_some()
     };

@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing with routed tailings, copper forming/casting, delegated cast-part work. Ore reduction and smelting-slag generation are absent. |
-| Opening wilderness acquisition | Kobolds raid finite supplies, forage, and leave tracks. Light and guards constrain patrols. Mobilized dens improvise unreliable one-edge alarms from recovered parts and fund food-backed sentries. No combat. |
+| Opening wilderness acquisition | Kobolds raid, forage and track. Light and guards limit patrols. Mobilized dens recover missing alarm parts, use intermittent one-edge warnings and provision sentries. No combat. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite typed stores with power/loss limits. Log or chip fuel becomes finite campfire heat with terminal mass accounting; water is locally finite/drinkable. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Mass-backed chunks, buried seeded temple vaults with two conserved copper relics and visible heavy kobold castes; targeting, collision, 20 Hz excavation, conserved fragments, use/drop, supported storage, framing, and hotbar. General placement, UI, and residency absent. |
+| Block world | Mass-backed chunks, sparse temple halls, workshops, stairs, surface seals, three copper relics and heavy kobold castes; targeting, collision, excavation, conserved fragments, use/drop, storage, framing and hotbar. General placement, UI and residency absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

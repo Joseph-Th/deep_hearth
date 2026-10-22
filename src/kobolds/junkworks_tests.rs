@@ -40,9 +40,18 @@ fn put_drop(
     state: &mut AppState,
     commodity: CommodityKey,
 ) -> SurfaceResourceId {
+    put_drop_at(registries, state, DEN, commodity)
+}
+
+fn put_drop_at(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+    commodity: CommodityKey,
+) -> SurfaceResourceId {
     let spec = SurfaceResourceSpec::new(
         SurfaceResourceKind::Drop,
-        DEN,
+        position,
         commodity,
         Mass::from_milligrams(50_000),
         TEMPERATURE,
@@ -79,6 +88,77 @@ fn mobilized_den() -> (Registries, AppState) {
     );
     assert_eq!(state.kobold_state().colony.as_ref().unwrap().scout_step, 1);
     (registries, state)
+}
+
+#[test]
+fn scavenger_seeks_a_missing_wooden_striker_beyond_nearer_scrap() {
+    let (registries, mut purposeful) = mobilized_den();
+    put_drop_at(
+        &registries,
+        &mut purposeful,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_STONE, crate::content::FORM_LUMP),
+    );
+    let handle = put_drop_at(
+        &registries,
+        &mut purposeful,
+        TIP,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let mut unmotivated = purposeful.clone();
+    put_drop(
+        &registries,
+        &mut purposeful,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let total = calculate_matter_accounting(&purposeful).unwrap().total();
+    assert!(den_needs_striker(&purposeful, DEN));
+    assert!(!den_needs_striker(&unmotivated, DEN));
+
+    advance_to(&registries, &mut purposeful, 205);
+    advance_to(&registries, &mut unmotivated, 205);
+    assert_eq!(
+        purposeful
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_step,
+        2,
+        "the purposeful scout must actually walk toward the missing component"
+    );
+    assert_eq!(
+        unmotivated
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_step,
+        0,
+        "without a copper core the nearby ordinary salvage should win"
+    );
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &purposeful)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut purposeful, 215);
+    advance_to(&registries, &mut replay, 215);
+    assert_eq!(purposeful, replay);
+    let rig = current_den_rig(
+        &purposeful,
+        purposeful.kobold_state().colony.as_ref().unwrap(),
+    )
+    .expect("the scout physically delivered the missing part");
+    assert_eq!(rig.striker(), handle);
+    assert_eq!(rig.kind(), KoboldJunkRigKind::TimberRatchet);
+    assert!(!den_needs_striker(&purposeful, DEN));
+    assert_eq!(purposeful.surface().get(handle).unwrap().position(), DEN);
+    assert_eq!(
+        calculate_matter_accounting(&purposeful).unwrap().total(),
+        total
+    );
+    assert_eq!(validate_loaded_state(&registries, &purposeful), Ok(()));
 }
 
 #[test]
@@ -151,6 +231,40 @@ fn real_salvage_makes_an_unreliable_local_clatter_alarm_and_changes_a_scouts_rou
 
     relocate_player_for_test(&mut state, VoxelCoord::new(15, 0, 15));
     assert_eq!(available_nearby_kobold_junk_rig(&registries, &state), None);
+}
+
+#[test]
+fn taking_a_real_component_disables_the_den_alarm_without_consuming_material() {
+    let (registries, mut state) = mobilized_den();
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let striker = put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert!(current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap()).is_some());
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &mut state, striker, DEN, JUNCTION
+    ));
+    assert!(den_needs_striker(&state, DEN));
+    assert!(current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap()).is_none());
+    assert_eq!(state.surface().get(striker).unwrap().position(), JUNCTION);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
 }
 
 #[test]

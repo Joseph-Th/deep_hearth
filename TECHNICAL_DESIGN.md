@@ -205,15 +205,24 @@ traversal edge to an actually adjacent scout. Timber-braced mechanisms sound eve
 clock opportunity; crude stone clappers every fifth. Missed beats retain the warning, and moving
 either loose part immediately disables the device. A successful warning makes the scout retreat
 through its ordinary route; it does not create a radio, energy source, or duplicate material.
+After mobilization, den inventory changes the scout's physical salvage objective: with a usable
+precision-copper core but no striker, its existing bounded patrol and two-edge detour search
+prefer shaped timber or stone chips over ordinary inert scraps. A usable striker on the
+original outer post may outweigh a nearer rock pile only while the part is actually visible,
+reachable, unlit, unguarded and den-fitting. Cache clearing protects assembled rig parts rather
+than expelling the alarm it depends on. No distant cargo is reserved or teleported.
 
-Generated terrain places one sealed temple vault within each eight-by-eight-chunk district's
-anchor column. Seed and chunk coordinates determine its buried center independently of chunk
-generation order. The rock roof and floor are full-cube world authority, and the interior is
-canonical air. Two dormant relic shells retain authored copper mass and excavate to conserved
-copper scrap, not instantly usable technology. Their hollow housings do not award entire cubic
-meters of refined copper. Two stationary heavy-caste temple residents are derived from the
-generated room and visible only through local sight checks. They are not summoned by player
-progress; movement, combat, ancient-machine restoration and relic interpretation are absent.
+Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
+including negative coordinates, from the persisted world seed. Its buried site is independent
+of chunk loading order; the spawn chunk is not a guaranteed ancient-copper cache. The precinct
+has a central hall, two physically connected workshops containing separate mnemonic archive
+and motive-engine relics, a fifteen-step supported stone stair, and an engraved surface
+threshold aligned above the last buried step. Intervening host rock must still be physically
+excavated. Rooms are canonical air, their roofs and floors solid world blocks; three dormant
+copper shells have density-validated partial material fill, distinct hardness, and finite
+excavatable scrap. Two stationary heavy castes are derived individually from valid room
+cells and only revealed by local sight checks. Neither population nor relic function scales
+magically with player progress; combat, movement, restoration and interpretation remain absent.
 
 This table is intentionally ordered exactly as the fields in `SystemState`; the documentation checker rejects
 owner additions, removals, or drift until the atlas is updated. A top-level directory absent from this table is

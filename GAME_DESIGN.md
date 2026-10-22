@@ -243,6 +243,10 @@ raiding versus defending local supplies. An unattended machine is an opportunity
 components, not an instantly copied blueprint. Improvised devices do not benefit from inexplicable
 technology a scout has never observed or components it has not physically recovered. The player
 may reclaim the loose materials from a den, disabling its contraption without deleting matter.
+After recovering a copper core, a scout should seek the missing striker on actual visible
+routes, even passing a nearer worthless stone pile when sufficiently provisioned. A
+fully assembled rig should survive routine cache rearrangement unless the player deliberately
+intercepts one of its finite, recoverable components.
 
 Far below those camps lie sealed temple districts, inherited from the period when kobolds
 maintained a civilization they did not create. They are not crude shacks upgraded by a difficulty
@@ -252,6 +256,11 @@ subterranean terrain and old devices as embodied salvageable material. A closed 
 automatically readable, and a dead engine is not automatically usable. Excavating or repairing them
 should require geology, access, power, material reconstruction and interpretation rather than a
 species-specific magical unlock.
+One sparse seed-selected precinct per broad district has an engraved, mineable copper threshold
+at the surface and a buried stair approach that still requires excavation of intervening rock.
+An ancient hall branches into two distinct relic workshops; the player can find their physical
+infrastructure without automatically learning to repair or operate it. The thin copper housings
+are finite salvage rather than an unlimited industrial-metal shortcut.
 
 The subterranean castes differ physically and socially from surface raiders. Small **scouts**
 and **watchmen** forage and improvise. Heavy **vault wardens** are temple-bred defenders

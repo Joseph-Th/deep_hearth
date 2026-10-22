@@ -522,9 +522,11 @@ impl KoboldState {
                     .into_iter()
                     .flat_map(|residents| {
                         [
-                            (residents[0], KoboldRole::TempleWarden),
-                            (residents[1], KoboldRole::TempleArchivist),
+                            residents[0].map(|place| (place, KoboldRole::TempleWarden)),
+                            residents[1].map(|place| (place, KoboldRole::TempleArchivist)),
                         ]
+                        .into_iter()
+                        .flatten()
                     })
                     .filter(move |(resident, _)| {
                         scout_visible_from(registries, state, *resident, position)

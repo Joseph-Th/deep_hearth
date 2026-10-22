@@ -1840,9 +1840,13 @@ fn generated_chunk_distinguishes_air_from_absent_world_truth() {
 fn generated_terrain_is_included_in_exact_matter_accounting() {
     let registries = build_registries();
     let mut state = AppState::new();
-    // A non-temple column consists solely of solid native stone. District anchor
-    // columns legitimately replace rock with chamber air and relic-shell copper.
-    generate(&mut state, ChunkCoord::new(1, 0));
+    // Find an ordinary stone column. Each seeded district contains exactly one
+    // temple chunk, so non-temple terrain has its original homogeneous accounting.
+    let ordinary = (0..8)
+        .map(|x| ChunkCoord::new(x, 0))
+        .find(|chunk| super::generation::temple::TempleSite::for_chunk(SEED, *chunk).is_none())
+        .expect("one of eight columns is not the temple site");
+    generate(&mut state, ordinary);
 
     let occupied_cells = state
         .world()

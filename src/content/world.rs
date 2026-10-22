@@ -13,10 +13,12 @@ use super::textures::{BLOCK_COPPER, BLOCK_STONE};
 pub const WORLD_BLOCK_STONE: BlockDefinitionId = BlockDefinitionId::new(2);
 pub const WORLD_BLOCK_TEMPLE_ARCHIVE: BlockDefinitionId = BlockDefinitionId::new(3);
 pub const WORLD_BLOCK_TEMPLE_DRIVE: BlockDefinitionId = BlockDefinitionId::new(4);
+pub const WORLD_BLOCK_TEMPLE_SEAL: BlockDefinitionId = BlockDefinitionId::new(5);
 
 pub const BLOCK_STATE_STONE: BlockStateId = BlockStateId::new(2);
 pub const BLOCK_STATE_TEMPLE_ARCHIVE: BlockStateId = BlockStateId::new(3);
 pub const BLOCK_STATE_TEMPLE_DRIVE: BlockStateId = BlockStateId::new(4);
+pub const BLOCK_STATE_TEMPLE_SEAL: BlockStateId = BlockStateId::new(5);
 
 pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistry {
     WorldRegistry::new(
@@ -84,12 +86,31 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                 )),
                 Some(BLOCK_COPPER),
             ),
+            BlockDefinition::new(
+                WORLD_BLOCK_TEMPLE_SEAL,
+                "engraved servant-era temple threshold",
+                BLOCK_STATE_TEMPLE_SEAL,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+                    Mass::from_milligrams(4_480_000),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_material_fill_fraction(500)
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(250_000_000),
+                    CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_COPPER),
+            ),
         ],
         [
             BlockStateDefinition::new(BlockStateId::AIR, BlockDefinitionId::AIR),
             BlockStateDefinition::new(BLOCK_STATE_STONE, WORLD_BLOCK_STONE),
             BlockStateDefinition::new(BLOCK_STATE_TEMPLE_ARCHIVE, WORLD_BLOCK_TEMPLE_ARCHIVE),
             BlockStateDefinition::new(BLOCK_STATE_TEMPLE_DRIVE, WORLD_BLOCK_TEMPLE_DRIVE),
+            BlockStateDefinition::new(BLOCK_STATE_TEMPLE_SEAL, WORLD_BLOCK_TEMPLE_SEAL),
         ],
     )
 }

@@ -9,6 +9,7 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
+use super::junkworks::{den_needs_striker, is_junk_striker};
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::visibility::scout_visible_from;
 use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL};
@@ -19,13 +20,25 @@ use super::{DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVE
 fn scout_loot_priority(
     resource: &crate::surface::SurfaceResourceRecord,
     mobilized: bool,
+    needs_striker: bool,
 ) -> (bool, bool, SurfaceResourceId) {
     let not_food = resource.commodity().form() != crate::content::FORM_FOOD;
     (
         not_food,
-        !(mobilized && is_servant_era_salvage(resource)),
+        !(mobilized && matches_salvage_goal(resource, needs_striker)),
         resource.id(),
     )
+}
+
+pub(super) fn matches_salvage_goal(
+    resource: &crate::surface::SurfaceResourceRecord,
+    needs_striker: bool,
+) -> bool {
+    if needs_striker {
+        is_junk_striker(resource)
+    } else {
+        is_servant_era_salvage(resource)
+    }
 }
 
 pub(super) fn is_portable_drop(resource: &crate::surface::SurfaceResourceRecord) -> bool {
@@ -135,6 +148,12 @@ pub(super) fn local_portable_source(
     food_only: bool,
     mobilized: bool,
 ) -> Option<SurfaceResourceId> {
+    let needs_striker = mobilized
+        && state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .is_some_and(|colony| den_needs_striker(state, colony.route[0]));
     state
         .surface()
         .available_resources_at(Some(position))
@@ -144,7 +163,7 @@ pub(super) fn local_portable_source(
                 && scout_wants_drop(registries, resource, at)
                 && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
         })
-        .min_by_key(|resource| scout_loot_priority(resource, mobilized))
+        .min_by_key(|resource| scout_loot_priority(resource, mobilized, needs_striker))
         .map(|resource| resource.id())
 }
 
@@ -159,6 +178,12 @@ pub(super) fn local_split_source(
     food_only: bool,
     mobilized: bool,
 ) -> Option<SurfaceResourceId> {
+    let needs_striker = mobilized
+        && state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .is_some_and(|colony| den_needs_striker(state, colony.route[0]));
     state
         .surface()
         .available_resources_at(Some(position))
@@ -168,7 +193,7 @@ pub(super) fn local_split_source(
                 && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
                 && (!is_portable_drop(resource) || resource.remaining_mass() > space)
         })
-        .min_by_key(|resource| scout_loot_priority(resource, mobilized))
+        .min_by_key(|resource| scout_loot_priority(resource, mobilized, needs_striker))
         .map(|resource| resource.id())
 }
 
@@ -460,12 +485,13 @@ fn engineered_drop_at(
     position: VoxelCoord,
     space: Mass,
     at: SimulationTick,
+    needs_striker: bool,
 ) -> Option<(bool, SurfaceResourceId)> {
     state
         .surface()
         .available_resources_at(Some(position))
         .filter(|resource| {
-            is_servant_era_salvage(resource)
+            matches_salvage_goal(resource, needs_striker)
                 && is_contestable_drop(resource, space)
                 && scout_wants_drop(registries, resource, at)
         })
@@ -502,12 +528,13 @@ pub(super) fn reachable_inherited_salvage(
     if capacity.is_zero() {
         return None;
     }
+    let needs_striker = den_needs_striker(state, den);
     let side = state
         .logistics()
         .traversable_destinations(junction)
         .filter(|first| *first != den && *first != authored_tip)
         .filter_map(|first| {
-            engineered_drop_at(registries, state, first, capacity, at)
+            engineered_drop_at(registries, state, first, capacity, at, needs_striker)
                 .map(|priority| (priority, first))
         })
         .filter(|(_, first)| {
@@ -532,7 +559,7 @@ pub(super) fn reachable_inherited_salvage(
                 .traversable_destinations(first)
                 .filter(move |goal| *goal != junction && *goal != den && *goal != authored_tip)
                 .filter_map(move |goal| {
-                    engineered_drop_at(registries, state, goal, capacity, at)
+                    engineered_drop_at(registries, state, goal, capacity, at, needs_striker)
                         .map(|priority| (priority, first, goal))
                 })
         })
