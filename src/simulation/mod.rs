@@ -104,7 +104,7 @@ pub fn advance_control_tick_with_direct_input(
     if next_control.is_simulation_boundary()
         && boundary_body_motion_needs_transaction(registries, state, input)
     {
-        let mut staged = state.clone();
+        let mut staged = state.snapshot_for_control_transaction();
         let outcome = advance_control_tick_unstaged(registries, &mut staged, input, next_control)?;
         *state = staged;
         return Ok(outcome);

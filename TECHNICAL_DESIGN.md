@@ -77,6 +77,13 @@ when no generated-world player body has active control-rate physics. It fails wi
 `ControlSteppingRequired` rather than skip gravity/collision. Direct-control adapters and generated-world body
 continuation therefore advance through `advance_control_tick`.
 
+On exceptional slow/control boundaries where a later body-motion rejection could
+otherwise leave earlier owner updates committed, the control orchestrator uses
+one privileged in-memory snapshot of the complete root and surface indexes.
+The staged transition replaces the root only after success. Ordinary steps
+do not pay this copying cost; the public `AppState` and global surface owner
+still expose no production `Clone` or whole-world data access to adapters.
+
 A known due tick is a bound, not permission to skip intervening semantics. Semantic fast-forward requires a
 separate authoritative transition with proved equivalence across every skipped phase.
 
@@ -220,9 +227,20 @@ and motive-engine relics, a fifteen-step supported stone stair, and an engraved 
 threshold aligned above the last buried step. Intervening host rock must still be physically
 excavated. Rooms are canonical air, their roofs and floors solid world blocks; three dormant
 copper shells have density-validated partial material fill, distinct hardness, and finite
-excavatable scrap. Two stationary heavy castes are derived individually from valid room
-cells and only revealed by local sight checks. Neither population nor relic function scales
-magically with player progress; combat, movement, restoration and interpretation remain absent.
+excavatable scrap. Heavy castes originate in separately observable temple room cells.
+Archivists remain at their old posts. A warden follows a fixed three-cell, face-adjacent
+defensive route on the existing five-tick kobold clock only when a player is in its
+generated temple column. Its step toward a living, visible intruder requires real air at
+body and head, full-cube support underfoot and a player-free destination; loss of contact
+causes one-cell-at-a-time withdrawal. The kobold owner persists only displaced wardens in
+strictly sorted per-temple records. Trusted load rejects duplicates, nonexistent sites,
+blocked/absent occupancy and invalid route cursors. A resident stranded by later
+floor excavation retains its saved position but cannot move without support.
+The normal post is derived
+from generated terrain, not stored as a second creature ledger; unloaded/remote sites
+are not scanned for decisions. Local sightings expose defensive posture and moving
+position, not an implicit attack. Combat, general pursuit/pathfinding, physiology,
+relic restoration and interpretation remain absent.
 
 This table is intentionally ordered exactly as the fields in `SystemState`; the documentation checker rejects
 owner additions, removals, or drift until the atlas is updated. A top-level directory absent from this table is

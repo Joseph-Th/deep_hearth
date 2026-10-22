@@ -70,6 +70,15 @@ impl TempleSite {
         VoxelCoord::new(self.center.x(), CHAMBER_Y, self.center.z() + 2)
     }
 
+    pub(in crate::world) fn warden_route(self) -> [VoxelCoord; 3] {
+        // One real hall cell per step; the archivist remains deeper in the sanctuary.
+        [
+            self.warden(),
+            VoxelCoord::new(self.center.x(), CHAMBER_Y, self.center.z() + 1),
+            self.center,
+        ]
+    }
+
     pub(in crate::world) fn archivist(self) -> VoxelCoord {
         VoxelCoord::new(self.center.x(), CHAMBER_Y, self.center.z() - 2)
     }
@@ -83,7 +92,10 @@ impl TempleSite {
 
     fn stair_at(self, position: VoxelCoord) -> bool {
         STAIR_PATH.iter().enumerate().any(|(step, &(dx, dz))| {
-            let foot = CHAMBER_Y + i64::try_from(step).expect("bounded stair index") + 1;
+            let foot = CHAMBER_Y
+                + i64::try_from(step)
+                    .unwrap_or_else(|_| unreachable!("bounded stair index fits i64"))
+                + 1;
             position.x() == self.center.x() + dx
                 && position.z() == self.center.z() + dz
                 && (foot..=foot + 1).contains(&position.y())

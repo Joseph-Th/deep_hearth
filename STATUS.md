@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite typed stores with power/loss limits. Log or chip fuel becomes finite campfire heat with terminal mass accounting; water is locally finite/drinkable. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Mass-backed chunks, sparse temple halls, workshops, stairs, surface seals, three copper relics and heavy kobold castes; targeting, collision, excavation, conserved fragments, use/drop, storage, framing and hotbar. General placement, UI and residency absent. |
+| Block world | Mass-backed chunks, sparse temple halls, workshops, stairs, surface seals, three copper relics and locally reacting heavy wardens with persisted defense steps; targeting, collision, excavation, conserved fragments, use/drop, storage, framing and hotbar. General placement, UI and residency absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
@@ -79,7 +79,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, and pressure-dependent behavior. |
-| Ecology and society | Agriculture, ecology, creature collision/combat/pursuit, temple-caste movement/physiology, active relic restoration, settlements, trade, economy, migration, and raids beyond the opening patrol. |
+| Ecology and society | Agriculture, ecology, creature collision/combat/pursuit, broader temple-caste movement and physiology, active relic restoration, settlements, trade, economy, migration, and raids beyond the opening patrol. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
 

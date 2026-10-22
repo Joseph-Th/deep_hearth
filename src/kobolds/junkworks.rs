@@ -178,7 +178,7 @@ pub(super) fn relay_watch_alarm(state: &mut AppState, at: SimulationTick) -> boo
         .kobold_state_mut()
         .colony
         .as_mut()
-        .expect("same den retained across alarm decision")
+        .unwrap_or_else(|| unreachable!("same den retained across alarm decision"))
         .watch_alarm_pending = false;
     true
 }

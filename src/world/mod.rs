@@ -24,6 +24,7 @@ pub use excavation::{
 };
 pub(crate) use generation::WorldGenerationProfile;
 pub(crate) use generation::temple_residents_at;
+pub(crate) use generation::temple_warden_route_at;
 pub use generation::{
     ChunkGenerationCommitError, ChunkGenerationError, ValidatedChunkGeneration,
     ValidatedPlayerChunkDemand, WorldGenerationSeed, validate_generate_chunk,

@@ -456,9 +456,12 @@ fn build_generated_chunk(
                 let position = VoxelCoord::new(x, y, z);
                 if temple.is_some_and(|site| site.surface_seal(surface, position)) {
                     let seal = crate::content::BLOCK_STATE_TEMPLE_SEAL;
-                    let seal_mass = registry
-                        .represented_mass_for_state(seal)
-                        .expect("validated temple content supplies a seal");
+                    let seal_mass =
+                        registry
+                            .represented_mass_for_state(seal)
+                            .unwrap_or_else(|| {
+                                unreachable!("validated temple content supplies a seal")
+                            });
                     chunk.set_block(position, seal, crate::core::quantity::Mass::ZERO, seal_mass);
                     continue;
                 }
@@ -489,14 +492,13 @@ fn build_generated_chunk(
     Ok(chunk)
 }
 
-/// Locates the individual stationary temple residents using generated world identity.
-/// Obstructing one original cell conceals only that resident, not the entire garrison.
-/// The kobold owner applies sight and range checks without exposing regional maps.
-pub(crate) fn temple_residents_at(
+/// Resolves one site within the observer's own seeded world column. Absent
+/// authored relic definitions never produce an ancient sanctuary.
+fn temple_site_at(
     registries: &Registries,
     state: &AppState,
     observer: VoxelCoord,
-) -> Option<[Option<VoxelCoord>; 2]> {
+) -> Option<temple::TempleSite> {
     if registries
         .world()
         .get_state(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
@@ -513,10 +515,29 @@ pub(crate) fn temple_residents_at(
         return None;
     }
     let seed = state.world().generation_profile()?.seed();
-    let site = temple::TempleSite::for_chunk(seed, ChunkCoord::containing(observer))?;
-    Some([site.warden(), site.archivist()].map(|position| {
-        (state.world().block_at(position) == Some(BlockStateId::AIR)).then_some(position)
-    }))
+    temple::TempleSite::for_chunk(seed, ChunkCoord::containing(observer))
+}
+
+/// Returns original temple resident identities, not their current mutable
+/// positions. Kobold ownership resolves the warden's displacement; true
+/// local sight prevents obstructed or distant actors from being revealed.
+pub(crate) fn temple_residents_at(
+    registries: &Registries,
+    state: &AppState,
+    observer: VoxelCoord,
+) -> Option<[VoxelCoord; 2]> {
+    let site = temple_site_at(registries, state, observer)?;
+    Some([site.warden(), site.archivist()])
+}
+
+/// Three physically adjacent cells, entirely inside a generated ancient hall.
+/// The caller still checks collision and line of sight before moving a resident.
+pub(crate) fn temple_warden_route_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> Option<[VoxelCoord; 3]> {
+    temple_site_at(registries, state, position).map(temple::TempleSite::warden_route)
 }
 
 fn terrain_height(seed: WorldGenerationSeed, x: i64, z: i64) -> i64 {

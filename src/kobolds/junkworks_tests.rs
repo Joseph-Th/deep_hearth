@@ -268,6 +268,31 @@ fn taking_a_real_component_disables_the_den_alarm_without_consuming_material() {
 }
 
 #[test]
+fn exceptional_control_snapshot_isolates_real_surface_custody_and_indexes() {
+    let (registries, mut state) = mobilized_den();
+    let core = put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let mut staged = state.snapshot_for_control_transaction();
+    assert_eq!(
+        staged, state,
+        "transaction snapshot must preserve all owner indexes"
+    );
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &mut staged,
+        core,
+        DEN,
+        JUNCTION
+    ));
+    assert_eq!(state.surface().get(core).unwrap().position(), DEN);
+    assert_eq!(staged.surface().get(core).unwrap().position(), JUNCTION);
+    assert_eq!(validate_loaded_state(&registries, &staged), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn a_better_timber_ratchet_keeps_a_distinct_working_cycle() {
     let (registries, mut state) = mobilized_den();
     put_drop(

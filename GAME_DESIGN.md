@@ -268,9 +268,12 @@ accustomed to narrow ceremonial passages and guarding machinery. Massive **archi
 older, stronger-bodied custodians of partial technical memory, not merely stronger scouts with
 larger health bars. Their survivals and allegiances are clues to their makers, whose identity
 remains uncertain. Temple inhabitants remain in real rooms; they must not emerge from nowhere
-whenever the player's technology advances. Combat, caste-specific physiology, negotiation,
-vault machine restoration and subterranean movement are future systems, not hidden exceptions
-to the present simulation. Their existing visual presence should foreshadow different risks.
+whenever the player's technology advances. Temple wardens react locally to living intruders:
+they advance through supported hall cells without entering the player's occupied voxel and
+withdraw one step at a time after contact is lost. Their visible defensive posture and position
+survive save/load; massive archivists remain beside inherited machinery. Combat, caste-specific
+physiology, negotiation, general subterranean movement and relic restoration remain future
+systems, not hidden exceptions to the present simulation.
 
 One early interaction bridges these societies: a mobilized den with physically co-located
 precision copper salvage and a suitable striker can sound a faulty mechanical warning over

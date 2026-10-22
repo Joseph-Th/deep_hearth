@@ -582,6 +582,7 @@ pub(crate) fn apply_kobold_scout_tick(
     state: &mut AppState,
     next_tick: SimulationTick,
 ) -> Option<KoboldScoutEvent> {
+    super::temple_guard::apply_temple_warden_tick(registries, state, next_tick);
     let colony = state.kobold_state().colony.as_ref()?;
     if colony.next_step_at > next_tick {
         return None;

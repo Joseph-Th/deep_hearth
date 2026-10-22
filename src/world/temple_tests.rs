@@ -26,7 +26,7 @@ fn site_for_seed(seed: WorldGenerationSeed) -> (ChunkCoord, generation::temple::
 #[test]
 fn seeded_temple_is_buried_carved_and_matter_backed_with_two_ancient_residents() {
     let registries = build_registries();
-    let seed = WorldGenerationSeed::new(0x5445_4D50_4C45_53);
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
     let (chunk, site) = site_for_seed(seed);
     let mut state = AppState::new();
     let guardian = site.warden();
@@ -140,7 +140,7 @@ fn seeded_temple_is_buried_carved_and_matter_backed_with_two_ancient_residents()
 #[test]
 fn complex_has_connected_workshops_a_stepped_approach_and_a_surface_clue() {
     let registries = build_registries();
-    let seed = WorldGenerationSeed::new(0x5445_4D50_4C45_53);
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
     let (chunk, site) = site_for_seed(seed);
     let center = VoxelCoord::new(site.warden().x(), -19, site.warden().z() - 2);
     let mut world = AppState::new();

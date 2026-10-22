@@ -137,6 +137,35 @@ struct ClockState {
 }
 
 impl AppState {
+    /// Internal, complete snapshot for an exceptional slow/control boundary
+    /// which may reject after otherwise committed work. Keep it narrower than
+    /// exposing `Clone` on the public root, which would leak hidden world truth.
+    pub(crate) fn snapshot_for_control_transaction(&self) -> Self {
+        Self {
+            clock: ClockState {
+                simulation_tick: self.clock.simulation_tick,
+                control_tick: self.clock.control_tick,
+            },
+            systems: SystemState {
+                energy: self.systems.energy.clone(),
+                fluid: self.systems.fluid.clone(),
+                equipment: self.systems.equipment.clone(),
+                structures: self.systems.structures.clone(),
+                world: self.systems.world.clone(),
+                surface: self.systems.surface.snapshot_for_control_transaction(),
+                kobolds: self.systems.kobolds.clone(),
+                geology: self.systems.geology.clone(),
+                geological_knowledge: self.systems.geological_knowledge.clone(),
+                inventory: self.systems.inventory.clone(),
+                logistics: self.systems.logistics.clone(),
+                production: self.systems.production.clone(),
+                mining: self.systems.mining.clone(),
+                player_work: self.systems.player_work.clone(),
+                survival: self.systems.survival.clone(),
+            },
+        }
+    }
+
     /// Builds a fresh deterministic runtime state.
     #[must_use]
     pub fn new() -> Self {

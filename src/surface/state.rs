@@ -230,6 +230,17 @@ where
 }
 
 impl SurfaceResourceState {
+    /// Privileged in-memory snapshot for the simulation's exceptional atomic
+    /// control boundary. This does not expose global surface truth through Clone.
+    pub(crate) fn snapshot_for_control_transaction(&self) -> Self {
+        Self {
+            revision: self.revision,
+            next_resource_id: self.next_resource_id,
+            resources: self.resources.clone(),
+            available_by_position: self.available_by_position.clone(),
+        }
+    }
+
     #[must_use]
     pub(crate) const fn new() -> Self {
         Self {

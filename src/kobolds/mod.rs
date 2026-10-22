@@ -21,6 +21,7 @@ mod junkworks;
 mod mobilization;
 mod patrol;
 mod scavenging;
+mod temple_guard;
 mod tracks;
 mod visibility;
 mod watchman;
@@ -87,6 +88,7 @@ pub struct KoboldSighting {
     position: VoxelCoord,
     has_noticed_player_drop: bool,
     is_wary: bool,
+    is_defending: bool,
     mobilized: bool,
     scavenged_material: Option<(CommodityKey, Mass)>,
 }
@@ -120,6 +122,13 @@ impl KoboldSighting {
     #[must_use]
     pub const fn is_wary(self) -> bool {
         self.is_wary
+    }
+
+    /// A temple guardian is physically challenging an intruder in its hall.
+    /// This is a visible defensive posture, not an implicit attack or health bonus.
+    #[must_use]
+    pub const fn is_defending(self) -> bool {
+        self.is_defending
     }
 
     /// An actual local sighting of engineered machinery mobilized this colony.
@@ -426,6 +435,9 @@ impl KoboldColony {
 #[serde(deny_unknown_fields)]
 pub(crate) struct KoboldState {
     colony: Option<KoboldColony>,
+    /// Only off-post wardens need persistent cursors. Absence means the
+    /// resident remains at its original authored hall cell.
+    temple_wardens: Vec<temple_guard::TempleWardenRecord>,
     /// Terminal consumed-food custody retained by original material, not deleted matter.
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     consumed_matter: BTreeMap<MaterialId, AggregateMass>,
@@ -436,17 +448,25 @@ impl KoboldState {
     pub(crate) const fn new() -> Self {
         Self {
             colony: None,
+            temple_wardens: Vec::new(),
             consumed_matter: BTreeMap::new(),
         }
     }
 
     #[must_use]
     pub(crate) fn is_pristine(&self) -> bool {
-        self.colony.is_none() && self.consumed_matter.is_empty()
+        self.colony.is_none() && self.temple_wardens.is_empty() && self.consumed_matter.is_empty()
     }
 
     pub(crate) fn consumed_matter(&self) -> impl Iterator<Item = (MaterialId, AggregateMass)> + '_ {
         self.consumed_matter.iter().map(|(id, mass)| (*id, *mass))
+    }
+
+    fn temple_warden_step(&self, chunk: crate::world::ChunkCoord) -> u8 {
+        self.temple_wardens
+            .binary_search_by_key(&chunk, |resident| resident.chunk)
+            .ok()
+            .map_or(0, |index| self.temple_wardens[index].step)
     }
 
     fn apply_meal(&mut self, material: MaterialId, total: AggregateMass) {
@@ -499,6 +519,7 @@ impl KoboldState {
                 position: colony.scout_position(),
                 has_noticed_player_drop: colony.noticed_player_drop,
                 is_wary: colony.wary_until.is_some_and(|until| until > state.tick()),
+                is_defending: false,
                 mobilized: colony.mobilized_at.is_some(),
                 scavenged_material: colony
                     .scavenged_drop
@@ -513,6 +534,7 @@ impl KoboldState {
                     position: guard,
                     has_noticed_player_drop: false,
                     is_wary: colony.watch_alarm_pending,
+                    is_defending: false,
                     mobilized: colony.mobilized_at.is_some(),
                     scavenged_material: None,
                 })
@@ -520,22 +542,27 @@ impl KoboldState {
             .chain(
                 crate::world::temple_residents_at(registries, state, position)
                     .into_iter()
-                    .flat_map(|residents| {
+                    .flat_map(|[post, archivist]| {
+                        let step =
+                            self.temple_warden_step(crate::world::ChunkCoord::containing(post));
                         [
-                            residents[0].map(|place| (place, KoboldRole::TempleWarden)),
-                            residents[1].map(|place| (place, KoboldRole::TempleArchivist)),
+                            (
+                                VoxelCoord::new(post.x(), post.y(), post.z() - i64::from(step)),
+                                KoboldRole::TempleWarden,
+                                step != 0,
+                            ),
+                            (archivist, KoboldRole::TempleArchivist, false),
                         ]
-                        .into_iter()
-                        .flatten()
                     })
-                    .filter(move |(resident, _)| {
+                    .filter(move |(resident, _, _)| {
                         scout_visible_from(registries, state, *resident, position)
                     })
-                    .map(|(position, role)| KoboldSighting {
+                    .map(|(position, role, is_defending)| KoboldSighting {
                         role,
                         position,
                         has_noticed_player_drop: false,
                         is_wary: false,
+                        is_defending,
                         mobilized: false,
                         scavenged_material: None,
                     }),
@@ -598,6 +625,7 @@ pub(crate) fn validate_loaded_kobolds(
     state: &AppState,
 ) -> Result<(), &'static str> {
     validate_consumed_matter(registries, state.kobold_state())?;
+    temple_guard::validate_temple_wardens(registries, state)?;
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return state
             .kobold_state()
