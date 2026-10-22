@@ -243,7 +243,7 @@ pub(crate) fn player_body_is_grounded(registries: &Registries, state: &AppState)
     if !horizontal_chunks_generated(state.world(), bounds) {
         return false;
     }
-    supporting_floor_y(registries.world(), state.world(), player.body(), bounds)
+    supporting_floor_y(registries, state, player.body(), bounds)
         == Some(player.body().foot_position().y_nanometers())
 }
 
@@ -383,7 +383,7 @@ pub(crate) fn decide_player_body_motion(
             .player()
             .is_some_and(|survival| survival.vitality() != Vitality::ZERO),
         busy: state.player_work().active().is_some(),
-        grounded: supporting_floor_y(registries.world(), state.world(), before, bounds)
+        grounded: supporting_floor_y(registries, state, before, bounds)
             == Some(before.foot_position().y_nanometers()),
     };
     let horizontal_body = resolve_horizontal_control(
@@ -474,13 +474,7 @@ fn resolve_horizontal_control(
     } else {
         before.stance()
     };
-    let stance = resolve_stance(
-        registries.world(),
-        state.world(),
-        before,
-        locomotion,
-        desired_stance,
-    );
+    let stance = resolve_stance(registries, state, before, locomotion, desired_stance);
     let stance_body = before.with_stance(stance);
     let desired_velocity = resolve_desired_horizontal_velocity(
         state,
@@ -497,8 +491,7 @@ fn resolve_horizontal_control(
     };
     let (mut position, collided_x, collided_z) =
         resolve_horizontal_motion(stance_body, locomotion, velocity, &|voxel| {
-            world_cell_blocks_motion(registries.world(), state.world(), voxel)
-                || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
+            player_cell_blocks_motion(registries, state, voxel)
         })?;
     velocity = collision_clipped_horizontal_velocity(velocity, collided_x, collided_z);
     (position, velocity) = guard_crouched_ledge(
@@ -588,12 +581,7 @@ fn guard_crouched_ledge(
     );
     let candidate_bounds = horizontal_voxel_bounds(candidate, locomotion)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let support = supporting_floor_y(
-        registries.world(),
-        state.world(),
-        candidate,
-        candidate_bounds,
-    );
+    let support = supporting_floor_y(registries, state, candidate, candidate_bounds);
     if support == Some(stance_body.foot_position().y_nanometers()) {
         Ok((position, velocity))
     } else {
@@ -632,8 +620,8 @@ fn resolve_vertical_control(
         .checked_add(integrate_velocity(vertical_velocity)?)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
     let (resolved_y, resolved_velocity, grounded) = resolve_vertical_collision(
-        registries.world(),
-        state.world(),
+        registries,
+        state,
         horizontal_body,
         locomotion,
         horizontal_bounds,
@@ -834,8 +822,8 @@ fn desired_horizontal_velocity(
 }
 
 fn resolve_stance(
-    registry: &WorldRegistry,
-    world: &WorldState,
+    registries: &Registries,
+    state: &AppState,
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
     desired: PlayerStance,
@@ -844,7 +832,11 @@ fn resolve_stance(
         return desired;
     }
     let standing = body.with_stance(PlayerStance::Standing);
-    if first_player_body_collision(registry, world, standing, locomotion).is_none() {
+    if first_player_body_collision_where(standing, locomotion, |voxel| {
+        player_cell_blocks_motion(registries, state, voxel)
+    })
+    .is_none()
+    {
         PlayerStance::Standing
     } else {
         PlayerStance::Crouching
@@ -929,8 +921,8 @@ fn integer_sqrt(value: u128) -> u128 {
 }
 
 fn resolve_vertical_collision(
-    registry: &WorldRegistry,
-    world: &WorldState,
+    registries: &Registries,
+    state: &AppState,
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
     bounds: (i64, i64, i64, i64),
@@ -939,7 +931,12 @@ fn resolve_vertical_collision(
 ) -> Result<(i64, i64, bool), PlayerBodyMotionError> {
     let current_y = body.foot_position().y_nanometers();
     if proposed_y <= current_y {
-        let floor = crossed_floor_y(registry, world, bounds, proposed_y, current_y)?;
+        let floor = crossed_floor_y(
+            &|voxel| player_cell_blocks_motion(registries, state, voxel),
+            bounds,
+            proposed_y,
+            current_y,
+        )?;
         if let Some(floor_y) = floor {
             return Ok((floor_y, 0, true));
         }
@@ -954,7 +951,12 @@ fn resolve_vertical_collision(
     let proposed_top = proposed_y
         .checked_add(height)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    if let Some(ceiling) = crossed_ceiling_y(registry, world, bounds, current_top, proposed_top)? {
+    if let Some(ceiling) = crossed_ceiling_y(
+        &|voxel| player_cell_blocks_motion(registries, state, voxel),
+        bounds,
+        current_top,
+        proposed_top,
+    )? {
         let foot = ceiling
             .checked_sub(height)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
@@ -974,8 +976,7 @@ pub(super) const fn body_height(
 }
 
 fn crossed_floor_y(
-    registry: &WorldRegistry,
-    world: &WorldState,
+    blocked: &impl Fn(VoxelCoord) -> bool,
     (min_x, max_x, min_z, max_z): (i64, i64, i64, i64),
     proposed_y: i64,
     current_y: i64,
@@ -996,7 +997,7 @@ fn crossed_floor_y(
         }
         for z in min_z..=max_z {
             for x in min_x..=max_x {
-                if world_cell_blocks_motion(registry, world, VoxelCoord::new(x, y, z)) {
+                if blocked(VoxelCoord::new(x, y, z)) {
                     floor = Some(floor.map_or(top, |existing: i64| existing.max(top)));
                 }
             }
@@ -1006,8 +1007,7 @@ fn crossed_floor_y(
 }
 
 fn crossed_ceiling_y(
-    registry: &WorldRegistry,
-    world: &WorldState,
+    blocked: &impl Fn(VoxelCoord) -> bool,
     (min_x, max_x, min_z, max_z): (i64, i64, i64, i64),
     current_top: i64,
     proposed_top: i64,
@@ -1027,7 +1027,7 @@ fn crossed_ceiling_y(
         }
         for z in min_z..=max_z {
             for x in min_x..=max_x {
-                if world_cell_blocks_motion(registry, world, VoxelCoord::new(x, y, z)) {
+                if blocked(VoxelCoord::new(x, y, z)) {
                     ceiling = Some(ceiling.map_or(bottom, |existing: i64| existing.min(bottom)));
                 }
             }
@@ -1037,16 +1037,28 @@ fn crossed_ceiling_y(
 }
 
 fn supporting_floor_y(
-    registry: &WorldRegistry,
-    world: &WorldState,
+    registries: &Registries,
+    state: &AppState,
     body: PlayerBodyState,
     bounds: (i64, i64, i64, i64),
 ) -> Option<i64> {
     let foot = body.foot_position().y_nanometers();
     let probe = foot.checked_sub(1)?;
-    crossed_floor_y(registry, world, bounds, probe, foot)
-        .ok()
-        .flatten()
+    crossed_floor_y(
+        &|voxel| player_cell_blocks_motion(registries, state, voxel),
+        bounds,
+        probe,
+        foot,
+    )
+    .ok()
+    .flatten()
+}
+
+/// All movement axes, standing clearance and grounding share solid-cell authority.
+/// Concealed temple residents remain physical obstacles just like generated rock.
+fn player_cell_blocks_motion(registries: &Registries, state: &AppState, voxel: VoxelCoord) -> bool {
+    world_cell_blocks_motion(registries.world(), state.world(), voxel)
+        || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
 }
 
 fn block_is_solid(registry: &WorldRegistry, state: crate::world::BlockStateId) -> bool {

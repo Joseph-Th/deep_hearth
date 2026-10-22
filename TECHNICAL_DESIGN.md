@@ -274,9 +274,11 @@ The normal post derives from terrain rather than a second creature ledger. Only 
 player's currently relevant site and the sparse set of actually displaced wardens
 are stepped; remote idle sanctuaries are not scanned or instantiated. This permits
 homebound retreat to finish after the player leaves the chunk without inventing
-offscreen reinforcements. Continuous horizontal collision sweep and read-only walk
-projections query identical temple-caste occupancy, including concealed residents.
-Ordinary player admission, trusted-state validation and the respawn anchor also check
+offscreen reinforcements. Horizontal and vertical player-body sweeps, stance clearance,
+grounding and read-only walk projections query identical temple-caste occupancy,
+including concealed residents. A warden also checks both occupied body cells before
+moving into the player's space. Ordinary player admission, trusted-state validation
+and the respawn anchor also check
 that same occupied volume. Local sightings expose defensive posture and moving
 position, not an implicit attack. Combat, general pursuit/pathfinding, physiology,
 relic restoration and interpretation remain absent.

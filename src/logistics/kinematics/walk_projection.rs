@@ -449,7 +449,7 @@ fn project_player_walk_body_tick(
             .player()
             .is_some_and(|survival| survival.vitality() != Vitality::ZERO),
         busy: false,
-        grounded: supporting_floor_y(registries.world(), state.world(), before, bounds)
+        grounded: supporting_floor_y(registries, state, before, bounds)
             == Some(before.foot_position().y_nanometers()),
     };
     let horizontal_body = resolve_horizontal_control(

@@ -104,9 +104,18 @@ pub(super) fn apply_temple_warden_tick(
             continue;
         }
         let destination = route[usize::from(next_step)];
-        if crate::logistics::player_body_occupies_voxel(registries, state, destination)
-            || !clear_standing_cell(registries, state, destination)
-        {
+        // A warden fills two vertical cells. An airborne intruder may occupy
+        // only the upper one, even when the floor cell is free.
+        let intersects_player =
+            crate::logistics::player_body_occupies_voxel(registries, state, destination)
+                || destination.y().checked_add(1).is_none_or(|head_y| {
+                    crate::logistics::player_body_occupies_voxel(
+                        registries,
+                        state,
+                        VoxelCoord::new(destination.x(), head_y, destination.z()),
+                    )
+                });
+        if intersects_player || !clear_standing_cell(registries, state, destination) {
             continue;
         }
         let displaced = &mut state.kobold_state_mut().temple_wardens;

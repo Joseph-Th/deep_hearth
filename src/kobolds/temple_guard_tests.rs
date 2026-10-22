@@ -100,6 +100,175 @@ fn heavy_castes_are_solid_on_the_actual_continuous_player_walk_sweep() {
 }
 
 #[test]
+fn falling_onto_a_temple_warden_lands_above_its_real_body_and_replays() {
+    let (registries, mut state, route) = occupied_temple();
+    let warden = route[0];
+    // The guard has a two-voxel body. Open the existing hall roof to admit
+    // an airborne player without altering the resident or its supporting floor.
+    for y in (warden.y() + 2)..=(warden.y() + 5) {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(warden.x(), y, warden.z()),
+            BlockStateId::AIR,
+        );
+    }
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(warden.x(), warden.y() + 3, warden.z()),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let landing_y = (warden.y() + 2) * crate::spatial::NANOMETERS_PER_VOXEL;
+    let mut landed = false;
+    for _ in 0..32 {
+        let movement = advance_control_tick(&registries, &mut state).unwrap();
+        let replay_movement = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(movement, replay_movement);
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let body = state.logistics().player().unwrap().body();
+        assert!(
+            body.foot_position().y_nanometers() >= landing_y,
+            "an airborne player must never fall into the resident's occupied voxels"
+        );
+        if body.foot_position().y_nanometers() == landing_y {
+            landed = true;
+            assert_eq!(body.vertical_velocity().nanometers_per_second(), 0);
+        }
+    }
+    assert!(
+        landed,
+        "the guard's head must act as a physical landing surface"
+    );
+}
+
+#[test]
+fn jump_and_stance_change_cannot_pass_through_a_stranded_warden_from_below() {
+    let (registries, mut state, route) = occupied_temple();
+    let warden = route[0];
+    // Excavation beneath a stationary caste may remove its original support.
+    // The resident still has a real physical footprint until it can move.
+    for offset in [-2, -1] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(warden.x(), warden.y() + offset, warden.z()),
+            BlockStateId::AIR,
+        );
+    }
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(warden.x(), warden.y() - 3, warden.z()),
+        BLOCK_STATE_STONE,
+    );
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(warden.x(), warden.y() - 2, warden.z()),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let crouched_jump = PlayerControlInput::NEUTRAL
+        .with_crouch(true)
+        .with_jump(true);
+    for _ in 0..2 {
+        let _ = advance_control_tick_with_input(&registries, &mut state, crouched_jump).unwrap();
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+    let before = state.logistics().player().unwrap().body();
+    assert_eq!(before.stance(), crate::logistics::PlayerStance::Crouching);
+    let locomotion = registries.survival().physiology().locomotion();
+    let standing_height =
+        i64::try_from(locomotion.standing_height().micrometers()).unwrap() * 1_000;
+    let crouching_height =
+        i64::try_from(locomotion.crouching_height().micrometers()).unwrap() * 1_000;
+    assert!(
+        before.foot_position().y_nanometers() + standing_height
+            > warden.y() * crate::spatial::NANOMETERS_PER_VOXEL,
+        "standing at the current airborne foot position would overlap the resident"
+    );
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let moved = advance_control_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        moved,
+        advance_control_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(state, replay);
+    let after = state.logistics().player().unwrap().body();
+    assert_eq!(
+        after.stance(),
+        crate::logistics::PlayerStance::Crouching,
+        "uncrouching under a living obstruction must fail as it does under a stone ceiling"
+    );
+    assert_eq!(
+        after.foot_position().y_nanometers(),
+        warden.y() * crate::spatial::NANOMETERS_PER_VOXEL - crouching_height
+    );
+    assert_eq!(after.vertical_velocity().nanometers_per_second(), 0);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn moving_warden_cannot_enter_the_airborne_players_upper_body() {
+    let (registries, mut state, route) = occupied_temple();
+    let target = route[1];
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(target.x(), target.y() + 2, target.z()),
+        BlockStateId::AIR,
+    );
+    // One control step short of the next five-tick warden beat. The player
+    // remains in the upper voxel during the warden's due decision.
+    while state.control_tick().value()
+        < 5 * crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK - 1
+    {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(visible_guard(&registries, &state), Some(route[0]));
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(target.x(), target.y() + 1, target.z()),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(!crate::logistics::player_body_occupies_voxel(
+        &registries,
+        &state,
+        target
+    ));
+    assert!(crate::logistics::player_body_occupies_voxel(
+        &registries,
+        &state,
+        VoxelCoord::new(target.x(), target.y() + 1, target.z())
+    ));
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let consequence = advance_control_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        consequence,
+        advance_control_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        visible_guard(&registries, &state),
+        Some(route[0]),
+        "a moving two-voxel resident must not enter the airborne player's body"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn player_admission_and_trusted_load_reject_overlapping_temple_residents() {
     let (registries, state, route) = occupied_temple();
     let mut unadmitted = AppState::new();
