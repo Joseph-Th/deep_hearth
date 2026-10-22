@@ -6,11 +6,14 @@ use crate::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
     BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE, FORM_BOARD,
     FORM_LOG, FORM_ROUGH_BOX_BODY, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    build_registries,
 };
 use crate::core::quantity::Temperature;
 use crate::core::state::validate_loaded_state;
-use crate::inventory::{deposit_lot_for_test, validate_place_player_storage_at};
+use crate::inventory::{
+    MaterialLotSelection, deposit_lot_for_test, validate_place_player_storage_at,
+};
 use crate::logistics::{
     HorizontalControlInput, PlayerControlInput, add_traversable_edge_for_test,
     relocate_player_for_test,
@@ -25,7 +28,10 @@ use crate::simulation::{
 };
 use crate::spatial::{ViewDirection, VoxelBounds};
 use crate::structural::{
+    GroundedStructuralElementPlan, PlayerStructuralConstructionError, StructuralConstructionError,
     StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    resolve_required_mass, validate_plan_player_grounded_structural_element,
+    validate_start_player_structural_construction,
 };
 use crate::survival::{Vitality, player_record};
 use crate::world::{
@@ -347,6 +353,137 @@ fn neighborhood_generation_commit_rejects_new_construction_after_validation() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
+#[test]
+fn player_cannot_materialize_timber_inside_an_occupied_temple_warden() {
+    let (registries, mut state, route) = occupied_temple();
+    relocate_player_for_test(&mut state, route[1]);
+    let guard = route[0];
+    assert!(crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &state,
+        guard
+    ));
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(
+            guard,
+            VoxelCoord::new(guard.x() + 1, guard.y() + 1, guard.z() + 1),
+        )
+        .unwrap(),
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap();
+    let element = validate_plan_player_grounded_structural_element(
+        &registries,
+        &state,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let mass = resolve_required_mass(
+        registries.materials(),
+        state.structures().get_element(element).unwrap(),
+    )
+    .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            element,
+            &[MaterialLotSelection::new(lot, mass)],
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::Material(
+            StructuralConstructionError::ActorOccupied {
+                element,
+                voxel: guard,
+            }
+        )),
+        "player construction cannot embody a member inside a living warden"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn full_footprint_construction_cannot_materialize_inside_an_opening_scout() {
+    let (registries, mut state, route) = occupied_temple();
+    opening_colony_in_temple_hall(&mut state, route);
+    let scout = route[2];
+    let head = VoxelCoord::new(scout.x(), scout.y() + 1, scout.z());
+    assert!(crate::kobolds::opening_kobold_occupies_voxel(&state, head));
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(
+            head,
+            VoxelCoord::new(head.x() + 1, head.y() + 1, head.z() + 1),
+        )
+        .unwrap(),
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap();
+    let element = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    let mass = resolve_required_mass(
+        registries.materials(),
+        state.structures().get_element(element).unwrap(),
+    )
+    .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            element,
+            &[MaterialLotSelection::new(lot, mass)],
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::Material(
+            StructuralConstructionError::ActorOccupied {
+                element,
+                voxel: head,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
 fn advance_to(registries: &Registries, state: &mut AppState, target: u64) {
     while state.tick().value() < target {
         let _ = advance_control_tick(registries, state).unwrap();
@@ -415,16 +552,21 @@ fn plan_timber_member_at(
     .unwrap()
 }
 
-fn materialize_timber_member_at(registries: &Registries, state: &mut AppState, at: VoxelCoord) {
+fn materialize_timber_member_at(
+    registries: &Registries,
+    state: &mut AppState,
+    at: VoxelCoord,
+) -> crate::structural::StructuralElementId {
     let member = plan_timber_member_at(registries, state, at);
     materialize_structural_element_for_test(registries, state, member, FORM_LOG);
+    member
 }
 
 fn materialize_full_footprint_panel_at(
     registries: &Registries,
     state: &mut AppState,
     at: VoxelCoord,
-) {
+) -> crate::structural::StructuralElementId {
     let bounds = VoxelBounds::new(at, VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap();
     let geometry = StructuralElementGeometry::new(
         bounds,
@@ -443,6 +585,26 @@ fn materialize_full_footprint_panel_at(
     )
     .unwrap();
     materialize_structural_element_for_test(registries, state, member, FORM_BOARD);
+    member
+}
+
+/// Constructs valid physical matter first, then alters only its saved
+/// location. Runtime construction must never be used to forge an overlap
+/// after its own actor clearance check is enforced.
+fn forge_member_position_in_save(
+    registries: &Registries,
+    state: &AppState,
+    member: crate::structural::StructuralElementId,
+    at: VoxelCoord,
+) -> LoadedSaveEnvelope {
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(registries, state)).unwrap();
+    let geometry = &mut encoded["state"]["systems"]["structures"]["elements"]
+        [member.value().to_string()]["configuration"]["geometry"];
+    assert!(geometry.is_object());
+    geometry["bounds"]["min"] = serde_json::to_value(at).unwrap();
+    geometry["bounds"]["max_exclusive"] =
+        serde_json::to_value(VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap();
+    serde_json::from_value(encoded).unwrap()
 }
 
 #[test]
@@ -603,17 +765,13 @@ fn trusted_load_rejects_full_footprint_panel_inside_opening_scout() {
     let tip = route[2];
     opening_colony_in_temple_hall(&mut state, route);
     let head = VoxelCoord::new(tip.x(), tip.y() + 1, tip.z());
-    materialize_full_footprint_panel_at(&registries, &mut state, head);
+    let member = materialize_full_footprint_panel_at(&registries, &mut state, route[1]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert!(
-        validate_loaded_state(&registries, &state).is_err(),
-        "a solid cover panel crossing the scout's upper body must be rejected"
-    );
-    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    assert!(
-        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
-            .unwrap()
+        forge_member_position_in_save(&registries, &state, member, head)
             .into_state(&registries)
-            .is_err()
+            .is_err(),
+        "a forged panel covering the scout's upper body must fail save admission"
     );
 }
 
@@ -653,22 +811,18 @@ fn trusted_load_rejects_stationary_enclosure_overlapping_a_temple_warden() {
 fn trusted_load_rejects_timber_member_overlapping_a_temple_warden() {
     let (registries, mut state, route) = occupied_temple();
     let head = VoxelCoord::new(route[0].x(), route[0].y() + 1, route[0].z());
-    materialize_timber_member_at(&registries, &mut state, head);
+    let member = materialize_timber_member_at(&registries, &mut state, route[1]);
     assert!(crate::kobolds::temple_caste_occupies_voxel(
         &registries,
         &state,
         head
     ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert!(
-        validate_loaded_state(&registries, &state).is_err(),
-        "the trusted graph cannot admit constructed matter inside the guard"
-    );
-    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    assert!(
-        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
-            .unwrap()
+        forge_member_position_in_save(&registries, &state, member, head)
             .into_state(&registries)
-            .is_err()
+            .is_err(),
+        "the trusted graph must reject forged timber inside the guard"
     );
 }
 
@@ -693,18 +847,20 @@ fn trusted_load_allows_empty_blueprint_but_not_embodied_timber_at_warden_post() 
         .unwrap();
     assert_eq!(loaded, state);
 
-    materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
+    let built = materialize_timber_member_at(&registries, &mut state, route[1]);
     assert!(
         !state
             .structures()
-            .get_element(member)
+            .get_element(built)
             .unwrap()
             .embodied_material()
             .is_empty()
     );
     assert!(
-        validate_loaded_state(&registries, &state).is_err(),
-        "adding real material at the occupied post must invalidate the persisted structure"
+        forge_member_position_in_save(&registries, &state, built, head)
+            .into_state(&registries)
+            .is_err(),
+        "a blueprint is valid, but a forged materialized member at the same post is not"
     );
 }
 
@@ -718,17 +874,13 @@ fn trusted_load_rejects_member_inside_the_archivists_full_footprint() {
         &state,
         upper_far_corner
     ));
-    materialize_timber_member_at(&registries, &mut state, upper_far_corner);
+    let member = materialize_timber_member_at(&registries, &mut state, route[1]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert!(
-        validate_loaded_state(&registries, &state).is_err(),
-        "the archivist's full two-by-two-by-three body cannot contain a timber member"
-    );
-    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    assert!(
-        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
-            .unwrap()
+        forge_member_position_in_save(&registries, &state, member, upper_far_corner)
             .into_state(&registries)
-            .is_err()
+            .is_err(),
+        "the archivist's full two-by-two-by-three body cannot contain forged timber"
     );
 }
 

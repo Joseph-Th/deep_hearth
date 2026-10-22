@@ -13,7 +13,7 @@ use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialId};
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::{SurfaceResourceId, SurfaceResourceLifecycle};
 
 mod acoustics;
@@ -601,6 +601,33 @@ pub(crate) fn opening_kobold_occupies_voxel(state: &AppState, voxel: VoxelCoord)
                 && voxel.z() == resident.z()
                 && (voxel.y() == resident.y() || resident.y().checked_add(1) == Some(voxel.y()))
         })
+}
+
+/// Materialization checks generated temple caste bodies and the opening
+/// residents. Narrow posts can share the small caste's cells; temple castes
+/// reject all embodied structural members.
+pub(crate) fn first_kobold_member_overlap(
+    registries: &Registries,
+    state: &AppState,
+    bounds: VoxelBounds,
+    full_footprint: bool,
+) -> Option<VoxelCoord> {
+    if let Some(cell) = temple_guard::first_temple_member_overlap(registries, state, bounds) {
+        return Some(cell);
+    }
+    if !full_footprint || state.world().generation_profile().is_none() {
+        return None;
+    }
+    let colony = state.kobold_state().colony.as_ref()?;
+    for resident in [colony.scout_position(), colony.watch_position()] {
+        for dy in 0..=1 {
+            let cell = VoxelCoord::new(resident.x(), resident.y().checked_add(dy)?, resident.z());
+            if bounds.has_voxel(cell) {
+                return Some(cell);
+            }
+        }
+    }
+    None
 }
 
 /// Authoritative occupancy in this generated voxel, independent of local

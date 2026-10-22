@@ -7,7 +7,7 @@
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::survival::Vitality;
 use crate::world::{
     BlockCollisionShape, BlockStateId, ChunkCoord, WORLD_MIN_Y, temple_warden_route_at,
@@ -295,6 +295,55 @@ fn structure_intersects_temple_caste_cell(
         && state.structures().elements().any(|element| {
             !element.embodied_material().is_empty() && element.bounds().has_voxel(cell)
         })
+}
+
+/// Resolves one occupied caste cell within an intended member's bounds.
+/// Iterate the finite generated resident footprints rather than arbitrary
+/// player-authored structural bounds.
+pub(super) fn first_temple_member_overlap(
+    registries: &Registries,
+    state: &AppState,
+    bounds: VoxelBounds,
+) -> Option<VoxelCoord> {
+    for chunk in state.world().chunks() {
+        let Some(x) = chunk.coord().world_min_x().and_then(|x| x.checked_add(8)) else {
+            continue;
+        };
+        let Some(z) = chunk.coord().world_min_z().and_then(|z| z.checked_add(8)) else {
+            continue;
+        };
+        let observer = VoxelCoord::new(x, -19, z);
+        let Some([post, archivist]) =
+            crate::world::temple_residents_at(registries, state, observer)
+        else {
+            continue;
+        };
+        let step = state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(post));
+        let warden_z = post.z().checked_sub(i64::from(step))?;
+        for dy in 0..=1 {
+            let cell = VoxelCoord::new(post.x(), post.y().checked_add(dy)?, warden_z);
+            if bounds.has_voxel(cell) {
+                return Some(cell);
+            }
+        }
+        for dx in 0..=1 {
+            for dy in 0..=2 {
+                for dz in 0..=1 {
+                    let cell = VoxelCoord::new(
+                        archivist.x().checked_add(dx)?,
+                        archivist.y().checked_add(dy)?,
+                        archivist.z().checked_sub(dz)?,
+                    );
+                    if bounds.has_voxel(cell) {
+                        return Some(cell);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

@@ -34,6 +34,10 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         voxel: VoxelCoord,
     },
+    ActorOccupied {
+        element: StructuralElementId,
+        voxel: VoxelCoord,
+    },
     MaterialMismatch {
         element: StructuralElementId,
         expected: MaterialId,
@@ -130,6 +134,14 @@ impl Display for StructuralConstructionError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::ActorOccupied { element, voxel } => write!(
+                formatter,
+                "structural element {} cannot receive matter inside a resident at ({},{},{})",
+                element.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::MaterialMismatch {
                 element,
                 expected,
@@ -181,6 +193,9 @@ impl Error for StructuralConstructionError {
             Self::UnknownElement { element: _element }
             | Self::AlreadyMaterialized { element: _element }
             | Self::EmbeddedInSolidTerrain {
+                element: _element, ..
+            }
+            | Self::ActorOccupied {
                 element: _element, ..
             }
             | Self::SelfWeightOverflow { element: _element } => None,

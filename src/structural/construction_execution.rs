@@ -286,6 +286,17 @@ fn validate_structural_construction_world(
             voxel,
         });
     }
+    if let Some(voxel) = crate::kobolds::first_kobold_member_overlap(
+        registries,
+        state,
+        record.bounds(),
+        record.geometry().covers_horizontal_footprint(),
+    ) {
+        return Err(StructuralConstructionError::ActorOccupied {
+            element: record.id(),
+            voxel,
+        });
+    }
     Ok(())
 }
 
