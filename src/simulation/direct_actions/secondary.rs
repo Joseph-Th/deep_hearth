@@ -37,14 +37,15 @@ fn resolve_direct_surface_gathering(
     let options = player_surface_gathering_options(registries, state).unwrap_or_else(|error| {
         panic!("runtime invariant broken: direct gathering option projection failed: {error}")
     });
-    for option in &options {
-        let count = options
-            .iter()
-            .filter(|candidate| candidate.resource() == option.resource())
-            .count();
-        if count > 1 {
-            return DirectSurfaceGatheringResolution::AmbiguousMethods { count };
-        }
+    // The surface owner projects methods grouped by resource. Inspect each group once rather
+    // than re-counting the entire option set for every visible source.
+    if let Some(methods) = options
+        .chunk_by(|left, right| left.resource() == right.resource())
+        .find(|methods| methods.len() > 1)
+    {
+        return DirectSurfaceGatheringResolution::AmbiguousMethods {
+            count: methods.len(),
+        };
     }
     match options.as_slice() {
         [] => DirectSurfaceGatheringResolution::None,
@@ -61,19 +62,23 @@ pub(super) fn attempt_empty_hand_secondary_action(
 ) -> SecondaryActionOutcome {
     let drink_sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
     let gathering = resolve_direct_surface_gathering(registries, state);
-    match gathering {
+    let surface_resources = match gathering {
         DirectSurfaceGatheringResolution::AmbiguousMethods { count } => {
             return SecondaryActionOutcome::AmbiguousSurfaceGatheringMethods { count };
         }
-        DirectSurfaceGatheringResolution::AmbiguousResources { count } => {
-            return SecondaryActionOutcome::AmbiguousLocalSurfaceResources { count };
-        }
-        DirectSurfaceGatheringResolution::None | DirectSurfaceGatheringResolution::One(_) => {}
-    }
-    if !drink_sources.is_empty() && matches!(gathering, DirectSurfaceGatheringResolution::One(_)) {
+        DirectSurfaceGatheringResolution::AmbiguousResources { count } => count,
+        DirectSurfaceGatheringResolution::One(_) => 1,
+        DirectSurfaceGatheringResolution::None => 0,
+    };
+    if surface_resources != 0 && !drink_sources.is_empty() {
         return SecondaryActionOutcome::AmbiguousEmptyHandContext {
             drink_sources: drink_sources.len(),
-            surface_resources: 1,
+            surface_resources,
+        };
+    }
+    if surface_resources > 1 {
+        return SecondaryActionOutcome::AmbiguousLocalSurfaceResources {
+            count: surface_resources,
         };
     }
     if let DirectSurfaceGatheringResolution::One(target) = gathering {

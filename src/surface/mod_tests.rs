@@ -1724,6 +1724,67 @@ fn empty_hand_secondary_use_refuses_water_and_surface_context_ambiguity() {
         Some(stone_mass)
     );
     assert_eq!(state.player_work().active(), None);
+
+    // A second gathering opportunity must not erase the water choice from the ambiguity.
+    let timber_mass = Mass::from_milligrams(2_000_000);
+    let timber = seed_surface(
+        &registries,
+        &mut state,
+        position,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        timber_mass,
+    );
+    let before = state.clone();
+    let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("multi-resource drinking choice failed: {error}"));
+    assert_eq!(
+        control.secondary_action(),
+        Some(&SecondaryActionOutcome::AmbiguousEmptyHandContext {
+            drink_sources: 1,
+            surface_resources: 2,
+        })
+    );
+    assert_eq!(state.fluid(), before.fluid());
+    assert_eq!(state.surface(), before.surface());
+    assert_eq!(
+        state
+            .surface()
+            .get(timber)
+            .map(|resource| resource.remaining_mass()),
+        Some(timber_mass)
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn empty_hand_secondary_use_reports_all_co_located_gathering_choices_without_work() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let _carried = admit_player(&registries, &mut state, position);
+    for _ in 0..128 {
+        seed_surface(
+            &registries,
+            &mut state,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(100_000),
+        );
+    }
+    let before = state.clone();
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+    let outcome = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("many-source contextual use failed: {error}"));
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::AmbiguousLocalSurfaceResources { count: 128 })
+    );
+    assert_eq!(state.surface(), before.surface());
+    assert_eq!(state.inventory(), before.inventory());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
