@@ -85,8 +85,9 @@ pub use kinematics::{
 };
 pub(crate) use kinematics::{
     apply_player_body_motion, decide_player_body_motion, first_player_body_collision,
-    first_player_body_collision_in_chunk, player_body_fits_continuous_world,
-    player_body_is_grounded, player_body_occupies_voxel, player_body_uses_generated_world,
+    first_player_body_collision_in_chunk, first_player_temple_caste_collision,
+    player_body_fits_continuous_world, player_body_is_grounded, player_body_occupies_voxel,
+    player_body_uses_generated_world,
 };
 pub use pending_primary::PlayerPendingPrimaryBreakError;
 pub(crate) use pending_primary::{

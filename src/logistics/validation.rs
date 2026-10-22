@@ -121,6 +121,9 @@ pub enum LogisticsValidationError {
     PlayerBodyIntersectsSolid {
         voxel: VoxelCoord,
     },
+    PlayerBodyIntersectsTempleCaste {
+        voxel: VoxelCoord,
+    },
     PlayerBodyOutsideContinuousWorld,
     PlayerRespawnPositionOutsideContinuousWorld {
         position: VoxelCoord,
@@ -350,6 +353,13 @@ impl Display for LogisticsValidationError {
             Self::PlayerBodyIntersectsSolid { voxel } => write!(
                 formatter,
                 "player body intersects solid world voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::PlayerBodyIntersectsTempleCaste { voxel } => write!(
+                formatter,
+                "player body intersects temple resident at ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -866,6 +876,11 @@ pub(crate) fn validate_loaded_logistics(
             first_player_body_collision(registries.world(), app.world(), player.body(), locomotion)
         {
             return Err(LogisticsValidationError::PlayerBodyIntersectsSolid { voxel });
+        }
+        if let Some(voxel) =
+            crate::logistics::first_player_temple_caste_collision(registries, app, player.body())
+        {
+            return Err(LogisticsValidationError::PlayerBodyIntersectsTempleCaste { voxel });
         }
     }
     Ok(())

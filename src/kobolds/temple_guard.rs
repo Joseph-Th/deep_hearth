@@ -59,48 +59,70 @@ pub(super) fn apply_temple_warden_tick(
     let Some(player) = state.logistics().player().map(|actor| actor.position()) else {
         return;
     };
-    let Some(route) = temple_warden_route_at(registries, state, player) else {
-        return;
-    };
-    let chunk = ChunkCoord::containing(route[0]);
-    let step = state.kobold_state().temple_warden_step(chunk);
-    let current = route[usize::from(step)];
-    if !clear_standing_cell(registries, state, current) {
-        return;
+    // Ordinary homebound defenders remain implicit. Only an actually displaced
+    // defender continues its return after the player leaves its chunk. Iterating
+    // the sparse saved cursors does not discover or animate dormant remote sites.
+    let mut active = state
+        .kobold_state()
+        .temple_wardens
+        .iter()
+        .filter_map(|record| {
+            let x = record.chunk.world_min_x()?.checked_add(8)?;
+            let z = record.chunk.world_min_z()?.checked_add(8)?;
+            temple_warden_route_at(registries, state, VoxelCoord::new(x, -19, z))
+                .map(|route| (record.chunk, route))
+        })
+        .collect::<Vec<_>>();
+    if let Some(route) = temple_warden_route_at(registries, state, player) {
+        let chunk = ChunkCoord::containing(route[0]);
+        if !active.iter().any(|(present, _)| *present == chunk) {
+            active.push((chunk, route));
+        }
     }
-    let aware = state
+    let alive = state
         .survival()
         .player()
-        .is_some_and(|actor| actor.vitality() != Vitality::ZERO)
-        && player.z() < current.z()
-        && scout_visible_from(registries, state, current, player);
-    let next_step = if aware && step < 2 {
-        step + 1
-    } else if !aware && step > 0 {
-        step - 1
-    } else {
-        step
-    };
-    if next_step == step {
-        return;
-    }
-    let destination = route[usize::from(next_step)];
-    if destination == player || !clear_standing_cell(registries, state, destination) {
-        return;
-    }
-    let displaced = &mut state.kobold_state_mut().temple_wardens;
-    match displaced.binary_search_by_key(&chunk, |record| record.chunk) {
-        Ok(index) if next_step == 0 => {
-            displaced.remove(index);
+        .is_some_and(|actor| actor.vitality() != Vitality::ZERO);
+    for (chunk, route) in active {
+        let step = state.kobold_state().temple_warden_step(chunk);
+        let current = route[usize::from(step)];
+        if !clear_standing_cell(registries, state, current) {
+            continue;
         }
-        Ok(index) => displaced[index].step = next_step,
-        Err(index) => displaced.insert(
-            index,
-            TempleWardenRecord {
-                chunk,
-                step: next_step,
-            },
-        ),
+        let aware = alive
+            && ChunkCoord::containing(player) == chunk
+            && player.z() < current.z()
+            && scout_visible_from(registries, state, current, player);
+        let next_step = if aware && step < 2 {
+            step + 1
+        } else if !aware && step > 0 {
+            step - 1
+        } else {
+            step
+        };
+        if next_step == step {
+            continue;
+        }
+        let destination = route[usize::from(next_step)];
+        if crate::logistics::player_body_occupies_voxel(registries, state, destination)
+            || !clear_standing_cell(registries, state, destination)
+        {
+            continue;
+        }
+        let displaced = &mut state.kobold_state_mut().temple_wardens;
+        match displaced.binary_search_by_key(&chunk, |record| record.chunk) {
+            Ok(index) if next_step == 0 => {
+                displaced.remove(index);
+            }
+            Ok(index) => displaced[index].step = next_step,
+            Err(index) => displaced.insert(
+                index,
+                TempleWardenRecord {
+                    chunk,
+                    step: next_step,
+                },
+            ),
+        }
     }
 }
 

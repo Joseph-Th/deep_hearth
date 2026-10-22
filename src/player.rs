@@ -39,6 +39,9 @@ pub enum PlayerAdmissionError {
     BodyIntersectsSolid {
         voxel: VoxelCoord,
     },
+    BodyIntersectsTempleCaste {
+        voxel: VoxelCoord,
+    },
     ZeroCarriedCapacity,
     StockpileIdExhausted,
     InventoryRevisionExhausted,
@@ -146,6 +149,13 @@ impl Display for PlayerAdmissionError {
             Self::BodyIntersectsSolid { voxel } => write!(
                 formatter,
                 "player body intersects solid world voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::BodyIntersectsTempleCaste { voxel } => write!(
+                formatter,
+                "player body intersects temple resident at ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -436,6 +446,9 @@ fn map_logistics_error(error: InitializePlayerLogisticsError) -> PlayerAdmission
         }
         InitializePlayerLogisticsError::BodyIntersectsSolid { voxel } => {
             PlayerAdmissionError::BodyIntersectsSolid { voxel }
+        }
+        InitializePlayerLogisticsError::BodyIntersectsTempleCaste { voxel } => {
+            PlayerAdmissionError::BodyIntersectsTempleCaste { voxel }
         }
         InitializePlayerLogisticsError::StockpileIdExhausted => {
             PlayerAdmissionError::StockpileIdExhausted

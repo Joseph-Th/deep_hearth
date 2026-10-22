@@ -261,6 +261,19 @@ pub(crate) fn first_player_body_collision(
     })
 }
 
+/// A creature does not cease to be solid when hidden from the player.
+/// Admission and trusted-load checking share the continuous body footprint.
+pub(crate) fn first_player_temple_caste_collision(
+    registries: &Registries,
+    state: &AppState,
+    body: PlayerBodyState,
+) -> Option<VoxelCoord> {
+    let locomotion = registries.survival().physiology().locomotion();
+    first_player_body_collision_where(body, locomotion, |voxel| {
+        crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
+    })
+}
+
 pub(crate) fn first_player_body_collision_in_chunk(
     registry: &WorldRegistry,
     chunk: &WorldChunk,
@@ -482,13 +495,11 @@ fn resolve_horizontal_control(
     } else {
         accelerate_horizontal_velocity(before.horizontal_velocity(), desired_velocity, locomotion)?
     };
-    let (mut position, collided_x, collided_z) = resolve_horizontal_motion(
-        registries.world(),
-        state.world(),
-        stance_body,
-        locomotion,
-        velocity,
-    )?;
+    let (mut position, collided_x, collided_z) =
+        resolve_horizontal_motion(stance_body, locomotion, velocity, &|voxel| {
+            world_cell_blocks_motion(registries.world(), state.world(), voxel)
+                || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
+        })?;
     velocity = collision_clipped_horizontal_velocity(velocity, collided_x, collided_z);
     (position, velocity) = guard_crouched_ledge(
         registries,

@@ -228,17 +228,24 @@ threshold aligned above the last buried step. Intervening host rock must still b
 excavated. Rooms are canonical air, their roofs and floors solid world blocks; three dormant
 copper shells have density-validated partial material fill, distinct hardness, and finite
 excavatable scrap. Heavy castes originate in separately observable temple room cells.
-Archivists remain at their old posts. A warden follows a fixed three-cell, face-adjacent
-defensive route on the existing five-tick kobold clock only when a player is in its
-generated temple column. Its step toward a living, visible intruder requires real air at
-body and head, full-cube support underfoot and a player-free destination; loss of contact
-causes one-cell-at-a-time withdrawal. The kobold owner persists only displaced wardens in
+Archivists remain at their old posts with a solid two-by-two-cell floor footprint and
+three-cell body height; wardens occupy one-by-one-by-two cells. A warden follows a fixed
+three-cell, face-adjacent defensive route on the existing five-tick kobold clock when
+a player is in its generated temple column. Its step toward a living, visible intruder
+requires real air at body and head, full-cube support underfoot and clearance from the
+actual continuous player body footprint, not just the player's current origin voxel.
+Loss of contact causes one-cell-at-a-time withdrawal. The kobold owner persists only displaced wardens in
 strictly sorted per-temple records. Trusted load rejects duplicates, nonexistent sites,
 blocked/absent occupancy and invalid route cursors. A resident stranded by later
 floor excavation retains its saved position but cannot move without support.
-The normal post is derived
-from generated terrain, not stored as a second creature ledger; unloaded/remote sites
-are not scanned for decisions. Local sightings expose defensive posture and moving
+The normal post derives from terrain rather than a second creature ledger. Only the
+player's currently relevant site and the sparse set of actually displaced wardens
+are stepped; remote idle sanctuaries are not scanned or instantiated. This permits
+homebound retreat to finish after the player leaves the chunk without inventing
+offscreen reinforcements. Continuous horizontal collision sweep and read-only walk
+projections query identical temple-caste occupancy, including concealed residents.
+Ordinary player admission, trusted-state validation and the respawn anchor also check
+that same occupied volume. Local sightings expose defensive posture and moving
 position, not an implicit attack. Combat, general pursuit/pathfinding, physiology,
 relic restoration and interpretation remain absent.
 

@@ -271,8 +271,12 @@ remains uncertain. Temple inhabitants remain in real rooms; they must not emerge
 whenever the player's technology advances. Temple wardens react locally to living intruders:
 they advance through supported hall cells without entering the player's occupied voxel and
 withdraw one step at a time after contact is lost. Their visible defensive posture and position
-survive save/load; massive archivists remain beside inherited machinery. Combat, caste-specific
-physiology, negotiation, general subterranean movement and relic restoration remain future
+survive save/load, and displaced wardens complete their physical retreat even when the player
+leaves the temple chunk. Heavy wardens now obstruct the player's continuous walking footprint,
+while massive archivists occupy a real two-by-two-by-three-cell chamber volume at their
+inherited machines. Neither can be bypassed by walking through a sighted or concealed body;
+player admission, trusted loads and respawn must also respect occupied space. Combat,
+caste-specific physiology, negotiation, general subterranean movement and relic restoration remain future
 systems, not hidden exceptions to the present simulation.
 
 One early interaction bridges these societies: a mobilized den with physically co-located

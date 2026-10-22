@@ -583,6 +583,40 @@ pub fn available_nearby_kobold_scouts<'a>(
     })
 }
 
+/// Authoritative occupancy in this generated voxel, independent of local
+/// sight. A concealed caste is still solid; no remote-creature scan occurs.
+pub(crate) fn temple_caste_occupies_voxel(
+    registries: &Registries,
+    state: &AppState,
+    voxel: VoxelCoord,
+) -> bool {
+    let Some([post, archivist]) = crate::world::temple_residents_at(registries, state, voxel)
+    else {
+        return false;
+    };
+    let step = state
+        .kobold_state()
+        .temple_warden_step(crate::world::ChunkCoord::containing(post));
+    let warden = VoxelCoord::new(post.x(), post.y(), post.z() - i64::from(step));
+    let heavy_guard = voxel.x() == warden.x()
+        && voxel.z() == warden.z()
+        && warden
+            .y()
+            .checked_add(1)
+            .is_some_and(|head| (warden.y()..=head).contains(&voxel.y()));
+    // The old archivist caste is truly larger: two-by-two hall cells across,
+    // three cells high, all inside the architect's existing excavated chamber.
+    // The combat model remains absent, but the body footprint is real.
+    let massive_archivist = (voxel.x() == archivist.x()
+        || archivist.x().checked_add(1) == Some(voxel.x()))
+        && (voxel.z() == archivist.z() || archivist.z().checked_sub(1) == Some(voxel.z()))
+        && archivist
+            .y()
+            .checked_add(2)
+            .is_some_and(|head| (archivist.y()..=head).contains(&voxel.y()));
+    heavy_guard || massive_archivist
+}
+
 fn validate_meal_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'static str> {
     let next = colony.next_meal_at.value();
     let first = FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS;

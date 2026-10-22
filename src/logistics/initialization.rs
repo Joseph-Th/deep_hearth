@@ -23,6 +23,7 @@ pub(crate) enum InitializePlayerLogisticsError {
     AlreadyInitialized,
     PositionOutsideContinuousWorld { position: VoxelCoord },
     BodyIntersectsSolid { voxel: VoxelCoord },
+    BodyIntersectsTempleCaste { voxel: VoxelCoord },
     ZeroCarriedCapacity,
     StockpileIdExhausted,
     InventoryRevisionExhausted,
@@ -45,6 +46,13 @@ impl Display for InitializePlayerLogisticsError {
             Self::BodyIntersectsSolid { voxel } => write!(
                 formatter,
                 "player body intersects solid world voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::BodyIntersectsTempleCaste { voxel } => write!(
+                formatter,
+                "player body intersects temple resident at ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -232,6 +240,11 @@ pub(crate) fn validate_player_logistics_initialization(
         registries.survival().physiology().locomotion(),
     ) {
         return Err(InitializePlayerLogisticsError::BodyIntersectsSolid { voxel });
+    }
+    if let Some(voxel) =
+        crate::logistics::first_player_temple_caste_collision(registries, state, validated.body)
+    {
+        return Err(InitializePlayerLogisticsError::BodyIntersectsTempleCaste { voxel });
     }
     Ok(validated)
 }

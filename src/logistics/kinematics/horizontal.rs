@@ -5,21 +5,19 @@ use crate::equipment::equipment_occupancy;
 use crate::production::player_move_production_site_conflict;
 use crate::spatial::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VoxelCoord, WorldPoint};
 use crate::survival::LocomotionDefinition;
-use crate::world::{WorldRegistry, WorldState};
 
 use crate::logistics::{PlayerBodyState, PlayerLogisticsRecord};
 
 use super::{
     PlayerBodyMotionError, body_height, horizontal_voxel_bounds, integrate_velocity,
-    length_nanometers, world_cell_blocks_motion,
+    length_nanometers,
 };
 
 pub(super) fn resolve_horizontal_motion(
-    registry: &WorldRegistry,
-    world: &WorldState,
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
     velocity: HorizontalVelocity,
+    blocked: &impl Fn(VoxelCoord) -> bool,
 ) -> Result<(WorldPoint, bool, bool), PlayerBodyMotionError> {
     let position = body.foot_position();
     let proposed_x = position
@@ -30,16 +28,14 @@ pub(super) fn resolve_horizontal_motion(
         .z_nanometers()
         .checked_add(integrate_velocity(velocity.z_nanometers_per_second())?)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let (resolved_x, collided_x) =
-        sweep_horizontal_x(registry, world, body, locomotion, proposed_x)?;
+    let (resolved_x, collided_x) = sweep_horizontal_x(body, locomotion, proposed_x, blocked)?;
     let x_resolved = body.with_motion(
         WorldPoint::new(resolved_x, position.y_nanometers(), position.z_nanometers()),
         velocity,
         body.vertical_velocity(),
         body.stance(),
     );
-    let (resolved_z, collided_z) =
-        sweep_horizontal_z(registry, world, x_resolved, locomotion, proposed_z)?;
+    let (resolved_z, collided_z) = sweep_horizontal_z(x_resolved, locomotion, proposed_z, blocked)?;
     Ok((
         WorldPoint::new(resolved_x, position.y_nanometers(), resolved_z),
         collided_x,
@@ -48,11 +44,10 @@ pub(super) fn resolve_horizontal_motion(
 }
 
 fn sweep_horizontal_x(
-    registry: &WorldRegistry,
-    world: &WorldState,
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
     proposed_x: i64,
+    blocked: &impl Fn(VoxelCoord) -> bool,
 ) -> Result<(i64, bool), PlayerBodyMotionError> {
     let current_x = body.foot_position().x_nanometers();
     if proposed_x == current_x {
@@ -75,7 +70,7 @@ fn sweep_horizontal_x(
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
             .div_euclid(NANOMETERS_PER_VOXEL);
         for x in first..=last {
-            if column_x_blocks(registry, world, x, min_y, max_y, min_z, max_z) {
+            if column_x_blocks(x, min_y, max_y, min_z, max_z, blocked) {
                 let wall = x
                     .checked_mul(NANOMETERS_PER_VOXEL)
                     .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
@@ -101,7 +96,7 @@ fn sweep_horizontal_x(
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
         .div_euclid(NANOMETERS_PER_VOXEL);
     for x in (first..=last).rev() {
-        if column_x_blocks(registry, world, x, min_y, max_y, min_z, max_z) {
+        if column_x_blocks(x, min_y, max_y, min_z, max_z, blocked) {
             let wall = x
                 .checked_add(1)
                 .and_then(|value| value.checked_mul(NANOMETERS_PER_VOXEL))
@@ -117,11 +112,10 @@ fn sweep_horizontal_x(
 }
 
 fn sweep_horizontal_z(
-    registry: &WorldRegistry,
-    world: &WorldState,
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
     proposed_z: i64,
+    blocked: &impl Fn(VoxelCoord) -> bool,
 ) -> Result<(i64, bool), PlayerBodyMotionError> {
     let current_z = body.foot_position().z_nanometers();
     if proposed_z == current_z {
@@ -144,7 +138,7 @@ fn sweep_horizontal_z(
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
             .div_euclid(NANOMETERS_PER_VOXEL);
         for z in first..=last {
-            if column_z_blocks(registry, world, z, min_y, max_y, min_x, max_x) {
+            if column_z_blocks(z, min_y, max_y, min_x, max_x, blocked) {
                 let wall = z
                     .checked_mul(NANOMETERS_PER_VOXEL)
                     .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
@@ -170,7 +164,7 @@ fn sweep_horizontal_z(
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
         .div_euclid(NANOMETERS_PER_VOXEL);
     for z in (first..=last).rev() {
-        if column_z_blocks(registry, world, z, min_y, max_y, min_x, max_x) {
+        if column_z_blocks(z, min_y, max_y, min_x, max_x, blocked) {
             let wall = z
                 .checked_add(1)
                 .and_then(|value| value.checked_mul(NANOMETERS_PER_VOXEL))
@@ -186,17 +180,16 @@ fn sweep_horizontal_z(
 }
 
 fn column_x_blocks(
-    registry: &WorldRegistry,
-    world: &WorldState,
     x: i64,
     min_y: i64,
     max_y: i64,
     min_z: i64,
     max_z: i64,
+    blocked: &impl Fn(VoxelCoord) -> bool,
 ) -> bool {
     for y in min_y..=max_y {
         for z in min_z..=max_z {
-            if world_cell_blocks_motion(registry, world, VoxelCoord::new(x, y, z)) {
+            if blocked(VoxelCoord::new(x, y, z)) {
                 return true;
             }
         }
@@ -205,17 +198,16 @@ fn column_x_blocks(
 }
 
 fn column_z_blocks(
-    registry: &WorldRegistry,
-    world: &WorldState,
     z: i64,
     min_y: i64,
     max_y: i64,
     min_x: i64,
     max_x: i64,
+    blocked: &impl Fn(VoxelCoord) -> bool,
 ) -> bool {
     for y in min_y..=max_y {
         for x in min_x..=max_x {
-            if world_cell_blocks_motion(registry, world, VoxelCoord::new(x, y, z)) {
+            if blocked(VoxelCoord::new(x, y, z)) {
                 return true;
             }
         }
