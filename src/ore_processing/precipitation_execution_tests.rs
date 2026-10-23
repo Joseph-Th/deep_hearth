@@ -28,6 +28,9 @@ use crate::structural::{
 };
 use crate::thermal::{CastingRequest, resolve_casting_process};
 
+#[path = "precipitation_execution_tests/galena_chain.rs"]
+mod galena_chain;
+
 fn mount_machine_fixture(
     registries: &Registries,
     state: &mut AppState,

@@ -30,6 +30,14 @@ Two GregTech-inspired branches use existing authoritative process owners:
 2. Magnetite (Fe3O4) is ground and separated by an assembled copper-wound machine consuming finite
    electricity. Cast iron poles, formed copper winding, timber framing and replaceable conductor
    stock are required. An unpowered stone separator cannot substitute; the product remains oxide.
+3. Galena (PbS) is mined from rich or 80%-sulfide stone lenses and hand-sorted as coarse
+   crystalline fragments at 65% sulfide recovery, leaving real stone and unrecovered PbS
+   tailings. The selected output remains pure crushed PbS. One 100 g batch of 80%-grade
+   ore yields 52 g selected sulfide, enough for the existing 47.852 g balanced charge
+   with 11.169 g reclaimed iron to produce 41.440 g molten lead and 17.581 g FeS matte.
+   The actual furnace step requires physical supporting structure, locally accessible
+   stock, separate heat-rated lead custody and finite electricity, not a magical
+   ore-to-metal conversion.
 
 Cassiterite now also has a direct-labor coarse-crystal selection route:
 timed player excavation -> hand break -> hand pick visible 2–10 mm mineral
@@ -47,7 +55,8 @@ Neither bypasses an absent reduction/smelting chemistry owner. Their immediate p
 is the ability to improve heterogeneous ore grade and preserve gangue for downstream operations,
 not an invented complete steel or tin production chain. **World acquisition:** seeded
 four-metre cassiterite and magnetite lenses include fixed 40%-mineral, 60%-stone
-variants alongside richer pure-mineral seams. Their full-cell masses obey physical
+variants, while galena has 80%-sulfide, 20%-stone variants, alongside richer
+pure-mineral seams. Their full-cell masses obey physical
 mixture density, and partial timed player excavation carries the same grade into
 inventory or finite surface drops. Crushing, fine grinding and the distinct
 separators can then act on the same represented constituents. Locating and

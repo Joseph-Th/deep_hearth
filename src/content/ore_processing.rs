@@ -26,13 +26,13 @@ use super::capabilities::{
 };
 use super::materials::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_TAILINGS, MATERIAL_CASSITERITE, MATERIAL_COPPER, MATERIAL_MAGNETITE,
+    FORM_TAILINGS, MATERIAL_CASSITERITE, MATERIAL_COPPER, MATERIAL_GALENA, MATERIAL_MAGNETITE,
 };
 use super::processes::{
     PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_CASSITERITE,
     PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
-    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_PICK_GALENA, PROCESS_HAND_SORT_NATIVE_COPPER,
     PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE, PROCESS_PRECIPITATE_LEAD_FROM_GALENA,
     PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS, PROCESS_REGRIND_COPPER_TAILINGS,
     PROCESS_SCAVENGE_CASSITERITE_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS,
@@ -358,6 +358,28 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     Mass::from_milligrams(100_000),
                     SurvivalExertion::new(
                         Energy::from_nanojoules(900_000_000_000),
+                        Volume::from_microliters(220),
+                    ),
+                )
+                .with_equipment_profile(ManualOreEquipmentProfile::new(
+                    CAPABILITY_ORE_PICKING_FLOW,
+                    300,
+                )),
+            ),
+            // High-density galena prills are picked at coarse size before smelting.
+            // The product remains pure PbS; unrecovered PbS and stone stay in tailings.
+            ManualConstituentSeparationProcessDefinition::new_sorting(
+                PROCESS_HAND_PICK_GALENA,
+                FORM_CRUSHED,
+                hand_sortable_particle_size,
+                CommodityKey::new(MATERIAL_GALENA, FORM_CRUSHED),
+                FORM_TAILINGS,
+                650_000,
+                ManualOreProcessProfile::new(
+                    MassFlow::from_milligrams_per_second(250),
+                    Mass::from_milligrams(100_000),
+                    SurvivalExertion::new(
+                        Energy::from_nanojoules(850_000_000_000),
                         Volume::from_microliters(220),
                     ),
                 )

@@ -13,14 +13,14 @@ use super::{
     PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_CASSITERITE,
     PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
-    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_PICK_GALENA, PROCESS_HAND_SORT_NATIVE_COPPER,
     PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE, PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS,
     PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_CASSITERITE_TAILINGS,
     PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
     mass_flow_resolver_requirements,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 17] {
+pub(super) fn definitions() -> [ProcessDefinition; 18] {
     [
         ProcessDefinition::new(
             PROCESS_CRUSH_ORE,
@@ -51,6 +51,11 @@ pub(super) fn definitions() -> [ProcessDefinition; 17] {
         ProcessDefinition::new(
             PROCESS_HAND_PICK_CASSITERITE,
             "hand pick liberated cassiterite crystals from coarse ore",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_HAND_PICK_GALENA,
+            "hand pick massive galena crystals from coarse ore",
             Vec::new(),
         ),
         ProcessDefinition::new(

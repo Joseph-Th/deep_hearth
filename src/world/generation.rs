@@ -676,6 +676,9 @@ fn select_mineral_grade(
         crate::content::BLOCK_STATE_MAGNETITE_ORE => {
             Some(crate::content::BLOCK_STATE_GRADED_MAGNETITE_ORE)
         }
+        crate::content::BLOCK_STATE_GALENA_ORE => {
+            Some(crate::content::BLOCK_STATE_GRADED_GALENA_ORE)
+        }
         _ => None,
     };
     graded

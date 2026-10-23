@@ -421,7 +421,8 @@ cannot change under chunk-order permutation. The authored ore form is loose, mat
 rock cohesion is provided by its still-intact world block. Existing real ore
 crushing and sizing resolvers accept the mined ore material without creating
 any refined metal. Cassiterite and magnetite lenses also have seed-selected
-40%-mineral, 60%-stone variants, with grade fixed across each four-metre lattice
+40%-mineral, 60%-stone variants; galena lenses have 80%-PbS, 20%-stone variants.
+Grade is fixed across each four-metre lattice
 body. A compact block-state identity retains the authored mass fractions; the
 full-cube represented mass uses reciprocal mass-weighted constituent density
 rather than pretending that gangue has the ore mineral's density. Partial
@@ -440,8 +441,16 @@ registry owns its capability requirements. Input selection binds exact pure
 crushed-galena matter and iron scrap/chips, in exact one-fifth-mole charge
 units (47,852 mg PbS + 11,169 mg Fe). Five units equal the balanced full
 mole (239,260 mg PbS + 55,845 mg Fe). This exact integer subdivision
-fits the physically constructible four-pot arc furnace's 80 g batch bound. Runtime rejects missing
-reactants, invalid ratios, impure or over-temperature feed, inadequate
+fits the physically constructible four-pot arc furnace's 80 g batch bound. A 100 g mined
+80%-grade galena batch can be hand-broken and hand-picked as coarse 2–10 mm
+fragments into 52 g pure PbS plus 48 g real, sulfide-bearing stone tailings.
+The picked product is still crushed galena and supplies one 47,852 mg reaction
+charge. Directly feeding the mixed mine output fails chemical purity admission.
+The hand-picking step consumes player attention, exertion and water, and the
+powered furnace needs local player authorization, installed support and
+finite electricity; verified workshop setup does not establish ordinary
+availability of all such industrial infrastructure. Reaction runtime rejects
+missing reactants, invalid ratios, impure or over-temperature feed, inadequate
 energy, unsupported equipment and incorrect output containment. The mounted
 industrial furnace offers 100 g/s charge flow. The assembled four-pot arc
 furnace offers 15 g/s and 80 g maximum batch capacity. Both need 1,325 K
