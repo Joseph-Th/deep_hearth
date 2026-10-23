@@ -54,6 +54,11 @@ pub const TEXTURE_SPHALERITE_ORE: TextureId = TextureId::new(21);
 pub const TEXTURE_MOLTEN_IRON: TextureId = TextureId::new(22);
 pub const TEXTURE_MOLTEN_TIN: TextureId = TextureId::new(23);
 pub const TEXTURE_MOLTEN_ZINC: TextureId = TextureId::new(24);
+pub const TEXTURE_MAGNETITE_ORE: TextureId = TextureId::new(25);
+pub const TEXTURE_GALENA_ORE: TextureId = TextureId::new(26);
+pub const TEXTURE_PYRITE_ORE: TextureId = TextureId::new(27);
+pub const TEXTURE_GRAPHITE_ORE: TextureId = TextureId::new(28);
+pub const TEXTURE_QUARTZ_ORE: TextureId = TextureId::new(29);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
 pub const BLOCK_STONE: BlockAppearanceId = BlockAppearanceId::new(2);
@@ -66,6 +71,11 @@ pub const BLOCK_TEMPLE_CORROSION_PANEL: BlockAppearanceId = BlockAppearanceId::n
 pub const BLOCK_HEMATITE_ORE: BlockAppearanceId = BlockAppearanceId::new(9);
 pub const BLOCK_CASSITERITE_ORE: BlockAppearanceId = BlockAppearanceId::new(10);
 pub const BLOCK_SPHALERITE_ORE: BlockAppearanceId = BlockAppearanceId::new(11);
+pub const BLOCK_MAGNETITE_ORE: BlockAppearanceId = BlockAppearanceId::new(12);
+pub const BLOCK_GALENA_ORE: BlockAppearanceId = BlockAppearanceId::new(13);
+pub const BLOCK_PYRITE_ORE: BlockAppearanceId = BlockAppearanceId::new(14);
+pub const BLOCK_GRAPHITE_ORE: BlockAppearanceId = BlockAppearanceId::new(15);
+pub const BLOCK_QUARTZ_ORE: BlockAppearanceId = BlockAppearanceId::new(16);
 
 pub const OBJECT_LOG: ObjectAppearanceId = ObjectAppearanceId::new(1);
 pub const OBJECT_COPPER_ORE: ObjectAppearanceId = ObjectAppearanceId::new(3);
@@ -174,6 +184,16 @@ pub const OBJECT_MOLTEN_TIN: ObjectAppearanceId = ObjectAppearanceId::new(101);
 pub const OBJECT_MOLTEN_ZINC: ObjectAppearanceId = ObjectAppearanceId::new(102);
 pub const OBJECT_IRON_PICK_HEAD: ObjectAppearanceId = ObjectAppearanceId::new(103);
 pub const OBJECT_IRON_PICK: ObjectAppearanceId = ObjectAppearanceId::new(104);
+pub const OBJECT_MAGNETITE_ORE: ObjectAppearanceId = ObjectAppearanceId::new(105);
+pub const OBJECT_GALENA_ORE: ObjectAppearanceId = ObjectAppearanceId::new(106);
+pub const OBJECT_PYRITE_ORE: ObjectAppearanceId = ObjectAppearanceId::new(107);
+pub const OBJECT_GRAPHITE_ORE: ObjectAppearanceId = ObjectAppearanceId::new(108);
+pub const OBJECT_QUARTZ_ORE: ObjectAppearanceId = ObjectAppearanceId::new(109);
+pub const OBJECT_CRUSHED_MAGNETITE: ObjectAppearanceId = ObjectAppearanceId::new(110);
+pub const OBJECT_CRUSHED_GALENA: ObjectAppearanceId = ObjectAppearanceId::new(111);
+pub const OBJECT_CRUSHED_PYRITE: ObjectAppearanceId = ObjectAppearanceId::new(112);
+pub const OBJECT_CRUSHED_GRAPHITE: ObjectAppearanceId = ObjectAppearanceId::new(113);
+pub const OBJECT_CRUSHED_QUARTZ: ObjectAppearanceId = ObjectAppearanceId::new(114);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -427,6 +447,41 @@ fn build_textures() -> Vec<TextureDefinition> {
             ore_pattern(),
         ),
         texture(
+            TEXTURE_MAGNETITE_ORE,
+            "magnetite ore surface",
+            &[RAMP_DARK_MINERAL, RAMP_STEEL],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
+            TEXTURE_GALENA_ORE,
+            "galena ore surface",
+            &[RAMP_STEEL, RAMP_DARK_MINERAL],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
+            TEXTURE_PYRITE_ORE,
+            "pyrite ore surface",
+            &[RAMP_RUST, RAMP_COPPER_MINERAL],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
+            TEXTURE_GRAPHITE_ORE,
+            "graphite ore surface",
+            &[RAMP_SOOT, RAMP_STEEL],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
+            TEXTURE_QUARTZ_ORE,
+            "quartz ore surface",
+            &[RAMP_STONE, RAMP_REFRACTORY],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
             TEXTURE_MOLTEN_IRON,
             "molten iron surface",
             &[RAMP_MOLTEN, RAMP_RUST],
@@ -525,6 +580,19 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             "sphalerite ore",
             TEXTURE_SPHALERITE_ORE,
         ),
+        BlockAppearanceDefinition::uniform(
+            BLOCK_MAGNETITE_ORE,
+            "magnetite ore",
+            TEXTURE_MAGNETITE_ORE,
+        ),
+        BlockAppearanceDefinition::uniform(BLOCK_GALENA_ORE, "galena ore", TEXTURE_GALENA_ORE),
+        BlockAppearanceDefinition::uniform(BLOCK_PYRITE_ORE, "pyrite ore", TEXTURE_PYRITE_ORE),
+        BlockAppearanceDefinition::uniform(
+            BLOCK_GRAPHITE_ORE,
+            "graphite ore",
+            TEXTURE_GRAPHITE_ORE,
+        ),
+        BlockAppearanceDefinition::uniform(BLOCK_QUARTZ_ORE, "quartz ore", TEXTURE_QUARTZ_ORE),
     ]
 }
 

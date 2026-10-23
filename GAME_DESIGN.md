@@ -209,11 +209,17 @@ Resources should usually have competing uses. Every material or social sink need
 
 The current mineral/metallurgy implementation covers more than the initial copper
 line but not the complete industrial progression in this table. Deep host rock
-contains finite lenses of hematite, cassiterite and sphalerite, distinguishable
-as actual mineral compounds. Mining yields their ore-lump forms; crushing and
-particle-size operations prepare these materials without magically releasing
-iron, tin or zinc. Oxide and sulfide reduction must later explicitly account for
-reductants, energy, oxygen/sulfur byproducts, waste and material yields. Separately,
+contains finite lenses of hematite, magnetite, cassiterite, sphalerite,
+galena, pyrite, graphite and quartz, distinguishable as different mineral
+compounds rather than invented ore labels. Deep and upper-deep rock have
+different mineral occurrences. Excavation yields each material's actual ore
+lumps; crushing and particle-size operations prepare these materials without
+magically releasing elemental metals. Carbon-rich graphite, sulfur-bearing
+sulfides and multiple iron oxide sources make different industrial feedstocks.
+Reduction and roasting must account for reductants, oxygen supply, energy,
+carbon monoxide, sulfur dioxide and material yields. Nine atom-balanced
+reaction equations specify these dependencies but cannot be executed until
+gas custody and chemical processing exist. Separately,
 existing iron, tin and zinc stock or reclaimed scrap can be remelted with finite
 powered equipment and cast into new ingots. The industrial electrical furnace
 and casting mold operate above iron's fusion temperature; small stone crucibles

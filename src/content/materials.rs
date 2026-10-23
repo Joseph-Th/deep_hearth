@@ -27,6 +27,11 @@ pub const MATERIAL_HEMATITE: MaterialId = MaterialId::new(16);
 pub const MATERIAL_CASSITERITE: MaterialId = MaterialId::new(17);
 /// Zinc sulfide, ZnS; chemical reduction/roasting is not generic melting.
 pub const MATERIAL_SPHALERITE: MaterialId = MaterialId::new(18);
+pub const MATERIAL_MAGNETITE: MaterialId = MaterialId::new(19);
+pub const MATERIAL_GALENA: MaterialId = MaterialId::new(20);
+pub const MATERIAL_PYRITE: MaterialId = MaterialId::new(21);
+pub const MATERIAL_GRAPHITE: MaterialId = MaterialId::new(22);
+pub const MATERIAL_QUARTZ: MaterialId = MaterialId::new(23);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 pub(crate) const IRON_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_811_000);
 pub(crate) const TIN_MELTING_POINT: Temperature = Temperature::from_millikelvin(505_080);
@@ -286,6 +291,51 @@ fn register_materials(registry: &mut MaterialRegistry) {
             ),
         ),
         MaterialDefinition::new(
+            MATERIAL_MAGNETITE,
+            "magnetite (Fe3O4)",
+            MaterialProperties::new(
+                5_150,
+                ThermalProperties::new(670, None),
+                Some(StructuralProperties::new(180_000, 14_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_GALENA,
+            "galena (PbS)",
+            MaterialProperties::new(
+                7_600,
+                ThermalProperties::new(230, None),
+                Some(StructuralProperties::new(55_000, 7_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_PYRITE,
+            "pyrite (FeS2)",
+            MaterialProperties::new(
+                5_010,
+                ThermalProperties::new(520, None),
+                Some(StructuralProperties::new(135_000, 15_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_GRAPHITE,
+            "natural graphite (C)",
+            MaterialProperties::new(
+                2_260,
+                ThermalProperties::new(710, None),
+                Some(StructuralProperties::new(30_000, 6_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_QUARTZ,
+            "quartz (SiO2)",
+            MaterialProperties::new(
+                2_650,
+                ThermalProperties::new(740, None),
+                Some(StructuralProperties::new(250_000, 18_000)),
+            ),
+        ),
+        MaterialDefinition::new(
             MATERIAL_SLAG,
             "slag",
             MaterialProperties::new(2_700, ThermalProperties::new(900, None), None),
@@ -481,6 +531,37 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         (
             CommodityKey::new(MATERIAL_SPHALERITE, FORM_CRUSHED),
             "crushed sphalerite",
+        ),
+        (
+            CommodityKey::new(MATERIAL_MAGNETITE, FORM_ORE),
+            "magnetite ore",
+        ),
+        (
+            CommodityKey::new(MATERIAL_MAGNETITE, FORM_CRUSHED),
+            "crushed magnetite",
+        ),
+        (CommodityKey::new(MATERIAL_GALENA, FORM_ORE), "galena ore"),
+        (
+            CommodityKey::new(MATERIAL_GALENA, FORM_CRUSHED),
+            "crushed galena",
+        ),
+        (CommodityKey::new(MATERIAL_PYRITE, FORM_ORE), "pyrite ore"),
+        (
+            CommodityKey::new(MATERIAL_PYRITE, FORM_CRUSHED),
+            "crushed pyrite",
+        ),
+        (
+            CommodityKey::new(MATERIAL_GRAPHITE, FORM_ORE),
+            "graphite ore",
+        ),
+        (
+            CommodityKey::new(MATERIAL_GRAPHITE, FORM_CRUSHED),
+            "crushed graphite",
+        ),
+        (CommodityKey::new(MATERIAL_QUARTZ, FORM_ORE), "quartz ore"),
+        (
+            CommodityKey::new(MATERIAL_QUARTZ, FORM_CRUSHED),
+            "crushed quartz",
         ),
         (
             CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),

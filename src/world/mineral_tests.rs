@@ -144,3 +144,95 @@ fn mineral_generation_is_seeded_bounded_and_does_not_replace_shallow_rock() {
     }
     assert_ne!(profiles[0], profiles[1]);
 }
+
+#[test]
+fn additional_minerals_have_conserved_ore_forms_and_stratified_seeded_sites() {
+    let registries = build_registries();
+    let states = [
+        BLOCK_STATE_HEMATITE_ORE,
+        BLOCK_STATE_CASSITERITE_ORE,
+        BLOCK_STATE_SPHALERITE_ORE,
+        crate::content::BLOCK_STATE_MAGNETITE_ORE,
+        crate::content::BLOCK_STATE_GALENA_ORE,
+        crate::content::BLOCK_STATE_PYRITE_ORE,
+        crate::content::BLOCK_STATE_GRAPHITE_ORE,
+        crate::content::BLOCK_STATE_QUARTZ_ORE,
+    ];
+    let facts = [
+        (crate::content::MATERIAL_HEMATITE, 5_260_u64),
+        (crate::content::MATERIAL_CASSITERITE, 6_900),
+        (crate::content::MATERIAL_SPHALERITE, 4_100),
+        (crate::content::MATERIAL_MAGNETITE, 5_150),
+        (crate::content::MATERIAL_GALENA, 7_600),
+        (crate::content::MATERIAL_PYRITE, 5_010),
+        (crate::content::MATERIAL_GRAPHITE, 2_260),
+        (crate::content::MATERIAL_QUARTZ, 2_650),
+    ];
+    for (block_id, (material, density)) in states.into_iter().zip(facts) {
+        let block = registries.world().block_for_state(block_id).unwrap();
+        assert_eq!(
+            block.commodity(),
+            Some(CommodityKey::new(material, FORM_ORE))
+        );
+        assert_eq!(
+            block.excavation().unwrap().fragmented_commodity(),
+            CommodityKey::new(material, FORM_ORE)
+        );
+        assert_eq!(block.represented_mass().milligrams(), density * 1_000_000);
+        assert!(
+            registries
+                .materials()
+                .has_commodity(CommodityKey::new(material, FORM_CRUSHED))
+        );
+        let appearance = registries
+            .textures()
+            .get_commodity_appearance(CommodityKey::new(material, FORM_ORE))
+            .unwrap();
+        assert!(appearance.block().is_some() && appearance.object().is_some());
+        let crushed = registries
+            .textures()
+            .get_commodity_appearance(CommodityKey::new(material, FORM_CRUSHED))
+            .unwrap();
+        assert!(crushed.object().is_some());
+    }
+    let seed = WorldGenerationSeed::new(0x4D49_4E45_5241_4C53);
+    let mut seen = BTreeSet::new();
+    let mut upper = BTreeSet::new();
+    let mut lower = BTreeSet::new();
+    for x in 0..100 {
+        for z in 0..100 {
+            assert_eq!(
+                super::generation::seeded_mineral_state(
+                    seed,
+                    VoxelCoord::new(x * 4, -40, z * 4),
+                    states
+                ),
+                super::generation::seeded_mineral_state(
+                    seed,
+                    VoxelCoord::new(x * 4, -39, z * 4),
+                    states
+                ),
+                "the -40 m strata boundary must not divide one 4 m mineral lens",
+            );
+            for &y in &[-27, -31, -35, -39, -43, -47, -51, -55] {
+                let point = VoxelCoord::new(x * 4, y, z * 4);
+                let selected = super::generation::seeded_mineral_state(seed, point, states);
+                if let Some(block) = selected {
+                    seen.insert(block);
+                    if y > -40 {
+                        upper.insert(block);
+                    } else {
+                        lower.insert(block);
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(seen.len(), states.len());
+    assert!(upper.contains(&crate::content::BLOCK_STATE_GRAPHITE_ORE));
+    assert!(upper.contains(&crate::content::BLOCK_STATE_QUARTZ_ORE));
+    assert!(!lower.contains(&crate::content::BLOCK_STATE_GRAPHITE_ORE));
+    assert!(!lower.contains(&crate::content::BLOCK_STATE_QUARTZ_ORE));
+    assert!(lower.contains(&crate::content::BLOCK_STATE_MAGNETITE_ORE));
+    assert!(lower.contains(&crate::content::BLOCK_STATE_PYRITE_ORE));
+}

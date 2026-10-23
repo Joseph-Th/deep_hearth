@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use super::*;
 use crate::texture::{TEXTURE_MIP_LEVEL_COUNT, TEXTURE_SIDE};
 
-const BUILT_IN_TEXTURES: [TextureId; 22] = [
+const BUILT_IN_TEXTURES: [TextureId; 27] = [
     TEXTURE_WOOD_SIDE,
     TEXTURE_WOOD_END,
     TEXTURE_COPPER_ORE,
@@ -28,6 +28,11 @@ const BUILT_IN_TEXTURES: [TextureId; 22] = [
     TEXTURE_MOLTEN_IRON,
     TEXTURE_MOLTEN_TIN,
     TEXTURE_MOLTEN_ZINC,
+    TEXTURE_MAGNETITE_ORE,
+    TEXTURE_GALENA_ORE,
+    TEXTURE_PYRITE_ORE,
+    TEXTURE_GRAPHITE_ORE,
+    TEXTURE_QUARTZ_ORE,
 ];
 
 #[test]

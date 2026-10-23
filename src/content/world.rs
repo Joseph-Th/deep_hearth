@@ -9,11 +9,13 @@ use crate::world::{
 
 use super::materials::{
     FORM_BLOCK, FORM_CHIP, FORM_ORE, FORM_SCRAP, MATERIAL_CASSITERITE, MATERIAL_COPPER,
-    MATERIAL_HEMATITE, MATERIAL_IRON, MATERIAL_SPHALERITE, MATERIAL_STONE, MATERIAL_TIN,
+    MATERIAL_GALENA, MATERIAL_GRAPHITE, MATERIAL_HEMATITE, MATERIAL_IRON, MATERIAL_MAGNETITE,
+    MATERIAL_PYRITE, MATERIAL_QUARTZ, MATERIAL_SPHALERITE, MATERIAL_STONE, MATERIAL_TIN,
     MATERIAL_ZINC,
 };
 use super::textures::{
-    BLOCK_CASSITERITE_ORE, BLOCK_COPPER, BLOCK_HEMATITE_ORE, BLOCK_SPHALERITE_ORE, BLOCK_STONE,
+    BLOCK_CASSITERITE_ORE, BLOCK_COPPER, BLOCK_GALENA_ORE, BLOCK_GRAPHITE_ORE, BLOCK_HEMATITE_ORE,
+    BLOCK_MAGNETITE_ORE, BLOCK_PYRITE_ORE, BLOCK_QUARTZ_ORE, BLOCK_SPHALERITE_ORE, BLOCK_STONE,
     BLOCK_TEMPLE_BEARING_HOUSING, BLOCK_TEMPLE_CORROSION_PANEL, BLOCK_TEMPLE_DATA_PLATE,
     BLOCK_TEMPLE_REFRACTORY_FIXTURE,
 };
@@ -29,6 +31,11 @@ pub const WORLD_BLOCK_TEMPLE_ZINC_CORROSION_PANEL: BlockDefinitionId = BlockDefi
 pub const WORLD_BLOCK_HEMATITE_ORE: BlockDefinitionId = BlockDefinitionId::new(10);
 pub const WORLD_BLOCK_CASSITERITE_ORE: BlockDefinitionId = BlockDefinitionId::new(11);
 pub const WORLD_BLOCK_SPHALERITE_ORE: BlockDefinitionId = BlockDefinitionId::new(12);
+pub const WORLD_BLOCK_MAGNETITE_ORE: BlockDefinitionId = BlockDefinitionId::new(13);
+pub const WORLD_BLOCK_GALENA_ORE: BlockDefinitionId = BlockDefinitionId::new(14);
+pub const WORLD_BLOCK_PYRITE_ORE: BlockDefinitionId = BlockDefinitionId::new(15);
+pub const WORLD_BLOCK_GRAPHITE_ORE: BlockDefinitionId = BlockDefinitionId::new(16);
+pub const WORLD_BLOCK_QUARTZ_ORE: BlockDefinitionId = BlockDefinitionId::new(17);
 
 pub const BLOCK_STATE_STONE: BlockStateId = BlockStateId::new(2);
 pub const BLOCK_STATE_TEMPLE_ARCHIVE: BlockStateId = BlockStateId::new(3);
@@ -41,6 +48,11 @@ pub const BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL: BlockStateId = BlockStateId::
 pub const BLOCK_STATE_HEMATITE_ORE: BlockStateId = BlockStateId::new(10);
 pub const BLOCK_STATE_CASSITERITE_ORE: BlockStateId = BlockStateId::new(11);
 pub const BLOCK_STATE_SPHALERITE_ORE: BlockStateId = BlockStateId::new(12);
+pub const BLOCK_STATE_MAGNETITE_ORE: BlockStateId = BlockStateId::new(13);
+pub const BLOCK_STATE_GALENA_ORE: BlockStateId = BlockStateId::new(14);
+pub const BLOCK_STATE_PYRITE_ORE: BlockStateId = BlockStateId::new(15);
+pub const BLOCK_STATE_GRAPHITE_ORE: BlockStateId = BlockStateId::new(16);
+pub const BLOCK_STATE_QUARTZ_ORE: BlockStateId = BlockStateId::new(17);
 
 pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistry {
     WorldRegistry::new(
@@ -254,6 +266,91 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                 )),
                 Some(BLOCK_SPHALERITE_ORE),
             ),
+            BlockDefinition::new(
+                WORLD_BLOCK_MAGNETITE_ORE,
+                "magnetite mineral deposit",
+                BLOCK_STATE_MAGNETITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_MAGNETITE, FORM_ORE)),
+                    full_cube_mass(materials, MATERIAL_MAGNETITE),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(515_000_000),
+                    CommodityKey::new(MATERIAL_MAGNETITE, FORM_ORE),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_MAGNETITE_ORE),
+            ),
+            BlockDefinition::new(
+                WORLD_BLOCK_GALENA_ORE,
+                "galena mineral deposit",
+                BLOCK_STATE_GALENA_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_GALENA, FORM_ORE)),
+                    full_cube_mass(materials, MATERIAL_GALENA),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(100_000_000),
+                    CommodityKey::new(MATERIAL_GALENA, FORM_ORE),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_GALENA_ORE),
+            ),
+            BlockDefinition::new(
+                WORLD_BLOCK_PYRITE_ORE,
+                "pyrite mineral deposit",
+                BLOCK_STATE_PYRITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_PYRITE, FORM_ORE)),
+                    full_cube_mass(materials, MATERIAL_PYRITE),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(350_000_000),
+                    CommodityKey::new(MATERIAL_PYRITE, FORM_ORE),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_PYRITE_ORE),
+            ),
+            BlockDefinition::new(
+                WORLD_BLOCK_GRAPHITE_ORE,
+                "graphite mineral deposit",
+                BLOCK_STATE_GRAPHITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_GRAPHITE, FORM_ORE)),
+                    full_cube_mass(materials, MATERIAL_GRAPHITE),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(45_000_000),
+                    CommodityKey::new(MATERIAL_GRAPHITE, FORM_ORE),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_GRAPHITE_ORE),
+            ),
+            BlockDefinition::new(
+                WORLD_BLOCK_QUARTZ_ORE,
+                "quartz mineral deposit",
+                BLOCK_STATE_QUARTZ_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_QUARTZ, FORM_ORE)),
+                    full_cube_mass(materials, MATERIAL_QUARTZ),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(700_000_000),
+                    CommodityKey::new(MATERIAL_QUARTZ, FORM_ORE),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_QUARTZ_ORE),
+            ),
         ],
         [
             BlockStateDefinition::new(BlockStateId::AIR, BlockDefinitionId::AIR),
@@ -280,6 +377,11 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
             BlockStateDefinition::new(BLOCK_STATE_HEMATITE_ORE, WORLD_BLOCK_HEMATITE_ORE),
             BlockStateDefinition::new(BLOCK_STATE_CASSITERITE_ORE, WORLD_BLOCK_CASSITERITE_ORE),
             BlockStateDefinition::new(BLOCK_STATE_SPHALERITE_ORE, WORLD_BLOCK_SPHALERITE_ORE),
+            BlockStateDefinition::new(BLOCK_STATE_MAGNETITE_ORE, WORLD_BLOCK_MAGNETITE_ORE),
+            BlockStateDefinition::new(BLOCK_STATE_GALENA_ORE, WORLD_BLOCK_GALENA_ORE),
+            BlockStateDefinition::new(BLOCK_STATE_PYRITE_ORE, WORLD_BLOCK_PYRITE_ORE),
+            BlockStateDefinition::new(BLOCK_STATE_GRAPHITE_ORE, WORLD_BLOCK_GRAPHITE_ORE),
+            BlockStateDefinition::new(BLOCK_STATE_QUARTZ_ORE, WORLD_BLOCK_QUARTZ_ORE),
         ],
     )
 }

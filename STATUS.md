@@ -46,14 +46,14 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | --- | --- |
 | Core | Persisted 20 Hz `ControlTick` + exact 72:1 `SimulationTick`; slow-step only when no control-rate consequence can occur. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
-| Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume; iron/tin/zinc remelt/cast, iron-bearing equipment upkeep. |
+| Production | Timed closed-mass jobs, exact inputs, output routing and support-aware suspension; iron/tin/zinc remelt/cast and iron-bearing upkeep. Nine atom-balanced mineral reactions are reference equations only, not runnable processes. |
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. Deep exposed residue layers obstruct ground-storage footing until cleared. |
 | Energy and fluids | Finite typed stores with power/loss limits. Log or chip fuel becomes finite campfire heat with terminal mass accounting; water is locally finite/drinkable. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Mass-backed terrain with seeded mineral seams, temple rooms, stairs, seven finite assemblies and solid caste bodies; collision and admission respect occupancy. Excavation, fragments and targeting exist; placement, UI, residency absent. |
+| Block world | Mass-backed terrain with eight stratified mineral seam identities, temple rooms, stairs, seven finite assemblies and solid caste bodies; collision and admission respect occupancy. Excavation, fragments and targeting exist; placement, UI, residency absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

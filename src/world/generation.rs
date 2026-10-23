@@ -561,6 +561,11 @@ fn build_generated_chunk(
         crate::content::BLOCK_STATE_HEMATITE_ORE,
         crate::content::BLOCK_STATE_CASSITERITE_ORE,
         crate::content::BLOCK_STATE_SPHALERITE_ORE,
+        crate::content::BLOCK_STATE_MAGNETITE_ORE,
+        crate::content::BLOCK_STATE_GALENA_ORE,
+        crate::content::BLOCK_STATE_PYRITE_ORE,
+        crate::content::BLOCK_STATE_GRAPHITE_ORE,
+        crate::content::BLOCK_STATE_QUARTZ_ORE,
     ];
     let mineral_enabled = profile.solid_state() == crate::content::BLOCK_STATE_STONE
         && mineral_states
@@ -624,10 +629,10 @@ fn build_generated_chunk(
 /// 4 m mineral lenses at bounded deep elevations. This is seeded terrain
 /// identity: no virtual deposits, no metal extracted from chemically bound ore,
 /// and no repeated discovery rolls when the same chunk is reloaded.
-fn seeded_mineral_state(
+pub(super) fn seeded_mineral_state(
     seed: WorldGenerationSeed,
     position: VoxelCoord,
-    states: [BlockStateId; 3],
+    states: [BlockStateId; 8],
 ) -> Option<BlockStateId> {
     if !(-55..=-26).contains(&position.y()) {
         return None;
@@ -639,7 +644,22 @@ fn seeded_mineral_state(
             ^ (position.z().div_euclid(4) as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
             ^ 0x4D49_4E45_5241_4C53,
     );
-    (hash % 89 == 0).then(|| states[((hash >> 13) % 3) as usize])
+    // 4 m lenses are sparse, and unlike a global mineral uniform roll,
+    // their types reflect shallow vs deep host-rock position. Lattice hash
+    // remains invariant under chunk and generation-order changes.
+    (hash % 89 == 0).then(|| {
+        let choice = ((hash >> 13) % 8) as usize;
+        // Select strata using the lattice cell, not individual voxel elevation;
+        // otherwise one 4 m lens crossing -40 splits into unrelated ores.
+        let index = if position.y().div_euclid(4) >= -10 {
+            // Upper deep rock: tin/zinc/lead/graphite/quartz plus iron oxide.
+            [0, 1, 2, 4, 5, 6, 7, 7][choice]
+        } else {
+            // Lower deep rock: magnetite and sulfides dominate the rare lenses.
+            [0, 0, 1, 2, 3, 3, 5, 5][choice]
+        };
+        states[index]
+    })
 }
 
 /// Newly generated solid cells must not conceal finite loose material that

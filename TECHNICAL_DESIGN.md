@@ -408,20 +408,29 @@ hardness admission, with degradation and finite component repair.
 
 Deep generated stone terrain contains sparse deterministic 4 m mineral lenses
 between elevations -55 and -26. Each mineral lens is selected by the world seed
-and a 3D 4 m lattice hash, independent of chunk generation order. Hematite
-(Fe2O3, 5,260 kg/m³), cassiterite (SnO2, 6,900 kg/m³), and sphalerite
-(ZnS, 4,100 kg/m³) have separate block identities, physical hardness, exact
-mineral mass, ore-lump excavation custody, crushed-ore commodities and indexed
-presentation. The authored ore form is loose, matching the excavated product;
+and a 3D 4 m lattice hash, independent of chunk generation order. A
+stratified eight-mineral selection covers hematite (Fe2O3, 5,260 kg/m³),
+magnetite (Fe3O4, 5,150 kg/m³), cassiterite (SnO2, 6,900 kg/m³), sphalerite
+(ZnS, 4,100 kg/m³), galena (PbS, 7,600 kg/m³), pyrite (FeS2, 5,010 kg/m³),
+natural graphite (C, 2,260 kg/m³) and quartz (SiO2, 2,650 kg/m³). All eight
+have separate block identities, physical hardness, exact mineral mass,
+ore-lump excavation custody, crushed-ore commodities and indexed presentation.
+The upper-deep selection includes graphite and quartz; the lower-deep
+selection favors magnetite and pyrite. A deterministic whole-lens choice
+cannot change under chunk-order permutation. The authored ore form is loose, matching the excavated product;
 rock cohesion is provided by its still-intact world block. Existing real ore
 crushing and sizing resolvers accept the mined ore material without creating
-any refined metal. Oxide/sulfide reduction, roasting, off-gas/byproduct custody,
-alloying, metallurgy heat treatment and independent mineral-prospecting knowledge
-remain outside the implemented chain. The ore lens placement is not a registered
+any refined metal. The content reaction table encodes nine atom-balanced
+carbon reduction and oxidative roasting equations, using integer atomic masses,
+positive molar coefficients and per-element conservation; tests reject a missing
+CO/SO2 exhaust term. This table is **not** a production registry and does not
+authorize any furnace job. Reductant admission, oxidation gas flows,
+chemical heat, reaction timing, retained exhaust vessel custody, species phases,
+alloying, heat treatment and survey discoverability still require runtime systems. The ore lens placement is not a registered
 finite geology deposit and is not automatically discoverable via survey evidence.
 
 The archive shell, motive-drive shell and external threshold use copper.
-The active built-in registry schema is 143; saves with another registry schema
+The active built-in registry schema is 144; saves with another registry schema
 are rejected before material mass and identity validation. No older content
 schema migration is available in this build. All seven devices are finite and inactive
 until an explicit operation exists.
