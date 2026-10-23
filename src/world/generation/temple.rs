@@ -1,6 +1,10 @@
 //! Sparse seeded temple precincts: excavatable architecture in one chunk per district.
 
-use crate::content::{BLOCK_STATE_TEMPLE_ARCHIVE, BLOCK_STATE_TEMPLE_DRIVE};
+use crate::content::{
+    BLOCK_STATE_TEMPLE_ARCHIVE, BLOCK_STATE_TEMPLE_CASTE_HEARTH, BLOCK_STATE_TEMPLE_DRIVE,
+    BLOCK_STATE_TEMPLE_MOLT_STELA, BLOCK_STATE_TEMPLE_MUSTER_GONG,
+    BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER,
+};
 use crate::spatial::VoxelCoord;
 use crate::world::BlockStateId;
 
@@ -30,6 +34,8 @@ pub(in crate::world) const STAIR_PATH: [(i64, i64); 15] = [
 #[derive(Clone, Copy, Debug)]
 pub(in crate::world) struct TempleSite {
     center: VoxelCoord,
+    // Which caste's physical monument occupies each chapel is seed-derived.
+    shrine_order: u8,
 }
 
 impl TempleSite {
@@ -63,6 +69,7 @@ impl TempleSite {
             .checked_add(6 + ((room_hash >> 8) % 5) as i64)?;
         Some(Self {
             center: VoxelCoord::new(x, CHAMBER_Y, z),
+            shrine_order: ((room_hash >> 24) & 3) as u8,
         })
     }
 
@@ -102,6 +109,25 @@ impl TempleSite {
         })
     }
 
+    /// Four small caste chapels, with their archaeological contents varied by
+    /// district seed. Each has a free approach from the actual central hall.
+    pub(in crate::world) fn chapel_relics(self) -> [(VoxelCoord, BlockStateId); 4] {
+        const CONTENT: [BlockStateId; 4] = [
+            BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER,
+            BLOCK_STATE_TEMPLE_MUSTER_GONG,
+            BLOCK_STATE_TEMPLE_MOLT_STELA,
+            BLOCK_STATE_TEMPLE_CASTE_HEARTH,
+        ];
+        let corners = [(-3, -5), (3, -5), (-3, 5), (3, 5)];
+        std::array::from_fn(|index| {
+            let (dx, dz) = corners[index];
+            (
+                VoxelCoord::new(self.center.x() + dx, CHAMBER_Y, self.center.z() + dz),
+                CONTENT[(index + usize::from(self.shrine_order)) % CONTENT.len()],
+            )
+        })
+    }
+
     /// Some(AIR) is a real excavated-in-generation void; None leaves native host rock.
     pub(super) fn generated_state(self, position: VoxelCoord) -> Option<BlockStateId> {
         if self.stair_at(position) {
@@ -112,10 +138,21 @@ impl TempleSite {
         }
         let dx = self.center.x().abs_diff(position.x());
         let dz = self.center.z().abs_diff(position.z());
-        // West is the archive, east the engine bay, both with real connecting throats.
+        // West is the archive, east the engine bay; four two-by-two side
+        // chapels open off the hall's north and south edges.
         let main_hall = dx <= CHAMBER_RADIUS && dz <= CHAMBER_RADIUS;
         let annex = (4..=5).contains(&dx) && dz <= 1;
-        if !(main_hall || annex) {
+        let chapels = (2..=3).contains(&dx) && (4..=5).contains(&dz);
+        if !(main_hall || annex || chapels) {
+            return None;
+        }
+        // The southern metal chapel passes beneath the rising buried stair.
+        // Its upper roof at (3,4) is the actual solid support for step three;
+        // cutting that stone would leave the existing player route floating.
+        if position.x() == self.center.x() + 3
+            && position.z() == self.center.z() + 4
+            && position.y() == CHAMBER_Y + 2
+        {
             return None;
         }
         let base = position.y() == CHAMBER_Y;
@@ -124,6 +161,14 @@ impl TempleSite {
         }
         if base && position.x() == self.center.x() + 5 && position.z() == self.center.z() {
             return Some(BLOCK_STATE_TEMPLE_DRIVE);
+        }
+        if base
+            && let Some((_, relic)) = self
+                .chapel_relics()
+                .into_iter()
+                .find(|(location, _)| *location == position)
+        {
+            return Some(relic);
         }
         Some(BlockStateId::AIR)
     }

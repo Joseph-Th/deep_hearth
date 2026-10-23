@@ -3,8 +3,10 @@
 use super::*;
 
 use crate::content::{
-    BLOCK_STATE_STONE, BLOCK_STATE_TEMPLE_ARCHIVE, BLOCK_STATE_TEMPLE_DRIVE,
-    BLOCK_STATE_TEMPLE_SEAL, FORM_SCRAP, MATERIAL_COPPER, build_registries,
+    BLOCK_STATE_STONE, BLOCK_STATE_TEMPLE_ARCHIVE, BLOCK_STATE_TEMPLE_CASTE_HEARTH,
+    BLOCK_STATE_TEMPLE_DRIVE, BLOCK_STATE_TEMPLE_MOLT_STELA, BLOCK_STATE_TEMPLE_MUSTER_GONG,
+    BLOCK_STATE_TEMPLE_SEAL, BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER, FORM_CHIP, FORM_SCRAP,
+    MATERIAL_COPPER, MATERIAL_STONE, build_registries,
 };
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::kobolds::{KoboldRole, KoboldStature, available_nearby_kobold_scouts};
@@ -21,6 +23,152 @@ fn site_for_seed(seed: WorldGenerationSeed) -> (ChunkCoord, generation::temple::
             generation::temple::TempleSite::for_chunk(seed, chunk).map(|site| (chunk, site))
         })
         .expect("each district contains one seeded temple")
+}
+
+#[test]
+fn four_caste_chapels_have_accessible_carved_rooms_and_distinct_finite_relics() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    let (chunk, site) = site_for_seed(seed);
+    let mut state = AppState::new();
+    validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let chapel_relics = site.chapel_relics();
+    let mut seen = chapel_relics.map(|(_, block)| block);
+    seen.sort_unstable();
+    let mut expected = [
+        BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER,
+        BLOCK_STATE_TEMPLE_MUSTER_GONG,
+        BLOCK_STATE_TEMPLE_MOLT_STELA,
+        BLOCK_STATE_TEMPLE_CASTE_HEARTH,
+    ];
+    expected.sort_unstable();
+    assert_eq!(
+        seen, expected,
+        "each of four caste activities has physical evidence"
+    );
+    let appearances = chapel_relics
+        .iter()
+        .map(|(_, id)| {
+            registries
+                .world()
+                .block_for_state(*id)
+                .unwrap()
+                .appearance()
+                .unwrap()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        appearances.len(),
+        4,
+        "every cultural find has distinct presentation"
+    );
+    let original_mass = calculate_matter_accounting(&state).unwrap().total();
+    for (location, relic) in chapel_relics {
+        assert_eq!(state.world().block_at(location), Some(relic));
+        assert_eq!(
+            state.world().block_at(VoxelCoord::new(
+                location.x(),
+                location.y() + 1,
+                location.z()
+            )),
+            Some(BlockStateId::AIR),
+            "the shrine artifact must have real overhead clearance for observation"
+        );
+        assert_eq!(
+            state.world().block_at(VoxelCoord::new(
+                location.x(),
+                location.y() - 1,
+                location.z()
+            )),
+            Some(BLOCK_STATE_STONE),
+            "an artifact rests on an actual excavatable native floor"
+        );
+        let closer_z = if location.z() < site.warden().z() - 2 {
+            location.z() + 1
+        } else {
+            location.z() - 1
+        };
+        let walkway_x = if location.x() < site.warden().x() {
+            location.x() + 1
+        } else {
+            location.x() - 1
+        };
+        for z in [
+            location.z(),
+            closer_z,
+            closer_z
+                + if location.z() < site.warden().z() - 2 {
+                    1
+                } else {
+                    -1
+                },
+        ] {
+            let foot = VoxelCoord::new(walkway_x, location.y(), z);
+            assert_eq!(state.world().block_at(foot), Some(BlockStateId::AIR));
+            assert_eq!(
+                state
+                    .world()
+                    .block_at(VoxelCoord::new(foot.x(), foot.y() + 1, foot.z())),
+                Some(BlockStateId::AIR),
+                "side chapels need a two-high connected approach"
+            );
+        }
+    }
+    let copper = CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    for (block, mass, fill, fragments) in [
+        (BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER, 4_480_000, 500, copper),
+        (BLOCK_STATE_TEMPLE_MUSTER_GONG, 8_960_000, 1_000, copper),
+        (BLOCK_STATE_TEMPLE_MOLT_STELA, 265_000_000, 100_000, stone),
+        (BLOCK_STATE_TEMPLE_CASTE_HEARTH, 530_000_000, 200_000, stone),
+    ] {
+        let definition = registries.world().block_for_state(block).unwrap();
+        assert_eq!(definition.material_fill_fraction_ppm(), fill);
+        assert_eq!(
+            definition.excavation().unwrap().fragmented_commodity(),
+            fragments
+        );
+        assert_eq!(
+            registries
+                .world()
+                .represented_mass_for_state(block)
+                .unwrap()
+                .milligrams(),
+            mass
+        );
+    }
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_mass
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+}
+
+#[test]
+fn seeded_districts_have_different_caste_chapel_orders_without_changing_resident_posts() {
+    let mut orders = Vec::new();
+    for seed in 1..=20 {
+        let seed = WorldGenerationSeed::new(seed);
+        let (_, site) = site_for_seed(seed);
+        let blocks = site.chapel_relics().map(|(_, block)| block);
+        assert_eq!(site.warden().z() - site.archivist().z(), 4);
+        if !orders.contains(&blocks) {
+            orders.push(blocks);
+        }
+    }
+    assert!(
+        orders.len() >= 3,
+        "seeded districts should contain different physical arrangements"
+    );
 }
 
 #[test]

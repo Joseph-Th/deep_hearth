@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use super::*;
 use crate::texture::{TEXTURE_MIP_LEVEL_COUNT, TEXTURE_SIDE};
 
-const BUILT_IN_TEXTURES: [TextureId; 12] = [
+const BUILT_IN_TEXTURES: [TextureId; 16] = [
     TEXTURE_WOOD_SIDE,
     TEXTURE_WOOD_END,
     TEXTURE_COPPER_ORE,
@@ -18,6 +18,10 @@ const BUILT_IN_TEXTURES: [TextureId; 12] = [
     TEXTURE_REFRACTORY,
     TEXTURE_SCREEN_MESH,
     TEXTURE_STONE,
+    TEXTURE_TEMPLE_LEDGER,
+    TEXTURE_TEMPLE_MOLT,
+    TEXTURE_TEMPLE_HEARTH,
+    TEXTURE_TEMPLE_GONG,
 ];
 
 #[test]
@@ -130,4 +134,26 @@ fn built_in_bake_is_deterministic_compact_and_deduplicates_panel_geometry() {
         first.sample(TEXTURE_COPPER_HAMMERED, 0, 16, 16),
         first.sample(TEXTURE_MACHINE_PANEL, 0, 16, 16)
     );
+}
+
+#[test]
+fn caste_relic_tiles_are_distinct_from_generic_copper_and_stone() {
+    let atlas = build_texture_registry().bake_texture_array();
+    for (artifact, ordinary) in [
+        (TEXTURE_TEMPLE_LEDGER, TEXTURE_COPPER_HAMMERED),
+        (TEXTURE_TEMPLE_MOLT, TEXTURE_STONE),
+        (TEXTURE_TEMPLE_HEARTH, TEXTURE_STONE),
+        (TEXTURE_TEMPLE_GONG, TEXTURE_COPPER_HAMMERED),
+    ] {
+        assert!(
+            (0..TEXTURE_SIDE).any(|y| (0..TEXTURE_SIDE).any(|x| {
+                let x = u8::try_from(x).unwrap();
+                let y = u8::try_from(y).unwrap();
+                atlas.sample(artifact, 0, x, y) != atlas.sample(ordinary, 0, x, y)
+            })),
+            "caste relic texture {} cannot duplicate generic block {}",
+            artifact.value(),
+            ordinary.value()
+        );
+    }
 }

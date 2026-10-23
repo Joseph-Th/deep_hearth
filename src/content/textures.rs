@@ -44,11 +44,19 @@ pub const TEXTURE_REFRACTORY: TextureId = TextureId::new(11);
 pub const TEXTURE_SCREEN_MESH: TextureId = TextureId::new(12);
 pub const TEXTURE_STONE: TextureId = TextureId::new(13);
 pub const TEXTURE_CLAY_EARTH: TextureId = TextureId::new(14);
+pub const TEXTURE_TEMPLE_LEDGER: TextureId = TextureId::new(15);
+pub const TEXTURE_TEMPLE_MOLT: TextureId = TextureId::new(16);
+pub const TEXTURE_TEMPLE_HEARTH: TextureId = TextureId::new(17);
+pub const TEXTURE_TEMPLE_GONG: TextureId = TextureId::new(18);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
 pub const BLOCK_STONE: BlockAppearanceId = BlockAppearanceId::new(2);
 pub const BLOCK_COPPER_ORE: BlockAppearanceId = BlockAppearanceId::new(3);
 pub const BLOCK_COPPER: BlockAppearanceId = BlockAppearanceId::new(4);
+pub const BLOCK_TEMPLE_LEDGER: BlockAppearanceId = BlockAppearanceId::new(5);
+pub const BLOCK_TEMPLE_MOLT: BlockAppearanceId = BlockAppearanceId::new(6);
+pub const BLOCK_TEMPLE_HEARTH: BlockAppearanceId = BlockAppearanceId::new(7);
+pub const BLOCK_TEMPLE_GONG: BlockAppearanceId = BlockAppearanceId::new(8);
 
 pub const OBJECT_LOG: ObjectAppearanceId = ObjectAppearanceId::new(1);
 pub const OBJECT_COPPER_ORE: ObjectAppearanceId = ObjectAppearanceId::new(3);
@@ -341,6 +349,36 @@ fn build_textures() -> Vec<TextureDefinition> {
             TextureAlphaMode::Opaque,
             refractory_pattern(),
         ),
+        // These separate authored archaeological appearances reuse existing
+        // indexed engraving and masonry GPU layers with different palettes.
+        texture(
+            TEXTURE_TEMPLE_LEDGER,
+            "oxidized tribute ledger teeth",
+            &[RAMP_COPPER_DARK, RAMP_COPPER_METAL],
+            TextureAlphaMode::Opaque,
+            panel_pattern,
+        ),
+        texture(
+            TEXTURE_TEMPLE_MOLT,
+            "dark scale-veined memorial stone",
+            &[RAMP_STONE, RAMP_DARK_MINERAL],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
+            TEXTURE_TEMPLE_HEARTH,
+            "soot-burnished ancestral firebrick",
+            &[RAMP_REFRACTORY, RAMP_SOOT],
+            TextureAlphaMode::Opaque,
+            refractory_pattern(),
+        ),
+        texture(
+            TEXTURE_TEMPLE_GONG,
+            "scratched copper muster disc",
+            &[RAMP_COPPER_METAL, RAMP_COPPER_DARK],
+            TextureAlphaMode::Opaque,
+            working_metal_pattern(),
+        ),
     ]
 }
 
@@ -379,6 +417,30 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             BLOCK_COPPER,
             "hammered copper block",
             TEXTURE_COPPER_HAMMERED,
+        ),
+        BlockAppearanceDefinition::top_side_bottom(
+            BLOCK_TEMPLE_LEDGER,
+            "tribal tribute register",
+            TEXTURE_COPPER_HAMMERED,
+            TEXTURE_TEMPLE_LEDGER,
+            TEXTURE_TEMPLE_LEDGER,
+        ),
+        BlockAppearanceDefinition::uniform(
+            BLOCK_TEMPLE_MOLT,
+            "scale-shedding memory stela",
+            TEXTURE_TEMPLE_MOLT,
+        ),
+        BlockAppearanceDefinition::top_side_bottom(
+            BLOCK_TEMPLE_HEARTH,
+            "quenched ancestral hearth",
+            TEXTURE_REFRACTORY,
+            TEXTURE_TEMPLE_HEARTH,
+            TEXTURE_STONE,
+        ),
+        BlockAppearanceDefinition::uniform(
+            BLOCK_TEMPLE_GONG,
+            "hammered copper war gong",
+            TEXTURE_TEMPLE_GONG,
         ),
     ]
 }

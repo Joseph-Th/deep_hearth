@@ -368,11 +368,20 @@ Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-ch
 including negative coordinates, from the persisted world seed. Its buried site is independent
 of chunk loading order; the spawn chunk is not a guaranteed ancient-copper cache. The precinct
 has a central hall, two physically connected workshops containing separate mnemonic archive
-and motive-engine relics, a fifteen-step supported stone stair, and an engraved surface
-threshold aligned above the last buried step. Intervening host rock must still be physically
-excavated. Rooms are canonical air, their roofs and floors solid world blocks; three dormant
-copper shells have density-validated partial material fill, distinct hardness, and finite
-excavatable scrap. Heavy castes originate in separately observable temple room cells.
+and motive-engine relics, four side chapels, a fifteen-step supported stone stair, and an engraved
+surface threshold aligned above the last buried step. The small two-by-two chapels are set into
+the north and south edges of the hall at horizontal offsets (±2..3, ±4..5); their four finite
+relics occupy the outer corners. A seed-derived quarter-turn of the content order distributes
+a copper tribute tally comb, a copper warden gong, a stone molt stela and a stone annealing
+hearth among the chapels without altering resident coordinates. The southern stair crosses
+above one chapel: its supporting stone roof at offset (+3,+4), y=-17 stays solid instead of
+being excavated, retaining both a two-cell-high chapel passage and the original stepped floor.
+Intervening host rock must still be physically excavated. Rooms are canonical air, their
+roofs and floors solid world blocks. The two workshop shells and threshold, plus the four
+chapel relics, have density-validated partial material fill, individually authored hardness,
+finite stone-chip or copper-scrap output and dedicated renderer-neutral indexed appearances.
+None is automatically powered, interpreted or replenished. Heavy castes originate in separately
+observable temple room cells.
 The seeded sanctuary is fixed before loading, but its residents acquire physical
 occupancy only when that chunk is generated. Single-chunk generation and atomic
 player-neighborhood expansion preflight the prospective warden and archivist

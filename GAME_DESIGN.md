@@ -278,9 +278,21 @@ geology, access, power, material reconstruction and interpretation rather than a
 magical unlock.
 One sparse seed-selected precinct per broad district has an engraved, mineable copper threshold
 at the surface and a buried stair approach that still requires excavation of intervening rock.
-An ancient hall branches into two distinct relic workshops; the player can find their physical
-infrastructure without automatically learning to repair or operate it. The thin copper housings
-are finite salvage rather than an unlimited industrial-metal shortcut.
+An ancient hall branches into two distinct relic workshops and four smaller caste
+chapels. The annexes preserve different aspects of kobold civilization, not merely
+four more machine upgrades. A **tribute reckoning comb** records the material
+obligations linking scavengers and their superiors; a **vault-warden muster gong**
+suggests organized guard musters without acting as an unexplained magical alarm.
+A carved **scale-shedding stela** memorializes reptilian ancestry and caste
+succession, while a cold **annealing hearth** reveals the workshop traditions
+behind temple metalwork. These are physical objects with distinct stone or copper
+matter, excavatable fragments and visible finishes, not readable inventories,
+free technology or functional ancient devices. Four small, supported and accessible
+rooms are placed differently across seeded districts, while the existing wardens,
+archivists, stair and machine halls remain in their real locations. The player
+can recover or preserve this evidence; retrieving it does not confer forbidden
+recipes or instantly transform relationships. Even the thin copper housings
+remain finite salvage rather than an unlimited industrial-metal shortcut.
 
 The subterranean castes differ physically and socially from surface raiders. Small **scouts**
 and **watchmen** forage and improvise. Heavy **vault wardens** are temple-bred defenders

@@ -741,15 +741,19 @@ fn temple_site_for_chunk(
     profile: WorldGenerationProfile,
     coord: ChunkCoord,
 ) -> Option<temple::TempleSite> {
-    (registry
-        .get_state(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
-        .is_some()
-        && registry
-            .get_state(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
-            .is_some()
-        && registry
-            .get_state(crate::content::BLOCK_STATE_TEMPLE_SEAL)
-            .is_some())
+    // Optional capability registries may omit this entire content set.
+    // Never instantiate only half a temple and then unwrap missing relic mass.
+    [
+        crate::content::BLOCK_STATE_TEMPLE_ARCHIVE,
+        crate::content::BLOCK_STATE_TEMPLE_DRIVE,
+        crate::content::BLOCK_STATE_TEMPLE_SEAL,
+        crate::content::BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER,
+        crate::content::BLOCK_STATE_TEMPLE_MOLT_STELA,
+        crate::content::BLOCK_STATE_TEMPLE_CASTE_HEARTH,
+        crate::content::BLOCK_STATE_TEMPLE_MUSTER_GONG,
+    ]
+    .into_iter()
+    .all(|state| registry.get_state(state).is_some())
     .then(|| temple::TempleSite::for_chunk(profile.seed(), coord))
     .flatten()
 }
