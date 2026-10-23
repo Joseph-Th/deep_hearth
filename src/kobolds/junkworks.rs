@@ -135,6 +135,11 @@ fn selected_core_at(state: &AppState, position: VoxelCoord) -> Option<SurfaceRes
         .map(|resource| resource.id())
 }
 
+/// Copper at the junction claims its clapper ahead of the improvised lever.
+pub(super) fn junction_has_relay_core(state: &AppState, colony: &KoboldColony) -> bool {
+    selected_core_at(state, colony.route[1]).is_some()
+}
+
 fn selected_striker_at(
     state: &AppState,
     position: VoxelCoord,

@@ -353,13 +353,19 @@ from a surface den do not instantly inform a buried archive; temple response nee
 routes, signals, witnesses and its own finite capacity. Calm coexistence or leaving valuable
 infrastructure intact must be viable outcomes, not merely a delay until a fixed combat wave.
 
-The next faction milestones are ordered by causality rather than combat tier: first a
-recoverable scavenged implement that changes one real work operation; then meaningful
-wear, repair and choices between tools, alarm parts and provisions; then a sustained
-surface group with finite residents and report-driven defense; finally functioning temple
-work, higher-caste command and interactions across the actual underground access route.
-Each milestone needs an ordinary player-observable counterfactual, exact custody, and
-deterministic save/load continuation before expanding the number of creatures or devices.
+The first material-backed worksite is a crude pry lever: two separately retrieved,
+portable scrap parcels (a wooden handle and stone wedge) remain staged at the junction.
+Their co-location improves a scout's real bulk-splitting operation without giving it a
+free equipment instance. A player can reclaim either part and remove that advantage.
+It is a reusable stationary arrangement, not yet a worn, timed, carried tool or weapon.
+
+Further faction milestones are ordered by causality rather than combat tier: meaningful
+work time, wear, repair and choices between tools, alarm parts and provisions; then a
+sustained surface group with finite residents and report-driven defense; finally
+functioning temple work, higher-caste command and interactions across the actual
+underground access route. Each milestone needs an ordinary player-observable
+counterfactual, exact custody, and deterministic save/load continuation before
+expanding the number of creatures or devices.
 
 Simulation cost must follow relevant activity, not total world history. Schedule slow needs, population
 transitions, and remote settlement obligations at bounded authoritative deadlines; run fine-grained motion,

@@ -22,6 +22,9 @@ use super::scavenging::{
     local_portable_source, local_split_source, scout_goal_has_supplies, scout_wants_loose_drop,
     should_seek_local_food,
 };
+use super::scrap_tools::{
+    LEVER_SPLIT_BATCH, current_junction_scrap_lever, is_staged_scrap_tool_part,
+};
 use super::visibility::scout_visible_from;
 use super::watchman::apply_watchman_tick;
 use super::{
@@ -340,6 +343,24 @@ fn scout_releases_cargo(frightened: bool, den_full: bool, can_move: bool) -> boo
     frightened || (den_full && can_move)
 }
 
+/// An assembled recoverable lever improves only work at its actual junction.
+fn scout_split_batch(state: &AppState, colony: &KoboldColony, from: VoxelCoord) -> Mass {
+    if from == colony.route[1] && current_junction_scrap_lever(state, colony).is_some() {
+        colony.salvage_batch().max(LEVER_SPLIT_BATCH)
+    } else {
+        colony.salvage_batch()
+    }
+}
+
+fn relocated_part_stays_at_junction(
+    state: &AppState,
+    relocated: Option<SurfaceResourceId>,
+) -> bool {
+    relocated
+        .and_then(|id| state.surface().get(id))
+        .is_some_and(|resource| is_staged_scrap_tool_part(state, resource))
+}
+
 /// A returning scout may not leave a still-held parcel behind merely because
 /// the surface owner has no revisions left for its actual physical transfer.
 /// A food exchange also needs a reserved revision for the old-cargo fallback.
@@ -436,7 +457,7 @@ pub(crate) fn apply_kobold_scout_tick(
         .colony
         .as_ref()
         .expect("colony still exists");
-    let salvage_batch = colony.salvage_batch();
+    let salvage_batch = scout_split_batch(state, colony, from);
     let forage_batch = colony.forage_batch();
     let forage_interval = colony.forage_interval();
     let mobilized = colony.mobilized_at.is_some();
@@ -595,6 +616,10 @@ pub(crate) fn apply_kobold_scout_tick(
             .map(|(id, _)| id)
             .or(foraged_food.map(|(id, _)| id)),
     );
+    // A recovered handle remains at the junction for a later stone wedge.
+    // The assembled kit likewise stays at its physical worksite, not in
+    // abstract scout equipment or the den cache.
+    let staged_tool_part = relocated_part_stays_at_junction(state, relocated_drop);
     let abandoned_drop = (scout_releases_cargo(frightened, cargo_blocked_at_den, can_move)
         || switched_cargo)
         .then_some(carried_drop)
@@ -614,6 +639,7 @@ pub(crate) fn apply_kobold_scout_tick(
             returning,
             detour,
             relocated_drop
+                .filter(|_| !staged_tool_part)
                 .or(split_drop.map(|(id, _)| id))
                 .or_else(|| (step > 0).then(|| foraged_food.map(|(id, _)| id)).flatten()),
         );

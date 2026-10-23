@@ -22,6 +22,7 @@ mod junkworks;
 mod mobilization;
 mod patrol;
 mod scavenging;
+mod scrap_tools;
 mod temple_guard;
 mod tracks;
 mod visibility;
@@ -31,6 +32,7 @@ pub use junkworks::{
     KoboldAlarmPulse, KoboldJunkRig, KoboldJunkRigKind, available_nearby_kobold_junk_relay,
     available_nearby_kobold_junk_rig,
 };
+pub use scrap_tools::{KoboldScrapLever, available_nearby_kobold_scrap_lever};
 pub use tracks::{KoboldTrack, KoboldTrailKind, available_nearby_kobold_tracks};
 
 pub(crate) use patrol::apply_kobold_scout_tick;

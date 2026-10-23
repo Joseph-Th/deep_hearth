@@ -13,6 +13,7 @@ use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLife
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
 use super::junkworks::{den_or_relay_needs_striker, is_junk_striker, is_staged_relay_component};
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
+use super::scrap_tools::{is_needed_outer_tool_part, is_staged_scrap_tool_part};
 use super::visibility::scout_visible_from;
 use super::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS,
@@ -49,7 +50,9 @@ pub(super) fn scout_wants_loose_drop(
     resource: &crate::surface::SurfaceResourceRecord,
     at: SimulationTick,
 ) -> bool {
-    scout_wants_drop(registries, resource, at) && !is_staged_relay_component(state, resource)
+    scout_wants_drop(registries, resource, at)
+        && !is_staged_relay_component(state, resource)
+        && !is_staged_scrap_tool_part(state, resource)
 }
 
 /// Short food parcels cannot satisfy one meal. Prefer a complete local ration;
@@ -75,13 +78,15 @@ fn scout_loot_priority(
     resource: &crate::surface::SurfaceResourceRecord,
     mobilized: bool,
     needs_striker: bool,
-) -> (bool, bool, bool, u64, SurfaceResourceId) {
+    needed_tool_part: bool,
+) -> (bool, bool, bool, bool, u64, SurfaceResourceId) {
     let not_food = resource.commodity().form() != crate::content::FORM_FOOD;
     let (inadequate_food, partial_size) = food_serving_priority(resource);
     (
         not_food,
         inadequate_food,
         !(mobilized && matches_salvage_goal(resource, needs_striker)),
+        !needed_tool_part,
         partial_size,
         resource.id(),
     )
@@ -221,7 +226,14 @@ pub(super) fn local_portable_source(
                 && scout_wants_loose_drop(registries, state, resource, at)
                 && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
         })
-        .min_by_key(|resource| scout_loot_priority(resource, mobilized, needs_striker))
+        .min_by_key(|resource| {
+            scout_loot_priority(
+                resource,
+                mobilized,
+                needs_striker,
+                is_needed_outer_tool_part(state, position, resource),
+            )
+        })
         .map(|resource| resource.id())
 }
 
@@ -251,7 +263,14 @@ pub(super) fn local_split_source(
                 && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
                 && (!is_portable_drop(resource) || resource.remaining_mass() > space)
         })
-        .min_by_key(|resource| scout_loot_priority(resource, mobilized, needs_striker))
+        .min_by_key(|resource| {
+            scout_loot_priority(
+                resource,
+                mobilized,
+                needs_striker,
+                is_needed_outer_tool_part(state, position, resource),
+            )
+        })
         .map(|resource| resource.id())
 }
 

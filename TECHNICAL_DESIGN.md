@@ -250,6 +250,22 @@ Other exposed salvage remains contestable. If a player removes relay parts, a
 returning scout can stage replacement copper and timber from real accessible
 spares on later visits, with ordinary player interception and exact conserved
 custody even across save/load. No distant cargo is reserved or teleported.
+
+A separate lower-caste junction pry kit is inferred from an actual portable
+wooden-handle drop and a portable stone-chip wedge of at least 20 g each.
+The scout gives the missing part priority over unrelated inert cargo at its
+real outer patrol stop, leaves each component at the junction on a completed
+return edge, and retains the handle while awaiting the wedge. Food still takes
+priority, as do needed copper-alarm clappers and junction relay components.
+When both usable pieces are physically present, a non-mobilized scout splitting
+bulk at that junction can take up to 500 g per return instead of 250 g, still
+bounded by free den storage. Its selected parts remain in ordinary recoverable
+surface custody and share no fictitious equipment ledger; local observation
+uses `available_nearby_kobold_scrap_lever`. Removing a piece through player
+pickup immediately restores hand-splitting behavior. A distant or oversized
+piece never completes the kit, and the bonus cannot apply at another worksite.
+The current lever has no tool wear, timed construction or portable weapon use.
+
 In generated-world patrols, a scout's two-cell standing footprint requires
 actual free space, including the player's airborne body cells, concealed temple
 residents, finished storage enclosures, and embodied structural members whose
