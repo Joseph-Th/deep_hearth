@@ -84,11 +84,14 @@ and eventually reducing concentrate into metal remain real progression work.
 A bronze era needs copper/tin blending, composition-preserving alloy melt/cast semantics and
 reduced tin. Ore washing needs measured water input to an actual ore process, wet residues and
 mixed solid/fluid custody. Finite water stores now support conserved, player-local pouring
-between co-located vessels including exact same-fluid thermal equilibration under the
+between co-located vessels or into the physically neighboring vessel one voxel
+directly below an accessible elevated source, including exact same-fluid thermal equilibration under the
 fixed-density/specific-heat model. Transfers requiring fractional-millikelvin rounding
 reject without spilling heat; simultaneous structural loads and saved fluid custody
-remain exact. This is preparation for, not an implementation of, washing, pressure
-networks, chemical mixing or remote distribution.
+remain exact. The downwards path recomputes separate supporting-member loads
+and refuses upward, sideways or skipped-voxel destinations. This is preparation
+for, not an implementation of, washing, pressure networks, chemical mixing
+or general routed fluid distribution.
 Iron and tin reduction need reductant and oxygen/sulfur destinations, energy budgets and gas
 handling rather than deletion of reactant mass. Scaled electrical industry requires power/shaft
 and fluid transport, then sealed chemical processing and precision manufacturing.

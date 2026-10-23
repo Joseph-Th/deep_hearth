@@ -1,4 +1,4 @@
-//! Exact same-voxel manual decant between existing finite fluid stores.
+//! Exact hand-decant and one-voxel downward gravity feed between finite fluid stores.
 //!
 //! This is a player-local operation, not a pipe, pump, or remote fluid network.
 //! Neither endpoint may disappear, change its phase, or silently round away
@@ -13,6 +13,7 @@ use crate::core::state::AppState;
 use crate::logistics::{PlayerFluidStoreAccessError, validate_player_fluid_store_access};
 use crate::player::{PlayerActionGuard, validate_player_action};
 use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralAnalysis, StructuralCommitError, StructuralMutationOutcome};
 
 use super::state::FluidContents;
@@ -28,6 +29,10 @@ pub enum FluidTransferError {
     PlayerDead,
     SourceAccess(PlayerFluidStoreAccessError),
     DestinationAccess(PlayerFluidStoreAccessError),
+    InvalidGravityRoute {
+        source_position: VoxelCoord,
+        destination_position: VoxelCoord,
+    },
     UnknownStore {
         store: FluidStoreId,
     },
@@ -113,7 +118,7 @@ fn equilibrium_temperature(
     Ok(Temperature::from_millikelvin(millikelvin))
 }
 
-/// Revision-bound proof of an authorized single-voxel, two-store volume move.
+/// Revision-bound proof of an authorized local or gravity-fed two-store volume move.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedFluidTransfer {
@@ -221,6 +226,90 @@ pub fn validate_transfer_fluid_between_local_stores(
     destination: FluidStoreId,
     volume: Volume,
 ) -> Result<ValidatedFluidTransfer, FluidTransferError> {
+    validate_transfer_fluid(
+        registries,
+        state,
+        source,
+        destination,
+        volume,
+        TransferGeometry::Local,
+    )
+}
+
+/// Allows player-controlled gravity delivery from a vessel at the player's voxel
+/// to one vessel immediately below it in the same vertical column.
+///
+/// The route is exactly one downward face: no distant targets, upward lifts,
+/// horizontal siphons or intermediate voxels. There is no pump, pipe, or
+/// persistent network. The paired stores still use the canonical fluid-owner
+/// transfer and structural-load transaction. Moving the player or either store
+/// before commit invalidates the authorization.
+pub fn validate_gravity_feed_fluid_to_lower_store(
+    registries: &Registries,
+    state: &AppState,
+    source: FluidStoreId,
+    destination: FluidStoreId,
+    volume: Volume,
+) -> Result<ValidatedFluidTransfer, FluidTransferError> {
+    validate_transfer_fluid(
+        registries,
+        state,
+        source,
+        destination,
+        volume,
+        TransferGeometry::Gravity,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum TransferGeometry {
+    Local,
+    Gravity,
+}
+
+fn validate_transfer_geometry(
+    state: &AppState,
+    source: FluidStoreId,
+    destination: FluidStoreId,
+    geometry: TransferGeometry,
+) -> Result<(), FluidTransferError> {
+    validate_player_fluid_store_access(state, source).map_err(FluidTransferError::SourceAccess)?;
+    match geometry {
+        TransferGeometry::Local => validate_player_fluid_store_access(state, destination)
+            .map_err(FluidTransferError::DestinationAccess),
+        TransferGeometry::Gravity => {
+            let source_position = state.logistics().fluid_store_position(source).ok_or(
+                FluidTransferError::SourceAccess(
+                    PlayerFluidStoreAccessError::UnlocatedFluidStore { store: source },
+                ),
+            )?;
+            let destination_position = state.logistics().fluid_store_position(destination).ok_or(
+                FluidTransferError::DestinationAccess(
+                    PlayerFluidStoreAccessError::UnlocatedFluidStore { store: destination },
+                ),
+            )?;
+            if source_position.x() != destination_position.x()
+                || source_position.z() != destination_position.z()
+                || i128::from(source_position.y()) - i128::from(destination_position.y()) != 1
+            {
+                return Err(FluidTransferError::InvalidGravityRoute {
+                    source_position,
+                    destination_position,
+                });
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_transfer_fluid(
+    registries: &Registries,
+    state: &AppState,
+    source: FluidStoreId,
+    destination: FluidStoreId,
+    volume: Volume,
+    geometry: TransferGeometry,
+) -> Result<ValidatedFluidTransfer, FluidTransferError> {
     let player_action = validate_player_action(state).map_err(|error| match error {
         crate::player::PlayerActionValidationError::PlayerNotAdmitted => {
             FluidTransferError::PlayerNotAdmitted
@@ -240,9 +329,7 @@ pub fn validate_transfer_fluid_between_local_stores(
     let destination_record = fluid
         .get_store(destination)
         .ok_or(FluidTransferError::UnknownStore { store: destination })?;
-    validate_player_fluid_store_access(state, source).map_err(FluidTransferError::SourceAccess)?;
-    validate_player_fluid_store_access(state, destination)
-        .map_err(FluidTransferError::DestinationAccess)?;
+    validate_transfer_geometry(state, source, destination, geometry)?;
     let before_source = source_record
         .contents()
         .ok_or(FluidTransferError::EmptySource { store: source })?;

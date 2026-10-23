@@ -27,6 +27,8 @@ use crate::structural::{
 };
 
 const TEST_FLUID: FluidDefinitionId = FluidDefinitionId::new(941_001);
+#[path = "structural_integration_tests/gravity.rs"]
+mod gravity;
 #[path = "structural_integration_tests/thermal_blend.rs"]
 mod thermal_blend;
 const TEST_TEMPERATURE: crate::core::quantity::Temperature =

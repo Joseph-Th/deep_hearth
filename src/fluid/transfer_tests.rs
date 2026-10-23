@@ -6,6 +6,12 @@ mod authorization;
 #[path = "transfer_tests/thermal.rs"]
 mod thermal;
 
+#[path = "transfer_tests/gravity.rs"]
+mod gravity;
+
+#[path = "transfer_tests/gravity_capacity.rs"]
+mod gravity_capacity;
+
 #[path = "transfer_tests/molten.rs"]
 mod molten;
 

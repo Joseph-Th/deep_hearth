@@ -28,11 +28,11 @@ Current graph boundaries, not priorities:
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Generated world + body + targeting | Adapter inventory/crafting UI, general placement, residency, richer contact, and remote discovery. |
+| Generated world + body + targeting | Inventory/crafting UI, placement, residency, richer contact and remote discovery. |
 | Structural physics | Broader panels/joints, cascade demolition, and terrain support. |
 | Player equipment service/recovery | Maintenance-tool requirements and service-site transport beyond exact-local carried stock. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
-| Finite fluid stores | Transport beyond local decant, pumping, chemical mixing, and pressure networks. |
+| Finite fluid stores | Horizontal/remote transport, pumping, chemical mixing and pressure networks. |
 | Industrial workshop/ore/foundry execution | Ordinary industrial infrastructure acquisition/construction. |
 | Checked coordinates + compact chunk ownership + geological evidence | Terrain access/collision, regional geology-to-chunk composition, and clue-location discovery. |
 
@@ -50,7 +50,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. Deep exposed residue layers obstruct ground-storage footing until cleared. |
-| Energy and fluids | Finite energy with power/loss limits, fueled campfire heat, water drinking and conserved same-fluid local decant with exact thermal equilibration. |
+| Energy and fluids | Finite power/loss-limited energy, campfire heat, drinking, same-fluid local decant and one-voxel downhill delivery with exact thermal equilibration. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
 | Block world | Mass-backed eight-mineral geology, temple rooms, seven assemblies and solid caste bodies. Excavation and targeting exist; placement, UI, residency absent. |
