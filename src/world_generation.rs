@@ -451,13 +451,7 @@ fn opening_resident_has_physical_clearance(
             VoxelCoord::new(position.x(), head_y, position.z()),
         ]
         .into_iter()
-        .all(|cell| {
-            !state.structures().elements().any(|element| {
-                !element.embodied_material().is_empty()
-                    && element.geometry().covers_horizontal_footprint()
-                    && element.bounds().has_voxel(cell)
-            })
-        })
+        .all(|cell| !state.structures().blocks_full_cell(cell))
 }
 
 /// Validates one deterministic opening opportunity for a fresh built-in world.

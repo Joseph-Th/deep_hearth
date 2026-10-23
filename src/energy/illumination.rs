@@ -136,7 +136,8 @@ pub fn project_local_light_sources(
 /// Burning sources dim with remaining finite energy relative to their authored primary fuel
 /// charge, so smaller alternative fuel and approaching burnout have observable consequences.
 /// Source levels fall by one per face-adjacent generated non-opaque voxel. Opaque blocks and missing
-/// world truth stop propagation. Overlapping sources use the strongest current contribution; equal
+/// world truth stop propagation, as do materialized full-footprint structural walls.
+/// Overlapping sources use the strongest current contribution; equal
 /// contributions retain the lowest stable store ID because logistics iterates locations in
 /// store-ID order.
 pub fn assess_local_illumination(
@@ -224,6 +225,9 @@ fn propagated_light_level(
 }
 
 fn voxel_transmits_light(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
+    if state.structures().blocks_full_cell(position) {
+        return false;
+    }
     let Some(block_state) = state.world().block_at(position) else {
         return false;
     };
@@ -245,3 +249,7 @@ fn manhattan_distance(a: VoxelCoord, b: VoxelCoord) -> u128 {
 #[cfg(test)]
 #[path = "illumination_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "illumination_structures_tests.rs"]
+mod structures_tests;
