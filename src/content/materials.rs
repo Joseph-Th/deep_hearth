@@ -18,7 +18,13 @@ pub const MATERIAL_STONE: MaterialId = MaterialId::new(9);
 pub const MATERIAL_CLAY: MaterialId = MaterialId::new(10);
 pub const MATERIAL_LEGUMES: MaterialId = MaterialId::new(11);
 pub const MATERIAL_WILD_NUTS: MaterialId = MaterialId::new(12);
+pub const MATERIAL_IRON: MaterialId = MaterialId::new(13);
+pub const MATERIAL_TIN: MaterialId = MaterialId::new(14);
+pub const MATERIAL_ZINC: MaterialId = MaterialId::new(15);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
+pub(crate) const IRON_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_811_000);
+pub(crate) const TIN_MELTING_POINT: Temperature = Temperature::from_millikelvin(505_080);
+pub(crate) const ZINC_MELTING_POINT: Temperature = Temperature::from_millikelvin(692_680);
 pub(crate) const WATER_MELTING_POINT: Temperature = Temperature::from_millikelvin(273_150);
 pub(crate) const WATER_LATENT_HEAT_OF_FUSION_J_PER_KG: u32 = 333_550;
 
@@ -206,6 +212,39 @@ fn register_materials(registry: &mut MaterialRegistry) {
             ),
         ),
         MaterialDefinition::new(
+            MATERIAL_IRON,
+            "iron",
+            MaterialProperties::new(
+                7_870,
+                ThermalProperties::new(
+                    449,
+                    Some(FusionProperties::new(IRON_MELTING_POINT, 247_000)),
+                ),
+                Some(StructuralProperties::new(250_000, 200_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_TIN,
+            "tin",
+            MaterialProperties::new(
+                7_310,
+                ThermalProperties::new(227, Some(FusionProperties::new(TIN_MELTING_POINT, 59_000))),
+                Some(StructuralProperties::new(15_000, 50_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_ZINC,
+            "zinc",
+            MaterialProperties::new(
+                7_140,
+                ThermalProperties::new(
+                    388,
+                    Some(FusionProperties::new(ZINC_MELTING_POINT, 112_000)),
+                ),
+                Some(StructuralProperties::new(37_000, 108_000)),
+            ),
+        ),
+        MaterialDefinition::new(
             MATERIAL_SLAG,
             "slag",
             MaterialProperties::new(2_700, ThermalProperties::new(900, None), None),
@@ -350,6 +389,27 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             CommodityKey::new(MATERIAL_COPPER, FORM_CHIP),
             "copper chips",
         ),
+        (CommodityKey::new(MATERIAL_IRON, FORM_INGOT), "iron ingot"),
+        (
+            CommodityKey::new(MATERIAL_IRON, FORM_BLOCK),
+            "iron structural block",
+        ),
+        (CommodityKey::new(MATERIAL_IRON, FORM_SCRAP), "iron scrap"),
+        (CommodityKey::new(MATERIAL_IRON, FORM_CHIP), "iron chips"),
+        (CommodityKey::new(MATERIAL_TIN, FORM_INGOT), "tin ingot"),
+        (
+            CommodityKey::new(MATERIAL_TIN, FORM_BLOCK),
+            "tin plate stock",
+        ),
+        (CommodityKey::new(MATERIAL_TIN, FORM_SCRAP), "tin scrap"),
+        (CommodityKey::new(MATERIAL_TIN, FORM_CHIP), "tin chips"),
+        (CommodityKey::new(MATERIAL_ZINC, FORM_INGOT), "zinc ingot"),
+        (
+            CommodityKey::new(MATERIAL_ZINC, FORM_BLOCK),
+            "zinc plate stock",
+        ),
+        (CommodityKey::new(MATERIAL_ZINC, FORM_SCRAP), "zinc scrap"),
+        (CommodityKey::new(MATERIAL_ZINC, FORM_CHIP), "zinc chips"),
         (
             CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
             "crushed slag",
@@ -453,3 +513,7 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         registry.register_commodity(commodity, name);
     }
 }
+
+#[cfg(test)]
+#[path = "materials_tests.rs"]
+mod tests;

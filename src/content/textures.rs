@@ -44,19 +44,19 @@ pub const TEXTURE_REFRACTORY: TextureId = TextureId::new(11);
 pub const TEXTURE_SCREEN_MESH: TextureId = TextureId::new(12);
 pub const TEXTURE_STONE: TextureId = TextureId::new(13);
 pub const TEXTURE_CLAY_EARTH: TextureId = TextureId::new(14);
-pub const TEXTURE_TEMPLE_LEDGER: TextureId = TextureId::new(15);
-pub const TEXTURE_TEMPLE_MOLT: TextureId = TextureId::new(16);
-pub const TEXTURE_TEMPLE_HEARTH: TextureId = TextureId::new(17);
-pub const TEXTURE_TEMPLE_GONG: TextureId = TextureId::new(18);
+pub const TEXTURE_TEMPLE_DATA_PLATE: TextureId = TextureId::new(15);
+pub const TEXTURE_TEMPLE_BEARING_HOUSING: TextureId = TextureId::new(16);
+pub const TEXTURE_TEMPLE_REFRACTORY_FIXTURE: TextureId = TextureId::new(17);
+pub const TEXTURE_TEMPLE_CORROSION_PANEL: TextureId = TextureId::new(18);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
 pub const BLOCK_STONE: BlockAppearanceId = BlockAppearanceId::new(2);
 pub const BLOCK_COPPER_ORE: BlockAppearanceId = BlockAppearanceId::new(3);
 pub const BLOCK_COPPER: BlockAppearanceId = BlockAppearanceId::new(4);
-pub const BLOCK_TEMPLE_LEDGER: BlockAppearanceId = BlockAppearanceId::new(5);
-pub const BLOCK_TEMPLE_MOLT: BlockAppearanceId = BlockAppearanceId::new(6);
-pub const BLOCK_TEMPLE_HEARTH: BlockAppearanceId = BlockAppearanceId::new(7);
-pub const BLOCK_TEMPLE_GONG: BlockAppearanceId = BlockAppearanceId::new(8);
+pub const BLOCK_TEMPLE_DATA_PLATE: BlockAppearanceId = BlockAppearanceId::new(5);
+pub const BLOCK_TEMPLE_BEARING_HOUSING: BlockAppearanceId = BlockAppearanceId::new(6);
+pub const BLOCK_TEMPLE_REFRACTORY_FIXTURE: BlockAppearanceId = BlockAppearanceId::new(7);
+pub const BLOCK_TEMPLE_CORROSION_PANEL: BlockAppearanceId = BlockAppearanceId::new(8);
 
 pub const OBJECT_LOG: ObjectAppearanceId = ObjectAppearanceId::new(1);
 pub const OBJECT_COPPER_ORE: ObjectAppearanceId = ObjectAppearanceId::new(3);
@@ -148,6 +148,12 @@ pub const OBJECT_PACKED_CLAY_BINDER: ObjectAppearanceId = ObjectAppearanceId::ne
 pub const OBJECT_CLAY_EARTH_LUMP: ObjectAppearanceId = ObjectAppearanceId::new(85);
 pub const OBJECT_STONE_DIGGING_SHOVEL: ObjectAppearanceId = ObjectAppearanceId::new(86);
 pub const OBJECT_STONE_MORTAR_AND_PESTLE: ObjectAppearanceId = ObjectAppearanceId::new(87);
+pub const OBJECT_IRON_STOCK: ObjectAppearanceId = ObjectAppearanceId::new(88);
+pub const OBJECT_TIN_STOCK: ObjectAppearanceId = ObjectAppearanceId::new(89);
+pub const OBJECT_ZINC_STOCK: ObjectAppearanceId = ObjectAppearanceId::new(90);
+pub const OBJECT_IRON_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(91);
+pub const OBJECT_TIN_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(92);
+pub const OBJECT_ZINC_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(93);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -352,30 +358,30 @@ fn build_textures() -> Vec<TextureDefinition> {
         // These separate authored archaeological appearances reuse existing
         // indexed engraving and masonry GPU layers with different palettes.
         texture(
-            TEXTURE_TEMPLE_LEDGER,
-            "oxidized tribute ledger teeth",
-            &[RAMP_COPPER_DARK, RAMP_COPPER_METAL],
+            TEXTURE_TEMPLE_DATA_PLATE,
+            "tin identification plate surface",
+            &[RAMP_STEEL, RAMP_DARK_MINERAL],
             TextureAlphaMode::Opaque,
             panel_pattern,
         ),
         texture(
-            TEXTURE_TEMPLE_MOLT,
-            "dark scale-veined memorial stone",
-            &[RAMP_STONE, RAMP_DARK_MINERAL],
+            TEXTURE_TEMPLE_BEARING_HOUSING,
+            "machined iron bearing housing",
+            &[RAMP_STEEL, RAMP_RUST],
             TextureAlphaMode::Opaque,
             ore_pattern(),
         ),
         texture(
-            TEXTURE_TEMPLE_HEARTH,
-            "soot-burnished ancestral firebrick",
+            TEXTURE_TEMPLE_REFRACTORY_FIXTURE,
+            "refractory heat-treatment lining",
             &[RAMP_REFRACTORY, RAMP_SOOT],
             TextureAlphaMode::Opaque,
             refractory_pattern(),
         ),
         texture(
-            TEXTURE_TEMPLE_GONG,
-            "scratched copper muster disc",
-            &[RAMP_COPPER_METAL, RAMP_COPPER_DARK],
+            TEXTURE_TEMPLE_CORROSION_PANEL,
+            "zinc corrosion protection plate",
+            &[RAMP_STEEL, RAMP_SOOT],
             TextureAlphaMode::Opaque,
             working_metal_pattern(),
         ),
@@ -419,28 +425,28 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             TEXTURE_COPPER_HAMMERED,
         ),
         BlockAppearanceDefinition::top_side_bottom(
-            BLOCK_TEMPLE_LEDGER,
-            "tribal tribute register",
-            TEXTURE_COPPER_HAMMERED,
-            TEXTURE_TEMPLE_LEDGER,
-            TEXTURE_TEMPLE_LEDGER,
+            BLOCK_TEMPLE_DATA_PLATE,
+            "tin identification plate array",
+            TEXTURE_TEMPLE_DATA_PLATE,
+            TEXTURE_TEMPLE_DATA_PLATE,
+            TEXTURE_TEMPLE_DATA_PLATE,
         ),
         BlockAppearanceDefinition::uniform(
-            BLOCK_TEMPLE_MOLT,
-            "scale-shedding memory stela",
-            TEXTURE_TEMPLE_MOLT,
+            BLOCK_TEMPLE_BEARING_HOUSING,
+            "iron bearing housing",
+            TEXTURE_TEMPLE_BEARING_HOUSING,
         ),
         BlockAppearanceDefinition::top_side_bottom(
-            BLOCK_TEMPLE_HEARTH,
-            "quenched ancestral hearth",
+            BLOCK_TEMPLE_REFRACTORY_FIXTURE,
+            "stone refractory support fixture",
             TEXTURE_REFRACTORY,
-            TEXTURE_TEMPLE_HEARTH,
+            TEXTURE_TEMPLE_REFRACTORY_FIXTURE,
             TEXTURE_STONE,
         ),
         BlockAppearanceDefinition::uniform(
-            BLOCK_TEMPLE_GONG,
-            "hammered copper war gong",
-            TEXTURE_TEMPLE_GONG,
+            BLOCK_TEMPLE_CORROSION_PANEL,
+            "zinc corrosion protection panel",
+            TEXTURE_TEMPLE_CORROSION_PANEL,
         ),
     ]
 }

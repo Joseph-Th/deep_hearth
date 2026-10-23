@@ -1,9 +1,9 @@
 //! Sparse seeded temple precincts: excavatable architecture in one chunk per district.
 
 use crate::content::{
-    BLOCK_STATE_TEMPLE_ARCHIVE, BLOCK_STATE_TEMPLE_CASTE_HEARTH, BLOCK_STATE_TEMPLE_DRIVE,
-    BLOCK_STATE_TEMPLE_MOLT_STELA, BLOCK_STATE_TEMPLE_MUSTER_GONG,
-    BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER,
+    BLOCK_STATE_TEMPLE_ARCHIVE, BLOCK_STATE_TEMPLE_DRIVE, BLOCK_STATE_TEMPLE_IRON_BEARING_HOUSING,
+    BLOCK_STATE_TEMPLE_REFRACTORY_FIXTURE, BLOCK_STATE_TEMPLE_TIN_DATA_PLATE,
+    BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL,
 };
 use crate::spatial::VoxelCoord;
 use crate::world::BlockStateId;
@@ -34,8 +34,8 @@ pub(in crate::world) const STAIR_PATH: [(i64, i64); 15] = [
 #[derive(Clone, Copy, Debug)]
 pub(in crate::world) struct TempleSite {
     center: VoxelCoord,
-    // Which caste's physical monument occupies each chapel is seed-derived.
-    shrine_order: u8,
+    // Assignment of material-specific components to service bays is seed-derived.
+    component_order: u8,
 }
 
 impl TempleSite {
@@ -69,7 +69,7 @@ impl TempleSite {
             .checked_add(6 + ((room_hash >> 8) % 5) as i64)?;
         Some(Self {
             center: VoxelCoord::new(x, CHAMBER_Y, z),
-            shrine_order: ((room_hash >> 24) & 3) as u8,
+            component_order: ((room_hash >> 24) & 3) as u8,
         })
     }
 
@@ -109,21 +109,21 @@ impl TempleSite {
         })
     }
 
-    /// Four small caste chapels, with their archaeological contents varied by
-    /// district seed. Each has a free approach from the actual central hall.
-    pub(in crate::world) fn chapel_relics(self) -> [(VoxelCoord, BlockStateId); 4] {
+    /// Four connected service bays with distinct installed components assigned
+    /// deterministically by district seed.
+    pub(in crate::world) fn service_bay_components(self) -> [(VoxelCoord, BlockStateId); 4] {
         const CONTENT: [BlockStateId; 4] = [
-            BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER,
-            BLOCK_STATE_TEMPLE_MUSTER_GONG,
-            BLOCK_STATE_TEMPLE_MOLT_STELA,
-            BLOCK_STATE_TEMPLE_CASTE_HEARTH,
+            BLOCK_STATE_TEMPLE_TIN_DATA_PLATE,
+            BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL,
+            BLOCK_STATE_TEMPLE_IRON_BEARING_HOUSING,
+            BLOCK_STATE_TEMPLE_REFRACTORY_FIXTURE,
         ];
         let corners = [(-3, -5), (3, -5), (-3, 5), (3, 5)];
         std::array::from_fn(|index| {
             let (dx, dz) = corners[index];
             (
                 VoxelCoord::new(self.center.x() + dx, CHAMBER_Y, self.center.z() + dz),
-                CONTENT[(index + usize::from(self.shrine_order)) % CONTENT.len()],
+                CONTENT[(index + usize::from(self.component_order)) % CONTENT.len()],
             )
         })
     }
@@ -138,15 +138,15 @@ impl TempleSite {
         }
         let dx = self.center.x().abs_diff(position.x());
         let dz = self.center.z().abs_diff(position.z());
-        // West is the archive, east the engine bay; four two-by-two side
-        // chapels open off the hall's north and south edges.
+        // West is the archive, east the engine bay; four two-by-two service
+        // bays open off the hall's north and south edges.
         let main_hall = dx <= CHAMBER_RADIUS && dz <= CHAMBER_RADIUS;
         let annex = (4..=5).contains(&dx) && dz <= 1;
         let chapels = (2..=3).contains(&dx) && (4..=5).contains(&dz);
         if !(main_hall || annex || chapels) {
             return None;
         }
-        // The southern metal chapel passes beneath the rising buried stair.
+        // The southern service bay passes beneath the rising buried stair.
         // Its upper roof at (3,4) is the actual solid support for step three;
         // cutting that stone would leave the existing player route floating.
         if position.x() == self.center.x() + 3
@@ -164,7 +164,7 @@ impl TempleSite {
         }
         if base
             && let Some((_, relic)) = self
-                .chapel_relics()
+                .service_bay_components()
                 .into_iter()
                 .find(|(location, _)| *location == position)
         {

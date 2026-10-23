@@ -18,10 +18,10 @@ const BUILT_IN_TEXTURES: [TextureId; 16] = [
     TEXTURE_REFRACTORY,
     TEXTURE_SCREEN_MESH,
     TEXTURE_STONE,
-    TEXTURE_TEMPLE_LEDGER,
-    TEXTURE_TEMPLE_MOLT,
-    TEXTURE_TEMPLE_HEARTH,
-    TEXTURE_TEMPLE_GONG,
+    TEXTURE_TEMPLE_DATA_PLATE,
+    TEXTURE_TEMPLE_BEARING_HOUSING,
+    TEXTURE_TEMPLE_REFRACTORY_FIXTURE,
+    TEXTURE_TEMPLE_CORROSION_PANEL,
 ];
 
 #[test]
@@ -137,13 +137,13 @@ fn built_in_bake_is_deterministic_compact_and_deduplicates_panel_geometry() {
 }
 
 #[test]
-fn caste_relic_tiles_are_distinct_from_generic_copper_and_stone() {
+fn service_bay_material_textures_are_distinct_from_generic_blocks() {
     let atlas = build_texture_registry().bake_texture_array();
     for (artifact, ordinary) in [
-        (TEXTURE_TEMPLE_LEDGER, TEXTURE_COPPER_HAMMERED),
-        (TEXTURE_TEMPLE_MOLT, TEXTURE_STONE),
-        (TEXTURE_TEMPLE_HEARTH, TEXTURE_STONE),
-        (TEXTURE_TEMPLE_GONG, TEXTURE_COPPER_HAMMERED),
+        (TEXTURE_TEMPLE_DATA_PLATE, TEXTURE_COPPER_HAMMERED),
+        (TEXTURE_TEMPLE_BEARING_HOUSING, TEXTURE_STONE),
+        (TEXTURE_TEMPLE_REFRACTORY_FIXTURE, TEXTURE_STONE),
+        (TEXTURE_TEMPLE_CORROSION_PANEL, TEXTURE_COPPER_HAMMERED),
     ] {
         assert!(
             (0..TEXTURE_SIDE).any(|y| (0..TEXTURE_SIDE).any(|x| {

@@ -368,20 +368,27 @@ Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-ch
 including negative coordinates, from the persisted world seed. Its buried site is independent
 of chunk loading order; the spawn chunk is not a guaranteed ancient-copper cache. The precinct
 has a central hall, two physically connected workshops containing separate mnemonic archive
-and motive-engine relics, four side chapels, a fifteen-step supported stone stair, and an engraved
-surface threshold aligned above the last buried step. The small two-by-two chapels are set into
-the north and south edges of the hall at horizontal offsets (±2..3, ±4..5); their four finite
-relics occupy the outer corners. A seed-derived quarter-turn of the content order distributes
-a copper tribute tally comb, a copper warden gong, a stone molt stela and a stone annealing
-hearth among the chapels without altering resident coordinates. The southern stair crosses
-above one chapel: its supporting stone roof at offset (+3,+4), y=-17 stays solid instead of
-being excavated, retaining both a two-cell-high chapel passage and the original stepped floor.
-Intervening host rock must still be physically excavated. Rooms are canonical air, their
-roofs and floors solid world blocks. The two workshop shells and threshold, plus the four
-chapel relics, have density-validated partial material fill, individually authored hardness,
-finite stone-chip or copper-scrap output and dedicated renderer-neutral indexed appearances.
-None is automatically powered, interpreted or replenished. Heavy castes originate in separately
-observable temple room cells.
+and motive-engine relics, four side service bays, a fifteen-step supported stone stair,
+and an engraved surface threshold aligned above the last buried step. The two-by-two
+bays are set into the north and south edges of the hall at horizontal offsets
+(±2..3, ±4..5); their four finite components occupy the outer corners. A seed-derived
+quarter-turn of their ordering distributes a tin identification plate array (3.655 kg,
+500 ppm full-cube fill), an iron bearing housing (7.87 kg, 1,000 ppm), a zinc corrosion
+panel (7.14 kg, 1,000 ppm), and a stone heat-treatment fixture (530 kg, 200,000 ppm).
+The southern stair passes above one bay, and its solid support at offset (+3,+4), y=-17
+must remain intact. Every bay retains two-block-high passages with stone floors.
+Intervening host rock remains excavatable. The component bodies use exact registered
+materials, authored break hardness and scrap/chip forms matching their input material;
+no non-copper fragment is silently converted to copper. Iron (7,870 kg/m³, 1,811 K melting),
+tin (7,310 kg/m³, 505.08 K) and zinc (7,140 kg/m³, 692.68 K) are registered with
+specific heats, latent heats and structural strengths. Their stock and residual commodities
+have distinct indexed object appearance bindings; no new furnace process is implied.
+The archive shell, motive-drive shell and external threshold use copper.
+The active built-in registry schema is 141; saves with another registry schema
+are rejected before material mass and identity validation. No registry-140
+migration is available in this build. All seven devices are finite and inactive
+until an explicit operation exists.
+Heavy castes originate in separately observable temple room cells.
 The seeded sanctuary is fixed before loading, but its residents acquire physical
 occupancy only when that chunk is generated. Single-chunk generation and atomic
 player-neighborhood expansion preflight the prospective warden and archivist

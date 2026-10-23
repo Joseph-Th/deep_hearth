@@ -278,21 +278,21 @@ geology, access, power, material reconstruction and interpretation rather than a
 magical unlock.
 One sparse seed-selected precinct per broad district has an engraved, mineable copper threshold
 at the surface and a buried stair approach that still requires excavation of intervening rock.
-An ancient hall branches into two distinct relic workshops and four smaller caste
-chapels. The annexes preserve different aspects of kobold civilization, not merely
-four more machine upgrades. A **tribute reckoning comb** records the material
-obligations linking scavengers and their superiors; a **vault-warden muster gong**
-suggests organized guard musters without acting as an unexplained magical alarm.
-A carved **scale-shedding stela** memorializes reptilian ancestry and caste
-succession, while a cold **annealing hearth** reveals the workshop traditions
-behind temple metalwork. These are physical objects with distinct stone or copper
-matter, excavatable fragments and visible finishes, not readable inventories,
-free technology or functional ancient devices. Four small, supported and accessible
-rooms are placed differently across seeded districts, while the existing wardens,
-archivists, stair and machine halls remain in their real locations. The player
-can recover or preserve this evidence; retrieving it does not confer forbidden
-recipes or instantly transform relationships. Even the thin copper housings
-remain finite salvage rather than an unlimited industrial-metal shortcut.
+The hall connects two dormant machinery rooms and four small service bays,
+each containing a physically distinct engineering component. One contains a
+**tin identification plate array**; tin's low melting temperature and workability
+suit thin marking stock, not load-bearing bearings. A second holds an **iron bearing
+housing**, with much greater structural strength than the plate material. The third
+contains a **zinc corrosion-protection panel**, representing replaceable sacrificial
+metal used to protect harder assemblies. The fourth has a **stone heat-treatment
+fixture**, whose mass, refractory location and mechanical clearance are more relevant
+than ornamentation. Each is finite, excavatable world matter with authored density,
+melting properties where applicable, hardness, and distinct rendered material. The
+four bays have physically connected approaches and seeded placement variations,
+without moving the existing wardens, archivists or supported stair. Removed components
+yield recoverable tin, iron or zinc scrap, or stone chips; they do not grant new
+recipes, power sources or an unlocked technology. The original copper machinery
+remains finite legacy content rather than the default composition of every new device.
 
 The subterranean castes differ physically and socially from surface raiders. Small **scouts**
 and **watchmen** forage and improvise. Heavy **vault wardens** are temple-bred defenders

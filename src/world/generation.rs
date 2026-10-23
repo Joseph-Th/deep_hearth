@@ -747,10 +747,10 @@ fn temple_site_for_chunk(
         crate::content::BLOCK_STATE_TEMPLE_ARCHIVE,
         crate::content::BLOCK_STATE_TEMPLE_DRIVE,
         crate::content::BLOCK_STATE_TEMPLE_SEAL,
-        crate::content::BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER,
-        crate::content::BLOCK_STATE_TEMPLE_MOLT_STELA,
-        crate::content::BLOCK_STATE_TEMPLE_CASTE_HEARTH,
-        crate::content::BLOCK_STATE_TEMPLE_MUSTER_GONG,
+        crate::content::BLOCK_STATE_TEMPLE_TIN_DATA_PLATE,
+        crate::content::BLOCK_STATE_TEMPLE_IRON_BEARING_HOUSING,
+        crate::content::BLOCK_STATE_TEMPLE_REFRACTORY_FIXTURE,
+        crate::content::BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL,
     ]
     .into_iter()
     .all(|state| registry.get_state(state).is_some())

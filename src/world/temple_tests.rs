@@ -3,10 +3,11 @@
 use super::*;
 
 use crate::content::{
-    BLOCK_STATE_STONE, BLOCK_STATE_TEMPLE_ARCHIVE, BLOCK_STATE_TEMPLE_CASTE_HEARTH,
-    BLOCK_STATE_TEMPLE_DRIVE, BLOCK_STATE_TEMPLE_MOLT_STELA, BLOCK_STATE_TEMPLE_MUSTER_GONG,
-    BLOCK_STATE_TEMPLE_SEAL, BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER, FORM_CHIP, FORM_SCRAP,
-    MATERIAL_COPPER, MATERIAL_STONE, build_registries,
+    BLOCK_STATE_STONE, BLOCK_STATE_TEMPLE_ARCHIVE, BLOCK_STATE_TEMPLE_DRIVE,
+    BLOCK_STATE_TEMPLE_IRON_BEARING_HOUSING, BLOCK_STATE_TEMPLE_REFRACTORY_FIXTURE,
+    BLOCK_STATE_TEMPLE_SEAL, BLOCK_STATE_TEMPLE_TIN_DATA_PLATE,
+    BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL, FORM_CHIP, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_IRON,
+    MATERIAL_STONE, MATERIAL_TIN, MATERIAL_ZINC, build_registries,
 };
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::kobolds::{KoboldRole, KoboldStature, available_nearby_kobold_scouts};
@@ -26,7 +27,7 @@ fn site_for_seed(seed: WorldGenerationSeed) -> (ChunkCoord, generation::temple::
 }
 
 #[test]
-fn four_caste_chapels_have_accessible_carved_rooms_and_distinct_finite_relics() {
+fn four_service_bays_have_accessible_rooms_and_distinct_finite_components() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
     let (chunk, site) = site_for_seed(seed);
@@ -35,21 +36,21 @@ fn four_caste_chapels_have_accessible_carved_rooms_and_distinct_finite_relics() 
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    let chapel_relics = site.chapel_relics();
-    let mut seen = chapel_relics.map(|(_, block)| block);
+    let service_bay_components = site.service_bay_components();
+    let mut seen = service_bay_components.map(|(_, block)| block);
     seen.sort_unstable();
     let mut expected = [
-        BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER,
-        BLOCK_STATE_TEMPLE_MUSTER_GONG,
-        BLOCK_STATE_TEMPLE_MOLT_STELA,
-        BLOCK_STATE_TEMPLE_CASTE_HEARTH,
+        BLOCK_STATE_TEMPLE_TIN_DATA_PLATE,
+        BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL,
+        BLOCK_STATE_TEMPLE_IRON_BEARING_HOUSING,
+        BLOCK_STATE_TEMPLE_REFRACTORY_FIXTURE,
     ];
     expected.sort_unstable();
     assert_eq!(
         seen, expected,
-        "each of four caste activities has physical evidence"
+        "each of the four engineered assemblies must be generated"
     );
-    let appearances = chapel_relics
+    let appearances = service_bay_components
         .iter()
         .map(|(_, id)| {
             registries
@@ -63,10 +64,10 @@ fn four_caste_chapels_have_accessible_carved_rooms_and_distinct_finite_relics() 
     assert_eq!(
         appearances.len(),
         4,
-        "every cultural find has distinct presentation"
+        "each material-specific assembly must have a distinct block appearance"
     );
     let original_mass = calculate_matter_accounting(&state).unwrap().total();
-    for (location, relic) in chapel_relics {
+    for (location, relic) in service_bay_components {
         assert_eq!(state.world().block_at(location), Some(relic));
         assert_eq!(
             state.world().block_at(VoxelCoord::new(
@@ -75,7 +76,7 @@ fn four_caste_chapels_have_accessible_carved_rooms_and_distinct_finite_relics() 
                 location.z()
             )),
             Some(BlockStateId::AIR),
-            "the shrine artifact must have real overhead clearance for observation"
+            "the installed part must have overhead clearance for inspection"
         );
         assert_eq!(
             state.world().block_at(VoxelCoord::new(
@@ -113,20 +114,52 @@ fn four_caste_chapels_have_accessible_carved_rooms_and_distinct_finite_relics() 
                     .world()
                     .block_at(VoxelCoord::new(foot.x(), foot.y() + 1, foot.z())),
                 Some(BlockStateId::AIR),
-                "side chapels need a two-high connected approach"
+                "service bays need a two-high connected approach"
             );
         }
     }
-    let copper = CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP);
+    let tin = CommodityKey::new(MATERIAL_TIN, FORM_SCRAP);
+    let iron = CommodityKey::new(MATERIAL_IRON, FORM_SCRAP);
+    let zinc = CommodityKey::new(MATERIAL_ZINC, FORM_SCRAP);
     let stone = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
     for (block, mass, fill, fragments) in [
-        (BLOCK_STATE_TEMPLE_TRIBUTE_LEDGER, 4_480_000, 500, copper),
-        (BLOCK_STATE_TEMPLE_MUSTER_GONG, 8_960_000, 1_000, copper),
-        (BLOCK_STATE_TEMPLE_MOLT_STELA, 265_000_000, 100_000, stone),
-        (BLOCK_STATE_TEMPLE_CASTE_HEARTH, 530_000_000, 200_000, stone),
+        (BLOCK_STATE_TEMPLE_TIN_DATA_PLATE, 3_655_000, 500, tin),
+        (
+            BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL,
+            7_140_000,
+            1_000,
+            zinc,
+        ),
+        (
+            BLOCK_STATE_TEMPLE_IRON_BEARING_HOUSING,
+            7_870_000,
+            1_000,
+            iron,
+        ),
+        (
+            BLOCK_STATE_TEMPLE_REFRACTORY_FIXTURE,
+            530_000_000,
+            200_000,
+            stone,
+        ),
     ] {
         let definition = registries.world().block_for_state(block).unwrap();
         assert_eq!(definition.material_fill_fraction_ppm(), fill);
+        assert_eq!(
+            definition.commodity().unwrap().material(),
+            fragments.material()
+        );
+        let density = registries
+            .materials()
+            .get_material(fragments.material())
+            .unwrap()
+            .properties()
+            .density_kg_per_m3();
+        assert_eq!(
+            mass,
+            u64::from(density) * u64::from(fill),
+            "component mass must be density times occupied full-cube fraction"
+        );
         assert_eq!(
             definition.excavation().unwrap().fragmented_commodity(),
             fragments
@@ -159,7 +192,7 @@ fn seeded_districts_have_different_caste_chapel_orders_without_changing_resident
     for seed in 1..=20 {
         let seed = WorldGenerationSeed::new(seed);
         let (_, site) = site_for_seed(seed);
-        let blocks = site.chapel_relics().map(|(_, block)| block);
+        let blocks = site.service_bay_components().map(|(_, block)| block);
         assert_eq!(site.warden().z() - site.archivist().z(), 4);
         if !orders.contains(&blocks) {
             orders.push(blocks);
@@ -167,8 +200,27 @@ fn seeded_districts_have_different_caste_chapel_orders_without_changing_resident
     }
     assert!(
         orders.len() >= 3,
-        "seeded districts should contain different physical arrangements"
+        "district seeds must vary physical component locations"
     );
+}
+
+#[test]
+fn old_registry_versions_cannot_reinterpret_temple_metal_assemblies() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    let (chunk, _) = site_for_seed(seed);
+    let mut state = AppState::new();
+    validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    saved["registry_schema_version"] = serde_json::json!(140);
+    let legacy = serde_json::from_value::<LoadedSaveEnvelope>(saved).unwrap();
+    assert!(matches!(
+        legacy.into_state(&registries),
+        Err(crate::persistence::LoadError::RegistrySchemaMismatch { .. })
+    ));
 }
 
 #[test]

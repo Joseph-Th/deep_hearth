@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite typed stores with power/loss limits. Log or chip fuel becomes finite campfire heat with terminal mass accounting; water is locally finite/drinkable. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Mass-backed chunks, sparse temple halls, workshops, four caste chapels, stairs, surface seals, seven finite relics and defensive wardens; distinct solid heavy-caste bodies block player walking, admission and respawn. Targeting, excavation, fragments, storage and framing exist. General placement, UI and residency absent. |
+| Block world | Mass-backed chunks, sparse temple halls, workshops, four material-specific service bays, stairs, surface seals, seven finite assemblies and defensive wardens; distinct solid heavy-caste bodies block player walking, admission and respawn. Targeting, excavation, fragments, storage and framing exist. General placement, UI and residency absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

@@ -8,26 +8,90 @@ use crate::content::materials::{
     FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_PACKED_CLAY_BINDER,
     FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE,
     FORM_STONE_CROCK_BODY, FORM_TAILINGS, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_CLAY,
-    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+    MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_TIN, MATERIAL_WOOD,
+    MATERIAL_ZINC,
 };
 use crate::material::CommodityKey;
 use crate::texture::CommodityAppearanceBinding;
 
 use super::super::{
-    BLOCK_COPPER, BLOCK_COPPER_ORE, BLOCK_STONE, BLOCK_TIMBER, OBJECT_BULK_TIMBER_CRATE_BODY,
-    OBJECT_CLAY_EARTH_LUMP, OBJECT_COPPER_ELECTRICAL_WINDING, OBJECT_COPPER_INGOT,
-    OBJECT_COPPER_ORE, OBJECT_COPPER_REINFORCEMENT, OBJECT_COPPER_SAW_BLADE, OBJECT_COPPER_SCRAP,
-    OBJECT_COPPER_SCREEN_PLATE, OBJECT_CRUSHED_ORE, OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY,
-    OBJECT_INSULATED_TIMBER_PANTRY_BODY, OBJECT_LOG, OBJECT_MOLTEN_COPPER, OBJECT_NATIVE_COPPER,
+    BLOCK_COPPER, BLOCK_COPPER_ORE, BLOCK_STONE, BLOCK_TEMPLE_BEARING_HOUSING,
+    BLOCK_TEMPLE_CORROSION_PANEL, BLOCK_TEMPLE_DATA_PLATE, BLOCK_TIMBER,
+    OBJECT_BULK_TIMBER_CRATE_BODY, OBJECT_CLAY_EARTH_LUMP, OBJECT_COPPER_ELECTRICAL_WINDING,
+    OBJECT_COPPER_INGOT, OBJECT_COPPER_ORE, OBJECT_COPPER_REINFORCEMENT, OBJECT_COPPER_SAW_BLADE,
+    OBJECT_COPPER_SCRAP, OBJECT_COPPER_SCREEN_PLATE, OBJECT_CRUSHED_ORE,
+    OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY, OBJECT_INSULATED_TIMBER_PANTRY_BODY, OBJECT_IRON_SCRAP,
+    OBJECT_IRON_STOCK, OBJECT_LOG, OBJECT_MOLTEN_COPPER, OBJECT_NATIVE_COPPER,
     OBJECT_PACKED_CLAY_BINDER, OBJECT_ROUGH_TIMBER_FIELD_BOX_BODY, OBJECT_STONE_CHIP,
     OBJECT_STONE_DRAWPLATE, OBJECT_STONE_DRILL_BIT, OBJECT_STONE_FLYWHEEL,
     OBJECT_STONE_GRINDSTONE_WHEEL, OBJECT_STONE_LUMP, OBJECT_STONE_PROVISIONS_CROCK_BODY,
     OBJECT_STONE_TOOL, OBJECT_TAILINGS, OBJECT_TIMBER_CHEST_BODY, OBJECT_TIMBER_FLYWHEEL,
-    OBJECT_TIMBER_RIDDLE_PANEL, OBJECT_WOOD_BOARD, OBJECT_WOOD_CHIP, OBJECT_WOOD_HANDLE,
+    OBJECT_TIMBER_RIDDLE_PANEL, OBJECT_TIN_SCRAP, OBJECT_TIN_STOCK, OBJECT_WOOD_BOARD,
+    OBJECT_WOOD_CHIP, OBJECT_WOOD_HANDLE, OBJECT_ZINC_SCRAP, OBJECT_ZINC_STOCK,
 };
 
 pub(in crate::content::textures) fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
     vec![
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_IRON, FORM_INGOT),
+            Some(BLOCK_TEMPLE_BEARING_HOUSING),
+            Some(OBJECT_IRON_STOCK),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_IRON, FORM_BLOCK),
+            Some(BLOCK_TEMPLE_BEARING_HOUSING),
+            Some(OBJECT_IRON_STOCK),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_IRON, FORM_SCRAP),
+            None,
+            Some(OBJECT_IRON_SCRAP),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_IRON, FORM_CHIP),
+            None,
+            Some(OBJECT_IRON_SCRAP),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_TIN, FORM_INGOT),
+            Some(BLOCK_TEMPLE_DATA_PLATE),
+            Some(OBJECT_TIN_STOCK),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_TIN, FORM_BLOCK),
+            Some(BLOCK_TEMPLE_DATA_PLATE),
+            Some(OBJECT_TIN_STOCK),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_TIN, FORM_SCRAP),
+            None,
+            Some(OBJECT_TIN_SCRAP),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_TIN, FORM_CHIP),
+            None,
+            Some(OBJECT_TIN_SCRAP),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_ZINC, FORM_INGOT),
+            Some(BLOCK_TEMPLE_CORROSION_PANEL),
+            Some(OBJECT_ZINC_STOCK),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_ZINC, FORM_BLOCK),
+            Some(BLOCK_TEMPLE_CORROSION_PANEL),
+            Some(OBJECT_ZINC_STOCK),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_ZINC, FORM_SCRAP),
+            None,
+            Some(OBJECT_ZINC_SCRAP),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_ZINC, FORM_CHIP),
+            None,
+            Some(OBJECT_ZINC_SCRAP),
+        ),
         CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
             Some(BLOCK_TIMBER),
