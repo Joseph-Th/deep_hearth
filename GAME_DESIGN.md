@@ -225,12 +225,16 @@ physical actor, inventory, injury, equipment, and observation boundaries instead
 with a separate encounter simulation. Species and factions may have different incentives, but no actor
 may know undiscovered remote player inventory or ignore a blocked real route.
 
-Kobolds are scavengers and the orphaned servant species of a more advanced civilization, not
-a forever-static low-tier nuisance. Their old service culture survives through scavenged
-equipment, learned routines, salvaged infrastructure, inherited loyalties, and efforts to find,
-imitate, restore, or summon what remains of their former masters. That ancestry affects their
-organization and priorities, but does not grant free machinery, supernatural information, or
-an invisible army. Distinguish what they actually possess from what they remember or covet.
+Kobolds are a reptilian, stratified civilization, not a forever-static low-tier nuisance.
+Their surface castes are unruly scavenger-engineers, while their deep temple castes retain
+discipline, ritual, technical specialization, and access to substantially more sophisticated
+machinery. The contradiction is intentional: one society can field noisy lash-ups made from
+stolen scrap and maintain solemn chambers of advanced engineering. Their inherited service
+traditions and uncertain technological ancestry leave room for earlier builders, without
+making every surviving kobold merely a helpless servant awaiting absent masters. Distinguish
+what each caste actually possesses, understands, maintains, remembers, or covets. Neither
+ancestry nor fervent improvisation grants free machinery, supernatural information, or an
+invisible army.
 
 ### Two faces of kobold technology
 
@@ -248,14 +252,30 @@ routes, even passing a nearer worthless stone pile when sufficiently provisioned
 fully assembled rig should survive routine cache rearrangement unless the player deliberately
 intercepts one of its finite, recoverable components.
 
-Far below those camps lie sealed temple districts, inherited from the period when kobolds
-maintained a civilization they did not create. They are not crude shacks upgraded by a difficulty
-modifier: stone precincts preserve dormant mnemonic archives, motive engines, conduits and
-machine-rooms whose original purpose is only partly remembered. Chambers exist as actual
-subterranean terrain and old devices as embodied salvageable material. A closed archive is not
-automatically readable, and a dead engine is not automatically usable. Excavating or repairing them
-should require geology, access, power, material reconstruction and interpretation rather than a
-species-specific magical unlock.
+Improvisation is a practical craft, not merely a visual style. Low castes should physically
+assemble rough digging implements, pry bars, cutting edges, shields, traps, and eventually
+weapons from recoverable wood, stone, metal and machine fragments, subject to real component
+availability, work time, durability and skill. The same scrap may be more valuable as food
+acquisition equipment, a warning device, a construction brace, or a weapon; scarcity and the
+player's interventions determine that choice. Poor alignment, fragile fastening and crude
+materials impose measurable limitations, but an inventive scavenger can achieve useful,
+surprising functionality through substitute parts. Equipment must be carried, stashed,
+degraded, repaired or lost as physical matter. A stolen tool is not automatically a learned
+recipe, and a makeshift weapon must not grant damage before the combat and injury owners
+can represent its actual consequences.
+
+Far below those camps lie sealed temple districts, the industrial and ceremonial heart of
+the surviving caste civilization. They are not crude shacks upgraded by a difficulty
+modifier: stone precincts preserve mnemonic archives, motive engines, conduits and
+machine-rooms with expertise unevenly retained by their resident custodians. Some
+installations may be dormant or damaged; others should eventually be actively operated
+and maintained by kobolds using finite energy, parts, tools and labor. Whether all the
+original science was invented by kobolds remains an archaeological question, not a denial
+of the present castes' technical competence. Chambers exist as actual subterranean terrain
+and devices as embodied salvageable material. A closed archive is not automatically readable,
+and a dead engine is not automatically usable. Excavating or repairing them should require
+geology, access, power, material reconstruction and interpretation rather than a species-specific
+magical unlock.
 One sparse seed-selected precinct per broad district has an engraved, mineable copper threshold
 at the surface and a buried stair approach that still requires excavation of intervening rock.
 An ancient hall branches into two distinct relic workshops; the player can find their physical
@@ -266,9 +286,12 @@ The subterranean castes differ physically and socially from surface raiders. Sma
 and **watchmen** forage and improvise. Heavy **vault wardens** are temple-bred defenders
 accustomed to narrow ceremonial passages and guarding machinery. Massive **archivists** are
 older, stronger-bodied custodians of partial technical memory, not merely stronger scouts with
-larger health bars. Their survivals and allegiances are clues to their makers, whose identity
-remains uncertain. Temple inhabitants remain in real rooms; they must not emerge from nowhere
-whenever the player's technology advances. Temple wardens react locally to living intruders:
+larger health bars. The hierarchy also governs access to tools, resources, ritual obligations,
+workshops, knowledge and authority: low castes improvise and gather; high castes direct, interpret,
+maintain and defend. Those roles may create material dependencies and social tensions rather than
+perfect obedience. Their origins and the ancestry of their most advanced machines remain uncertain.
+Temple inhabitants remain in real rooms; they must not emerge from nowhere whenever the
+player's technology advances. Temple wardens react locally to living intruders:
 they advance through supported hall cells without entering the player's occupied voxel and
 withdraw one step at a time after contact is lost. Their visible defensive posture and position
 survive save/load, and displaced wardens complete their physical retreat even when the player
@@ -276,8 +299,8 @@ leaves the temple chunk. Heavy wardens now obstruct the player's continuous walk
 while massive archivists occupy a real two-by-two-by-three-cell chamber volume at their
 inherited machines. Neither can be bypassed by walking through a sighted or concealed body;
 player admission, trusted loads and respawn must also respect occupied space. Combat,
-caste-specific physiology, negotiation, general subterranean movement and relic restoration remain future
-systems, not hidden exceptions to the present simulation.
+caste-specific physiology, negotiation, general subterranean movement and relic restoration
+remain future systems, not hidden exceptions to the present simulation.
 
 One early interaction bridges these societies: a mobilized den with physically co-located
 precision copper salvage and a suitable striker can sound a faulty mechanical warning over
@@ -309,14 +332,34 @@ Enemy pressure must respond to the player's demonstrated progress, not just elap
 arbitrary level scaling. At first a lone kobold steals food and exposed scraps; after witnessing
 engineered equipment, repeated defenses, and increasingly capable industry, its colony should
 recognize that petty raids no longer suffice. It must mobilize a proportional, persistent
-response: salvage and provision drives, new scouts and coordinated groups, defended caches,
-adapted routes and tactics, and ultimately attempts to recover advanced servant-era technology
-or reconnect with surviving authority. Escalation requires witnessed local evidence or physical
-intelligence brought home, real population and equipment, finite food and material, and travel
-along routes. Do not instantly spawn units, teleport stolen goods, grant invented weapons,
-or reveal concealed player technology. The player must see warning signs, be able to disrupt
+response: salvage and provision drives, actual tool and weapon assembly, coordinated groups,
+defended caches, adapted routes and tactics, and eventually attempts to reopen temple-era
+workshops or reconnect with surviving higher-caste authority. Escalation requires witnessed
+local evidence or physical intelligence brought home, real population and equipment, finite
+food and material, and travel along routes. Do not instantly spawn units, teleport stolen goods,
+grant invented weapons, or reveal concealed player technology. The player must see warning signs, be able to disrupt
 mobilization, and have options beyond simply fighting ever-stronger enemies. If a player
 outgrows a threat, the world and the faction react rather than remaining irrelevant.
+
+The complete faction response follows an observable physical chain: a resident witnesses a
+player action or its local consequences; information travels home by a resident or functioning
+signal; the colony compares its material and survival needs with the new risk or opportunity;
+workers move recoverable inputs and spend time making or maintaining equipment; deployed
+residents change routes, defenses, claims or negotiations; and the player can discover,
+intercept, trade with, avoid or undo the resulting changes. Repeated theft, reclaimed scrap,
+damaged alarms, lighted approaches, excavated temple thresholds, broken relics and working
+player industry should have distinguishable consequences when actually observed. Warnings
+from a surface den do not instantly inform a buried archive; temple response needs real
+routes, signals, witnesses and its own finite capacity. Calm coexistence or leaving valuable
+infrastructure intact must be viable outcomes, not merely a delay until a fixed combat wave.
+
+The next faction milestones are ordered by causality rather than combat tier: first a
+recoverable scavenged implement that changes one real work operation; then meaningful
+wear, repair and choices between tools, alarm parts and provisions; then a sustained
+surface group with finite residents and report-driven defense; finally functioning temple
+work, higher-caste command and interactions across the actual underground access route.
+Each milestone needs an ordinary player-observable counterfactual, exact custody, and
+deterministic save/load continuation before expanding the number of creatures or devices.
 
 Simulation cost must follow relevant activity, not total world history. Schedule slow needs, population
 transitions, and remote settlement obligations at bounded authoritative deadlines; run fine-grained motion,
