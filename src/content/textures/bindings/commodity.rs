@@ -73,6 +73,16 @@ pub(in crate::content::textures) fn build_commodity_bindings() -> Vec<CommodityA
             Some(OBJECT_CRUSHED_MAGNETITE),
         ),
         CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_MAGNETITE, FORM_CONCENTRATE),
+            None,
+            Some(OBJECT_CRUSHED_MAGNETITE),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_MAGNETITE, FORM_TAILINGS),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_GALENA, FORM_ORE),
             Some(BLOCK_GALENA_ORE),
             Some(OBJECT_GALENA_ORE),
@@ -136,6 +146,16 @@ pub(in crate::content::textures) fn build_commodity_bindings() -> Vec<CommodityA
             CommodityKey::new(MATERIAL_CASSITERITE, FORM_CRUSHED),
             None,
             Some(OBJECT_CRUSHED_CASSITERITE),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_CASSITERITE, FORM_CONCENTRATE),
+            None,
+            Some(OBJECT_CRUSHED_CASSITERITE),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_CASSITERITE, FORM_TAILINGS),
+            None,
+            Some(OBJECT_TAILINGS),
         ),
         CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_SPHALERITE, FORM_ORE),

@@ -2157,6 +2157,8 @@ fn persisted_concentration_replays_multi_gangue_outputs() {
     );
 }
 
+#[path = "separation_execution_tests/gregtech_beneficiation.rs"]
+mod gregtech_beneficiation;
 #[cfg(feature = "test-soak")]
 #[path = "separation_execution_tests/soak.rs"]
 mod soak;

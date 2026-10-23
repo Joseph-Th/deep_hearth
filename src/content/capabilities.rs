@@ -45,6 +45,8 @@ pub(crate) const CAPABILITY_EARTHWORK_MAX_HARDNESS: CapabilityId = CapabilityId:
 pub(crate) const CAPABILITY_MORTAR_GRINDING_FLOW: CapabilityId = CapabilityId::new(38);
 pub(crate) const CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW: CapabilityId = CapabilityId::new(39);
 pub(crate) const CAPABILITY_SULFIDE_PRECIPITATION_FLOW: CapabilityId = CapabilityId::new(40);
+pub(crate) const CAPABILITY_MAGNETIC_SEPARATOR_FLOW: CapabilityId = CapabilityId::new(41);
+pub(crate) const CAPABILITY_MAGNETIC_SEPARATOR_BATCH: CapabilityId = CapabilityId::new(42);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -256,6 +258,16 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_SULFIDE_PRECIPITATION_FLOW,
             "heated sulfide reaction charge throughput",
             CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_MAGNETIC_SEPARATOR_FLOW,
+            "electromagnetic mineral separation throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_MAGNETIC_SEPARATOR_BATCH,
+            "electromagnetic mineral separator batch capacity",
+            CapabilityValueKind::Mass,
         ),
     ] {
         registry.register_capability(definition);

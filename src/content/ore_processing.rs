@@ -18,19 +18,21 @@ use crate::ore_processing::{
 
 use super::capabilities::{
     CAPABILITY_COBBING_FLOW, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
-    CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_MORTAR_GRINDING_FLOW,
+    CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_MAGNETIC_SEPARATOR_BATCH,
+    CAPABILITY_MAGNETIC_SEPARATOR_FLOW, CAPABILITY_MORTAR_GRINDING_FLOW,
     CAPABILITY_ORE_PICKING_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SULFIDE_PRECIPITATION_FLOW,
     CAPABILITY_THERMAL_BATCH,
 };
 use super::materials::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_TAILINGS, MATERIAL_COPPER,
+    FORM_TAILINGS, MATERIAL_CASSITERITE, MATERIAL_COPPER, MATERIAL_MAGNETITE,
 };
 use super::processes::{
-    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_GRIND_CRUSHED_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_CASSITERITE,
+    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
     PROCESS_PRECIPITATE_LEAD_FROM_GALENA, PROCESS_REGRIND_COPPER_TAILINGS,
     PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
@@ -212,6 +214,38 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     EnergyCarrier::Mechanical,
                     MassSpecificEnergy::from_nanojoules_per_milligram(350_000),
                     200,
+                ),
+            ),
+            // Dense SnO2 grains can be enriched by gravity; this never creates elemental tin.
+            ConstituentSeparationProcessDefinition::new_concentration(
+                PROCESS_CONCENTRATE_CASSITERITE,
+                FORM_CRUSHED,
+                liberated_concentration_range,
+                CommodityKey::new(MATERIAL_CASSITERITE, FORM_CONCENTRATE),
+                FORM_TAILINGS,
+                ConstituentRecoveryProfile::new(850_000, 150_000),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(300_000),
+                    170,
+                ),
+            ),
+            // Fe3O4 is magnetically separable, but never silently reduced to elemental Fe.
+            ConstituentSeparationProcessDefinition::new_concentration(
+                PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
+                FORM_CRUSHED,
+                liberated_concentration_range,
+                CommodityKey::new(MATERIAL_MAGNETITE, FORM_CONCENTRATE),
+                FORM_TAILINGS,
+                ConstituentRecoveryProfile::new(950_000, 50_000),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_MAGNETIC_SEPARATOR_FLOW,
+                    CAPABILITY_MAGNETIC_SEPARATOR_BATCH,
+                    EnergyCarrier::Electrical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(2_000_000),
+                    120,
                 ),
             ),
         ],

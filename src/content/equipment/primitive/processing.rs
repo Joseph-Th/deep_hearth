@@ -7,7 +7,8 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use crate::content::capabilities::{
     CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW, CAPABILITY_GRINDER_BATCH,
-    CAPABILITY_GRINDER_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
+    CAPABILITY_GRINDER_FLOW, CAPABILITY_MAGNETIC_SEPARATOR_BATCH,
+    CAPABILITY_MAGNETIC_SEPARATOR_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
 use crate::content::crafted_parts::{
@@ -15,8 +16,9 @@ use crate::content::crafted_parts::{
     TIMBER_RIDDLE_PANEL_MASS,
 };
 use crate::content::materials::{
-    FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_HANDLE, FORM_SCREEN_PLATE,
-    FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_ELECTRICAL_WINDING, FORM_HANDLE,
+    FORM_INGOT, FORM_SCREEN_PLATE, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER,
+    MATERIAL_IRON, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 use super::super::authoring::{
@@ -26,8 +28,8 @@ use super::super::authoring::{
 use super::super::{
     EQUIPMENT_COPPER_PLATE_SIZING_SCREEN, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR,
-    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+    EQUIPMENT_COPPER_WOUND_MAGNETIC_SEPARATOR, EQUIPMENT_STONE_CRUSHER,
+    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
 };
 use super::{copper_reinforcement_input, copper_upgrade};
 
@@ -118,6 +120,60 @@ pub(super) fn stone_separator() -> EquipmentDefinition {
         ],
     )
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+}
+
+/// Copper coils and cast iron pole pieces concentrate magnetite from liberated gangue.
+/// The separator has an ordinary parts-based assembly and replaceable electrical winding.
+pub(super) fn copper_wound_magnetic_separator() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_COPPER_WOUND_MAGNETIC_SEPARATOR,
+        "copper-wound magnetic separator",
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+                Mass::from_milligrams(108_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_IRON, FORM_INGOT),
+                Mass::from_milligrams(400_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ]),
+        profile([
+            (
+                CAPABILITY_MAGNETIC_SEPARATOR_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(3_000)),
+            ),
+            (
+                CAPABILITY_MAGNETIC_SEPARATOR_BATCH,
+                CapabilityValue::Mass(Mass::from_milligrams(500_000)),
+            ),
+        ]),
+        thresholds(),
+        vec![
+            mass_flow_condition_curve(
+                CAPABILITY_MAGNETIC_SEPARATOR_FLOW,
+                600_000,
+                MassFlow::from_milligrams_per_second(1_500),
+            ),
+            mass_condition_curve(
+                CAPABILITY_MAGNETIC_SEPARATOR_BATCH,
+                600_000,
+                Mass::from_milligrams(250_000),
+            ),
+        ],
+    )
+    .with_assembly_component_maintenance(CommodityKey::new(
+        MATERIAL_COPPER,
+        FORM_ELECTRICAL_WINDING,
+    ))
 }
 
 pub(super) fn stone_rotary_quern() -> EquipmentDefinition {

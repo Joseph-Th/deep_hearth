@@ -876,7 +876,15 @@ rejects another segregated job; the player can use a different local stockpile, 
 existing inventory/ground transfer or drop paths, or reclaim it through an authored process. Jobs persist both
 routes and exact output profiles, and trusted load validates the split against current material definitions.
 Ore constituent separation already resolves two independent target/residue streams with tailings containing the
-remaining physical constituents; segregation does not grant an extra separation process. Slag identity is
+remaining physical constituents; segregation does not grant an extra separation process. Liberated
+cassiterite (SnO2) can be gravity-concentrated with a mechanical separator; liberated
+magnetite (Fe3O4) instead requires a copper-wound magnetic separator and finite electrical
+energy. Both accept grade-bearing particulate input, use distinct authored target/gangue
+recovery fractions, and preserve exact mineral constituent totals in concentrate and residue.
+The electromagnetic separator is assembled from cast iron, formed copper winding and timber,
+and wears its replaceable conductor component. Its separate capability requirements prevent
+a mechanically powered rock separator from executing magnetic recovery. Neither process
+creates elemental tin/iron or smelting slag. Slag identity is
 defined, but chemical ore reduction and the generation of new smelting slag are not implemented. Environmental
 dispersion, soil/water contamination, spoil heaps, and bulk waste conveyance are not yet simulated.
 

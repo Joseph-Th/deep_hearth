@@ -95,6 +95,8 @@ pub const PROCESS_FINISH_IRON_PICK_HEAD_FROM_SCRAP: ProcessId = ProcessId::new(8
 pub const PROCESS_FINISH_IRON_PICK_HEAD_FROM_INGOT: ProcessId = ProcessId::new(82);
 pub const PROCESS_PRECIPITATE_LEAD_FROM_GALENA: ProcessId = ProcessId::new(83);
 pub const PROCESS_CAST_LEAD_INGOT: ProcessId = ProcessId::new(84);
+pub const PROCESS_CONCENTRATE_CASSITERITE: ProcessId = ProcessId::new(85);
+pub const PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE: ProcessId = ProcessId::new(86);
 
 mod chemical;
 mod fabrication;

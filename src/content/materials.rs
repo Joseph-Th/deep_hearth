@@ -561,6 +561,14 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             "crushed cassiterite",
         ),
         (
+            CommodityKey::new(MATERIAL_CASSITERITE, FORM_CONCENTRATE),
+            "cassiterite gravity concentrate",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CASSITERITE, FORM_TAILINGS),
+            "cassiterite dressing tailings",
+        ),
+        (
             CommodityKey::new(MATERIAL_SPHALERITE, FORM_ORE),
             "sphalerite ore",
         ),
@@ -575,6 +583,14 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         (
             CommodityKey::new(MATERIAL_MAGNETITE, FORM_CRUSHED),
             "crushed magnetite",
+        ),
+        (
+            CommodityKey::new(MATERIAL_MAGNETITE, FORM_CONCENTRATE),
+            "magnetite magnetic concentrate",
+        ),
+        (
+            CommodityKey::new(MATERIAL_MAGNETITE, FORM_TAILINGS),
+            "magnetite dressing tailings",
         ),
         (CommodityKey::new(MATERIAL_GALENA, FORM_ORE), "galena ore"),
         (

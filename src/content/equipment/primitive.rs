@@ -44,6 +44,7 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         power::timber_walking_wheel_drive(),
         processing::stone_crusher(),
         processing::stone_separator(),
+        processing::copper_wound_magnetic_separator(),
         processing::stone_rotary_quern(),
         processing::timber_riddle_sizing_screen(),
         processing::copper_plate_sizing_screen(),
