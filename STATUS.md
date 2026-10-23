@@ -46,7 +46,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | --- | --- |
 | Core | Persisted 20 Hz `ControlTick` + exact 72:1 `SimulationTick`; slow-step only when no control-rate consequence can occur. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
-| Production | Timed conserved production, routed outputs, thermal recycling, iron tool upkeep. PbS+Fe precipitation consumes electricity and yields molten lead plus FeS matte; lead casting follows. Gas-forming reactions are reference-only. |
+| Production | Timed conserved work, routed outputs, metal remelting/casting and iron tool upkeep. PbS+Fe precipitation makes molten lead and FeS matte; recovered lead can be cast and remelted. Gas-forming reactions are reference-only. |
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. Deep exposed residue layers obstruct ground-storage footing until cleared. |

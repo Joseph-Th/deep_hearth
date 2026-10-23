@@ -18,8 +18,8 @@ use super::materials::{
 use super::processes::{
     PROCESS_CAST_IRON_INGOT, PROCESS_CAST_LEAD_INGOT, PROCESS_CAST_PURE_COPPER,
     PROCESS_CAST_TIN_INGOT, PROCESS_CAST_ZINC_INGOT, PROCESS_HEAT_MATERIAL_BATCH,
-    PROCESS_MELT_PURE_COPPER, PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_TIN,
-    PROCESS_MELT_RECYCLED_ZINC,
+    PROCESS_MELT_PURE_COPPER, PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_LEAD,
+    PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC,
 };
 
 pub(crate) fn build_thermal_registry() -> ThermalRegistry {
@@ -89,6 +89,13 @@ pub(crate) fn build_thermal_registry() -> ThermalRegistry {
                 melting_profile(),
                 MATERIAL_ZINC,
                 vec![FORM_INGOT, FORM_CHIP, FORM_SCRAP, FORM_BLOCK],
+                FORM_MOLTEN,
+            ),
+            MeltingProcessDefinition::new(
+                PROCESS_MELT_RECYCLED_LEAD,
+                melting_profile(),
+                MATERIAL_LEAD,
+                vec![FORM_INGOT, FORM_SCRAP],
                 FORM_MOLTEN,
             ),
         ],

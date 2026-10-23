@@ -3,7 +3,8 @@ use super::*;
 use crate::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_ELECTRIC_FURNACE, FORM_INGOT, FORM_LOG, MATERIAL_WOOD, PROCESS_CAST_LEAD_INGOT,
-    PROCESS_PRECIPITATE_LEAD_FROM_GALENA, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    PROCESS_MELT_RECYCLED_LEAD, PROCESS_PRECIPITATE_LEAD_FROM_GALENA,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Length};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -26,10 +27,15 @@ use crate::structural::{
     add_structural_element, materialize_structural_element_for_test,
     validate_activate_structural_element,
 };
-use crate::thermal::{CastingRequest, resolve_casting_process};
+use crate::thermal::{
+    CastingRequest, MeltingRequest, resolve_casting_process, resolve_melting_process,
+};
 
 #[path = "precipitation_execution_tests/galena_chain.rs"]
 mod galena_chain;
+
+#[path = "precipitation_execution_tests/lead_recycling.rs"]
+mod lead_recycling;
 
 fn mount_machine_fixture(
     registries: &Registries,
@@ -394,4 +400,134 @@ fn physically_selected_galena_and_iron_complete_into_separately_routed_lead_and_
         matter_before_casting
     );
     validate_loaded_state(&registries, &state).unwrap();
+
+    // The ingot is not a terminal recipe trophy: melt the actually cast
+    // product together with a separately recovered pure lead scrap lot.
+    // All work is electrical and the molten destination is still heat-rated.
+    let ingot = state.inventory().lot_ids(ingot_destination).next().unwrap();
+    let reclaimed = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        ingot_destination,
+        CommodityKey::new(MATERIAL_LEAD, crate::content::FORM_SCRAP),
+        Mass::from_milligrams(5_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let input = [
+        MaterialLotSelection::new(ingot, Mass::from_milligrams(LEAD_MG)),
+        MaterialLotSelection::new(reclaimed, Mass::from_milligrams(5_000)),
+    ];
+    let matter_before_remelt = calculate_matter_accounting(&state).unwrap().total();
+    let remelt = resolve_melting_process(
+        &registries,
+        &state,
+        MeltingRequest::new(
+            PROCESS_MELT_RECYCLED_LEAD,
+            ingot_destination,
+            &input,
+            furnace,
+            electricity,
+        ),
+    )
+    .expect("recovered cast lead and pure lead scrap must admit a balanced remelt");
+    assert!(remelt.required_energy() > Energy::ZERO);
+    assert_eq!(
+        remelt.process_resolution().outputs()[0].commodity(),
+        CommodityKey::new(MATERIAL_LEAD, FORM_MOLTEN),
+    );
+    assert_eq!(
+        remelt.process_resolution().outputs()[0].mass().milligrams(),
+        LEAD_MG + 5_000,
+    );
+    let duration = remelt.process_resolution().duration().value();
+    validate_start_process(
+        &registries,
+        &state,
+        remelt.process_resolution(),
+        ingot_destination,
+        lead_destination,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let persisted = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut continued = serde_json::from_slice::<LoadedSaveEnvelope>(&persisted)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..duration {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut continued).unwrap();
+    }
+    assert_eq!(state, continued);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(lead_destination)
+            .unwrap()
+            .get_mass(CommodityKey::new(MATERIAL_LEAD, FORM_MOLTEN))
+            .milligrams(),
+        LEAD_MG + 5_000,
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before_remelt
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // Complete molten -> ingot -> molten -> ingot recycling, releasing heat
+    // into the same finite thermal sink under a fresh mold reservation.
+    let liquid = state.inventory().lot_ids(lead_destination).next().unwrap();
+    let recast = resolve_casting_process(
+        &registries,
+        &state,
+        CastingRequest::new(
+            PROCESS_CAST_LEAD_INGOT,
+            lead_destination,
+            &[MaterialLotSelection::new(
+                liquid,
+                Mass::from_milligrams(LEAD_MG + 5_000),
+            )],
+            mold,
+            thermal_sink,
+        ),
+    )
+    .unwrap();
+    assert!(recast.released_energy() > Energy::ZERO);
+    let cast_duration = recast.process_resolution().duration().value();
+    validate_start_process(
+        &registries,
+        &state,
+        recast.process_resolution(),
+        lead_destination,
+        ingot_destination,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let recast_saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut recast_loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&recast_saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..cast_duration {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut recast_loaded).unwrap();
+    }
+    assert_eq!(state, recast_loaded);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(ingot_destination)
+            .unwrap()
+            .get_mass(CommodityKey::new(MATERIAL_LEAD, FORM_INGOT))
+            .milligrams(),
+        LEAD_MG + 5_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before_remelt
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

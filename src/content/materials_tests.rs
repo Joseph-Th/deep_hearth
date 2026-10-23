@@ -3,9 +3,9 @@
 use super::*;
 use crate::content::textures::build_texture_registry;
 use crate::content::{
-    PROCESS_CAST_IRON_INGOT, PROCESS_CAST_TIN_INGOT, PROCESS_CAST_ZINC_INGOT,
-    PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC,
-    build_registries,
+    PROCESS_CAST_IRON_INGOT, PROCESS_CAST_LEAD_INGOT, PROCESS_CAST_TIN_INGOT,
+    PROCESS_CAST_ZINC_INGOT, PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_LEAD,
+    PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC, build_registries,
 };
 use crate::registry::{CommoditySource, CommodityUse};
 
@@ -127,6 +127,59 @@ fn all_three_metal_scrap_streams_have_remelting_and_ingot_casting_processes() {
             source, CommoditySource::ThermalPhaseChange { process } if *process == cast
         )));
     }
+}
+
+#[test]
+fn lead_scrap_and_cast_ingots_reenter_a_metal_only_melting_and_casting_loop() {
+    let registries = build_registries();
+    let melt = registries
+        .thermal()
+        .get_melting(PROCESS_MELT_RECYCLED_LEAD)
+        .unwrap();
+    assert_eq!(melt.material(), MATERIAL_LEAD);
+    assert_eq!(melt.solid_forms(), &[FORM_INGOT, FORM_SCRAP]);
+    assert_eq!(melt.liquid_form(), FORM_MOLTEN);
+    assert_eq!(
+        registries
+            .materials()
+            .get_material(MATERIAL_LEAD)
+            .unwrap()
+            .properties()
+            .thermal()
+            .melting_point()
+            .unwrap()
+            .millikelvin(),
+        600_610,
+    );
+    let cast = registries
+        .thermal()
+        .get_casting(PROCESS_CAST_LEAD_INGOT)
+        .unwrap();
+    assert_eq!(cast.material(), MATERIAL_LEAD);
+    assert_eq!(cast.liquid_form(), FORM_MOLTEN);
+    assert_eq!(cast.solid_form(), FORM_INGOT);
+    for form in [FORM_INGOT, FORM_SCRAP] {
+        let stock = registries
+            .commodity_handbook_entry(CommodityKey::new(MATERIAL_LEAD, form))
+            .unwrap();
+        assert!(stock.uses().iter().any(|usage| matches!(
+            usage, CommodityUse::ThermalPhaseChange { process }
+                if *process == PROCESS_MELT_RECYCLED_LEAD
+        )));
+    }
+    let molten = registries
+        .commodity_handbook_entry(CommodityKey::new(MATERIAL_LEAD, FORM_MOLTEN))
+        .unwrap();
+    assert!(molten.sources().iter().any(|source| matches!(
+        source, CommoditySource::ThermalPhaseChange { process }
+            if *process == PROCESS_MELT_RECYCLED_LEAD
+    )));
+    assert!(molten.uses().iter().any(|usage| matches!(
+        usage, CommodityUse::ThermalPhaseChange { process }
+            if *process == PROCESS_CAST_LEAD_INGOT
+    )));
+    assert!(!melt.solid_forms().contains(&FORM_CRUSHED));
+    assert_ne!(MATERIAL_LEAD, MATERIAL_GALENA);
 }
 
 #[test]

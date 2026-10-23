@@ -104,6 +104,8 @@ pub const PROCESS_HAND_PICK_GALENA: ProcessId = ProcessId::new(90);
 pub const PROCESS_REGRIND_GALENA_PICKING_TAILINGS: ProcessId = ProcessId::new(91);
 pub const PROCESS_SCAVENGE_GALENA_TAILINGS: ProcessId = ProcessId::new(92);
 pub const PROCESS_CLEAN_GALENA_CONCENTRATE: ProcessId = ProcessId::new(93);
+/// Reclaimed lead is metal, unlike PbS galena which needs the balanced furnace reaction.
+pub const PROCESS_MELT_RECYCLED_LEAD: ProcessId = ProcessId::new(94);
 
 mod chemical;
 mod fabrication;

@@ -38,6 +38,12 @@ Three GregTech-inspired branches use existing authoritative process owners:
    The actual furnace step requires physical supporting structure, locally accessible
    stock, separate heat-rated lead custody and finite electricity, not a magical
    ore-to-metal conversion.
+   Lead ingots and pure reclaimed lead scrap can be electrically remelted
+   at 600.61 K and cast again with finite cooling-sink capacity. The early
+   stone arc crucible handles at most 20 g per batch; the whole 41.44 g
+   reaction product requires multiple charges or a larger foundry. Mixed
+   metal and unreduced PbS remain invalid melting feed, so this closes the
+   recovered-lead reuse loop without introducing false ore reduction.
    Retained coarse tailings can be reground in an assembled quern, mechanically
    gravity-scavenged at 80% remaining PbS / 10% stone recovery, then cleaned at
    90% PbS recovery into pure crushed sulfide. For the same initial 100 g feed,

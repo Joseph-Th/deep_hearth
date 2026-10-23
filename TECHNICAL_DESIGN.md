@@ -466,12 +466,24 @@ Reservations, equipment wear, output capacity and atomic completion use the
 canonical production mechanism. Trusted-load replay reconstructs both output
 masses, consumed electrical work, timing and wear from immutable input traces.
 A distinct molten-lead-to-ingot process uses ordinary cooled-mold casting.
+Cast pure lead ingots and reclaimed pure lead scrap can now re-enter a
+separate electrical remelting process at lead's 600.61 K fusion boundary.
+It accepts only elemental lead in ingot or scrap form: mixed-composition
+ingots and galena sulfide are rejected rather than treated as metal.
+The resulting molten lead must occupy a heat-rated liquid destination and can
+be recast by releasing sensible and latent heat into a finite thermal sink.
+The first 20 g stone arc crucible can remelt a small lead batch but cannot
+silently accept the entire 41.44 g product of one precipitation charge;
+larger foundry equipment or multiple legitimate batches are required.
+Player-authorized local melting, exact conserved input/output masses, finite
+electrical work, and resumed in-flight melting and casting are covered by
+canonical process and trusted-save tests.
 Oxidation gas flows, fuel enthalpy, ambient heat, exhausted gas vessel custody,
 alloying, heat treatment and survey discoverability still require runtime systems. The ore lens placement is not a registered
 finite geology deposit and is not automatically discoverable via survey evidence.
 
 The archive shell, motive-drive shell and external threshold use copper.
-The active built-in registry schema is 145; saves with another registry schema
+The active built-in registry schema is 152; saves with another registry schema
 are rejected before material mass and identity validation. No older content
 schema migration is available in this build. All seven devices are finite and inactive
 until an explicit operation exists.
