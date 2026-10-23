@@ -412,6 +412,106 @@ fn selected_food_stack_default_use_fills_toward_full_without_manual_mass_entry()
 }
 
 #[test]
+fn default_meal_replenishes_diet_when_calories_are_only_slightly_low() {
+    let registries = build_registries();
+    let mut initial = AppState::new();
+    initialize_player_survival(&registries, &mut initial)
+        .unwrap_or_else(|error| panic!("combined-reserve survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let energy = physiology
+        .maximum_metabolic_energy()
+        .checked_sub(Energy::from_nanojoules(333_000_000_000))
+        .unwrap_or_else(|| panic!("combined-reserve energy fixture underflowed"));
+    let revision = initial.survival().revision();
+    initial.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            energy,
+            physiology.maximum_hydration(),
+            Vitality::MAXIMUM,
+            NutritionReserves::from_parts_per_million(1_000_000, 500_000, 1_000_000),
+            0,
+        ),
+    );
+    let source = add_solid_stockpile_for_test(&mut initial, Mass::from_milligrams(500_000))
+        .unwrap_or_else(|error| panic!("combined-reserve stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut initial,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("combined-reserve deposit failed: {error}"));
+    let stack = project_material_stacks(&registries, &initial, source)
+        .unwrap_or_else(|error| panic!("combined-reserve projection failed: {error}"))
+        .remove(0);
+    let expected = Mass::from_milligrams(250_000);
+
+    let mut calorie_state = initial.clone();
+    let calorie_outcome = validate_eat_lot_to_metabolic_target(
+        &registries,
+        &calorie_state,
+        lot,
+        physiology.maximum_metabolic_energy(),
+    )
+    .unwrap_or_else(|error| panic!("calorie target failed: {error}"))
+    .unwrap_or_else(|| panic!("calorie deficit needs a meal"))
+    .commit(&mut calorie_state)
+    .unwrap_or_else(|error| panic!("calorie meal commit failed: {error}"));
+    assert!(calorie_outcome.total_mass() < expected);
+
+    let mut lot_state = initial.clone();
+    let lot_outcome = validate_eat_lot_to_full(&registries, &lot_state, lot)
+        .unwrap_or_else(|error| panic!("lot default meal failed: {error}"))
+        .unwrap_or_else(|| panic!("combined reserves need a meal"))
+        .commit(&mut lot_state)
+        .unwrap_or_else(|error| panic!("lot default meal commit failed: {error}"));
+    assert_eq!(lot_outcome.total_mass(), expected);
+    assert_eq!(
+        lot_outcome.nutrition_offered().get(FoodCategory::Fruit),
+        500_000
+    );
+
+    let mut stack_state = initial;
+    let stack_outcome = validate_eat_stack_to_full(&registries, &stack_state, &stack)
+        .unwrap_or_else(|error| panic!("stack default meal failed: {error}"))
+        .unwrap_or_else(|| panic!("combined reserves need a meal"))
+        .commit(&mut stack_state)
+        .unwrap_or_else(|error| panic!("stack default meal commit failed: {error}"));
+    assert_eq!(stack_outcome.total_mass(), expected);
+    assert_eq!(
+        stack_outcome.nutrition_offered().get(FoodCategory::Fruit),
+        500_000
+    );
+    assert_eq!(
+        stack_state, lot_state,
+        "stack and lot defaults must consume the same matter"
+    );
+    while stack_state.tick() < stack_outcome.completes_at() {
+        let _ = advance_tick(&registries, &mut stack_state)
+            .unwrap_or_else(|error| panic!("stack meal completion failed: {error}"));
+        let _ = advance_tick(&registries, &mut lot_state)
+            .unwrap_or_else(|error| panic!("lot meal completion failed: {error}"));
+    }
+    assert_eq!(
+        stack_state, lot_state,
+        "both food-use paths must continue identically"
+    );
+    assert!(
+        stack_state
+            .survival()
+            .player()
+            .unwrap_or_else(|| panic!("completed food-use player disappeared"))
+            .nutrition()
+            .get(FoodCategory::Fruit)
+            > 500_000
+    );
+}
+
+#[test]
 fn selected_food_stack_default_use_makes_partial_progress_when_full_is_unreachable() {
     let registries = build_registries();
     let mut state = AppState::new();

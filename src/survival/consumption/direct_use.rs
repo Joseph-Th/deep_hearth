@@ -281,8 +281,8 @@ fn selected_food_dietary_refill_mass(
 /// Familiar stack-level food action from exactly the selected physical cohort.
 ///
 /// The stack projection privately resolves current lot slices. This lets a UI distinguish two
-/// freshness/temperature cohorts without exposing lot IDs. When the metabolic reserve is full,
-/// a deficient dietary category instead requests a deficit-sized legal portion.
+/// freshness/temperature cohorts without exposing lot IDs. The familiar full-use preference
+/// covers both metabolic replenishment and any larger deficit in the selected food category.
 pub fn validate_eat_stack_to_full(
     registries: &Registries,
     state: &AppState,
@@ -298,6 +298,14 @@ pub fn validate_eat_stack_to_full(
             .maximum_metabolic_energy(),
     );
     match result {
+        Ok(Some(validated)) => {
+            match selected_food_dietary_refill_mass(registries, state, stack.commodity()) {
+                Some(mass) if mass > validated.planned_mass() => {
+                    validate_eat_stack_up_to(registries, state, stack, mass)
+                }
+                _ => Ok(Some(validated)),
+            }
+        }
         Ok(None) => match selected_food_dietary_refill_mass(registries, state, stack.commodity()) {
             Some(mass) => validate_eat_stack_up_to(registries, state, stack, mass),
             None => Ok(None),
@@ -475,9 +483,10 @@ impl Error for DrinkStoreToTargetError {
 ///
 /// Reaching full reserve is a preference, not an admission requirement. If one legal meal cannot
 /// reach full reserve, or the selected stack contains less than the exact refill amount, this
-/// action consumes the largest legal available portion instead. At full metabolic reserve, a
-/// deficient selected food category instead requests a deficit-sized legal serving. Explicit callers
-/// that require a particular metabolic reserve should use
+/// action consumes the largest legal available portion instead. A deficient selected food
+/// category requests its deficit-sized serving whenever this is larger than the meal required
+/// for metabolic energy, including when energy is already full. Explicit callers that require
+/// a particular metabolic reserve should use
 /// [`validate_eat_lot_to_metabolic_target`].
 pub fn validate_eat_lot_to_full(
     registries: &Registries,
@@ -494,6 +503,14 @@ pub fn validate_eat_lot_to_full(
             .maximum_metabolic_energy(),
     );
     match result {
+        Ok(Some(validated)) => match state.inventory().get_lot(lot).and_then(|record| {
+            selected_food_dietary_refill_mass(registries, state, record.commodity())
+        }) {
+            Some(mass) if mass > validated.planned_mass() => {
+                validate_eat_lot_up_to(registries, state, lot, mass)
+            }
+            _ => Ok(Some(validated)),
+        },
         Ok(None) => match state.inventory().get_lot(lot).and_then(|record| {
             selected_food_dietary_refill_mass(registries, state, record.commodity())
         }) {

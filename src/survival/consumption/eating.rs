@@ -360,6 +360,11 @@ pub fn validate_eat(
 }
 
 impl ValidatedEat {
+    /// Prevalidated portion size for composing caller-level food-use preferences.
+    pub(super) const fn planned_mass(&self) -> Mass {
+        self.outcome.total_mass()
+    }
+
     pub fn commit(self, state: &mut AppState) -> Result<EatOutcome, EatCommitError> {
         let actual_control_tick = state.control_tick();
         if state.tick() == self.expected_control_tick.simulation_tick()
