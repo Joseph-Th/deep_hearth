@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Force;
 use crate::inventory::ConsumedMaterialTrace;
+use crate::spatial::VoxelCoord;
 
 mod records;
 
@@ -60,6 +61,17 @@ impl StructureState {
 
     pub fn elements(&self) -> impl Iterator<Item = &StructuralElementRecord> {
         self.elements.values()
+    }
+
+    /// A materialized, full-footprint member occupies this voxel even before activation.
+    /// Planned members have no physical obstruction.
+    #[must_use]
+    pub(crate) fn blocks_full_cell(&self, voxel: VoxelCoord) -> bool {
+        self.elements.values().any(|element| {
+            !element.embodied_material().is_empty()
+                && element.geometry().covers_horizontal_footprint()
+                && element.bounds().has_voxel(voxel)
+        })
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {

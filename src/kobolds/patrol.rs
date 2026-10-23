@@ -72,14 +72,7 @@ pub(super) fn scout_can_enter(
                             .get_stockpile(id)
                             .is_some_and(|stockpile| stockpile.enclosure().is_some())
                 })
-                && !state
-                    .structures()
-                    .elements()
-                    .any(|element| {
-                        !element.embodied_material().is_empty()
-                            && element.geometry().covers_horizontal_footprint()
-                            && element.bounds().has_voxel(cell)
-                    })
+                && !state.structures().blocks_full_cell(cell)
         })
 }
 

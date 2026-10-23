@@ -1,6 +1,6 @@
 //! Bounded local percussion through actual open voxels, independently of sight.
 //!
-//! A sound may follow a bent air corridor but not cut across solid rock or an
+//! A sound may follow a bent air corridor but not cut across solid rock, built panels, or an
 //! unknown/unloaded chunk. With no generated terrain, the opening wilderness
 //! uses only a short Manhattan-radius approximation. This is not a world-wide
 //! noise map or a signal network; rig transmission has separate physical rules.
@@ -88,11 +88,12 @@ fn audible_path(
         return true;
     }
     let passable = |voxel| {
-        state
-            .world()
-            .block_at(voxel)
-            .and_then(|id| registries.world().block_for_state(id))
-            .is_some_and(|block| block.collision() == BlockCollisionShape::Empty)
+        !state.structures().blocks_full_cell(voxel)
+            && state
+                .world()
+                .block_at(voxel)
+                .and_then(|id| registries.world().block_for_state(id))
+                .is_some_and(|block| block.collision() == BlockCollisionShape::Empty)
     };
     if !passable(source) || !passable(listener) {
         return false;

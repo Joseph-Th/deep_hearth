@@ -79,8 +79,9 @@ impl PlayerBlockTarget {
 
 /// Resolves the first full-cube block under the admitted player's authored interaction reach.
 ///
-/// Missing chunks and unsupported vertical world space are not transparent. The query fails closed
-/// at the first unavailable voxel so interaction can never infer or act through absent authority.
+/// Missing chunks and unsupported vertical world space are not transparent. Materialized
+/// full-footprint structures also occlude terrain targeting. The query fails closed at the first
+/// unavailable voxel so interaction can never infer or act through absent authority.
 pub fn raycast_player_block(
     registries: &Registries,
     state: &AppState,
@@ -94,7 +95,9 @@ pub fn raycast_player_block(
         direction,
         reach_nanometers,
         |voxel, block_state, face| {
-            if targetable_full_cube(registries, block_state) {
+            if state.structures().blocks_full_cell(voxel) {
+                VoxelTraceStep::Blocked
+            } else if targetable_full_cube(registries, block_state) {
                 VoxelTraceStep::Hit(PlayerBlockTarget {
                     voxel,
                     state: block_state,
@@ -108,7 +111,7 @@ pub fn raycast_player_block(
 }
 
 /// Visits visible non-solid voxels under the same admitted-player eye ray and reach as block
-/// targeting, stopping at the first full-cube terrain blocker.
+/// targeting, stopping at the first full-cube terrain or materialized structural blocker.
 ///
 /// This is deliberately crate-private. World owns sight-line authority and missing-chunk behavior;
 /// higher-level interaction owners may inspect only the traversed air voxels for their own targets.
@@ -129,7 +132,14 @@ pub(crate) fn raycast_player_air_voxel<T>(
             if targetable_full_cube(registries, block_state) {
                 return VoxelTraceStep::Blocked;
             }
-            select(voxel, face).map_or(VoxelTraceStep::Continue, VoxelTraceStep::Hit)
+            if let Some(target) = select(voxel, face) {
+                return VoxelTraceStep::Hit(target);
+            }
+            if state.structures().blocks_full_cell(voxel) {
+                VoxelTraceStep::Blocked
+            } else {
+                VoxelTraceStep::Continue
+            }
         },
     )
 }
@@ -308,10 +318,13 @@ fn advance_ray_boundary<T>(
     inspect: &mut impl FnMut(VoxelCoord, BlockStateId, CubeFace) -> VoxelTraceStep<T>,
 ) -> Result<VoxelTraceStep<T>, PlayerBlockTargetError> {
     let (touched, count, tied) = boundary_cells(state, *voxel, cursors, minimum)?;
-    // Occlusion takes precedence over air-space selection for simultaneous intersections.
+    // Physical occlusion takes precedence over air-space selection at tied intersections.
     for solid in [true, false] {
         for &(candidate, face, block_state) in touched[..count].iter().flatten() {
-            if targetable_full_cube(registries, block_state) != solid {
+            if (targetable_full_cube(registries, block_state)
+                || state.structures().blocks_full_cell(candidate))
+                != solid
+            {
                 continue;
             }
             match inspect(candidate, block_state, face) {

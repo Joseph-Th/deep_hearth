@@ -40,6 +40,8 @@ mod excavation_selection;
 mod palette;
 #[path = "world_tests/progression.rs"]
 mod progression;
+#[path = "world_tests/targeting_structures.rs"]
+mod targeting_structures;
 
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xD33F_4845_4152_5448);
 

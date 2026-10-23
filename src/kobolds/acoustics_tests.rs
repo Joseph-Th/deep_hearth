@@ -3,10 +3,10 @@
 use super::*;
 
 use crate::content::{
-    BLOCK_STATE_STONE, ENERGY_ELECTRICAL_BUFFER, FORM_ELECTRICAL_WINDING, FORM_HANDLE,
-    MATERIAL_COPPER, MATERIAL_WOOD, build_registries,
+    BLOCK_STATE_STONE, ENERGY_ELECTRICAL_BUFFER, FORM_ELECTRICAL_WINDING, FORM_HANDLE, FORM_LOG,
+    MATERIAL_COPPER, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Energy, Mass, Temperature};
+use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::logistics::{add_traversable_edge_for_test, place_energy_store_for_fixture};
@@ -15,6 +15,11 @@ use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::{advance_control_tick, advance_tick};
+use crate::spatial::VoxelBounds;
+use crate::structural::{
+    StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    validate_activate_structural_element,
+};
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
 use crate::world::{
     BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
@@ -264,6 +269,109 @@ fn missing_chunk_is_never_assumed_to_be_an_open_sound_passage() {
         &state,
         source,
         outside,
+        KoboldJunkRigKind::StoneClatter
+    ));
+}
+
+#[test]
+fn materialized_member_obscures_a_scout_and_blocks_air_sound_until_a_bypass_opens() {
+    let (registries, mut state) = solid_generated_chunk();
+    let source = VoxelCoord::new(8, -10, 8);
+    let barrier = VoxelCoord::new(9, -10, 8);
+    let listener = VoxelCoord::new(10, -10, 8);
+    carve(&registries, &mut state, &[source, barrier, listener]);
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(barrier, VoxelCoord::new(10, -9, 9)).unwrap(),
+        Length::from_micrometers(1_000_000),
+        Area::from_square_millimeters(1_000_000),
+    )
+    .unwrap();
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+
+    // The plan is not a wall until it owns physical material.
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        source,
+        listener
+    ));
+    assert!(audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::TimberRatchet
+    ));
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
+    assert!(state.structures().blocks_full_cell(barrier));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        source,
+        listener
+    ));
+    assert!(!audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::StoneClatter
+    ));
+    assert!(!crate::kobolds::patrol::scout_can_enter(
+        &registries,
+        &state,
+        barrier,
+        None
+    ));
+    let _ = validate_activate_structural_element(&registries, &state, member)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    // Sound can still travel along a real four-edge air path around the member.
+    carve(
+        &registries,
+        &mut state,
+        &[
+            VoxelCoord::new(8, -10, 9),
+            VoxelCoord::new(9, -10, 9),
+            VoxelCoord::new(10, -10, 9),
+        ],
+    );
+    assert!(audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::StoneClatter
+    ));
+    assert!(!audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::TimberRatchet
+    ));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(validate_loaded_state(&registries, &restored), Ok(()));
+    assert!(audible_path(
+        &registries,
+        &restored,
+        source,
+        listener,
         KoboldJunkRigKind::StoneClatter
     ));
 }

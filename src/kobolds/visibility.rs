@@ -4,7 +4,7 @@ use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-/// Close-range scout sightings use authoritative block opacity, not distance alone.
+/// Close-range scout sightings use authoritative terrain and built-member occlusion, not distance alone.
 /// At two voxels, all intermediate axis steps must be transparent; a diagonal
 /// corner is concealed by a blocking wall on either side. Missing generated
 /// terrain fails closed. Pre-generation authored graphs have no voxel authority
@@ -27,11 +27,12 @@ pub(super) fn scout_visible_from(
         return true;
     }
     let transparent = |voxel| {
-        state
-            .world()
-            .block_at(voxel)
-            .and_then(|id| registries.world().block_for_state(id))
-            .is_some_and(|block| !block.is_opaque())
+        !state.structures().blocks_full_cell(voxel)
+            && state
+                .world()
+                .block_at(voxel)
+                .and_then(|id| registries.world().block_for_state(id))
+                .is_some_and(|block| !block.is_opaque())
     };
     if !transparent(scout) || !transparent(observer) {
         return false;

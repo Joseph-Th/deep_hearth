@@ -291,12 +291,7 @@ pub(crate) fn first_player_structure_collision(
 }
 
 fn structure_blocks_player_cell(state: &AppState, voxel: VoxelCoord) -> bool {
-    state.world().generation_profile().is_some()
-        && state.structures().elements().any(|element| {
-            !element.embodied_material().is_empty()
-                && element.geometry().covers_horizontal_footprint()
-                && element.bounds().has_voxel(voxel)
-        })
+    state.world().generation_profile().is_some() && state.structures().blocks_full_cell(voxel)
 }
 
 pub(crate) fn first_player_body_collision_in_chunk(
