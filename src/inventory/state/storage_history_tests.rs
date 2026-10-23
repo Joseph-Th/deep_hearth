@@ -104,6 +104,42 @@ fn equal_age_with_equal_projection_phase_remains_equivalent() {
 }
 
 #[test]
+fn cohort_keys_preserve_future_fractional_storage_projection() {
+    let at = SimulationTick::new(18);
+    let histories = (0_u64..=18)
+        .flat_map(|transition| {
+            [0_u128, u128::from(transition) * STORAGE_AGE_PARTS_PER_TICK]
+                .into_iter()
+                .map(move |age| {
+                    MaterialStorageHistory::with_ambient_age_parts(
+                        age,
+                        SimulationTick::new(transition),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    for preservation in [1_000_000, 2_000_000, 3_000_000, 3_000_004] {
+        for &left in &histories {
+            for &right in &histories {
+                if left.projection_cohort(at, preservation)
+                    != right.projection_cohort(at, preservation)
+                {
+                    continue;
+                }
+                for future in 18..=36 {
+                    let future = SimulationTick::new(future);
+                    assert_eq!(
+                        left.project(future, preservation),
+                        right.project(future, preservation),
+                        "cohort-equivalent histories must remain equivalent"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn projected_age_horizon_returns_first_tick_that_reaches_target() {
     let preservation_multiplier_ppm = 3_000_004;
     let history = MaterialStorageHistory::new(SimulationTick::ZERO);

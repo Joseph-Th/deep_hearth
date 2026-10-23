@@ -94,3 +94,90 @@ fn familiar_stack_projection_preserves_physical_and_perishable_cohorts() {
         vec![ambient, warm]
     );
 }
+
+#[test]
+fn fragmented_stockpile_projection_keeps_cohorts_and_stable_order() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(1_000_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    )
+    .unwrap_or_else(|error| panic!("fragmented stockpile creation failed: {error}"));
+    let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    for at in 0..64 {
+        apply_clock_advance(&mut state, SimulationTick::new(at));
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            berries,
+            Mass::from_milligrams(1_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("fragmented food creation failed: {error}"));
+        if at % 8 == 0 {
+            let temperature = if at % 16 == 0 { 293_150 } else { 303_150 };
+            deposit_lot_for_test(
+                &registries,
+                &mut state,
+                stockpile,
+                wood,
+                Mass::from_milligrams(1_000),
+                Temperature::from_millikelvin(temperature),
+            )
+            .unwrap_or_else(|error| panic!("fragmented inert profile creation failed: {error}"));
+        }
+    }
+    let before = state.clone();
+    let stacks = project_material_stacks(&registries, &state, stockpile).unwrap();
+    assert_eq!(state, before, "read-only projection must preserve custody");
+    let food = stacks
+        .iter()
+        .filter(|stack| stack.commodity() == berries)
+        .collect::<Vec<_>>();
+    let inert = stacks
+        .iter()
+        .filter(|stack| stack.commodity() == wood)
+        .collect::<Vec<_>>();
+    assert_eq!(food.len(), 64);
+    assert_eq!(inert.len(), 2);
+    assert_eq!(stacks[0].commodity(), berries);
+    assert_eq!(stacks[1].commodity(), wood);
+    assert_eq!(
+        food.iter()
+            .map(|stack| stack.mass().milligrams())
+            .sum::<u64>(),
+        64_000
+    );
+    assert_eq!(
+        inert
+            .iter()
+            .map(|stack| stack.mass().milligrams())
+            .sum::<u64>(),
+        8_000
+    );
+    assert_eq!(
+        food.iter()
+            .map(|stack| stack.ambient_storage_age_parts())
+            .collect::<Vec<_>>(),
+        (0..64)
+            .rev()
+            .map(|elapsed| elapsed as u128 * 1_000_000)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        stacks
+            .iter()
+            .map(|stack| stack.mass().milligrams())
+            .sum::<u64>(),
+        state
+            .inventory()
+            .get_stockpile(stockpile)
+            .unwrap()
+            .stored_mass()
+            .milligrams()
+    );
+}

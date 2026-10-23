@@ -4,6 +4,7 @@
 //! the same owner already considers merge-compatible, so presentation and direct manipulation can
 //! expose ordinary stacks without copying custody or leaking runtime lot identities.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -244,24 +245,36 @@ pub fn project_material_stacks(
     let at = state.tick();
     let revision = state.inventory().revision();
     let mut stacks = Vec::<MaterialStackProjection>::new();
+    // Keys borrow immutable authoritative lot profiles. Keep the visible stack vector in first-lot
+    // order while indexing merge-equivalent profiles and, for edible matter, exact age cohorts.
+    // This avoids scanning all earlier stacks for every additional physical lot.
+    let mut indices = BTreeMap::<(&MaterialLotProfile, Option<(u128, u128)>), usize>::new();
 
     for lot_id in state.inventory().lot_ids(stockpile) {
         let lot = state.inventory().get_lot(lot_id).unwrap_or_else(|| {
             panic!("runtime invariant broken: indexed material lot disappeared")
         });
         let merge_policy = LotMergePolicy::for_commodity(registries, lot.commodity());
-        if let Some(stack) = stacks.iter_mut().find(|stack| {
-            stack.commodity() == lot.commodity()
-                && lots_are_merge_compatible(
-                    &stack.profile,
-                    stack.storage_history,
-                    lot.profile(),
-                    lot.storage_history(),
-                    at,
-                    preservation,
-                    merge_policy,
-                )
-        }) {
+        let cohort = match merge_policy {
+            LotMergePolicy::OldestStorageExposure => None,
+            LotMergePolicy::ExactStorageExposure => Some(
+                lot.storage_history()
+                    .projection_cohort(at, preservation)
+                    .unwrap_or_else(|| panic!("validated edible lot has invalid storage history")),
+            ),
+        };
+        let key = (lot.profile(), cohort);
+        if let Some(&index) = indices.get(&key) {
+            let stack = &mut stacks[index];
+            debug_assert!(lots_are_merge_compatible(
+                &stack.profile,
+                stack.storage_history,
+                lot.profile(),
+                lot.storage_history(),
+                at,
+                preservation,
+                merge_policy,
+            ));
             stack.mass = stack
                 .mass
                 .checked_add(lot.mass())
@@ -272,6 +285,7 @@ pub fn project_material_stacks(
                 .push(MaterialLotSelection::new(lot.id(), lot.mass()));
             continue;
         }
+        indices.insert(key, stacks.len());
         stacks.push(MaterialStackProjection {
             expected_inventory_revision: revision,
             stockpile,

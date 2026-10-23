@@ -530,6 +530,10 @@ Storage exposure is checkpointed when the effective preservation multiplier chan
 histories remain equivalent across relocation, reform, split/merge, and enclosure changes. Edible-material
 history survives non-edible intermediate forms. Freshness projections use the same rational history arithmetic
 as authoritative aging and are disposable read-side evidence, not construction/admission authority.
+Visible stack projection groups authoritative lots by their complete physical profile and, for any
+material with an edible form, equal current-and-future storage-exposure cohorts. The deterministic
+index preserves first-lot stack order and exact private lot membership without a linear scan of
+candidate stacks per lot; it owns no additional persistent material custody.
 
 Material-backed storage enclosures own exact consolidated assembly traces and an authored storage profile.
 Construction moves exact traces into stockpile embodiment after verifying current contents fit the completed

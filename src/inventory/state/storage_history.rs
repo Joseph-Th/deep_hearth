@@ -129,24 +129,29 @@ impl MaterialStorageHistory {
         at: SimulationTick,
         preservation_multiplier_ppm: u32,
     ) -> Option<bool> {
-        let self_age = self.project(at, preservation_multiplier_ppm)?;
-        let other_age = other.project(at, preservation_multiplier_ppm)?;
-        if self_age != other_age {
-            return Some(false);
-        }
+        Some(
+            self.projection_cohort(at, preservation_multiplier_ppm)?
+                == other.projection_cohort(at, preservation_multiplier_ppm)?,
+        )
+    }
 
+    /// Stable grouping key for current and future exposure under one unchanged preservation rate.
+    ///
+    /// Equal projected age alone can hide a future rounding divergence. Retain the phase of the
+    /// reduced per-tick fraction so the inventory stack index uses exactly the same equivalence
+    /// relation as lot coalescing, without comparing every prior food cohort.
+    pub(crate) fn projection_cohort(
+        self,
+        at: SimulationTick,
+        preservation_multiplier_ppm: u32,
+    ) -> Option<(u128, u128)> {
+        let age = self.project(at, preservation_multiplier_ppm)?;
         let preservation = u128::from(preservation_multiplier_ppm);
         let age_numerator_per_tick = MAX_STORAGE_AGE_PARTS_PER_TICK;
         let period =
             preservation / greatest_common_divisor_u128(preservation, age_numerator_per_tick);
-        if period == 1 {
-            return Some(true);
-        }
-        let self_elapsed = at.checked_duration_since(self.last_transition_at)?;
-        let other_elapsed = at.checked_duration_since(other.last_transition_at)?;
-        Some(
-            u128::from(self_elapsed.value()) % period == u128::from(other_elapsed.value()) % period,
-        )
+        let elapsed = at.checked_duration_since(self.last_transition_at)?;
+        Some((age, u128::from(elapsed.value()) % period))
     }
 
     /// Returns the first number of future ticks at which projected ambient-equivalent exposure

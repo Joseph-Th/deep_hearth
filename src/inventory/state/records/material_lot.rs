@@ -135,7 +135,7 @@ impl MaterialLotId {
 /// exact perishability cohorts instead of collapsing histories that only coincide at one tick.
 /// Commodities without authored age-dependent behavior may coalesce conservatively across exposure
 /// histories to keep lot fragmentation bounded.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MaterialLotProfile {
     pub(in crate::inventory) commodity: CommodityKey,
