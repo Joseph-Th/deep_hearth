@@ -1,5 +1,6 @@
 //! Familiar selected-stack/vessel consumption actions over exact survival transactions.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -119,7 +120,9 @@ pub fn validate_eat_stack_portions(
         .first()
         .map(|portion| portion.stack().stockpile())
         .ok_or(EatStackPortionsError::EmptyMeal)?;
-    let mut selections = Vec::new();
+    // Portions can reference the same physical lot. Normalize their exact slices before
+    // admission; the canonical validator then checks combined mass, custody, and legality.
+    let mut mass_by_lot = BTreeMap::<MaterialLotId, u128>::new();
     for (index, portion) in portions.iter().copied().enumerate() {
         if portion.stack().stockpile() != source {
             return Err(EatStackPortionsError::MixedSources {
@@ -127,16 +130,31 @@ pub fn validate_eat_stack_portions(
                 actual: portion.stack().stockpile(),
             });
         }
-        selections.extend(
-            portion
-                .stack()
-                .selections_for_mass(state, source, portion.mass())
-                .map_err(|error| EatStackPortionsError::Stack {
-                    portion: index,
-                    error,
-                })?,
-        );
+        for selection in portion
+            .stack()
+            .selections_for_mass(state, source, portion.mass())
+            .map_err(|error| EatStackPortionsError::Stack {
+                portion: index,
+                error,
+            })?
+        {
+            let total = mass_by_lot.entry(selection.lot()).or_default();
+            *total = total
+                .checked_add(u128::from(selection.mass().milligrams()))
+                .ok_or(EatStackPortionsError::Eat(
+                    EatError::InventoryMassOverflow { stockpile: source },
+                ))?;
+        }
     }
+    let selections = mass_by_lot
+        .into_iter()
+        .map(|(lot, total)| {
+            let mass = u64::try_from(total).map_err(|_| {
+                EatStackPortionsError::Eat(EatError::InventoryMassOverflow { stockpile: source })
+            })?;
+            Ok(MaterialLotSelection::new(lot, Mass::from_milligrams(mass)))
+        })
+        .collect::<Result<Vec<_>, EatStackPortionsError>>()?;
     validate_eat(registries, state, source, &selections).map_err(EatStackPortionsError::Eat)
 }
 
@@ -230,10 +248,41 @@ impl Display for EatLotToTargetError {
     }
 }
 
-/// Familiar stack-level food action: eat a legal portion from exactly the selected physical cohort.
+/// Minimum represented portion for the selected food's outstanding dietary reserve.
+fn selected_food_dietary_refill_mass(
+    registries: &Registries,
+    state: &AppState,
+    commodity: CommodityKey,
+) -> Option<Mass> {
+    let food = registries.survival().get_food(commodity)?;
+    let player = state.survival().player()?;
+    let missing_ppm = crate::survival::NUTRITION_PARTS_PER_MILLION
+        .checked_sub(player.nutrition().get(food.category()))?;
+    if missing_ppm == 0 {
+        return None;
+    }
+    let physiology = registries.survival().physiology();
+    let numerator = u128::from(physiology.nutrition().full_reserve_food_mass().milligrams())
+        * u128::from(missing_ppm);
+    let required = numerator
+        .div_ceil(u128::from(crate::survival::NUTRITION_PARTS_PER_MILLION))
+        .max(u128::from(
+            physiology
+                .direct_consumption()
+                .minimum_meal_mass()
+                .milligrams(),
+        ));
+    Some(Mass::from_milligrams(
+        u64::try_from(required)
+            .unwrap_or_else(|_| unreachable!("dietary refill cannot exceed full-reserve mass")),
+    ))
+}
+
+/// Familiar stack-level food action from exactly the selected physical cohort.
 ///
 /// The stack projection privately resolves current lot slices. This lets a UI distinguish two
-/// freshness/temperature cohorts without inventing a freshness policy or exposing lot IDs.
+/// freshness/temperature cohorts without exposing lot IDs. When the metabolic reserve is full,
+/// a deficient dietary category instead requests a deficit-sized legal portion.
 pub fn validate_eat_stack_to_full(
     registries: &Registries,
     state: &AppState,
@@ -249,6 +298,10 @@ pub fn validate_eat_stack_to_full(
             .maximum_metabolic_energy(),
     );
     match result {
+        Ok(None) => match selected_food_dietary_refill_mass(registries, state, stack.commodity()) {
+            Some(mass) => validate_eat_stack_up_to(registries, state, stack, mass),
+            None => Ok(None),
+        },
         Err(EatStackToTargetError::Projection(
             MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
         )) => validate_eat_stack_up_to(registries, state, stack, maximum_meal_mass),
@@ -418,12 +471,13 @@ impl Error for DrinkStoreToTargetError {
     }
 }
 
-/// Familiar default food-use action: eat a legal portion toward full metabolic reserve.
+/// Familiar default food-use action: eat toward full metabolic and dietary reserves.
 ///
 /// Reaching full reserve is a preference, not an admission requirement. If one legal meal cannot
 /// reach full reserve, or the selected stack contains less than the exact refill amount, this
-/// action consumes the largest legal available portion instead. Explicit target-oriented callers
-/// that require the requested reserve exactly should use
+/// action consumes the largest legal available portion instead. At full metabolic reserve, a
+/// deficient selected food category instead requests a deficit-sized legal serving. Explicit callers
+/// that require a particular metabolic reserve should use
 /// [`validate_eat_lot_to_metabolic_target`].
 pub fn validate_eat_lot_to_full(
     registries: &Registries,
@@ -440,6 +494,12 @@ pub fn validate_eat_lot_to_full(
             .maximum_metabolic_energy(),
     );
     match result {
+        Ok(None) => match state.inventory().get_lot(lot).and_then(|record| {
+            selected_food_dietary_refill_mass(registries, state, record.commodity())
+        }) {
+            Some(mass) => validate_eat_lot_up_to(registries, state, lot, mass),
+            None => Ok(None),
+        },
         Err(EatLotToTargetError::Projection(
             MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
         )) => validate_eat_lot_up_to(registries, state, lot, maximum_meal_mass),

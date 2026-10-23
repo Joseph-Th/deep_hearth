@@ -15,7 +15,9 @@ use crate::logistics::{
 use crate::material::CommodityKey;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
-use crate::survival::{NutritionReserves, Vitality, initialize_player_survival, player_record};
+use crate::survival::{
+    FoodCategory, NutritionReserves, Vitality, initialize_player_survival, player_record,
+};
 
 fn set_player_reserves(state: &mut AppState, metabolic_energy: Energy, hydration: Volume) {
     let expected_revision = state.survival().revision();
@@ -73,6 +75,188 @@ fn visible_stack_meal_composes_multiple_food_categories_without_lot_ids() {
         .unwrap_or_else(|error| panic!("stack meal commit failed: {error}"));
     assert_eq!(outcome.total_mass(), Mass::from_milligrams(20_000));
     assert_eq!(outcome.portions().len(), 2);
+}
+
+#[test]
+fn repeated_visible_stack_portions_coalesce_without_overdrawing_one_physical_lot() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap();
+    set_player_reserves(
+        &mut state,
+        Energy::ZERO,
+        registries.survival().physiology().maximum_hydration(),
+    );
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(50_000)).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(50_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
+    let before_rejection = state.clone();
+    assert!(matches!(
+        validate_eat_stack_portions(
+            &registries,
+            &state,
+            &[
+                FoodStackPortion::new(&stack, Mass::from_milligrams(30_000)),
+                FoodStackPortion::new(&stack, Mass::from_milligrams(30_000)),
+            ],
+        ),
+        Err(EatStackPortionsError::Eat(EatError::InsufficientLotMass {
+            lot: rejected,
+            available,
+            requested,
+        })) if rejected == lot
+            && available == Mass::from_milligrams(50_000)
+            && requested == Mass::from_milligrams(60_000)
+    ));
+    assert_eq!(state, before_rejection);
+
+    let outcome = validate_eat_stack_portions(
+        &registries,
+        &state,
+        &[
+            FoodStackPortion::new(&stack, Mass::from_milligrams(15_000)),
+            FoodStackPortion::new(&stack, Mass::from_milligrams(20_000)),
+        ],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(outcome.total_mass(), Mass::from_milligrams(35_000));
+    assert_eq!(outcome.portions().len(), 1);
+    assert_eq!(outcome.portions()[0].lot(), lot);
+    assert_eq!(
+        state.inventory().get_lot(lot).map(|lot| lot.mass()),
+        Some(Mass::from_milligrams(15_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .unwrap()
+            .stored_mass(),
+        Mass::from_milligrams(15_000)
+    );
+}
+
+#[test]
+fn full_metabolic_reserves_do_not_block_a_needed_dietary_serving() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap();
+    let physiology = registries.survival().physiology();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            Vitality::MAXIMUM,
+            NutritionReserves::from_parts_per_million(1_000_000, 500_000, 1_000_000),
+            0,
+        ),
+    );
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(700_000)).unwrap();
+    let berries = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let grain = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let stacks = project_material_stacks(&registries, &state, source).unwrap();
+    let berry_stack = stacks
+        .iter()
+        .find(|stack| stack.commodity().material() == MATERIAL_BERRIES)
+        .unwrap();
+    let grain_stack = stacks
+        .iter()
+        .find(|stack| stack.commodity().material() == MATERIAL_GRAIN)
+        .unwrap();
+    assert!(
+        validate_eat_lot_to_full(&registries, &state, grain)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        validate_eat_stack_to_full(&registries, &state, grain_stack)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        validate_eat_lot_to_metabolic_target(
+            &registries,
+            &state,
+            berries,
+            physiology.maximum_metabolic_energy(),
+        )
+        .unwrap()
+        .is_none()
+    );
+
+    let mut lot_state = state.clone();
+    let stack_meal = validate_eat_stack_to_full(&registries, &state, berry_stack)
+        .unwrap()
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let lot_meal = validate_eat_lot_to_full(&registries, &lot_state, berries)
+        .unwrap()
+        .unwrap()
+        .commit(&mut lot_state)
+        .unwrap();
+    assert_eq!(stack_meal, lot_meal);
+    assert_eq!(state, lot_state);
+    let full_reserve_mass = physiology.nutrition().full_reserve_food_mass().milligrams();
+    let expected_refill = Mass::from_milligrams((full_reserve_mass + 1) / 2);
+    assert_eq!(stack_meal.total_mass(), expected_refill);
+    assert_eq!(
+        state.inventory().get_lot(berries).map(|lot| lot.mass()),
+        Some(
+            Mass::from_milligrams(500_000)
+                .checked_sub(expected_refill)
+                .unwrap()
+        )
+    );
+    assert_eq!(
+        stack_meal.nutrition_offered().get(FoodCategory::Fruit),
+        500_000
+    );
+    while state.tick() < stack_meal.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut lot_state).unwrap();
+    }
+    assert_eq!(state, lot_state);
+    assert!(
+        state
+            .survival()
+            .player()
+            .unwrap()
+            .nutrition()
+            .get(FoodCategory::Fruit)
+            > 500_000
+    );
 }
 
 #[test]

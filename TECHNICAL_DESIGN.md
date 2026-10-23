@@ -866,6 +866,11 @@ from its consumed mass relative to an authored full-reserve serving (500 g in bu
 Thus 150 g of berries restores the same fraction of fruit nutrition as 150 g of grain restores
 of grain nutrition, while energy and hydration still depend on the actual food. Unreplenished
 dietary reserves lose 600,000 ppm per authored day in built-in physiology.
+Ordinary selected-food use requests the mass needed to refill the selected dietary category when
+metabolic energy is full, bounded by the legal serving and current physical stock; an explicitly
+requested metabolic target remains strictly energy-oriented. Meals composed from visible stack
+portions coalesce repeated physical lot slices before exact eating admission, so repeated selections
+consume their combined mass or reject overdraw without losing custody.
 
 Diet quality combines the average reserve of three broad food groups with the weakest reserve,
 weighted equally. Missing one category slows natural vitality recovery instead of preventing it;
