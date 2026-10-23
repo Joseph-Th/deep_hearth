@@ -8,19 +8,37 @@ use crate::content::{
 };
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::material::FormId;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
 
 use super::visibility::scout_visible_from;
-use super::{KoboldColony, SCOUT_CARRY_LIMIT};
+use super::{FIRST_SCOUT_TICK, KoboldColony, SCOUT_CARRY_LIMIT, SCOUT_STEP_TICKS};
 
 const MINIMUM_PART_MASS: Mass = Mass::from_milligrams(20_000);
 pub(super) const LEVER_SPLIT_BATCH: Mass = Mass::from_milligrams(500_000);
 /// The stone wedge loses recoverable chips each time it helps divide a bulk pile.
 pub(super) const WEDGE_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(10_000);
 const COPPER_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(5_000);
+
+/// Persisted proof of physical fitting work for a particular pair of parcels.
+/// A replacement ingot or handle never inherits the predecessor's work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct KoboldPryFitting {
+    handle: SurfaceResourceId,
+    head: SurfaceResourceId,
+    started_at: SimulationTick,
+    completed_at: Option<SimulationTick>,
+}
+
+impl KoboldPryFitting {
+    fn matches(self, handle: SurfaceResourceId, head: SurfaceResourceId) -> bool {
+        self.handle == handle && self.head == head
+    }
+}
 
 /// Alternative physical pry heads with distinct material loss per successful operation.
 #[must_use]
@@ -123,18 +141,20 @@ fn selected_stone_fallback(state: &AppState, colony: &KoboldColony) -> Option<Su
         .map(|resource| resource.id())
 }
 
+fn selected_copper(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
+    state
+        .surface()
+        .available_resources_at(Some(colony.route[1]))
+        .find(|resource| is_copper_fulcrum(resource))
+        .map(|resource| resource.id())
+}
+
 fn selected_head(
     state: &AppState,
     colony: &KoboldColony,
 ) -> Option<(SurfaceResourceId, KoboldPryHeadKind)> {
-    let at_worksite = || {
-        state
-            .surface()
-            .available_resources_at(Some(colony.route[1]))
-    };
-    at_worksite()
-        .find(|resource| is_copper_fulcrum(resource))
-        .map(|resource| (resource.id(), KoboldPryHeadKind::CopperFulcrum))
+    selected_copper(state, colony)
+        .map(|id| (id, KoboldPryHeadKind::CopperFulcrum))
         .or_else(|| {
             selected_stone_fallback(state, colony).map(|id| (id, KoboldPryHeadKind::StoneWedge))
         })
@@ -155,13 +175,175 @@ pub(super) fn current_junction_scrap_lever(
     state: &AppState,
     colony: &KoboldColony,
 ) -> Option<KoboldScrapLever> {
-    let (head, kind) = selected_head(state, colony)?;
+    let handle = selected_handle(state, colony)?;
+    let fitted = selected_copper(state, colony).filter(|head| {
+        colony
+            .pry_fitting
+            .is_some_and(|work| work.matches(handle, *head) && work.completed_at.is_some())
+    });
+    let (head, kind) = fitted
+        .map(|id| (id, KoboldPryHeadKind::CopperFulcrum))
+        .or_else(|| {
+            selected_stone_fallback(state, colony).map(|id| (id, KoboldPryHeadKind::StoneWedge))
+        })?;
     Some(KoboldScrapLever {
         position: colony.route[1],
-        handle: selected_handle(state, colony)?,
+        handle,
         head,
         kind,
     })
+}
+
+/// Two consecutive slow-clock work slots must be spent at the actual junction
+/// to fit a copper head. Any interruption before completion forfeits the work.
+/// Finished work is only valid for the exact original handle and head identities.
+pub(super) fn apply_pry_fitting_tick(
+    state: &mut AppState,
+    at: SimulationTick,
+    pressured: bool,
+) -> bool {
+    let Some(colony) = state.kobold_state().colony.as_ref() else {
+        return false;
+    };
+    let parts = selected_handle(state, colony).zip(selected_copper(state, colony));
+    let can_work =
+        colony.scout_step == 1 && colony.scavenged_drop.is_none() && !colony.hungry && !pressured;
+    let previous = colony.pry_fitting;
+    let retained = previous.filter(|work| {
+        parts.is_some_and(|(handle, head)| work.matches(handle, head))
+            && (work.completed_at.is_some() || can_work)
+    });
+    let next = if !can_work {
+        retained
+    } else if let Some((handle, head)) = parts {
+        match retained {
+            Some(work) if work.completed_at.is_some() => Some(work),
+            Some(work) => Some(KoboldPryFitting {
+                completed_at: Some(at),
+                ..work
+            }),
+            None => Some(KoboldPryFitting {
+                handle,
+                head,
+                started_at: at,
+                completed_at: None,
+            }),
+        }
+    } else {
+        None
+    };
+    let occupied_work_slot = can_work && next.is_some() && next != previous;
+    let colony = state
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .expect("fitting retains its resident colony");
+    colony.pry_fitting = next;
+    if occupied_work_slot {
+        colony.next_step_at = at
+            .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
+            .expect("bounded pry fitting clock cannot overflow");
+    }
+    occupied_work_slot
+}
+
+pub(super) fn validate_pry_fitting(
+    state: &AppState,
+    colony: &KoboldColony,
+    now: SimulationTick,
+) -> Result<(), &'static str> {
+    let Some(work) = colony.pry_fitting else {
+        return Ok(());
+    };
+    let started = work.started_at.value();
+    let handle = state.surface().get(work.handle);
+    let head = state.surface().get(work.head);
+    // Depleted or player-carried records can be legitimate historical proof.
+    // Their original physical identity and creation chronology still matter.
+    if !handle.is_some_and(|record| {
+        record.commodity().material() == MATERIAL_WOOD
+            && record.commodity().form() == FORM_HANDLE
+            && record.initial_mass() >= MINIMUM_PART_MASS
+            && record.created_at() <= work.started_at
+    }) || !head.is_some_and(|record| {
+        record.commodity().material() == MATERIAL_COPPER
+            && record.commodity().form() == FORM_INGOT
+            && record.initial_mass() >= MINIMUM_PART_MASS
+            && record.created_at() <= work.started_at
+    }) {
+        return Err("kobold pry fitting refers to nonexistent or impossible parts");
+    }
+    if work.handle == work.head
+        || started < FIRST_SCOUT_TICK
+        || (started - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+        || work.started_at > now
+    {
+        return Err("kobold pry fitting has an impossible work start");
+    }
+    if let Some(done) = work.completed_at {
+        if done.value() != started.saturating_add(SCOUT_STEP_TICKS) || done > now {
+            return Err("kobold pry fitting lacks consecutive completion work");
+        }
+    } else if colony.scout_step != 1 || now.value() >= started.saturating_add(SCOUT_STEP_TICKS) {
+        return Err("unfinished kobold pry fitting is not at its scheduled worksite");
+    }
+    Ok(())
+}
+
+/// Only locally observable, unfinished work by an actual resident scout.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KoboldPryWorkSighting {
+    position: VoxelCoord,
+    handle: SurfaceResourceId,
+    head: SurfaceResourceId,
+    started_at: SimulationTick,
+}
+
+impl KoboldPryWorkSighting {
+    #[must_use]
+    pub const fn position(self) -> VoxelCoord {
+        self.position
+    }
+    #[must_use]
+    pub const fn handle(self) -> SurfaceResourceId {
+        self.handle
+    }
+    #[must_use]
+    pub const fn head(self) -> SurfaceResourceId {
+        self.head
+    }
+    #[must_use]
+    pub const fn started_at(self) -> SimulationTick {
+        self.started_at
+    }
+}
+
+/// Does not expose a remote work order, a concealed scout or stale abandoned work.
+#[must_use]
+pub fn available_nearby_kobold_pry_work(
+    registries: &Registries,
+    state: &AppState,
+) -> Option<KoboldPryWorkSighting> {
+    let colony = state.kobold_state().colony.as_ref()?;
+    let work = colony
+        .pry_fitting
+        .filter(|work| work.completed_at.is_none())?;
+    if colony.scout_position() != colony.route[1]
+        || selected_handle(state, colony) != Some(work.handle)
+        || selected_copper(state, colony) != Some(work.head)
+    {
+        return None;
+    }
+    let player = state.logistics().player()?.position();
+    scout_visible_from(registries, state, colony.route[1], player).then_some(
+        KoboldPryWorkSighting {
+            position: colony.route[1],
+            handle: work.handle,
+            head: work.head,
+            started_at: work.started_at,
+        },
+    )
 }
 
 /// The scout protects one selected handle, the active head, and at most one

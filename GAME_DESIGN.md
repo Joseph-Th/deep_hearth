@@ -357,14 +357,20 @@ The first material-backed worksite is a crude pry lever: a wooden handle and a
 stone wedge or reclaimed solid copper ingot stay at the junction as recoverable
 parcels. The same scavenger can physically upgrade its crude stone head from
 player-shaped copper, if a route to the material remains visible and safe.
-A stone head loses 10 g of recoverable chips per assisted split; a copper head
+A copper head must be fitted to its exact handle by a scout who spends two
+consecutive patrol work slots at the junction, foregoing movement and hauling.
+Witnessed intrusion, a working alarm or hunger can interrupt fitting, so the
+player has a real window to intervene. A nearby observer can see unfinished
+work; parts are still loose and recoverable throughout. A stone head loses
+10 g of recoverable chips per assisted split; a copper head
 lasts longer, deforming into 5 g of recoverable copper scrap instead. When
 copper becomes unusable, a staged stone fallback can take over without new matter.
 An active alarm relay retains priority over using its components as tools, but an
 inert copper relic cannot claim the worksite by mere proximity. Surplus materials
 remain contestable. Players can take any part or guard an upgrade route to deny
-the resulting work advantage. This remains a stationary arrangement, not yet a
-timed fabrication job, carried tool or combat weapon.
+the resulting work advantage. Replacing a fitted ingot or handle requires new
+labor rather than inheriting a previous assembly. This remains a stationary
+arrangement, not yet a portable manufactured tool or combat weapon.
 
 Further faction milestones are ordered by causality rather than combat tier: meaningful
 work time, tool portability and choices between implements, alarm parts and provisions; then a

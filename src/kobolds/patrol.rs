@@ -24,7 +24,8 @@ use super::scavenging::{
     should_seek_local_food,
 };
 use super::scrap_tools::{
-    LEVER_SPLIT_BATCH, current_junction_scrap_lever, is_staged_scrap_tool_part,
+    LEVER_SPLIT_BATCH, apply_pry_fitting_tick, current_junction_scrap_lever,
+    is_staged_scrap_tool_part,
 };
 use super::visibility::scout_visible_from;
 use super::watchman::apply_watchman_tick;
@@ -265,6 +266,15 @@ fn scout_has_cause_for_caution(
     frightened || (barrier && lit_ahead && moved)
 }
 
+fn update_scout_caution(colony: &mut KoboldColony, at: SimulationTick, caution: bool) {
+    if caution {
+        colony.wary_until = Some(
+            at.checked_add_span(TickSpan::new(SCOUT_WARY_INTERVAL_TICKS))
+                .expect("bounded scout caution deadline cannot overflow"),
+        );
+    }
+}
+
 #[derive(Clone, Copy)]
 struct CargoDecision {
     from: VoxelCoord,
@@ -487,6 +497,11 @@ pub(crate) fn apply_kobold_scout_tick(
         apply_scheduled_den_care(registries, state, from, next_tick, pressured);
     let (heard_junk_alarm, alarm_pulses) = apply_watchman_tick(registries, state, next_tick);
     let pressured = pressured || heard_junk_alarm;
+    // Copper fitting occupies two real slow-clock work slots at the junction.
+    // Player pressure, alarm warnings and absent parts interrupt unfinished work.
+    if apply_pry_fitting_tick(state, next_tick, pressured) {
+        return (None, alarm_pulses);
+    }
     let colony = state
         .kobold_state()
         .colony
@@ -696,13 +711,11 @@ pub(crate) fn apply_kobold_scout_tick(
         colony.scavenged_drop = None;
     }
     colony.next_step_at = next_step_at;
-    if scout_has_cause_for_caution(frightened, turned_back_at_barrier, ahead_is_lit, can_move) {
-        colony.wary_until = Some(
-            next_tick
-                .checked_add_span(TickSpan::new(SCOUT_WARY_INTERVAL_TICKS))
-                .expect("bounded simulation cannot overflow a scout caution deadline"),
-        );
-    }
+    update_scout_caution(
+        colony,
+        next_tick,
+        scout_has_cause_for_caution(frightened, turned_back_at_barrier, ahead_is_lit, can_move),
+    );
     if foraged_food.is_some() {
         colony.next_forage_at = Some(
             next_tick

@@ -32,7 +32,10 @@ pub use junkworks::{
     KoboldAlarmPulse, KoboldJunkRig, KoboldJunkRigKind, available_nearby_kobold_junk_relay,
     available_nearby_kobold_junk_rig,
 };
-pub use scrap_tools::{KoboldPryHeadKind, KoboldScrapLever, available_nearby_kobold_scrap_lever};
+pub use scrap_tools::{
+    KoboldPryHeadKind, KoboldPryWorkSighting, KoboldScrapLever, available_nearby_kobold_pry_work,
+    available_nearby_kobold_scrap_lever,
+};
 pub use tracks::{KoboldTrack, KoboldTrailKind, available_nearby_kobold_tracks};
 
 pub(crate) use patrol::apply_kobold_scout_tick;
@@ -270,6 +273,9 @@ struct KoboldColony {
     next_step_at: SimulationTick,
     noticed_player_drop: bool,
     scavenged_drop: Option<SurfaceResourceId>,
+    /// Work spent fitting the exact copper head and handle, never virtual equipment.
+    #[serde(deserialize_with = "required_optional_pry_fitting")]
+    pry_fitting: Option<scrap_tools::KoboldPryFitting>,
     next_forage_at: Option<SimulationTick>,
     /// Regular meal opportunity, advanced only on the low-frequency scout clock.
     next_meal_at: SimulationTick,
@@ -311,6 +317,15 @@ where
     D: serde::Deserializer<'de>,
 {
     Option::<VoxelCoord>::deserialize(deserializer)
+}
+
+fn required_optional_pry_fitting<'de, D>(
+    deserializer: D,
+) -> Result<Option<scrap_tools::KoboldPryFitting>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<scrap_tools::KoboldPryFitting>::deserialize(deserializer)
 }
 
 fn required_optional_wary_tick<'de, D>(deserializer: D) -> Result<Option<SimulationTick>, D::Error>
@@ -494,6 +509,7 @@ impl KoboldState {
             next_step_at: SimulationTick::new(FIRST_SCOUT_TICK),
             noticed_player_drop: false,
             scavenged_drop: None,
+            pry_fitting: None,
             next_forage_at: None,
             next_meal_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS),
             hungry: false,
@@ -804,6 +820,7 @@ pub(crate) fn validate_loaded_kobolds(
     let current = state.tick().value();
     validate_meal_schedule(colony, current)?;
     colony.validate_mobilization(state.tick())?;
+    scrap_tools::validate_pry_fitting(state, colony, state.tick())?;
     colony.validate_watchman(state.tick())?;
     colony.validate_tracks(state)?;
     colony.validate_watch_tracks(state)?;

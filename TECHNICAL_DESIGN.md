@@ -253,9 +253,10 @@ custody even across save/load. No distant cargo is reserved or teleported.
 
 A lower-caste pry worksite requires an actual portable wooden handle plus a
 usable head: a stone chip or a solid copper ingot, each at least 20 g. Loose
-copper scrap does not pass for a rigid pry head. A copper ingot takes precedence
-over a stone wedge regardless of surface identity, but the scout keeps one
-stone head as a physical fallback, not an unlimited reserved component cache.
+copper scrap does not pass for a rigid pry head. An ingot takes precedence over
+a stone wedge only after a scout fits that exact handle/head identity with
+physical labor. The scout keeps one stone head as a useful unfinished-work
+fallback rather than reserving an unlimited component cache.
 Other spare parts remain contestable salvage. An inert precision copper relay
 core does not disable the tool; only a working den alarm with an actual staged
 junction core claims the clapper and worksite. The scout stages components on
@@ -276,8 +277,23 @@ grant free assisted splitting. Once the active head falls below 20 g, the kit
 uses an available stone fallback or ceases working. A fed scout with an existing
 handle can walk past nearer inert bulk for a visible, den-fitting copper ingot
 or missing stone replacement, but only along a physically clear, unguarded,
-unlit route. A remote, oversized or concealed part never counts. No portable
-weapon or timed tool-fabrication action is implied.
+unlit route. A remote, oversized or concealed part never counts.
+
+Copper fitting uses the resident's existing five-tick slow clock and holds the
+scout at the actual junction for two consecutive scheduled steps, with no
+scavenging, movement or free material conversion during those slots. Work
+requires the currently selected wooden handle and a real copper ingot, an
+empty-handed, fed scout and no active player/light/alarm pressure. Interruption
+cancels unfinished progress; taking or replacing a component immediately
+invalidates any old activation. Persisted `pry_fitting` records exact parcel
+identities, a started tick and optional consecutive completion tick. Trusted
+load checks actual source identities, authored forms, source chronology, work
+alignment, completion spacing and the in-progress resident's junction position.
+The current save schema is 118 and earlier shapes require migration. Nearby
+players may observe active unfinished work via
+`available_nearby_kobold_pry_work`; remote observers learn nothing.
+Fitting consumes scout time, not an invented assembly mass or equipment record.
+The lever is still not a portable tool or combat weapon.
 
 In generated-world patrols, a scout's two-cell standing footprint requires
 actual free space, including the player's airborne body cells, concealed temple

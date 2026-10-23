@@ -132,7 +132,8 @@ fn only_active_tool_parts_and_one_stone_backup_are_reserved_from_scavenging() {
         current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
             .unwrap()
             .head(),
-        parts[3],
+        parts[1],
+        "unfitted metal is only a staged component, not a finished pry head"
     );
     for (index, id) in parts.into_iter().enumerate() {
         let record = state.surface().get(id).unwrap();
@@ -142,6 +143,14 @@ fn only_active_tool_parts_and_one_stone_backup_are_reserved_from_scavenging() {
             "only one currently useful head, one fallback, and the handle should be staged"
         );
     }
+    advance_to(&registries, &mut state, 190);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        parts[3],
+        "completed real fitting activates only the first selected ingot"
+    );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
@@ -208,6 +217,14 @@ fn copper_fulcrum_beats_older_stone_but_loose_copper_scrap_does_not_make_a_head(
         FORM_INGOT,
         Mass::from_milligrams(50_000),
     );
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        stone,
+        "merely placing copper cannot immediately grant a fitted tool"
+    );
+    advance_to(&registries, &mut state, 190);
     let durable_tool =
         current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
             .unwrap();
@@ -229,6 +246,204 @@ fn copper_fulcrum_beats_older_stone_but_loose_copper_scrap_does_not_make_a_head(
         Mass::from_milligrams(10_000)
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn copper_fitting_uses_two_interrupted_or_completed_local_work_slots() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, DEN, JUNCTION);
+    add_traversable_edge_for_test(&mut state, JUNCTION, TIP);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let stone = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let head = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 180);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        JUNCTION
+    );
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().pry_fitting,
+        None
+    );
+    advance_to(&registries, &mut state, 185);
+    let work = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .pry_fitting
+        .unwrap();
+    assert_eq!(
+        (
+            work.handle,
+            work.head,
+            work.started_at.value(),
+            work.completed_at
+        ),
+        (handle, head, 185, None)
+    );
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        JUNCTION
+    );
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        stone
+    );
+    assert!(
+        available_nearby_kobold_pry_work(&registries, &state).is_none(),
+        "no player present means no remotely disclosed fitting process"
+    );
+
+    let mut observer = state.clone();
+    validate_admit_player(&registries, &observer, VoxelCoord::new(-2, 0, 0))
+        .unwrap()
+        .commit(&mut observer)
+        .unwrap();
+    let sighting = available_nearby_kobold_pry_work(&registries, &observer)
+        .expect("nearby observers should see the scout fitting a real material pair");
+    assert_eq!(
+        (sighting.position(), sighting.handle(), sighting.head()),
+        (JUNCTION, handle, head)
+    );
+    assert_eq!(sighting.started_at().value(), 185);
+
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut tampered = saved.clone();
+    tampered["state"]["systems"]["kobolds"]["colony"]["pry_fitting"]["started_at"] =
+        serde_json::json!(0_u64);
+    let corrupted = serde_json::from_value::<LoadedSaveEnvelope>(tampered).unwrap();
+    assert!(
+        corrupted.into_state(&registries).is_err(),
+        "a forged impossible start must be rejected at the load boundary"
+    );
+    let mut missing = saved;
+    missing["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("pry_fitting");
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(missing).is_err(),
+        "the current save schema requires an explicit fitting state"
+    );
+
+    let mut guarded = state.clone();
+    validate_admit_player(&registries, &guarded, TIP)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    advance_to(&registries, &mut guarded, 190);
+    assert!(
+        guarded
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .pry_fitting
+            .is_none(),
+        "a living player near the worksite should cancel unfinished labor"
+    );
+    assert_eq!(
+        current_junction_scrap_lever(&guarded, guarded.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        stone
+    );
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        total
+    );
+
+    advance_to(&registries, &mut state, 190);
+    advance_to(&registries, &mut replay, 190);
+    assert_eq!(state, replay);
+    let assembled =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap();
+    assert_eq!(
+        (assembled.handle(), assembled.head(), assembled.kind()),
+        (handle, head, KoboldPryHeadKind::CopperFulcrum)
+    );
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .pry_fitting
+            .unwrap()
+            .completed_at
+            .is_some()
+    );
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        JUNCTION
+    );
+    assert!(available_nearby_kobold_pry_work(&registries, &observer).is_some());
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+
+    relocate_player_for_test(&mut guarded, VoxelCoord::new(15, 0, 15));
+    advance_to(&registries, &mut guarded, 240);
+    assert_eq!(
+        current_junction_scrap_lever(&guarded, guarded.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldPryHeadKind::CopperFulcrum,
+        "once the player leaves, the scout can return and perform the lost work"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        total
+    );
 }
 
 #[test]
@@ -264,6 +479,14 @@ fn spent_copper_fulcrum_falls_back_to_the_existing_stone_head() {
         FORM_INGOT,
         Mass::from_milligrams(50_000),
     );
+    let spare_ingot = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
     let bulk = drop_at(
         &registries,
         &mut state,
@@ -273,6 +496,7 @@ fn spent_copper_fulcrum_falls_back_to_the_existing_stone_head() {
         Mass::from_milligrams(750_000),
     );
     let initial = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 190);
     for _ in 0..7 {
         let tool =
             current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
@@ -302,7 +526,8 @@ fn spent_copper_fulcrum_falls_back_to_the_existing_stone_head() {
         .expect("the original stone head remains useful after copper deforms");
     assert_eq!(
         (after.head(), after.kind()),
-        (stone, KoboldPryHeadKind::StoneWedge)
+        (stone, KoboldPryHeadKind::StoneWedge),
+        "the physically staged replacement cannot inherit the old ingot's fitting"
     );
     assert_eq!(
         state.surface().get(ingot).unwrap().remaining_mass(),
@@ -334,6 +559,27 @@ fn spent_copper_fulcrum_falls_back_to_the_existing_stone_head() {
         .into_state(&registries)
         .unwrap();
     assert_eq!(loaded, state);
+    advance_to(&registries, &mut state, 195);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        stone,
+        "replacement work begins without immediately upgrading"
+    );
+    advance_to(&registries, &mut state, 200);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        spare_ingot,
+        "the replacement earns its own two-step installation"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
@@ -420,6 +666,29 @@ fn scout_upgrades_a_stone_kit_from_a_reachable_copper_fulcrum_and_wears_only_the
         .unwrap();
     advance_to(&registries, &mut state, 195);
     advance_to(&registries, &mut replay, 195);
+    assert_eq!(state, replay);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldPryHeadKind::StoneWedge,
+        "first fitting slot cannot instantly activate copper"
+    );
+    advance_to(&registries, &mut state, 200);
+    advance_to(&registries, &mut replay, 200);
+    assert_eq!(state, replay);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldPryHeadKind::CopperFulcrum,
+    );
+    assert_eq!(
+        state.surface().get(ingot).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    advance_to(&registries, &mut state, 205);
+    advance_to(&registries, &mut replay, 205);
     assert_eq!(state, replay);
     let upgraded =
         current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
