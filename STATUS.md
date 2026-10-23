@@ -32,7 +32,7 @@ Current graph boundaries, not priorities:
 | Structural physics | Broader panels/joints, cascade demolition, and terrain support. |
 | Player equipment service/recovery | Maintenance-tool requirements and service-site transport beyond exact-local carried stock. |
 | Finite energy stores | Routed mechanical/electrical transmission and conversion networks. |
-| Finite fluid stores | Routed transport, pumping, mixing, and pressure networks. |
+| Finite fluid stores | Transport beyond local decant, pumping, mixing, and pressure networks. |
 | Industrial workshop/ore/foundry execution | Ordinary industrial infrastructure acquisition/construction. |
 | Checked coordinates + compact chunk ownership + geological evidence | Terrain access/collision, regional geology-to-chunk composition, and clue-location discovery. |
 
@@ -50,7 +50,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. Deep exposed residue layers obstruct ground-storage footing until cleared. |
-| Energy and fluids | Finite typed stores with power/loss limits. Log or chip fuel becomes finite campfire heat with terminal mass accounting; water is locally finite/drinkable. |
+| Energy and fluids | Finite energy with power/loss limits, fueled campfire heat, and water drinking plus local store-to-store decant. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
 | Block world | Mass-backed eight-mineral geology, temple rooms, seven assemblies and solid caste bodies. Excavation and targeting exist; placement, UI, residency absent. |

@@ -219,6 +219,26 @@ impl FluidState {
         self.revision = next_revision;
     }
 
+    /// Atomically changes both ends of a local decant under one fluid-owner revision.
+    pub(super) fn apply_store_transfer(
+        &mut self,
+        source: FluidStoreId,
+        source_after: Option<FluidContents>,
+        destination: FluidStoreId,
+        destination_after: FluidContents,
+        next_revision: u64,
+    ) {
+        assert_ne!(
+            source, destination,
+            "fluid transfer must have distinct endpoints"
+        );
+        assert_eq!(self.revision.checked_add(1), Some(next_revision));
+        assert!(self.records.contains_key(&source) && self.records.contains_key(&destination));
+        self.records.get_mut(&source).unwrap().contents = source_after;
+        self.records.get_mut(&destination).unwrap().contents = Some(destination_after);
+        self.revision = next_revision;
+    }
+
     /// Iterates fluid stores assigned to one structural support in stable store-ID order.
     pub(crate) fn supported_stores(
         &self,

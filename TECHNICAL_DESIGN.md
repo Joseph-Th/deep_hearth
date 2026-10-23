@@ -30,7 +30,7 @@ Implemented systems exchange a small set of authoritative flows:
 | Flow | Contract |
 | --- | --- |
 | Matter | Moves through explicit custody; creation/destruction requires an authored physical source/sink. |
-| Fluid | Finite stores own volume; withdrawal/consumption is explicit. Generic transport is absent. |
+| Fluid | Finite stores own volume; withdrawal/consumption and exact-local manual decant are explicit. Generic transport is absent. |
 | Energy | Finite stores and work records own stored/reserved energy; losses are explicit sinks. Player-tended combustion, energy-store assembly, and energy-store upgrades reject active exclusive work at validation and commit without restricting headless owner execution. |
 | Labor | `PlayerWorkState` owns exclusive attention; survival supplies physiological work budget. Admitted-player equipment assembly and upgrades cannot run alongside active work, including across validation-to-commit transitions; headless material owner execution remains available. |
 | Information | Hidden geology becomes actor-usable only through acquired `GeologicalKnowledgeState`. |
@@ -1084,8 +1084,15 @@ and the increased capacity neither creates free power nor distributes it remotel
 Disassembly is the inverse custody route for empty idle stores.
 
 Fluid stores own identity, exact volume, temperature, capacity, revision, optional structural support, and
-homogeneous fluid identity; logistics owns their world location. Runtime supports exact withdrawal and support
-changes; generic transfer, pumping, mixing, and pressure networks are absent. Shared owner projections convert
+homogeneous fluid identity; logistics owns their world location. Runtime supports exact withdrawal, support
+changes, and player-authorized same-voxel decant between two existing stores. This two-endpoint,
+single-revision operation moves explicit volume without creating fluid, admits an empty destination or a
+matching homogeneous fluid at exactly the same temperature, and rejects overfill, unsupported
+mixing and inaccessible or remote locations. It projects both supported loads together so
+same-support redistribution cannot artificially change structural weight. Validation binds
+fluid, logistics and living-player survival revisions; commit rechecks those owners before
+any structural or fluid mutation. Generic remote transport, pumping, mixing, and pressure networks
+remain absent. Shared owner projections convert
 represented volume/density into exact mass for structural load and thermal accounting. Fluid sensible/latent
 energy remains read-only accounting; passive fluid heat transport is absent.
 

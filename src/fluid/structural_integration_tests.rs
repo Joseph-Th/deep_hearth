@@ -9,13 +9,15 @@ use crate::core::quantity::{AggregateMass, Area, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::fluid::{
     FluidDefinition, FluidDefinitionId, FluidEgressError, FluidValidationError, add_fluid_store,
-    add_fluid_store_with_contents_for_fixture, validate_fluid_egress,
+    add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting,
+    validate_fluid_egress, validate_transfer_fluid_between_local_stores,
 };
 use crate::logistics::{
     LogisticsValidationError, PlayerFluidStoreAccessError, validate_initialize_player_logistics,
     validate_place_fluid_store,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralLoadKind, StructuralMutationError, add_structural_element,
@@ -273,6 +275,60 @@ fn bounds(x: i64) -> VoxelBounds {
         Ok(bounds) => bounds,
         Err(error) => panic!("fluid structural bounds fixture failed: {error}"),
     }
+}
+
+#[test]
+fn local_decant_on_one_shared_support_preserves_total_fluid_weight() {
+    let registries = registries();
+    let mut state = AppState::new();
+    let support = add_active_support(&registries, &mut state, 0);
+    let source = add_filled(&registries, &mut state, 1_000_000);
+    let destination = add_fluid_store(&mut state, Volume::from_microliters(1_000_000)).unwrap();
+    let position = VoxelCoord::new(0, 0, 0);
+    for store in [source, destination] {
+        validate_place_fluid_store(&state, store, position)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        let _ = mount(&registries, &mut state, store, support);
+    }
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let fluid_before = calculate_fluid_volume_accounting(&state).unwrap();
+    let weight_before = state
+        .structures()
+        .get_element(support)
+        .unwrap()
+        .load(StructuralLoadKind::Fluid);
+    let token = validate_transfer_fluid_between_local_stores(
+        &registries,
+        &state,
+        source,
+        destination,
+        Volume::from_microliters(300_000),
+    )
+    .unwrap();
+    let outcome = token.commit(&mut state).unwrap();
+    assert!(
+        outcome.structural_analysis().is_none(),
+        "redistributed water on the same support has no net load change"
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .unwrap()
+            .load(StructuralLoadKind::Fluid),
+        weight_before,
+        "redistributing liquid between containers on one support must not change supported mass"
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn add_active_support(

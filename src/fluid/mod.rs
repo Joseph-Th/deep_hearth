@@ -9,6 +9,7 @@ mod generation;
 mod physics;
 mod state;
 mod structural_integration;
+mod transfer;
 
 pub use accounting::{
     FluidVolumeAccounting, FluidVolumeAccountingError, calculate_fluid_volume_accounting,
@@ -18,6 +19,10 @@ pub use state::{FluidContents, FluidState, FluidStoreId, FluidStoreRecord, Fluid
 pub use structural_integration::{
     FluidStructuralLoadError, FluidSupportCommitError, FluidSupportError, FluidSupportOutcome,
     ValidatedFluidSupportChange, validate_mount_fluid_store, validate_unmount_fluid_store,
+};
+pub use transfer::{
+    FluidTransferCommitError, FluidTransferError, FluidTransferOutcome, ValidatedFluidTransfer,
+    validate_transfer_fluid_between_local_stores,
 };
 
 pub(crate) use egress::{

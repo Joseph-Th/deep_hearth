@@ -66,7 +66,10 @@ and eventually reducing concentrate into metal remain real progression work.
 ## Highest-impact unresolved dependencies
 
 A bronze era needs copper/tin blending, composition-preserving alloy melt/cast semantics and
-reduced tin. Ore washing needs measured water input, wet residues and mixed solid/fluid custody.
+reduced tin. Ore washing needs measured water input to an actual ore process, wet residues and
+mixed solid/fluid custody. Finite water stores now support conserved, player-local pouring
+between co-located vessels with exact temperature matching and structural-load validation;
+this is preparation for, not an implementation of, washing or remote distribution.
 Iron and tin reduction need reductant and oxygen/sulfur destinations, energy budgets and gas
 handling rather than deletion of reactant mass. Scaled electrical industry requires power/shaft
 and fluid transport, then sealed chemical processing and precision manufacturing.
