@@ -211,6 +211,117 @@ fn scavenged_drop_cannot_relocate_into_generated_full_cube() {
 }
 
 #[test]
+fn wedge_abrasion_and_bulk_salvage_are_one_conserved_surface_transaction() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let junction = VoxelCoord::new(0, 0, 0);
+    let den = VoxelCoord::new(-1, 0, 0);
+    let specs = [(FORM_LUMP, 1_000_000_u64), (FORM_CHIP, 25_000_u64)].map(|(form, amount)| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            junction,
+            CommodityKey::new(MATERIAL_STONE, form),
+            Mass::from_milligrams(amount),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    });
+    let creation = validate_create_surface_resources(&registries, &state, specs).unwrap();
+    let ids = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut state).unwrap();
+    let (bulk, wedge) = (ids[0], ids[1]);
+    let mass_before = calculate_matter_accounting(&state).unwrap().total();
+    let initial = state.clone();
+    let at = state.tick();
+    assert!(
+        split_bulk_scavenged_drop_with_wedge_wear(
+            &registries,
+            &mut state,
+            bulk,
+            junction,
+            den,
+            at,
+            Mass::from_milligrams(500_000),
+            wedge,
+            Mass::from_milligrams(25_000),
+        )
+        .is_none(),
+        "wear cannot exhaust a wedge in the same split"
+    );
+    assert_eq!(state, initial);
+
+    let (daughter, divided) = split_bulk_scavenged_drop_with_wedge_wear(
+        &registries,
+        &mut state,
+        bulk,
+        junction,
+        den,
+        at,
+        Mass::from_milligrams(500_000),
+        wedge,
+        Mass::from_milligrams(10_000),
+    )
+    .expect("two conserved portions must be created before either source shrinks");
+    assert_eq!(divided, Mass::from_milligrams(500_000));
+    assert_eq!(state.surface().get(daughter).unwrap().position(), den);
+    assert_eq!(
+        state.surface().get(bulk).unwrap().remaining_mass(),
+        Mass::from_milligrams(500_000)
+    );
+    assert_eq!(
+        state.surface().get(wedge).unwrap().remaining_mass(),
+        Mass::from_milligrams(15_000)
+    );
+    let abrasion = state
+        .surface()
+        .available_resources_at(Some(junction))
+        .filter(|resource| resource.id() != bulk && resource.id() != wedge)
+        .collect::<Vec<_>>();
+    assert_eq!(abrasion.len(), 1);
+    assert_eq!(abrasion[0].remaining_mass(), Mass::from_milligrams(10_000));
+    assert_eq!(
+        abrasion[0].material_profile(),
+        state.surface().get(wedge).unwrap().material_profile()
+    );
+    assert_eq!(
+        abrasion[0].material_provenance(),
+        state.surface().get(wedge).unwrap().material_provenance()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        mass_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let after = state.clone();
+    assert!(
+        split_bulk_scavenged_drop_with_wedge_wear(
+            &registries,
+            &mut state,
+            bulk,
+            junction,
+            den,
+            at,
+            Mass::from_milligrams(100_000),
+            wedge,
+            Mass::from_milligrams(20_000),
+        )
+        .is_none()
+    );
+    assert_eq!(
+        state, after,
+        "rejected subsequent wear may not move bulk matter"
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
 fn selected_stone_and_timber_assemble_and_fuel_a_local_campfire() {
     let registries = build_registries();
     let mut state = AppState::new();

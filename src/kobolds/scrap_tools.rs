@@ -15,6 +15,8 @@ use super::{KoboldColony, SCOUT_CARRY_LIMIT};
 
 const MINIMUM_PART_MASS: Mass = Mass::from_milligrams(20_000);
 pub(super) const LEVER_SPLIT_BATCH: Mass = Mass::from_milligrams(500_000);
+/// The stone wedge loses recoverable chips each time it helps divide a bulk pile.
+pub(super) const WEDGE_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(10_000);
 
 /// A physical worksite arrangement rather than a virtual inventory item.
 #[must_use]
@@ -76,6 +78,12 @@ fn selected_wedge(state: &AppState, colony: &KoboldColony) -> Option<SurfaceReso
         .available_resources_at(Some(colony.route[1]))
         .find(|resource| is_wedge(resource))
         .map(|resource| resource.id())
+}
+
+/// A partially equipped worksite justifies a repair detour; merely wanting a
+/// first handle does not outrank ordinary nearby salvage.
+pub(super) fn junction_awaits_wedge(state: &AppState, colony: &KoboldColony) -> bool {
+    selected_handle(state, colony).is_some() && selected_wedge(state, colony).is_none()
 }
 
 pub(super) fn current_junction_scrap_lever(

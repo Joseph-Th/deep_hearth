@@ -357,10 +357,13 @@ The first material-backed worksite is a crude pry lever: two separately retrieve
 portable scrap parcels (a wooden handle and stone wedge) remain staged at the junction.
 Their co-location improves a scout's real bulk-splitting operation without giving it a
 free equipment instance. A player can reclaim either part and remove that advantage.
-It is a reusable stationary arrangement, not yet a worn, timed, carried tool or weapon.
+Each assisted split physically wears down the wedge into recoverable stone chips.
+An exhausted kit can be repaired only with a locally sighted spare brought through
+an actual, interruptible patrol; defending its route prevents that recovery. It
+remains a stationary arrangement, not yet a timed fabrication job or carried weapon.
 
 Further faction milestones are ordered by causality rather than combat tier: meaningful
-work time, wear, repair and choices between tools, alarm parts and provisions; then a
+work time, tool portability and choices between implements, alarm parts and provisions; then a
 sustained surface group with finite residents and report-driven defense; finally
 functioning temple work, higher-caste command and interactions across the actual
 underground access route. Each milestone needs an ordinary player-observable

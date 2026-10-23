@@ -14,6 +14,7 @@ use super::super::scavenging::{
     matches_salvage_goal, reachable_detour_drop, reachable_detour_food,
     reachable_inherited_salvage, scout_wants_loose_drop,
 };
+use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_wedge};
 use super::super::visibility::scout_visible_from;
 use super::super::{KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS};
 use super::{scout_can_enter, scout_sees_guarded_cell};
@@ -75,6 +76,18 @@ pub(super) fn scout_raid_interest(
         && !scout_sees_guarded_cell(registries, state, from, colony.route[2])
         && assess_local_illumination(registries, state, colony.route[2]).level()
             < SCOUT_DETERRENT_LIGHT_LEVEL;
+    let missing_tool_at_tip = !pressured
+        && colony.scout_step == 1
+        && !colony.returning
+        && reachable_needed_tool_at_tip(
+            registries,
+            state,
+            colony,
+            from,
+            capacity,
+            at,
+            player_position,
+        );
     let exposed = (has_local_scout_interest(
         registries,
         state,
@@ -84,7 +97,8 @@ pub(super) fn scout_raid_interest(
         at,
         colony.seeks_food_at_junction(),
     ) || (colony.scout_step == 2 && local_food))
-        && ((inherited_target.is_none() && !missing_striker_at_tip) || local_food)
+        && ((inherited_target.is_none() && !missing_striker_at_tip && !missing_tool_at_tip)
+            || local_food)
         && !continue_to_planned_far_raid(
             registries,
             state,
@@ -96,6 +110,35 @@ pub(super) fn scout_raid_interest(
             player_position,
         );
     (exposed, inherited_target)
+}
+
+/// Repair priority requires a visible, reachable physical part on the patrol.
+fn reachable_needed_tool_at_tip(
+    registries: &Registries,
+    state: &AppState,
+    colony: &KoboldColony,
+    from: VoxelCoord,
+    capacity: Mass,
+    at: SimulationTick,
+    player_position: Option<VoxelCoord>,
+) -> bool {
+    if !junction_awaits_wedge(state, colony) {
+        return false;
+    }
+    let tip = colony.route[2];
+    state
+        .surface()
+        .available_resources_at(Some(tip))
+        .any(|resource| {
+            is_portable_drop(resource)
+                && resource.remaining_mass() <= capacity
+                && scout_wants_loose_drop(registries, state, resource, at)
+                && is_needed_outer_tool_part(state, tip, resource)
+        })
+        && scout_visible_from(registries, state, from, tip)
+        && scout_can_enter(registries, state, tip, player_position)
+        && !scout_sees_guarded_cell(registries, state, from, tip)
+        && assess_local_illumination(registries, state, tip).level() < SCOUT_DETERRENT_LIGHT_LEVEL
 }
 
 /// Do not abandon a viable distant ration for an insufficient local crumb, or

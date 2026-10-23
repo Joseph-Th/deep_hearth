@@ -11,6 +11,7 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{
     SurfaceResourceId, SurfaceResourceLifecycle, forage_food_to_adjacent_den,
     relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
+    split_bulk_scavenged_drop_with_wedge_wear,
 };
 use crate::survival::Vitality;
 
@@ -23,7 +24,8 @@ use super::scavenging::{
     should_seek_local_food,
 };
 use super::scrap_tools::{
-    LEVER_SPLIT_BATCH, current_junction_scrap_lever, is_staged_scrap_tool_part,
+    LEVER_SPLIT_BATCH, WEDGE_ABRASION_PER_SPLIT, current_junction_scrap_lever,
+    is_staged_scrap_tool_part,
 };
 use super::visibility::scout_visible_from;
 use super::watchman::apply_watchman_tick;
@@ -343,12 +345,45 @@ fn scout_releases_cargo(frightened: bool, den_full: bool, can_move: bool) -> boo
     frightened || (den_full && can_move)
 }
 
-/// An assembled recoverable lever improves only work at its actual junction.
-fn scout_split_batch(state: &AppState, colony: &KoboldColony, from: VoxelCoord) -> Mass {
-    if from == colony.route[1] && current_junction_scrap_lever(state, colony).is_some() {
-        colony.salvage_batch().max(LEVER_SPLIT_BATCH)
+/// The same canonical splitting operation must account for a tool's actual
+/// abrasion, or the scout uses its original bare-hand batch instead.
+fn split_scavenged_bulk_with_available_tool(
+    registries: &Registries,
+    state: &mut AppState,
+    source: SurfaceResourceId,
+    from: VoxelCoord,
+    to: VoxelCoord,
+    at: SimulationTick,
+    bare_batch: Mass,
+    den_space: Mass,
+) -> Option<(SurfaceResourceId, Mass)> {
+    let tool = state.kobold_state().colony.as_ref().and_then(|colony| {
+        (from == colony.route[1])
+            .then(|| current_junction_scrap_lever(state, colony))
+            .flatten()
+    });
+    if let Some(tool) = tool {
+        split_bulk_scavenged_drop_with_wedge_wear(
+            registries,
+            state,
+            source,
+            from,
+            to,
+            at,
+            bare_batch.max(LEVER_SPLIT_BATCH).min(den_space),
+            tool.wedge(),
+            WEDGE_ABRASION_PER_SPLIT,
+        )
     } else {
-        colony.salvage_batch()
+        split_bulk_scavenged_drop_step(
+            registries,
+            state,
+            source,
+            from,
+            to,
+            at,
+            bare_batch.min(den_space),
+        )
     }
 }
 
@@ -457,7 +492,7 @@ pub(crate) fn apply_kobold_scout_tick(
         .colony
         .as_ref()
         .expect("colony still exists");
-    let salvage_batch = scout_split_batch(state, colony, from);
+    let salvage_batch = colony.salvage_batch();
     let forage_batch = colony.forage_batch();
     let forage_interval = colony.forage_interval();
     let mobilized = colony.mobilized_at.is_some();
@@ -560,14 +595,15 @@ pub(crate) fn apply_kobold_scout_tick(
         })
         .flatten();
     let split_drop = bulk_source.and_then(|source| {
-        split_bulk_scavenged_drop_step(
+        split_scavenged_bulk_with_available_tool(
             registries,
             state,
             source,
             from,
             position,
             next_tick,
-            salvage_batch.min(den_space),
+            salvage_batch,
+            den_space,
         )
     });
     // An unattended food patch is genuine competition even if the player has

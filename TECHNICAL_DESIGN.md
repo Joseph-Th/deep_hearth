@@ -262,9 +262,18 @@ bulk at that junction can take up to 500 g per return instead of 250 g, still
 bounded by free den storage. Its selected parts remain in ordinary recoverable
 surface custody and share no fictitious equipment ledger; local observation
 uses `available_nearby_kobold_scrap_lever`. Removing a piece through player
-pickup immediately restores hand-splitting behavior. A distant or oversized
-piece never completes the kit, and the bonus cannot apply at another worksite.
-The current lever has no tool wear, timed construction or portable weapon use.
+pickup immediately restores hand-splitting behavior. Each successful assisted
+bulk split also ablates exactly 10 g from its real stone wedge into a new,
+recoverable chip parcel at the junction. The surface owner prevalidates
+both daughter parcels and the two source mass decrements as one three-revision
+transaction; failed wear or unavailable revision/identity headroom must not
+allow free powered splitting. Wedge fragments retain their original physical
+profile, ambient age and provenance. When the original wedge drops below the
+20 g working minimum the kit stops helping; a scout can prioritize an actual
+visible, den-fitting spare at its outer post over nearby inert bulk, but a
+player guarding the route prevents repair. A distant or oversized piece never
+completes the kit, and the bonus cannot apply at another worksite. The lever
+still lacks timed construction or portable weapon use.
 
 In generated-world patrols, a scout's two-cell standing footprint requires
 actual free space, including the player's airborne body cells, concealed temple

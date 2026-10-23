@@ -103,6 +103,145 @@ fn a_junction_tool_needs_two_separate_portable_and_local_parts() {
 }
 
 #[test]
+fn worn_out_wedge_prompts_a_real_repair_trip_past_nearby_bulk() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, DEN, JUNCTION);
+    add_traversable_edge_for_test(&mut state, JUNCTION, TIP);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let old_wedge = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let bulk = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_LUMP,
+        Mass::from_milligrams(1_000_000),
+    );
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    for _ in 0..4 {
+        let at = state.tick();
+        assert!(
+            crate::surface::split_bulk_scavenged_drop_with_wedge_wear(
+                &registries,
+                &mut state,
+                bulk,
+                JUNCTION,
+                DEN,
+                at,
+                Mass::from_milligrams(100_000),
+                old_wedge,
+                WEDGE_ABRASION_PER_SPLIT,
+            )
+            .is_some()
+        );
+    }
+    assert_eq!(
+        state.surface().get(old_wedge).unwrap().remaining_mass(),
+        Mass::from_milligrams(10_000)
+    );
+    assert_eq!(
+        state.surface().get(bulk).unwrap().remaining_mass(),
+        Mass::from_milligrams(600_000)
+    );
+    assert!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .is_none(),
+        "a wedge below the work threshold must stop granting its advantage"
+    );
+    let spare = drop_at(
+        &registries,
+        &mut state,
+        TIP,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let with_replacement = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        with_replacement,
+        total
+            .checked_add(crate::core::quantity::AggregateMass::from_milligrams(
+                50_000
+            ))
+            .unwrap()
+    );
+    advance_to(&registries, &mut state, 180);
+    let mut guarded = state.clone();
+    validate_admit_player(&registries, &guarded, TIP)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    advance_to(&registries, &mut guarded, 190);
+    assert_eq!(
+        guarded.surface().get(spare).unwrap().position(),
+        TIP,
+        "a real player holding the outer route must prevent the repair delivery"
+    );
+    assert!(
+        current_junction_scrap_lever(&guarded, guarded.kobold_state().colony.as_ref().unwrap())
+            .is_none()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        with_replacement
+    );
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+
+    advance_to(&registries, &mut state, 185);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        TIP,
+        "the scout must bypass available nearby bulk to fetch a visible repair part"
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 190);
+    advance_to(&registries, &mut replay, 190);
+    assert_eq!(replay, state);
+    assert_eq!(state.surface().get(spare).unwrap().position(), JUNCTION);
+    let repaired =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .expect("a genuinely delivered replacement must restore the same physical worksite");
+    assert_eq!((repaired.handle(), repaired.wedge()), (handle, spare));
+    assert_eq!(
+        state.surface().get(old_wedge).unwrap().remaining_mass(),
+        Mass::from_milligrams(10_000),
+        "wear debris and the old worn wedge remain recoverable, not silently repaired"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        with_replacement
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn scout_stages_physical_pry_parts_and_player_interception_reverses_its_effect() {
     let registries = build_registries();
     let mut world = AppState::new();
@@ -216,6 +355,30 @@ fn scout_stages_physical_pry_parts_and_player_interception_reverses_its_effect()
         "lever-backed scout splits 500 g of recoverable bulk"
     );
     assert_eq!(
+        world.surface().get(wedge).unwrap().remaining_mass(),
+        Mass::from_milligrams(40_000),
+        "each assisted split wears ten grams off the original wedge"
+    );
+    let debris = world
+        .surface()
+        .available_resources_at(Some(JUNCTION))
+        .find(|resource| {
+            resource.id() != wedge
+                && resource.id() != handle
+                && resource.id() != source_with
+                && resource.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+                && resource.remaining_mass() == Mass::from_milligrams(10_000)
+        })
+        .expect("the wedge's abrasion must remain recoverable at the real worksite");
+    assert_eq!(
+        debris.material_profile(),
+        world.surface().get(wedge).unwrap().material_profile()
+    );
+    assert_eq!(
+        debris.material_provenance(),
+        world.surface().get(wedge).unwrap().material_provenance()
+    );
+    assert_eq!(
         intercepted
             .surface()
             .get(source_without)
@@ -234,4 +397,13 @@ fn scout_stages_physical_pry_parts_and_player_interception_reverses_its_effect()
     );
     assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
     assert_eq!(validate_loaded_state(&registries, &intercepted), Ok(()));
+    let persisted = serde_json::to_vec(&SaveEnvelope::new(&registries, &world)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&persisted)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        loaded, world,
+        "tool abrasion and its debris must persist together"
+    );
 }

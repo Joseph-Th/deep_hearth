@@ -101,6 +101,7 @@ pub(crate) fn forage_food_to_adjacent_den(
         at,
         maximum_mass,
         SurfaceResourceKind::Opportunity,
+        None,
     )
 }
 
@@ -125,6 +126,35 @@ pub(crate) fn split_bulk_scavenged_drop_step(
         at,
         maximum_mass,
         SurfaceResourceKind::Drop,
+        None,
+    )
+}
+
+/// Split a bulky drop with a local stone wedge, retaining both exact physical
+/// outputs: the hauled daughter and the wedge's abrasion debris at the worksite.
+/// Creation and both source decrements are prevalidated as one surface operation.
+/// No bulk split succeeds if the surface cannot also represent tool wear.
+pub(crate) fn split_bulk_scavenged_drop_with_wedge_wear(
+    registries: &crate::registry::Registries,
+    state: &mut crate::core::state::AppState,
+    source: SurfaceResourceId,
+    from: crate::spatial::VoxelCoord,
+    to: crate::spatial::VoxelCoord,
+    at: crate::core::time::SimulationTick,
+    maximum_mass: crate::core::quantity::Mass,
+    wedge: SurfaceResourceId,
+    wear_mass: crate::core::quantity::Mass,
+) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
+    materialize_scavenged_portion(
+        registries,
+        state,
+        source,
+        from,
+        to,
+        at,
+        maximum_mass,
+        SurfaceResourceKind::Drop,
+        Some((wedge, wear_mass)),
     )
 }
 
@@ -139,8 +169,10 @@ fn materialize_scavenged_portion(
     at: crate::core::time::SimulationTick,
     maximum_mass: crate::core::quantity::Mass,
     source_kind: SurfaceResourceKind,
+    wedge_wear: Option<(SurfaceResourceId, crate::core::quantity::Mass)>,
 ) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
-    if !from.is_face_adjacent_to(to) || !state.can_spend_surface_revisions(2) {
+    let required_revisions = if wedge_wear.is_some() { 3 } else { 2 };
+    if !from.is_face_adjacent_to(to) || !state.can_spend_surface_revisions(required_revisions) {
         return None;
     }
     let origin = state.surface().get(source)?;
@@ -170,18 +202,54 @@ fn materialize_scavenged_portion(
         origin.ambient_storage_age_parts_at(at)?,
     )
     .ok()?;
+    let abrasion_parcel = if let Some((wedge, abrasion)) = wedge_wear {
+        let worn = state.surface().get(wedge)?;
+        if wedge == source
+            || abrasion.is_zero()
+            || worn.kind() != SurfaceResourceKind::Drop
+            || worn.lifecycle() != SurfaceResourceLifecycle::Available
+            || worn.position() != from
+            || abrasion >= worn.remaining_mass()
+        {
+            return None;
+        }
+        Some(
+            creation::SurfaceResourceSpec::from_existing_material(
+                SurfaceResourceKind::Drop,
+                from,
+                abrasion,
+                worn.material_profile().clone(),
+                worn.material_provenance(),
+                worn.ambient_storage_age_parts_at(at)?,
+            )
+            .ok()?,
+        )
+    } else {
+        None
+    };
+    let parcels = std::iter::once(parcel).chain(abrasion_parcel);
     let creation =
-        creation::validate_create_surface_resources_at(registries, state, [parcel], at).ok()?;
+        creation::validate_create_surface_resources_at(registries, state, parcels, at).ok()?;
     let drop = creation.first_resource_id();
     creation.apply(state);
     let revision = state
         .surface()
         .revision()
         .checked_add(1)
-        .unwrap_or_else(|| unreachable!("two surface revisions were reserved before foraging"));
+        .unwrap_or_else(|| unreachable!("surface materialization reserved its source revision"));
     state
         .surface_state_mut()
         .apply_gathering(source, mass, at, revision);
+    if let Some((wedge, abrasion)) = wedge_wear {
+        let next_revision = state
+            .surface()
+            .revision()
+            .checked_add(1)
+            .expect("wedge abrasion reserved its surface revision before creation");
+        state
+            .surface_state_mut()
+            .apply_gathering(wedge, abrasion, at, next_revision);
+    }
     Some((drop, mass))
 }
 
