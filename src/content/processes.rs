@@ -101,6 +101,9 @@ pub const PROCESS_HAND_PICK_CASSITERITE: ProcessId = ProcessId::new(87);
 pub const PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS: ProcessId = ProcessId::new(88);
 pub const PROCESS_SCAVENGE_CASSITERITE_TAILINGS: ProcessId = ProcessId::new(89);
 pub const PROCESS_HAND_PICK_GALENA: ProcessId = ProcessId::new(90);
+pub const PROCESS_REGRIND_GALENA_PICKING_TAILINGS: ProcessId = ProcessId::new(91);
+pub const PROCESS_SCAVENGE_GALENA_TAILINGS: ProcessId = ProcessId::new(92);
+pub const PROCESS_CLEAN_GALENA_CONCENTRATE: ProcessId = ProcessId::new(93);
 
 mod chemical;
 mod fabrication;

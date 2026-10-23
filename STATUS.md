@@ -17,7 +17,7 @@ Progression:
 | Prospecting and mining | Player-facing survey choices, bounded evidence, tool-dependent extraction, and inventory claim. Hidden reserves remain non-public. |
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
-| Processing | Graded tin/iron/lead ores; cassiterite and galena hand-picking. Copper casting and PbS+Fe lead smelting; no general ore reduction. |
+| Processing | Graded tin/iron/lead ores; cassiterite and galena dressing with mechanical tailings recovery. Copper casting and PbS+Fe lead smelting; no general reduction. |
 | Opening wilderness acquisition | Kobold scouts raid, forage and track; light and guards deter them. Scavenged two-hop alarms can be sabotaged and rebuilt from spares. Local sound travels short open air paths without revealing hidden machinery. No combat. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
@@ -63,7 +63,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Surface | Evaluated capability |
 | --- | --- |
 | Workshop | Industrial machinery under finite stored work, survival pressure, wear, maintenance, support, suspension, recovery, and actor policy. |
-| Ore preparation | Finite crushing, grinding, concentration and cassiterite tailings scavenging. Magnetite needs an electric separator; deep mining and transport remain player work. |
+| Ore preparation | Finite crushing, grinding, concentration and cassiterite/galena tailings scavenging. Magnetite needs an electric separator; deep mining and transport remain player work. |
 | Foundry | Industrial copper heating, melting, casting, remelting, finite energy, phase boundaries, heat recovery, and sink loss. |
 
 ## Absent scope

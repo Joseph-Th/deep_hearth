@@ -2430,6 +2430,12 @@ mod gregtech_beneficiation;
 
 #[path = "separation_execution_tests/galena.rs"]
 mod galena;
+
+#[path = "separation_execution_tests/galena_tailings.rs"]
+mod galena_tailings;
+
+#[path = "separation_execution_tests/galena_tailings_player.rs"]
+mod galena_tailings_player;
 #[cfg(feature = "test-soak")]
 #[path = "separation_execution_tests/soak.rs"]
 mod soak;

@@ -29,14 +29,15 @@ use super::materials::{
     FORM_TAILINGS, MATERIAL_CASSITERITE, MATERIAL_COPPER, MATERIAL_GALENA, MATERIAL_MAGNETITE,
 };
 use super::processes::{
-    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_CASSITERITE,
-    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
-    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_PICK_GALENA, PROCESS_HAND_SORT_NATIVE_COPPER,
-    PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE, PROCESS_PRECIPITATE_LEAD_FROM_GALENA,
-    PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS, PROCESS_REGRIND_COPPER_TAILINGS,
+    PROCESS_CLEAN_GALENA_CONCENTRATE, PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
+    PROCESS_CONCENTRATE_CASSITERITE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
+    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE,
+    PROCESS_HAND_GRIND_CRUSHED_ORE, PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_PICK_GALENA,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
+    PROCESS_PRECIPITATE_LEAD_FROM_GALENA, PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS,
+    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_REGRIND_GALENA_PICKING_TAILINGS,
     PROCESS_SCAVENGE_CASSITERITE_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS,
-    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_SCAVENGE_GALENA_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
 use crate::survival::SurvivalExertion;
 
@@ -142,6 +143,20 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
             // Grinds hand-picked coarse residues to the liberated gravity-feed size.
             ComminutionProcessDefinition::new_with_input_particle_size_range(
                 PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS,
+                FORM_TAILINGS,
+                FORM_TAILINGS,
+                hand_sortable_particle_size,
+                fine_particle_size.clone(),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_GRINDER_FLOW,
+                    CAPABILITY_GRINDER_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(4_000_000),
+                    400,
+                ),
+            ),
+            ComminutionProcessDefinition::new_with_input_particle_size_range(
+                PROCESS_REGRIND_GALENA_PICKING_TAILINGS,
                 FORM_TAILINGS,
                 FORM_TAILINGS,
                 hand_sortable_particle_size,
@@ -264,6 +279,40 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     EnergyCarrier::Mechanical,
                     MassSpecificEnergy::from_nanojoules_per_milligram(375_000),
                     210,
+                ),
+            ),
+            // Heavy PbS prills remain recoverable after coarse hand selection. The
+            // gravity concentrate still contains rock and is not furnace-ready.
+            ConstituentSeparationProcessDefinition::new_concentration(
+                PROCESS_SCAVENGE_GALENA_TAILINGS,
+                FORM_TAILINGS,
+                liberated_concentration_range,
+                CommodityKey::new(MATERIAL_GALENA, FORM_CONCENTRATE),
+                FORM_EXHAUSTED_TAILINGS,
+                ConstituentRecoveryProfile::new(800_000, 100_000),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(375_000),
+                    210,
+                ),
+            ),
+            // Follow gravity separation with a deliberate gangue-free dressing
+            // pass; unrecovered PbS remains conserved in finite solid tailings.
+            ConstituentSeparationProcessDefinition::new_sorting(
+                PROCESS_CLEAN_GALENA_CONCENTRATE,
+                FORM_CONCENTRATE,
+                MATERIAL_GALENA,
+                FORM_CRUSHED,
+                FORM_EXHAUSTED_TAILINGS,
+                900_000,
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(450_000),
+                    230,
                 ),
             ),
             // Fe3O4 is magnetically separable, but never silently reduced to elemental Fe.

@@ -22,7 +22,7 @@ For current reachability, [STATUS.md](STATUS.md) is authoritative.
 
 ## Connected mineral-dressing content
 
-Two GregTech-inspired branches use existing authoritative process owners:
+Three GregTech-inspired branches use existing authoritative process owners:
 
 1. Cassiterite (SnO2) is ground to a liberated particle size and enriched by mechanical gravity
    separation. Its target remains cassiterite concentrate rather than tin; tailings retain the
@@ -38,6 +38,14 @@ Two GregTech-inspired branches use existing authoritative process owners:
    The actual furnace step requires physical supporting structure, locally accessible
    stock, separate heat-rated lead custody and finite electricity, not a magical
    ore-to-metal conversion.
+   Retained coarse tailings can be reground in an assembled quern, mechanically
+   gravity-scavenged at 80% remaining PbS / 10% stone recovery, then cleaned at
+   90% PbS recovery into pure crushed sulfide. For the same initial 100 g feed,
+   the second route yields another 20.16 g of pure PbS after 24.4 g mixed
+   concentrate, leaving 27.84 g of finite exhausted solids across both passes.
+   Skipping size reduction or the final cleanup is rejected by the canonical
+   processing/form constraints. Combined pure PbS recovered is 72.16 g, not
+   fabricated lead metal.
 
 Cassiterite now also has a direct-labor coarse-crystal selection route:
 timed player excavation -> hand break -> hand pick visible 2–10 mm mineral
@@ -51,9 +59,11 @@ This is **grade recovery**, not GregTech-style item or ore duplication.
 
 These steps reuse canonical selection, processing time, condition wear, energy consumption,
 two-stream output reservations, matter accounting and deterministic save continuation.
-Neither bypasses an absent reduction/smelting chemistry owner. Their immediate practical benefit
-is the ability to improve heterogeneous ore grade and preserve gangue for downstream operations,
-not an invented complete steel or tin production chain. **World acquisition:** seeded
+The dry mechanical operations preserve mineral identity: only the existing
+balanced galena-plus-iron furnace changes PbS into lead, while tin and iron
+oxide reduction are still absent. Their practical benefit is selective
+recovery and explicit gangue custody, not invented steel or tin production.
+**World acquisition:** seeded
 four-metre cassiterite and magnetite lenses include fixed 40%-mineral, 60%-stone
 variants, while galena has 80%-sulfide, 20%-stone variants, alongside richer
 pure-mineral seams. Their full-cell masses obey physical

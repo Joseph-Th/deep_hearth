@@ -597,6 +597,10 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             CommodityKey::new(MATERIAL_GALENA, FORM_CRUSHED),
             "crushed galena",
         ),
+        (
+            CommodityKey::new(MATERIAL_GALENA, FORM_CONCENTRATE),
+            "galena gravity concentrate",
+        ),
         (CommodityKey::new(MATERIAL_PYRITE, FORM_ORE), "pyrite ore"),
         (
             CommodityKey::new(MATERIAL_PYRITE, FORM_CRUSHED),
