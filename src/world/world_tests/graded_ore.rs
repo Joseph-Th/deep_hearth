@@ -3,11 +3,17 @@
 use super::*;
 use crate::content::{
     BLOCK_STATE_GRADED_CASSITERITE_ORE, FORM_CRUSHED, FORM_ORE, MATERIAL_CASSITERITE,
-    PROCESS_CONCENTRATE_CASSITERITE, PROCESS_HAND_BREAK_ORE,
+    PROCESS_CONCENTRATE_CASSITERITE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_PICK_CASSITERITE,
 };
 use crate::core::state::validate_loaded_state;
-use crate::inventory::MaterialLotSelection;
-use crate::ore_processing::{ManualComminutionRequest, resolve_manual_comminution_process};
+use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test};
+use crate::logistics::validate_place_ground_stockpile;
+use crate::ore_processing::{
+    ManualComminutionRequest, ManualConstituentSeparationRequest,
+    resolve_manual_comminution_process, resolve_manual_constituent_separation_process,
+    validate_start_manual_comminution, validate_start_manual_constituent_separation,
+};
+use crate::simulation::advance_tick;
 
 #[test]
 fn digging_a_graded_world_cell_preserves_ore_assay_through_saved_player_work() {
@@ -108,4 +114,116 @@ fn digging_a_graded_world_cell_preserves_ore_assay_through_saved_player_work() {
     assert_eq!(fragments.composition(), &grade);
     assert_eq!(fragments.mass(), hand_batch);
     assert!(fragments.particle_size_distribution().is_some());
+
+    // Ground processing has three finite local destinations. Nothing is created as a
+    // fabricated mineral feed: it all originated in the excavated mixed-grade world cell.
+    let bench_position = state.logistics().player().unwrap().position();
+    let mut bins = Vec::new();
+    for _ in 0..3 {
+        let bin = add_solid_stockpile_for_test(&mut state, hand_batch).unwrap();
+        validate_place_ground_stockpile(&state, bin, bench_position)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        bins.push(bin);
+    }
+    let crushed_source = bins[0];
+    let selected_crystals = bins[1];
+    let rejected_gangue = bins[2];
+    // Output-bin creation advances the inventory revision. Resolve after placement:
+    // stale process resolutions must not bypass canonical source/destination admission.
+    let crushed = resolve_manual_comminution_process(
+        &registries,
+        &state,
+        ManualComminutionRequest::new(PROCESS_HAND_BREAK_ORE, carried, &selections),
+    )
+    .unwrap();
+    validate_start_manual_comminution(&registries, &state, &crushed, carried, crushed_source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for _ in 0..crushed.duration().value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.player_work().active(), None);
+    let crushed_lot = state.inventory().lot_ids(crushed_source).next().unwrap();
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(crushed_lot)
+            .unwrap()
+            .composition(),
+        &grade
+    );
+
+    let sorting_selections = [MaterialLotSelection::new(crushed_lot, hand_batch)];
+    let picked = resolve_manual_constituent_separation_process(
+        &registries,
+        &state,
+        ManualConstituentSeparationRequest::new(
+            PROCESS_HAND_PICK_CASSITERITE,
+            crushed_source,
+            &sorting_selections,
+        ),
+    )
+    .unwrap();
+    assert_eq!(picked.target_mass().milligrams(), 22_000);
+    assert_eq!(picked.residue_mass().milligrams(), 78_000);
+    let total_before_sorting = calculate_matter_accounting(&state).unwrap().total();
+    validate_start_manual_constituent_separation(
+        &registries,
+        &state,
+        &picked,
+        crushed_source,
+        selected_crystals,
+        rejected_gangue,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    for _ in 0..picked.duration().value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(selected_crystals)
+            .unwrap()
+            .stored_mass()
+            .milligrams(),
+        22_000,
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(rejected_gangue)
+            .unwrap()
+            .stored_mass()
+            .milligrams(),
+        78_000,
+    );
+    let crystals = state
+        .inventory()
+        .get_lot(state.inventory().lot_ids(selected_crystals).next().unwrap())
+        .unwrap();
+    assert_eq!(
+        crystals.commodity(),
+        CommodityKey::new(MATERIAL_CASSITERITE, FORM_CRUSHED)
+    );
+    assert_eq!(
+        crystals
+            .composition()
+            .parts_per_million(MATERIAL_CASSITERITE),
+        1_000_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        total_before_sorting
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        accounted_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

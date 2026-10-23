@@ -890,6 +890,16 @@ cassiterite (SnO2) can be gravity-concentrated with a mechanical separator; libe
 magnetite (Fe3O4) instead requires a copper-wound magnetic separator and finite electrical
 energy. Both accept grade-bearing particulate input, use distinct authored target/gangue
 recovery fractions, and preserve exact mineral constituent totals in concentrate and residue.
+An early cassiterite path hand-breaks coarse ore, then hand-picks visually sortable
+2–10 mm SnO2 grains with 55% mineral recovery, while retaining the remaining
+SnO2 plus stone as finite coarse tailings. Hand work is timed, costs the player's
+metabolic energy and hydration, and can use the existing dressing-bench
+capability to improve work rate without increasing yield. The stone rotary quern
+can regrind those tailings to 0.5–2 mm; a second mechanical gravity pass
+recovers 70% of the remaining SnO2 and 10% of remaining gangue into a
+concentrate while retaining the rest as exhausted tailings. None of these
+paths imply tin oxide has been reduced to tin metal, and each physical step
+uses the same canonical production and exact constituent-accounting contracts.
 The electromagnetic separator is assembled from cast iron, formed copper winding and timber,
 and wears its replaceable conductor component. Its separate capability requirements prevent
 a mechanically powered rock separator from executing magnetic recovery. Neither process

@@ -97,6 +97,9 @@ pub const PROCESS_PRECIPITATE_LEAD_FROM_GALENA: ProcessId = ProcessId::new(83);
 pub const PROCESS_CAST_LEAD_INGOT: ProcessId = ProcessId::new(84);
 pub const PROCESS_CONCENTRATE_CASSITERITE: ProcessId = ProcessId::new(85);
 pub const PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE: ProcessId = ProcessId::new(86);
+pub const PROCESS_HAND_PICK_CASSITERITE: ProcessId = ProcessId::new(87);
+pub const PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS: ProcessId = ProcessId::new(88);
+pub const PROCESS_SCAVENGE_CASSITERITE_TAILINGS: ProcessId = ProcessId::new(89);
 
 mod chemical;
 mod fabrication;

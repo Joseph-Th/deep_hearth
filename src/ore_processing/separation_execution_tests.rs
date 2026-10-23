@@ -6,8 +6,10 @@ use crate::content::{
     EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_STONE_SEPARATOR,
     EQUIPMENT_TIMBER_DRESSING_BENCH, FORM_BOARD, FORM_CONCENTRATE, FORM_CRUSHED,
     FORM_EXHAUSTED_TAILINGS, FORM_HANDLE, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_TAILINGS,
-    FORM_TOOL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_CONCENTRATE_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_SCAVENGE_COPPER_TAILINGS,
+    FORM_TOOL, MATERIAL_CASSITERITE, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE,
+    MATERIAL_WOOD, PROCESS_CONCENTRATE_CASSITERITE, PROCESS_CONCENTRATE_COPPER,
+    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_SCAVENGE_CASSITERITE_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS,
     PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::{Energy, Length, Mass, Temperature};
@@ -35,6 +37,264 @@ use crate::spatial::VoxelCoord;
 use crate::survival::{assess_survival, initialize_player_survival};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
+
+#[test]
+fn cassiterite_scavenger_retains_residual_oxide_and_gangue_with_finite_mechanical_work() {
+    let mass = Mass::from_milligrams(100_000);
+    let grade = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_CASSITERITE, 250_000),
+        CompositionComponent::new(MATERIAL_STONE, 750_000),
+    ])
+    .unwrap();
+    let mut fixture = fixture_with_host_form_and_particle_size(
+        MATERIAL_STONE,
+        FORM_TAILINGS,
+        mass,
+        grade,
+        ParticleSizeRange::new(
+            Length::from_micrometers(500),
+            Length::from_micrometers(2_000),
+        )
+        .unwrap(),
+    );
+    let definition = fixture
+        .registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SCAVENGE_CASSITERITE_TAILINGS)
+        .unwrap();
+    assert_eq!(definition.target_recovery_ppm(), 700_000);
+    let resolved = resolve_process(&fixture, PROCESS_SCAVENGE_CASSITERITE_TAILINGS, mass);
+    assert_eq!(resolved.target_mass().milligrams(), 25_000);
+    assert_eq!(resolved.residue_mass().milligrams(), 75_000);
+    let output = resolved.process_resolution().output_streams();
+    assert_eq!(
+        output[0].outputs()[0].commodity(),
+        CommodityKey::new(MATERIAL_CASSITERITE, FORM_CONCENTRATE)
+    );
+    assert_eq!(
+        output[0].outputs()[0]
+            .composition()
+            .parts_per_million(MATERIAL_CASSITERITE),
+        700_000
+    );
+    assert_eq!(
+        output[1].outputs()[0].commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_EXHAUSTED_TAILINGS)
+    );
+    assert_eq!(
+        output[1].outputs()[0]
+            .composition()
+            .parts_per_million(MATERIAL_CASSITERITE),
+        100_000
+    );
+    assert!(!resolved.required_energy().is_zero());
+    let baseline = calculate_matter_accounting(&fixture.state).unwrap().total();
+    let job = validate_start_process_routed(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.source,
+        &[
+            ProcessOutputRoute::new(
+                ConstituentSeparationProcessDefinition::TARGET_STREAM,
+                fixture.target,
+            ),
+            ProcessOutputRoute::new(
+                ConstituentSeparationProcessDefinition::RESIDUE_STREAM,
+                fixture.residue,
+            ),
+        ],
+    )
+    .unwrap()
+    .commit(&mut fixture.state)
+    .unwrap();
+    assert!(fixture.state.production().get_job(job).is_some());
+    let save = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state)).unwrap();
+    let mut resumed = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&fixture.registries)
+        .unwrap();
+    let ticks = resolved.process_resolution().duration().value();
+    for _ in 0..ticks {
+        let _ = advance_tick(&fixture.registries, &mut fixture.state).unwrap();
+        let _ = advance_tick(&fixture.registries, &mut resumed).unwrap();
+    }
+    assert_eq!(resumed, fixture.state);
+    assert_eq!(
+        fixture
+            .state
+            .inventory()
+            .get_stockpile(fixture.target)
+            .unwrap()
+            .stored_mass()
+            .milligrams(),
+        25_000
+    );
+    assert_eq!(
+        fixture
+            .state
+            .inventory()
+            .get_stockpile(fixture.residue)
+            .unwrap()
+            .stored_mass()
+            .milligrams(),
+        75_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&fixture.state).unwrap().total(),
+        baseline
+    );
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
+}
+
+#[test]
+fn coarse_cassiterite_hand_picking_recovers_only_visible_oxide_and_conserves_gangue() {
+    let mass = Mass::from_milligrams(100_000);
+    let grade = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_CASSITERITE, 400_000),
+        CompositionComponent::new(MATERIAL_STONE, 600_000),
+    ])
+    .unwrap();
+    let mut fixture =
+        unadmitted_manual_fixture_with_host(MATERIAL_CASSITERITE, mass, grade.clone());
+    admit_manual_separation_fixture(&mut fixture, &[]);
+    let definition = fixture
+        .registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_PICK_CASSITERITE)
+        .expect("manual cassiterite selection must be registered");
+    let powered = fixture
+        .registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_CONCENTRATE_CASSITERITE)
+        .expect("powered gravity concentration must be registered");
+    assert_eq!(definition.target_recovery_ppm(), 550_000);
+    assert_eq!(powered.target_recovery_ppm(), 850_000);
+    assert_eq!(
+        definition.maximum_homogeneous_target_recovery_from_feed(mass, 400_000),
+        Some(Mass::from_milligrams(22_000)),
+    );
+
+    let selections = [MaterialLotSelection::new(fixture.lot, mass)];
+    let resolved = resolve_manual_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ManualConstituentSeparationRequest::new(
+            PROCESS_HAND_PICK_CASSITERITE,
+            fixture.source,
+            &selections,
+        ),
+    )
+    .unwrap();
+    assert_eq!(resolved.target_mass().milligrams(), 22_000);
+    assert_eq!(resolved.residue_mass().milligrams(), 78_000);
+    assert_eq!(resolved.duration(), TickSpan::new(112));
+    let output = resolved.process_resolution().output_streams();
+    assert_eq!(output.len(), 2);
+    let target = &output[0].outputs()[0];
+    let residue_lots = output[1].outputs();
+    assert_eq!(
+        target.commodity(),
+        CommodityKey::new(MATERIAL_CASSITERITE, FORM_CRUSHED)
+    );
+    assert_eq!(
+        target.composition(),
+        &MaterialComposition::pure(MATERIAL_CASSITERITE)
+    );
+    assert_eq!(target.mass().milligrams(), 22_000);
+    assert!(
+        residue_lots
+            .iter()
+            .all(|lot| lot.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS))
+    );
+    assert_eq!(
+        residue_lots
+            .iter()
+            .map(|lot| lot.mass().milligrams())
+            .sum::<u64>(),
+        78_000
+    );
+    for (constituent, remaining_mg) in [
+        (MATERIAL_CASSITERITE, 18_000_u128),
+        (MATERIAL_STONE, 60_000_u128),
+    ] {
+        let represented_ppm_mg = residue_lots
+            .iter()
+            .map(|lot| {
+                u128::from(lot.mass().milligrams())
+                    * u128::from(lot.composition().parts_per_million(constituent))
+            })
+            .sum::<u128>();
+        assert_eq!(
+            represented_ppm_mg,
+            remaining_mg * 1_000_000,
+            "residue must conserve each constituent across rounding-split lots"
+        );
+    }
+
+    let matter_before = calculate_matter_accounting(&fixture.state).unwrap().total();
+    let survival_before = assess_survival(&fixture.registries, &fixture.state).unwrap();
+    validate_start_manual_constituent_separation(
+        &fixture.registries,
+        &fixture.state,
+        &resolved,
+        fixture.source,
+        fixture.target,
+        fixture.residue,
+    )
+    .unwrap()
+    .commit(&mut fixture.state)
+    .unwrap();
+    for _ in 0..15 {
+        let _ = advance_tick(&fixture.registries, &mut fixture.state).unwrap();
+    }
+    let encoded =
+        serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&fixture.registries)
+        .unwrap();
+    for _ in 15..resolved.duration().value() {
+        let _ = advance_tick(&fixture.registries, &mut fixture.state).unwrap();
+        let _ = advance_tick(&fixture.registries, &mut restored).unwrap();
+    }
+    assert_eq!(fixture.state, restored);
+    assert_eq!(fixture.state.player_work().active(), None);
+    assert_eq!(
+        fixture
+            .state
+            .inventory()
+            .get_stockpile(fixture.target)
+            .unwrap()
+            .stored_mass()
+            .milligrams(),
+        22_000
+    );
+    assert_eq!(
+        fixture
+            .state
+            .inventory()
+            .get_stockpile(fixture.residue)
+            .unwrap()
+            .stored_mass()
+            .milligrams(),
+        78_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&fixture.state).unwrap().total(),
+        matter_before
+    );
+    let survival_after = assess_survival(&fixture.registries, &fixture.state).unwrap();
+    assert!(survival_after.metabolic_energy() < survival_before.metabolic_energy());
+    assert!(survival_after.hydration() < survival_before.hydration());
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
+}
 
 fn liberated_particle_size() -> ParticleSizeRange {
     ParticleSizeRange::new(
@@ -666,6 +926,14 @@ fn manual_fixture(mass: Mass, composition: MaterialComposition) -> ManualFixture
 }
 
 fn unadmitted_manual_fixture(mass: Mass, composition: MaterialComposition) -> ManualFixture {
+    unadmitted_manual_fixture_with_host(MATERIAL_COPPER, mass, composition)
+}
+
+fn unadmitted_manual_fixture_with_host(
+    host: crate::material::MaterialId,
+    mass: Mass,
+    composition: MaterialComposition,
+) -> ManualFixture {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, mass)
@@ -675,7 +943,7 @@ fn unadmitted_manual_fixture(mass: Mass, composition: MaterialComposition) -> Ma
     let residue = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("manual separation residue fixture failed: {error}"));
     let input = MaterialLotSpec::with_composition_and_particle_size(
-        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        CommodityKey::new(host, FORM_CRUSHED),
         mass,
         TEMPERATURE,
         composition,

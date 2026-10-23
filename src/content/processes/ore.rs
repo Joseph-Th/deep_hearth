@@ -13,12 +13,14 @@ use super::{
     PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_CASSITERITE,
     PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
-    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
-    PROCESS_SEPARATE_NATIVE_COPPER, mass_flow_resolver_requirements,
+    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE, PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS,
+    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_CASSITERITE_TAILINGS,
+    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    mass_flow_resolver_requirements,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 14] {
+pub(super) fn definitions() -> [ProcessDefinition; 17] {
     [
         ProcessDefinition::new(
             PROCESS_CRUSH_ORE,
@@ -46,6 +48,21 @@ pub(super) fn definitions() -> [ProcessDefinition; 14] {
             Vec::new(),
         ),
         ProcessDefinition::new(PROCESS_HAND_BREAK_ORE, "hand break ore", Vec::new()),
+        ProcessDefinition::new(
+            PROCESS_HAND_PICK_CASSITERITE,
+            "hand pick liberated cassiterite crystals from coarse ore",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS,
+            "regrind coarse cassiterite picking tailings for liberation",
+            mass_flow_resolver_requirements(CAPABILITY_GRINDER_FLOW, CAPABILITY_GRINDER_BATCH),
+        ),
+        ProcessDefinition::new(
+            PROCESS_SCAVENGE_CASSITERITE_TAILINGS,
+            "gravity scavenge cassiterite mineral from liberated tailings",
+            mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
+        ),
         ProcessDefinition::new(
             PROCESS_HAND_GRIND_CRUSHED_ORE,
             "hand grind coarse crushed ore",

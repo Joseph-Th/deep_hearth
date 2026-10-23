@@ -8,10 +8,12 @@ use crate::capability::{
 use crate::content::{
     ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_STONE_COBBING_HAMMER, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_MORTAR_AND_PESTLE,
-    FORM_CONCENTRATE, FORM_CRUSHED, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_HANDLE,
-    FORM_INGOT, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_SLAG,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_GRIND_CRUSHED_ORE, build_registries, make_test_registries_with_comminution,
+    EQUIPMENT_STONE_ROTARY_QUERN, FORM_CONCENTRATE, FORM_CRUSHED, FORM_CRUSHER_BLOCK,
+    FORM_CRUSHER_JAW_FACE, FORM_HANDLE, FORM_INGOT, FORM_ORE, FORM_REINFORCEMENT, FORM_TAILINGS,
+    FORM_TOOL, MATERIAL_CASSITERITE, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
+    PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS, build_registries,
+    make_test_registries_with_comminution,
 };
 use crate::core::quantity::{AggregateMass, Length, Mass, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -56,6 +58,123 @@ const COMPATIBLE_ENERGY_STORE_DEFINITION: EnergyStoreDefinitionId =
 const PROCESS: ProcessId = ProcessId::new(970_001);
 const INPUT_TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
 const SPECIFIC_WORK: MassSpecificEnergy = MassSpecificEnergy::from_nanojoules_per_milligram(100);
+
+#[test]
+fn authored_quern_regrinds_coarse_cassiterite_picking_tailings_without_purifying_them() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let mass = Mass::from_milligrams(78_000);
+    let source = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let destination = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let grade = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_CASSITERITE, 230_769),
+        CompositionComponent::new(MATERIAL_STONE, 769_231),
+    ])
+    .unwrap();
+    let coarse = ParticleSizeRange::new(
+        Length::from_micrometers(2_000),
+        Length::from_micrometers(10_000),
+    )
+    .unwrap();
+    let feed = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
+        mass,
+        INPUT_TEMPERATURE,
+        grade.clone(),
+        coarse,
+    )
+    .unwrap();
+    let lot = deposit_lot_spec_for_test(&registries, &mut state, source, feed).unwrap();
+    let profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_ROTARY_QUERN)
+        .unwrap()
+        .assembly_profile()
+        .unwrap();
+    let assembly = add_solid_stockpile_for_test(&mut state, profile.input_mass()).unwrap();
+    for component in profile.inputs() {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            component.commodity(),
+            component.mass(),
+            INPUT_TEMPERATURE,
+        )
+        .unwrap();
+    }
+    let quern =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_ROTARY_QUERN, assembly)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    let drive = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(500_000_000_000),
+    )
+    .unwrap();
+    let selection = [MaterialLotSelection::new(lot, mass)];
+    let resolved = resolve_comminution_process(
+        &registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS,
+            source,
+            &selection,
+            quern,
+            drive,
+        ),
+    )
+    .unwrap();
+    let product = &resolved.process_resolution().outputs()[0];
+    assert_eq!(
+        product.commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS)
+    );
+    assert_eq!(product.composition(), &grade);
+    assert_eq!(product.mass(), mass);
+    assert_eq!(
+        product.particle_size(),
+        Some(
+            ParticleSizeRange::new(
+                Length::from_micrometers(500),
+                Length::from_micrometers(2_000),
+            )
+            .unwrap()
+        )
+    );
+    assert!(!resolved.required_energy().is_zero());
+    let baseline = calculate_matter_accounting(&state).unwrap().total();
+    let ticks = resolved.process_resolution().duration().value();
+    validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    for _ in 0..ticks {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .stored_mass(),
+        mass
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        baseline
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
 
 fn crushed_particle_size() -> ParticleSizeRange {
     match ParticleSizeRange::new(

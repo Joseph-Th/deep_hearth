@@ -31,6 +31,16 @@ Two GregTech-inspired branches use existing authoritative process owners:
    electricity. Cast iron poles, formed copper winding, timber framing and replaceable conductor
    stock are required. An unpowered stone separator cannot substitute; the product remains oxide.
 
+Cassiterite now also has a direct-labor coarse-crystal selection route:
+timed player excavation -> hand break -> hand pick visible 2–10 mm mineral
+fragments -> separately stored SnO2 and mineral-bearing gangue tailings.
+The hand picking stage recovers 55% of the feed's SnO2 and no stone,
+while mechanical fine-feed concentration recovers 85% of the oxide and 15%
+of the gangue. A constructed stone rotary quern can reduce coarse picking
+tailings to 0.5–2 mm; a further gravity pass recovers 70% of the remaining
+SnO2 with 10% accompanying stone, leaving finite exhausted tailings.
+This is **grade recovery**, not GregTech-style item or ore duplication.
+
 These steps reuse canonical selection, processing time, condition wear, energy consumption,
 two-stream output reservations, matter accounting and deterministic save continuation.
 Neither bypasses an absent reduction/smelting chemistry owner. Their immediate practical benefit

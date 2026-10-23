@@ -32,9 +32,11 @@ use super::processes::{
     PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_CASSITERITE,
     PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
-    PROCESS_PRECIPITATE_LEAD_FROM_GALENA, PROCESS_REGRIND_COPPER_TAILINGS,
-    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE, PROCESS_PRECIPITATE_LEAD_FROM_GALENA,
+    PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS, PROCESS_REGRIND_COPPER_TAILINGS,
+    PROCESS_SCAVENGE_CASSITERITE_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS,
+    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
 use crate::survival::SurvivalExertion;
 
@@ -137,6 +139,21 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     500,
                 ),
             ),
+            // Grinds hand-picked coarse residues to the liberated gravity-feed size.
+            ComminutionProcessDefinition::new_with_input_particle_size_range(
+                PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS,
+                FORM_TAILINGS,
+                FORM_TAILINGS,
+                hand_sortable_particle_size,
+                fine_particle_size.clone(),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_GRINDER_FLOW,
+                    CAPABILITY_GRINDER_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(4_000_000),
+                    400,
+                ),
+            ),
         ],
         [ScreeningProcessDefinition::new(
             PROCESS_SCREEN_CRUSHED_ORE,
@@ -232,6 +249,23 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     170,
                 ),
             ),
+            // A second, lower-recovery pass captures more SnO2 from hand-picked
+            // tailings but still leaves measurable oxide in exhausted residue.
+            ConstituentSeparationProcessDefinition::new_concentration(
+                PROCESS_SCAVENGE_CASSITERITE_TAILINGS,
+                FORM_TAILINGS,
+                liberated_concentration_range,
+                CommodityKey::new(MATERIAL_CASSITERITE, FORM_CONCENTRATE),
+                FORM_EXHAUSTED_TAILINGS,
+                ConstituentRecoveryProfile::new(700_000, 100_000),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(375_000),
+                    210,
+                ),
+            ),
             // Fe3O4 is magnetically separable, but never silently reduced to elemental Fe.
             ConstituentSeparationProcessDefinition::new_concentration(
                 PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
@@ -288,26 +322,51 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 )),
             ),
         ],
-        [ManualConstituentSeparationProcessDefinition::new_sorting(
-            PROCESS_HAND_SORT_NATIVE_COPPER,
-            FORM_CRUSHED,
-            hand_sortable_particle_size,
-            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-            FORM_CRUSHED,
-            MANUAL_NATIVE_COPPER_SORTING_RECOVERY_PPM,
-            ManualOreProcessProfile::new(
-                MassFlow::from_milligrams_per_second(500),
-                Mass::from_milligrams(200_000),
-                SurvivalExertion::new(
-                    Energy::from_nanojoules(750_000_000_000),
-                    Volume::from_microliters(180),
-                ),
-            )
-            .with_equipment_profile(ManualOreEquipmentProfile::new(
-                CAPABILITY_ORE_PICKING_FLOW,
-                300,
-            )),
-        )],
+        [
+            ManualConstituentSeparationProcessDefinition::new_sorting(
+                PROCESS_HAND_SORT_NATIVE_COPPER,
+                FORM_CRUSHED,
+                hand_sortable_particle_size,
+                CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+                FORM_CRUSHED,
+                MANUAL_NATIVE_COPPER_SORTING_RECOVERY_PPM,
+                ManualOreProcessProfile::new(
+                    MassFlow::from_milligrams_per_second(500),
+                    Mass::from_milligrams(200_000),
+                    SurvivalExertion::new(
+                        Energy::from_nanojoules(750_000_000_000),
+                        Volume::from_microliters(180),
+                    ),
+                )
+                .with_equipment_profile(ManualOreEquipmentProfile::new(
+                    CAPABILITY_ORE_PICKING_FLOW,
+                    300,
+                )),
+            ),
+            // A slow primitive alternative: visually pick liberated SnO2 crystals from
+            // coarse rock. Whole-milligram losses stay in finite tailings. This
+            // cannot yield metallic tin or handle fines as a powered separator can.
+            ManualConstituentSeparationProcessDefinition::new_sorting(
+                PROCESS_HAND_PICK_CASSITERITE,
+                FORM_CRUSHED,
+                hand_sortable_particle_size,
+                CommodityKey::new(MATERIAL_CASSITERITE, FORM_CRUSHED),
+                FORM_TAILINGS,
+                550_000,
+                ManualOreProcessProfile::new(
+                    MassFlow::from_milligrams_per_second(250),
+                    Mass::from_milligrams(100_000),
+                    SurvivalExertion::new(
+                        Energy::from_nanojoules(900_000_000_000),
+                        Volume::from_microliters(220),
+                    ),
+                )
+                .with_equipment_profile(ManualOreEquipmentProfile::new(
+                    CAPABILITY_ORE_PICKING_FLOW,
+                    300,
+                )),
+            ),
+        ],
     )
     .with_precipitation([PrecipitationProcessDefinition::new(
         PROCESS_PRECIPITATE_LEAD_FROM_GALENA,
