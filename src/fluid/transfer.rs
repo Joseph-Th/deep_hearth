@@ -1,8 +1,9 @@
 //! Exact same-voxel manual decant between existing finite fluid stores.
 //!
 //! This is a player-local operation, not a pipe, pump, or remote fluid network.
-//! Neither endpoint may disappear, change its phase, or silently blend different
-//! temperatures. The two stores and all supported weights change atomically.
+//! Neither endpoint may disappear, change its phase, or silently round away
+//! thermal energy during a temperature blend. Both stores and supported weights
+//! change atomically, and exact explicit heat is conserved.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -46,9 +47,9 @@ pub enum FluidTransferError {
         expected: FluidDefinitionId,
         found: FluidDefinitionId,
     },
-    IncompatibleTemperature {
-        expected: Temperature,
-        found: Temperature,
+    UnrepresentableEquilibriumTemperature {
+        weighted_millikelvin_microliters: u128,
+        combined_volume: Volume,
     },
     DestinationOverflow,
     InsufficientCapacity {
@@ -81,6 +82,36 @@ impl Display for FluidTransferCommitError {
     }
 }
 impl Error for FluidTransferCommitError {}
+
+/// Computes same-fluid equilibrium without any external heat source or sink.
+///
+/// At the current authored fixed-density, fixed-specific-heat fluid model,
+/// sensible heat is proportional to volume times absolute millikelvin for a
+/// given fluid identity. Latent heat depends only on volume and phase. A
+/// weighted mean conserves both exact terms, but only if millikelvin arithmetic
+/// divides evenly: rounding is forbidden.
+fn equilibrium_temperature(
+    source: FluidContents,
+    destination: FluidContents,
+    moved: Volume,
+    combined_volume: Volume,
+) -> Result<Temperature, FluidTransferError> {
+    let weighted_source =
+        u128::from(moved.microliters()) * u128::from(source.temperature().millikelvin());
+    let weighted_destination = u128::from(destination.volume().microliters())
+        * u128::from(destination.temperature().millikelvin());
+    let weighted = weighted_source + weighted_destination;
+    let divisor = u128::from(combined_volume.microliters());
+    if weighted % divisor != 0 {
+        return Err(FluidTransferError::UnrepresentableEquilibriumTemperature {
+            weighted_millikelvin_microliters: weighted,
+            combined_volume,
+        });
+    }
+    let millikelvin = u32::try_from(weighted / divisor)
+        .expect("a convex combination of two u32 temperatures fits u32");
+    Ok(Temperature::from_millikelvin(millikelvin))
+}
 
 /// Revision-bound proof of an authorized single-voxel, two-store volume move.
 #[must_use]
@@ -177,10 +208,12 @@ impl ValidatedFluidTransfer {
 
 /// Moves existing homogeneous liquid between two stores at the player's exact voxel.
 ///
-/// Different fluid identities or temperatures cannot be mixed without an authored
-/// chemical/thermal resolver. A transfer to an empty store retains the source
-/// identity and temperature. Structure supports receive the combined final
-/// load projection, even when both stores rest on the same member.
+/// Different fluid identities cannot be mixed. The same fluid at different
+/// temperatures equilibrates at the exact volume-weighted temperature, or
+/// refuses the transfer if the result would require sub-millikelvin rounding.
+/// This assumes constant authored density and specific heat, and does not
+/// model phase transitions or environmental heat exchange. An empty destination
+/// adopts the source temperature. Structure receives the joint final load.
 pub fn validate_transfer_fluid_between_local_stores(
     registries: &Registries,
     state: &AppState,
@@ -236,12 +269,6 @@ pub fn validate_transfer_fluid_between_local_stores(
                 found: before_source.fluid(),
             });
         }
-        if existing.temperature() != before_source.temperature() {
-            return Err(FluidTransferError::IncompatibleTemperature {
-                expected: existing.temperature(),
-                found: before_source.temperature(),
-            });
-        }
     }
     let available = destination_record
         .capacity()
@@ -257,6 +284,12 @@ pub fn validate_transfer_fluid_between_local_stores(
         .stored_volume()
         .checked_add(volume)
         .ok_or(FluidTransferError::DestinationOverflow)?;
+    let destination_temperature = match before_destination {
+        Some(existing) => {
+            equilibrium_temperature(before_source, existing, volume, next_destination_volume)?
+        }
+        None => before_source.temperature(),
+    };
     let after_source = (!remaining.is_zero()).then_some(FluidContents {
         fluid: before_source.fluid(),
         volume: remaining,
@@ -265,7 +298,7 @@ pub fn validate_transfer_fluid_between_local_stores(
     let after_destination = FluidContents {
         fluid: before_source.fluid(),
         volume: next_destination_volume,
-        temperature: before_source.temperature(),
+        temperature: destination_temperature,
     };
     let structural = validate_fluid_contents_changes(
         registries,

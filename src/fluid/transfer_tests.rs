@@ -3,6 +3,12 @@
 #[path = "transfer_tests/authorization.rs"]
 mod authorization;
 
+#[path = "transfer_tests/thermal.rs"]
+mod thermal;
+
+#[path = "transfer_tests/molten.rs"]
+mod molten;
+
 use super::*;
 use crate::content::{FLUID_WATER, build_registries};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -166,7 +172,7 @@ fn same_voxel_decant_and_merge_preserve_water_temperature_volume_and_save_contin
 }
 
 #[test]
-fn local_decant_rejects_incompatible_heat_and_insufficient_volume_or_capacity() {
+fn local_decant_rejects_unrepresentable_heat_and_insufficient_volume_or_capacity() {
     let regular = fixture(Some((Volume::from_microliters(200_000), ROOM_TEMPERATURE)));
     let before = regular.state.clone();
     let decant = |volume| {
@@ -219,9 +225,9 @@ fn local_decant_rejects_incompatible_heat_and_insufficient_volume_or_capacity() 
             Volume::from_microliters(1),
         )
         .err(),
-        Some(FluidTransferError::IncompatibleTemperature {
-            expected: different_temperature,
-            found: ROOM_TEMPERATURE,
+        Some(FluidTransferError::UnrepresentableEquilibriumTemperature {
+            weighted_millikelvin_microliters: 3_324_650,
+            combined_volume: Volume::from_microliters(11),
         }),
     );
     assert_eq!(hot.state, hot_before);
