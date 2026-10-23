@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 #[cfg(test)]
 use crate::inventory::StockpileId;
 use crate::inventory::StockpileStorageProfile;
@@ -86,15 +87,37 @@ impl Error for InitializePlayerLogisticsError {}
 /// Failure when initial logistics authorization is committed against changed owner state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InitializePlayerLogisticsCommitError {
-    Logistics { expected: u64, actual: u64 },
-    Inventory { expected: u64, actual: u64 },
-    World { expected: u64, actual: u64 },
-    Structure { expected: u64, actual: u64 },
+    SimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
+    Logistics {
+        expected: u64,
+        actual: u64,
+    },
+    Inventory {
+        expected: u64,
+        actual: u64,
+    },
+    World {
+        expected: u64,
+        actual: u64,
+    },
+    Structure {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for InitializePlayerLogisticsCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SimulationTick { expected, actual } => write!(
+                formatter,
+                "validated player logistics initialization expected simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::Logistics { expected, actual } => write!(
                 formatter,
                 "validated player logistics initialization expected logistics revision {expected} but current revision is {actual}"
@@ -121,6 +144,7 @@ impl Error for InitializePlayerLogisticsCommitError {}
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerLogisticsInitialization {
+    expected_tick: SimulationTick,
     expected_logistics_revision: u64,
     expected_world_revision: u64,
     expected_structure_revision: u64,
@@ -140,6 +164,13 @@ impl ValidatedPlayerLogisticsInitialization {
         &self,
         state: &AppState,
     ) -> Result<(), InitializePlayerLogisticsCommitError> {
+        let actual_tick = state.tick();
+        if actual_tick != self.expected_tick {
+            return Err(InitializePlayerLogisticsCommitError::SimulationTick {
+                expected: self.expected_tick,
+                actual: actual_tick,
+            });
+        }
         let actual_logistics_revision = state.logistics().revision();
         if actual_logistics_revision != self.expected_logistics_revision {
             return Err(InitializePlayerLogisticsCommitError::Logistics {
@@ -223,6 +254,7 @@ fn validate_initialization_with_capacity(
         .checked_add(1)
         .ok_or(InitializePlayerLogisticsError::LogisticsRevisionExhausted)?;
     Ok(ValidatedPlayerLogisticsInitialization {
+        expected_tick: state.tick(),
         expected_logistics_revision,
         expected_world_revision: state.world().revision(),
         expected_structure_revision: state.structures().revision(),

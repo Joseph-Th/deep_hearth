@@ -162,6 +162,12 @@ pub fn validate_quick_move_player_stack(
         QuickMoveDirection::Drop => destination,
     };
     let _ = validate_ground_access(state, ground).map_err(PlayerQuickMoveError::Transfer)?;
+    // A full destination must not turn an obsolete inventory selection into a seemingly
+    // current capacity assessment. Keep locality/liveness checks ahead of this snapshot check.
+    stack
+        .validate_current(state)
+        .map_err(GroundMaterialTransferError::Stack)
+        .map_err(PlayerQuickMoveError::Transfer)?;
     let destination_record = state.inventory().get_stockpile(destination).ok_or(
         PlayerQuickMoveError::UnknownDestination {
             stockpile: destination,

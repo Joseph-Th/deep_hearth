@@ -4,7 +4,8 @@ use super::*;
 use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::Temperature;
 use crate::inventory::{
-    add_solid_stockpile_for_test, deposit_lot_for_test, project_material_stacks,
+    MaterialStackProjectionError, add_solid_stockpile_for_test, deposit_lot_for_test,
+    project_material_stacks,
 };
 use crate::logistics::validate_place_ground_stockpile;
 use crate::material::CommodityKey;
@@ -122,5 +123,27 @@ fn dead_player_rejects_quick_move_before_local_capacity_disclosure() {
             GroundMaterialTransferError::PlayerDead
         ))
     );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn full_local_destination_does_not_hide_an_obsolete_source_stack() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let local = filled_ground_container(&registries, &mut state, HERE);
+    let stale = carried_wood_stack(&registries, &mut state);
+    assert_eq!(
+        validate_quick_move_player_stack(&registries, &state, &stale, local).err(),
+        Some(PlayerQuickMoveError::DestinationFull { stockpile: local })
+    );
+    let _unrelated = add_solid_stockpile_for_test(&mut state, CAPACITY)
+        .unwrap_or_else(|error| panic!("quick-move stale-revision fixture failed: {error}"));
+    let before = state.clone();
+    assert!(matches!(
+        validate_quick_move_player_stack(&registries, &state, &stale, local),
+        Err(PlayerQuickMoveError::Transfer(GroundMaterialTransferError::Stack(
+            MaterialStackProjectionError::StaleInventoryRevision { expected, actual }
+        ))) if expected != actual
+    ));
     assert_eq!(state, before);
 }

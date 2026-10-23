@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::equipment::EquipmentId;
 use crate::inventory::allocation::{
     EmptyStockpileAllocationCommitError, EmptyStockpileAllocationError,
@@ -58,15 +59,37 @@ impl Error for PlayerLogisticsRespawnError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlayerLogisticsRespawnCommitError {
-    StaleLogisticsRevision { expected: u64, actual: u64 },
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    StaleWorldRevision { expected: u64, actual: u64 },
-    StaleStructureRevision { expected: u64, actual: u64 },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for PlayerLogisticsRespawnCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "respawn expected simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "respawn expected logistics revision {expected} but current revision is {actual}"
@@ -92,6 +115,7 @@ impl Error for PlayerLogisticsRespawnCommitError {}
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerLogisticsRespawn {
+    expected_tick: SimulationTick,
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
     expected_world_revision: u64,
@@ -110,6 +134,13 @@ impl ValidatedPlayerLogisticsRespawn {
         &self,
         state: &AppState,
     ) -> Result<(), PlayerLogisticsRespawnCommitError> {
+        let actual_tick = state.tick();
+        if actual_tick != self.expected_tick {
+            return Err(PlayerLogisticsRespawnCommitError::StaleSimulationTick {
+                expected: self.expected_tick,
+                actual: actual_tick,
+            });
+        }
         let actual_logistics = state.logistics().revision();
         if actual_logistics != self.expected_logistics_revision {
             return Err(PlayerLogisticsRespawnCommitError::StaleLogisticsRevision {
@@ -236,6 +267,7 @@ pub(crate) fn validate_player_logistics_respawn(
         |body| (body, true),
     );
     Ok(ValidatedPlayerLogisticsRespawn {
+        expected_tick: state.tick(),
         expected_logistics_revision,
         next_logistics_revision,
         expected_world_revision: state.world().revision(),

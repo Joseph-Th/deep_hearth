@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 #[cfg(feature = "test-gameplay")]
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
 use crate::logistics::{
@@ -236,16 +237,41 @@ impl Error for PlayerRespawnError {}
 /// Failure when validated player admission is committed after one of its owners changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerAdmissionCommitError {
-    StaleSurvivalRevision { expected: u64, actual: u64 },
-    StaleLogisticsRevision { expected: u64, actual: u64 },
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    StaleWorldRevision { expected: u64, actual: u64 },
-    StaleStructureRevision { expected: u64, actual: u64 },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for PlayerAdmissionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "validated admission expected simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated player admission expected survival revision {expected} but current revision is {actual}"
@@ -274,16 +300,41 @@ impl Error for PlayerAdmissionCommitError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerRespawnCommitError {
-    StaleSurvivalRevision { expected: u64, actual: u64 },
-    StaleLogisticsRevision { expected: u64, actual: u64 },
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    StaleWorldRevision { expected: u64, actual: u64 },
-    StaleStructureRevision { expected: u64, actual: u64 },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for PlayerRespawnCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "validated respawn expected simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated respawn expected survival revision {expected} but current revision is {actual}"
@@ -380,6 +431,9 @@ impl ValidatedPlayerRespawn {
         self.logistics
             .precheck(state)
             .map_err(|error| match error {
+                PlayerLogisticsRespawnCommitError::StaleSimulationTick { expected, actual } => {
+                    PlayerRespawnCommitError::StaleSimulationTick { expected, actual }
+                }
                 PlayerLogisticsRespawnCommitError::StaleLogisticsRevision { expected, actual } => {
                     PlayerRespawnCommitError::StaleLogisticsRevision { expected, actual }
                 }
@@ -527,6 +581,9 @@ fn map_logistics_commit_error(
     error: InitializePlayerLogisticsCommitError,
 ) -> PlayerAdmissionCommitError {
     match error {
+        InitializePlayerLogisticsCommitError::SimulationTick { expected, actual } => {
+            PlayerAdmissionCommitError::StaleSimulationTick { expected, actual }
+        }
         InitializePlayerLogisticsCommitError::Logistics { expected, actual } => {
             PlayerAdmissionCommitError::StaleLogisticsRevision { expected, actual }
         }

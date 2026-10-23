@@ -314,6 +314,10 @@ and trusted loading likewise treat embodied, full-footprint structural cells
 as solid across the continuous body. Narrow posts and inert blueprints do not
 become voxel-wide walls. Player admission and respawn bind the structural
 revision so a panel erected after clearance validation invalidates commit.
+Both admission and respawn clearance also bind the simulation tick. A guardian can move on a
+slow tick without changing the world, structure, inventory, or logistics revisions; a delayed
+player commit rejects that stale clearance so the body must be checked against the resident's
+current position by a fresh validation.
 
 Generated terrain chooses exactly one temple-bearing chunk per eight-by-eight-chunk district,
 including negative coordinates, from the persisted world seed. Its buried site is independent
@@ -597,6 +601,10 @@ load on subsequent 20 Hz control samples rather than reserving a multi-tick move
 energy-store disassembly recovery likewise uses current carried capacity and owner revisions. Mount/unmount changes
 support without teleporting an existing location. Assembly establishes player-local world custody for newly created
 equipment/energy stores; disassembly removes that custody.
+The familiar maximum-fit quick-move first checks player authorization and exact-local ground
+access, then verifies that its selected stack still belongs to the current inventory revision
+before reporting destination capacity or delegating an exact inventory relocation. A stale stack
+cannot be interpreted as a current full-container result.
 
 Pointed storage placement additionally requires a generated empty destination voxel, clearance from the player,
 stationary assets, and structural elements, and a `FullCube` terrain block directly beneath the destination.

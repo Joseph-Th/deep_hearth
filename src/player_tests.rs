@@ -6,7 +6,8 @@ use crate::content::{
     make_test_registries_with_standard_sensible_heating,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
-use crate::core::state::{AppState, StateValidationError};
+use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
+use crate::core::time::SimulationTick;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::{add_equipment, validate_assemble_equipment};
 use crate::inventory::{
@@ -80,6 +81,50 @@ fn mark_player_dead(state: &mut AppState) {
             player.vitality_recovery_remainder(),
         ),
     );
+}
+
+#[test]
+fn admission_clearance_expires_after_a_simulation_tick() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let admitted_at = state.tick();
+    let pending = validate_admit_player(&registries, &state, position).unwrap();
+    apply_clock_advance(&mut state, SimulationTick::new(admitted_at.value() + 1));
+    let before = state.clone();
+    let actual = state.tick();
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(PlayerAdmissionCommitError::StaleSimulationTick {
+            expected: admitted_at,
+            actual,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn respawn_clearance_expires_after_a_simulation_tick() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    mark_player_dead(&mut state);
+    let prepared_at = state.tick();
+    let pending = validate_respawn_player(&registries, &state).unwrap();
+    apply_clock_advance(&mut state, SimulationTick::new(prepared_at.value() + 1));
+    let before = state.clone();
+    let actual = state.tick();
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(PlayerRespawnCommitError::StaleSimulationTick {
+            expected: prepared_at,
+            actual,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
