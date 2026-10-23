@@ -1600,6 +1600,135 @@ fn autonomous_warden_motion_invalidates_pending_respawn_clearance() {
 }
 
 #[test]
+fn a_temple_warden_sees_elevated_intruders_from_its_actual_upper_body() {
+    let (registries, mut state, route) = occupied_temple();
+    let elevated = VoxelCoord::new(route[2].x(), route[2].y() + 1, route[2].z());
+    relocate_player_for_test(&mut state, elevated);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(
+        !scout_visible_from(&registries, &state, route[0], elevated),
+        "floor-only vision misses the raised player's legs at three voxel steps"
+    );
+    assert!(
+        warden_sees_intruder(&registries, &state, route[0], elevated),
+        "a two-high warden must see from its physically clear upper body"
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    apply_temple_warden_tick(&registries, &mut state, SimulationTick::new(5));
+    apply_temple_warden_tick(&registries, &mut replay, SimulationTick::new(5));
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        1,
+        "the real sighting must change where the guardian physically stands"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let mut screened = replay.clone();
+    let upper_throat = VoxelCoord::new(route[1].x(), route[1].y() + 1, route[1].z());
+    // Reset to the original post before introducing a genuine upper-body wall.
+    screened.kobold_state_mut().temple_wardens.clear();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut screened,
+        upper_throat,
+        BLOCK_STATE_STONE,
+    );
+    assert!(
+        !warden_sees_intruder(&registries, &screened, route[0], elevated),
+        "a solid upper wall cannot be bypassed with floor or upper-body sight"
+    );
+    apply_temple_warden_tick(&registries, &mut screened, SimulationTick::new(5));
+    assert_eq!(
+        screened
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        0,
+    );
+    assert_eq!(validate_loaded_state(&registries, &screened), Ok(()));
+}
+
+#[test]
+fn distant_side_sighting_does_not_lure_a_warden_into_a_blind_patrol_oscillation() {
+    let (registries, mut state, route) = occupied_temple();
+    let flank = VoxelCoord::new(route[0].x() + 2, route[0].y(), route[0].z());
+    relocate_player_for_test(&mut state, flank);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(warden_sees_intruder(&registries, &state, route[0], flank));
+    assert!(
+        !warden_sees_intruder(&registries, &state, route[1], flank),
+        "an otherwise open future hall cell has no view of this side target"
+    );
+    advance_to(&registries, &mut state, 5);
+    advance_to(&registries, &mut state, 10);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        0,
+        "do not charge, lose sight, retreat and repeat while the player stands still"
+    );
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
+fn temple_warden_challenges_a_visible_side_approach_but_not_a_distant_or_rear_actor() {
+    let (registries, mut state, route) = occupied_temple();
+    let flank = VoxelCoord::new(route[0].x() + 1, route[0].y(), route[0].z());
+    relocate_player_for_test(&mut state, flank);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(
+        warden_sees_intruder(&registries, &state, route[0], flank),
+        "visible side approaches at the same hall depth should be defended"
+    );
+    advance_to(&registries, &mut state, 5);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        1
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+
+    let remote = VoxelCoord::new(route[0].x() + 3, route[0].y(), route[0].z());
+    relocate_player_for_test(&mut state, remote);
+    assert!(!warden_sees_intruder(&registries, &state, route[0], remote));
+    advance_to(&registries, &mut state, 10);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        0,
+        "without continuing local evidence, the heavy defender walks home"
+    );
+    let rear = VoxelCoord::new(route[0].x(), route[0].y(), route[0].z() + 1);
+    relocate_player_for_test(&mut state, rear);
+    assert!(
+        warden_sees_intruder(&registries, &state, route[0], rear),
+        "a rear actor can be visible even though the post's standing order forbids pursuit"
+    );
+    advance_to(&registries, &mut state, 15);
+    assert!(state.kobold_state().temple_wardens.is_empty());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn intruder_draws_a_warden_forward_by_one_real_cell_then_it_withdraws() {
     let (registries, mut state, route) = occupied_temple();
     assert_eq!(visible_guard(&registries, &state), Some(route[0]));

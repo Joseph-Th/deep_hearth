@@ -387,10 +387,16 @@ the pending plan rather than bypassing prospective occupancy admission.
 Archivists remain at their old posts with a solid two-by-two-cell floor footprint and
 three-cell body height; wardens occupy one-by-one-by-two cells. A warden follows a fixed
 three-cell, face-adjacent defensive route on the existing five-tick kobold clock when
-a player is in its generated temple column. Its step toward a living, visible intruder
-requires real air at body and head, full-cube support underfoot and clearance from the
-actual continuous player body footprint, stationary equipment and stores, and embodied
-structural member bounds. A stationary enclosure or built timber member can hold an
+a player is in its generated temple column. Local perception checks the guard's
+floor and upper body against both occupied player-body levels, with the same
+bounded opaque-block sight rays as other kobolds. Side approaches at the
+ancestral post's depth can be challenged, but the original post defines the
+outer boundary beyond which the guard will not pursue. The next defensive
+step also needs to preserve sight of the currently observed intruder, so a
+flank cannot induce a blind advance-and-retreat loop. Its movement requires
+real air at body and head, full-cube support underfoot and clearance from the
+actual continuous player body footprint, stationary equipment and stores, and
+embodied structural member bounds. A stationary enclosure or built timber member can hold an
 otherwise clear lane; a displaced guardian cannot retreat through a newly occupied ancestral post.
 Loss of contact causes one-cell-at-a-time withdrawal. The kobold owner persists only displaced wardens in
 strictly sorted per-temple records. Trusted load rejects duplicates, nonexistent sites,

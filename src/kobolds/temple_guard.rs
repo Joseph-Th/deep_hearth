@@ -2,7 +2,10 @@
 //!
 //! The architect's original post is implicit in generated geometry. Only a
 //! resident actually displaced by local player contact needs persistent state.
-//! Distant temples are neither scanned nor advanced, and there is no combat.
+//! Local sight uses the full two-high body and respects opaque stone. A guardian
+//! advances only while its next real hall cell can still see the same intruder,
+//! avoiding a blind charge/retreat oscillation. It does not pursue beyond its post
+//! toward the outer hall. Distant temples are never scanned, and there is no combat.
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -59,6 +62,31 @@ fn clear_standing_cell(registries: &Registries, state: &AppState, position: Voxe
             .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
 }
 
+/// The heavy guardian watches with its complete two-cell body, rather than
+/// seeing only along the floor. The player's occupied head cell is similarly
+/// observable. Each of the four local rays checks authoritative opacity and
+/// range, so this never reveals a distant or hidden actor.
+fn warden_sees_intruder(
+    registries: &Registries,
+    state: &AppState,
+    warden: VoxelCoord,
+    player: VoxelCoord,
+) -> bool {
+    let Some(warden_head_y) = warden.y().checked_add(1) else {
+        return false;
+    };
+    let Some(player_head_y) = player.y().checked_add(1) else {
+        return false;
+    };
+    let warden_head = VoxelCoord::new(warden.x(), warden_head_y, warden.z());
+    let player_head = VoxelCoord::new(player.x(), player_head_y, player.z());
+    [warden, warden_head].into_iter().any(|eye| {
+        [player, player_head]
+            .into_iter()
+            .any(|target| scout_visible_from(registries, state, eye, target))
+    })
+}
+
 /// Advance one resident over at most one real face-adjacent hall cell on the
 /// existing sparse scout clock. A living, visible intruder draws the guardian
 /// forward; otherwise it retreats one cell toward its ancestral post.
@@ -103,11 +131,20 @@ pub(super) fn apply_temple_warden_tick(
         if !clear_standing_cell(registries, state, current) {
             continue;
         }
+        // The ancestral post sets the defended inner-hall boundary. Checking
+        // direction against each future position would make a guardian forget
+        // a side intruder simply by stepping past it.
         let aware = alive
             && ChunkCoord::containing(player) == chunk
-            && player.z() < current.z()
-            && scout_visible_from(registries, state, current, player);
-        let next_step = if aware && step < 2 {
+            && player.z() <= route[0].z()
+            && warden_sees_intruder(registries, state, current, player);
+        // A defender must not oscillate between its post and a cell from
+        // which the same observed flank vanishes. It may challenge only a
+        // destination that preserves a local line of sight to that intruder.
+        let can_advance_while_watching = aware
+            && step < 2
+            && warden_sees_intruder(registries, state, route[usize::from(step + 1)], player);
+        let next_step = if can_advance_while_watching {
             step + 1
         } else if !aware && step > 0 {
             step - 1
