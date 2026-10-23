@@ -48,6 +48,12 @@ pub const TEXTURE_TEMPLE_DATA_PLATE: TextureId = TextureId::new(15);
 pub const TEXTURE_TEMPLE_BEARING_HOUSING: TextureId = TextureId::new(16);
 pub const TEXTURE_TEMPLE_REFRACTORY_FIXTURE: TextureId = TextureId::new(17);
 pub const TEXTURE_TEMPLE_CORROSION_PANEL: TextureId = TextureId::new(18);
+pub const TEXTURE_HEMATITE_ORE: TextureId = TextureId::new(19);
+pub const TEXTURE_CASSITERITE_ORE: TextureId = TextureId::new(20);
+pub const TEXTURE_SPHALERITE_ORE: TextureId = TextureId::new(21);
+pub const TEXTURE_MOLTEN_IRON: TextureId = TextureId::new(22);
+pub const TEXTURE_MOLTEN_TIN: TextureId = TextureId::new(23);
+pub const TEXTURE_MOLTEN_ZINC: TextureId = TextureId::new(24);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
 pub const BLOCK_STONE: BlockAppearanceId = BlockAppearanceId::new(2);
@@ -57,6 +63,9 @@ pub const BLOCK_TEMPLE_DATA_PLATE: BlockAppearanceId = BlockAppearanceId::new(5)
 pub const BLOCK_TEMPLE_BEARING_HOUSING: BlockAppearanceId = BlockAppearanceId::new(6);
 pub const BLOCK_TEMPLE_REFRACTORY_FIXTURE: BlockAppearanceId = BlockAppearanceId::new(7);
 pub const BLOCK_TEMPLE_CORROSION_PANEL: BlockAppearanceId = BlockAppearanceId::new(8);
+pub const BLOCK_HEMATITE_ORE: BlockAppearanceId = BlockAppearanceId::new(9);
+pub const BLOCK_CASSITERITE_ORE: BlockAppearanceId = BlockAppearanceId::new(10);
+pub const BLOCK_SPHALERITE_ORE: BlockAppearanceId = BlockAppearanceId::new(11);
 
 pub const OBJECT_LOG: ObjectAppearanceId = ObjectAppearanceId::new(1);
 pub const OBJECT_COPPER_ORE: ObjectAppearanceId = ObjectAppearanceId::new(3);
@@ -154,6 +163,15 @@ pub const OBJECT_ZINC_STOCK: ObjectAppearanceId = ObjectAppearanceId::new(90);
 pub const OBJECT_IRON_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(91);
 pub const OBJECT_TIN_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(92);
 pub const OBJECT_ZINC_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(93);
+pub const OBJECT_HEMATITE_ORE: ObjectAppearanceId = ObjectAppearanceId::new(94);
+pub const OBJECT_CASSITERITE_ORE: ObjectAppearanceId = ObjectAppearanceId::new(95);
+pub const OBJECT_SPHALERITE_ORE: ObjectAppearanceId = ObjectAppearanceId::new(96);
+pub const OBJECT_CRUSHED_HEMATITE: ObjectAppearanceId = ObjectAppearanceId::new(97);
+pub const OBJECT_CRUSHED_CASSITERITE: ObjectAppearanceId = ObjectAppearanceId::new(98);
+pub const OBJECT_CRUSHED_SPHALERITE: ObjectAppearanceId = ObjectAppearanceId::new(99);
+pub const OBJECT_MOLTEN_IRON: ObjectAppearanceId = ObjectAppearanceId::new(100);
+pub const OBJECT_MOLTEN_TIN: ObjectAppearanceId = ObjectAppearanceId::new(101);
+pub const OBJECT_MOLTEN_ZINC: ObjectAppearanceId = ObjectAppearanceId::new(102);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -385,6 +403,48 @@ fn build_textures() -> Vec<TextureDefinition> {
             TextureAlphaMode::Opaque,
             working_metal_pattern(),
         ),
+        texture(
+            TEXTURE_HEMATITE_ORE,
+            "hematite ore surface",
+            &[RAMP_RUST, RAMP_STONE],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
+            TEXTURE_CASSITERITE_ORE,
+            "cassiterite ore surface",
+            &[RAMP_STEEL, RAMP_STONE],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
+            TEXTURE_SPHALERITE_ORE,
+            "sphalerite ore surface",
+            &[RAMP_DARK_MINERAL, RAMP_RUST],
+            TextureAlphaMode::Opaque,
+            ore_pattern(),
+        ),
+        texture(
+            TEXTURE_MOLTEN_IRON,
+            "molten iron surface",
+            &[RAMP_MOLTEN, RAMP_RUST],
+            TextureAlphaMode::Opaque,
+            molten_pattern(),
+        ),
+        texture(
+            TEXTURE_MOLTEN_TIN,
+            "molten tin surface",
+            &[RAMP_MOLTEN, RAMP_STEEL],
+            TextureAlphaMode::Opaque,
+            molten_pattern(),
+        ),
+        texture(
+            TEXTURE_MOLTEN_ZINC,
+            "molten zinc surface",
+            &[RAMP_MOLTEN, RAMP_SOOT],
+            TextureAlphaMode::Opaque,
+            molten_pattern(),
+        ),
     ]
 }
 
@@ -447,6 +507,21 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             BLOCK_TEMPLE_CORROSION_PANEL,
             "zinc corrosion protection panel",
             TEXTURE_TEMPLE_CORROSION_PANEL,
+        ),
+        BlockAppearanceDefinition::uniform(
+            BLOCK_HEMATITE_ORE,
+            "hematite ore",
+            TEXTURE_HEMATITE_ORE,
+        ),
+        BlockAppearanceDefinition::uniform(
+            BLOCK_CASSITERITE_ORE,
+            "cassiterite ore",
+            TEXTURE_CASSITERITE_ORE,
+        ),
+        BlockAppearanceDefinition::uniform(
+            BLOCK_SPHALERITE_ORE,
+            "sphalerite ore",
+            TEXTURE_SPHALERITE_ORE,
         ),
     ]
 }

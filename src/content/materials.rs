@@ -21,6 +21,12 @@ pub const MATERIAL_WILD_NUTS: MaterialId = MaterialId::new(12);
 pub const MATERIAL_IRON: MaterialId = MaterialId::new(13);
 pub const MATERIAL_TIN: MaterialId = MaterialId::new(14);
 pub const MATERIAL_ZINC: MaterialId = MaterialId::new(15);
+/// Iron oxide, Fe2O3; requires chemical reduction to yield iron.
+pub const MATERIAL_HEMATITE: MaterialId = MaterialId::new(16);
+/// Tin oxide, SnO2; not elemental tin.
+pub const MATERIAL_CASSITERITE: MaterialId = MaterialId::new(17);
+/// Zinc sulfide, ZnS; chemical reduction/roasting is not generic melting.
+pub const MATERIAL_SPHALERITE: MaterialId = MaterialId::new(18);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 pub(crate) const IRON_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_811_000);
 pub(crate) const TIN_MELTING_POINT: Temperature = Temperature::from_millikelvin(505_080);
@@ -149,7 +155,15 @@ fn register_forms(registry: &mut MaterialRegistry) {
         )
         .as_residual(),
         consolidated_form(FORM_LUMP, "lump"),
-        consolidated_form(FORM_ORE, "ore"),
+        // Ore lumps excavated from a solid world block are loose material.
+        // The block carries rock cohesion; extracted ore needs no extra
+        // shaping step before canonical crushing and particle-size tracking.
+        loose_form(
+            FORM_ORE,
+            "ore",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        ),
         loose_form(
             FORM_CONCENTRATE,
             "concentrate",
@@ -242,6 +256,33 @@ fn register_materials(registry: &mut MaterialRegistry) {
                     Some(FusionProperties::new(ZINC_MELTING_POINT, 112_000)),
                 ),
                 Some(StructuralProperties::new(37_000, 108_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_HEMATITE,
+            "hematite (Fe2O3)",
+            MaterialProperties::new(
+                5_260,
+                ThermalProperties::new(650, None),
+                Some(StructuralProperties::new(160_000, 15_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_CASSITERITE,
+            "cassiterite (SnO2)",
+            MaterialProperties::new(
+                6_900,
+                ThermalProperties::new(410, None),
+                Some(StructuralProperties::new(250_000, 20_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_SPHALERITE,
+            "sphalerite (ZnS)",
+            MaterialProperties::new(
+                4_100,
+                ThermalProperties::new(520, None),
+                Some(StructuralProperties::new(110_000, 15_000)),
             ),
         ),
         MaterialDefinition::new(
@@ -396,6 +437,7 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         ),
         (CommodityKey::new(MATERIAL_IRON, FORM_SCRAP), "iron scrap"),
         (CommodityKey::new(MATERIAL_IRON, FORM_CHIP), "iron chips"),
+        (CommodityKey::new(MATERIAL_IRON, FORM_MOLTEN), "molten iron"),
         (CommodityKey::new(MATERIAL_TIN, FORM_INGOT), "tin ingot"),
         (
             CommodityKey::new(MATERIAL_TIN, FORM_BLOCK),
@@ -403,6 +445,7 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         ),
         (CommodityKey::new(MATERIAL_TIN, FORM_SCRAP), "tin scrap"),
         (CommodityKey::new(MATERIAL_TIN, FORM_CHIP), "tin chips"),
+        (CommodityKey::new(MATERIAL_TIN, FORM_MOLTEN), "molten tin"),
         (CommodityKey::new(MATERIAL_ZINC, FORM_INGOT), "zinc ingot"),
         (
             CommodityKey::new(MATERIAL_ZINC, FORM_BLOCK),
@@ -410,6 +453,31 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         ),
         (CommodityKey::new(MATERIAL_ZINC, FORM_SCRAP), "zinc scrap"),
         (CommodityKey::new(MATERIAL_ZINC, FORM_CHIP), "zinc chips"),
+        (CommodityKey::new(MATERIAL_ZINC, FORM_MOLTEN), "molten zinc"),
+        (
+            CommodityKey::new(MATERIAL_HEMATITE, FORM_ORE),
+            "hematite ore",
+        ),
+        (
+            CommodityKey::new(MATERIAL_HEMATITE, FORM_CRUSHED),
+            "crushed hematite",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CASSITERITE, FORM_ORE),
+            "cassiterite ore",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CASSITERITE, FORM_CRUSHED),
+            "crushed cassiterite",
+        ),
+        (
+            CommodityKey::new(MATERIAL_SPHALERITE, FORM_ORE),
+            "sphalerite ore",
+        ),
+        (
+            CommodityKey::new(MATERIAL_SPHALERITE, FORM_CRUSHED),
+            "crushed sphalerite",
+        ),
         (
             CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
             "crushed slag",

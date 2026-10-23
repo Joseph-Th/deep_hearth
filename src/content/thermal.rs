@@ -12,14 +12,34 @@ use super::capabilities::{
     CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 use super::materials::{
-    FORM_CHIP, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
-    MATERIAL_COPPER,
+    FORM_BLOCK, FORM_CHIP, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
+    FORM_SCRAP, MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_TIN, MATERIAL_ZINC,
 };
 use super::processes::{
-    PROCESS_CAST_PURE_COPPER, PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER,
+    PROCESS_CAST_IRON_INGOT, PROCESS_CAST_PURE_COPPER, PROCESS_CAST_TIN_INGOT,
+    PROCESS_CAST_ZINC_INGOT, PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER,
+    PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC,
 };
 
 pub(crate) fn build_thermal_registry() -> ThermalRegistry {
+    let melting_profile = || {
+        PhaseChangeProcessProfile::new(
+            CAPABILITY_HEATING_POWER,
+            CAPABILITY_THERMAL_MAX_TEMPERATURE,
+            CAPABILITY_THERMAL_BATCH,
+            EnergyCarrier::Electrical,
+            10,
+        )
+    };
+    let casting_profile = || {
+        PhaseChangeProcessProfile::new(
+            CAPABILITY_COOLING_POWER,
+            CAPABILITY_THERMAL_MAX_TEMPERATURE,
+            CAPABILITY_THERMAL_BATCH,
+            EnergyCarrier::Thermal,
+            10,
+        )
+    };
     ThermalRegistry::new(
         [SensibleHeatingProcessDefinition::new(
             PROCESS_HEAT_MATERIAL_BATCH,
@@ -29,39 +49,91 @@ pub(crate) fn build_thermal_registry() -> ThermalRegistry {
             EnergyCarrier::Electrical,
             10,
         )],
-        [MeltingProcessDefinition::new(
-            PROCESS_MELT_PURE_COPPER,
-            PhaseChangeProcessProfile::new(
-                CAPABILITY_HEATING_POWER,
-                CAPABILITY_THERMAL_MAX_TEMPERATURE,
-                CAPABILITY_THERMAL_BATCH,
-                EnergyCarrier::Electrical,
-                10,
+        [
+            MeltingProcessDefinition::new(
+                PROCESS_MELT_PURE_COPPER,
+                PhaseChangeProcessProfile::new(
+                    CAPABILITY_HEATING_POWER,
+                    CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                    CAPABILITY_THERMAL_BATCH,
+                    EnergyCarrier::Electrical,
+                    10,
+                ),
+                MATERIAL_COPPER,
+                vec![
+                    FORM_INGOT,
+                    FORM_CHIP,
+                    FORM_REINFORCEMENT,
+                    FORM_NATIVE_METAL,
+                    FORM_SCRAP,
+                ],
+                FORM_MOLTEN,
             ),
-            MATERIAL_COPPER,
-            vec![
-                FORM_INGOT,
-                FORM_CHIP,
-                FORM_REINFORCEMENT,
-                FORM_NATIVE_METAL,
-                FORM_SCRAP,
-            ],
-            FORM_MOLTEN,
-        )],
-        [CastingProcessDefinition::new(
-            PROCESS_CAST_PURE_COPPER,
-            PhaseChangeProcessProfile::new(
-                CAPABILITY_COOLING_POWER,
-                CAPABILITY_THERMAL_MAX_TEMPERATURE,
-                CAPABILITY_THERMAL_BATCH,
-                EnergyCarrier::Thermal,
-                10,
+            MeltingProcessDefinition::new(
+                PROCESS_MELT_RECYCLED_IRON,
+                melting_profile(),
+                MATERIAL_IRON,
+                vec![FORM_INGOT, FORM_CHIP, FORM_SCRAP, FORM_BLOCK],
+                FORM_MOLTEN,
             ),
-            MATERIAL_COPPER,
-            CastingPhaseChange::new(
-                PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
-                Temperature::from_millikelvin(293_150),
+            MeltingProcessDefinition::new(
+                PROCESS_MELT_RECYCLED_TIN,
+                melting_profile(),
+                MATERIAL_TIN,
+                vec![FORM_INGOT, FORM_CHIP, FORM_SCRAP, FORM_BLOCK],
+                FORM_MOLTEN,
             ),
-        )],
+            MeltingProcessDefinition::new(
+                PROCESS_MELT_RECYCLED_ZINC,
+                melting_profile(),
+                MATERIAL_ZINC,
+                vec![FORM_INGOT, FORM_CHIP, FORM_SCRAP, FORM_BLOCK],
+                FORM_MOLTEN,
+            ),
+        ],
+        [
+            CastingProcessDefinition::new(
+                PROCESS_CAST_PURE_COPPER,
+                PhaseChangeProcessProfile::new(
+                    CAPABILITY_COOLING_POWER,
+                    CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                    CAPABILITY_THERMAL_BATCH,
+                    EnergyCarrier::Thermal,
+                    10,
+                ),
+                MATERIAL_COPPER,
+                CastingPhaseChange::new(
+                    PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+                    Temperature::from_millikelvin(293_150),
+                ),
+            ),
+            CastingProcessDefinition::new(
+                PROCESS_CAST_IRON_INGOT,
+                casting_profile(),
+                MATERIAL_IRON,
+                CastingPhaseChange::new(
+                    PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+                    Temperature::from_millikelvin(293_150),
+                ),
+            ),
+            CastingProcessDefinition::new(
+                PROCESS_CAST_TIN_INGOT,
+                casting_profile(),
+                MATERIAL_TIN,
+                CastingPhaseChange::new(
+                    PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+                    Temperature::from_millikelvin(293_150),
+                ),
+            ),
+            CastingProcessDefinition::new(
+                PROCESS_CAST_ZINC_INGOT,
+                casting_profile(),
+                MATERIAL_ZINC,
+                CastingPhaseChange::new(
+                    PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+                    Temperature::from_millikelvin(293_150),
+                ),
+            ),
+        ],
     )
 }

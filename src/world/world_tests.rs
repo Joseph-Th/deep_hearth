@@ -1842,25 +1842,34 @@ fn generated_chunk_distinguishes_air_from_absent_world_truth() {
 fn generated_terrain_is_included_in_exact_matter_accounting() {
     let registries = build_registries();
     let mut state = AppState::new();
-    // Find an ordinary stone column. Each seeded district contains exactly one
-    // temple chunk, so non-temple terrain has its original homogeneous accounting.
+    // A non-temple column still contains seeded mineral lenses in host rock.
+    // Compute its expected mass from each independently registered voxel state,
+    // not by assuming every occupied voxel has the density of stone.
     let ordinary = (0..8)
         .map(|x| ChunkCoord::new(x, 0))
         .find(|chunk| super::generation::temple::TempleSite::for_chunk(SEED, *chunk).is_none())
         .expect("one of eight columns is not the temple site");
     generate(&mut state, ordinary);
 
-    let occupied_cells = state
-        .world()
-        .chunks()
-        .flat_map(|chunk| chunk.sections())
-        .map(|section| u128::from(section.non_air_count()))
-        .sum::<u128>();
-    let stone_mass = registries
-        .world()
-        .represented_mass_for_state(BLOCK_STATE_STONE)
-        .unwrap_or_else(|| panic!("stone block state lost represented mass"));
-    let expected = occupied_cells * u128::from(stone_mass.milligrams());
+    let mut expected = 0u128;
+    for x in ordinary.world_min_x().unwrap()..ordinary.world_min_x().unwrap() + CHUNK_SIDE as i64 {
+        for z in
+            ordinary.world_min_z().unwrap()..ordinary.world_min_z().unwrap() + CHUNK_SIDE as i64
+        {
+            for y in WORLD_MIN_Y..=4 {
+                let block = state.world().block_at(VoxelCoord::new(x, y, z)).unwrap();
+                if block != BlockStateId::AIR {
+                    expected += u128::from(
+                        registries
+                            .world()
+                            .represented_mass_for_state(block)
+                            .unwrap()
+                            .milligrams(),
+                    );
+                }
+            }
+        }
+    }
     let accounting = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("world matter accounting failed: {error}"));
 

@@ -46,14 +46,14 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | --- | --- |
 | Core | Persisted 20 Hz `ControlTick` + exact 72:1 `SimulationTick`; slow-step only when no control-rate consequence can occur. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
-| Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume. |
+| Production | Timed closed-mass jobs, exact inputs, output reservations/routing, persisted work-in-process, and support-aware suspension/resume; iron/tin/zinc remelt and cast. |
 | Crafting | Carried recipe/batch crafting selects exact lots privately; meaningful stack choice stays explicit. |
-| Logistics | Fixed-point body/carrying, 20 Hz collision and load-scaled exertion, falling injury, opening observation, equipment carry, nine-slot hotbar, buffered actions, local inventory, quick-move and access checks. |
+| Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. Deep exposed residue layers obstruct ground-storage footing until cleared. |
 | Energy and fluids | Finite typed stores with power/loss limits. Log or chip fuel becomes finite campfire heat with terminal mass accounting; water is locally finite/drinkable. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Mass-backed chunks, sparse temple halls, workshops, four material-specific service bays, stairs, surface seals, seven finite assemblies and defensive wardens; distinct solid heavy-caste bodies block player walking, admission and respawn. Targeting, excavation, fragments, storage and framing exist. General placement, UI and residency absent. |
+| Block world | Mass-backed terrain with seeded mineral seams, temple rooms, stairs, seven finite assemblies and solid caste bodies; collision and admission respect occupancy. Excavation, fragments and targeting exist; placement, UI, residency absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

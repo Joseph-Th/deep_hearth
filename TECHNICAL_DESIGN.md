@@ -382,11 +382,32 @@ materials, authored break hardness and scrap/chip forms matching their input mat
 no non-copper fragment is silently converted to copper. Iron (7,870 kg/m³, 1,811 K melting),
 tin (7,310 kg/m³, 505.08 K) and zinc (7,140 kg/m³, 692.68 K) are registered with
 specific heats, latent heats and structural strengths. Their stock and residual commodities
-have distinct indexed object appearance bindings; no new furnace process is implied.
+have distinct indexed object appearance bindings. Stock and reclaimed scrap
+of each metal have separate electrical melting and thermal casting definitions,
+using existing finite-power, thermal-transfer and equipment-condition resolvers.
+Inputs are iron/tin/zinc ingots, stock blocks, chips and scrap. The output is
+molten elemental metal, which can be cooled to ingots. No furnace operation is
+unlocked without an equipment provider with sufficient heating power and maximum
+temperature; iron requires 1,811 K, zinc 692.68 K, and tin 505.08 K.
+
+Deep generated stone terrain contains sparse deterministic 4 m mineral lenses
+between elevations -55 and -26. Each mineral lens is selected by the world seed
+and a 3D 4 m lattice hash, independent of chunk generation order. Hematite
+(Fe2O3, 5,260 kg/m³), cassiterite (SnO2, 6,900 kg/m³), and sphalerite
+(ZnS, 4,100 kg/m³) have separate block identities, physical hardness, exact
+mineral mass, ore-lump excavation custody, crushed-ore commodities and indexed
+presentation. The authored ore form is loose, matching the excavated product;
+rock cohesion is provided by its still-intact world block. Existing real ore
+crushing and sizing resolvers accept the mined ore material without creating
+any refined metal. Oxide/sulfide reduction, roasting, off-gas/byproduct custody,
+alloying, metallurgy heat treatment and independent mineral-prospecting knowledge
+remain outside the implemented chain. The ore lens placement is not a registered
+finite geology deposit and is not automatically discoverable via survey evidence.
+
 The archive shell, motive-drive shell and external threshold use copper.
-The active built-in registry schema is 141; saves with another registry schema
-are rejected before material mass and identity validation. No registry-140
-migration is available in this build. All seven devices are finite and inactive
+The active built-in registry schema is 142; saves with another registry schema
+are rejected before material mass and identity validation. No older content
+schema migration is available in this build. All seven devices are finite and inactive
 until an explicit operation exists.
 Heavy castes originate in separately observable temple room cells.
 The seeded sanctuary is fixed before loading, but its residents acquire physical

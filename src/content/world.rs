@@ -8,12 +8,14 @@ use crate::world::{
 };
 
 use super::materials::{
-    FORM_BLOCK, FORM_CHIP, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_STONE,
-    MATERIAL_TIN, MATERIAL_ZINC,
+    FORM_BLOCK, FORM_CHIP, FORM_ORE, FORM_SCRAP, MATERIAL_CASSITERITE, MATERIAL_COPPER,
+    MATERIAL_HEMATITE, MATERIAL_IRON, MATERIAL_SPHALERITE, MATERIAL_STONE, MATERIAL_TIN,
+    MATERIAL_ZINC,
 };
 use super::textures::{
-    BLOCK_COPPER, BLOCK_STONE, BLOCK_TEMPLE_BEARING_HOUSING, BLOCK_TEMPLE_CORROSION_PANEL,
-    BLOCK_TEMPLE_DATA_PLATE, BLOCK_TEMPLE_REFRACTORY_FIXTURE,
+    BLOCK_CASSITERITE_ORE, BLOCK_COPPER, BLOCK_HEMATITE_ORE, BLOCK_SPHALERITE_ORE, BLOCK_STONE,
+    BLOCK_TEMPLE_BEARING_HOUSING, BLOCK_TEMPLE_CORROSION_PANEL, BLOCK_TEMPLE_DATA_PLATE,
+    BLOCK_TEMPLE_REFRACTORY_FIXTURE,
 };
 
 pub const WORLD_BLOCK_STONE: BlockDefinitionId = BlockDefinitionId::new(2);
@@ -24,6 +26,9 @@ pub const WORLD_BLOCK_TEMPLE_TIN_DATA_PLATE: BlockDefinitionId = BlockDefinition
 pub const WORLD_BLOCK_TEMPLE_IRON_BEARING_HOUSING: BlockDefinitionId = BlockDefinitionId::new(7);
 pub const WORLD_BLOCK_TEMPLE_REFRACTORY_FIXTURE: BlockDefinitionId = BlockDefinitionId::new(8);
 pub const WORLD_BLOCK_TEMPLE_ZINC_CORROSION_PANEL: BlockDefinitionId = BlockDefinitionId::new(9);
+pub const WORLD_BLOCK_HEMATITE_ORE: BlockDefinitionId = BlockDefinitionId::new(10);
+pub const WORLD_BLOCK_CASSITERITE_ORE: BlockDefinitionId = BlockDefinitionId::new(11);
+pub const WORLD_BLOCK_SPHALERITE_ORE: BlockDefinitionId = BlockDefinitionId::new(12);
 
 pub const BLOCK_STATE_STONE: BlockStateId = BlockStateId::new(2);
 pub const BLOCK_STATE_TEMPLE_ARCHIVE: BlockStateId = BlockStateId::new(3);
@@ -33,6 +38,9 @@ pub const BLOCK_STATE_TEMPLE_TIN_DATA_PLATE: BlockStateId = BlockStateId::new(6)
 pub const BLOCK_STATE_TEMPLE_IRON_BEARING_HOUSING: BlockStateId = BlockStateId::new(7);
 pub const BLOCK_STATE_TEMPLE_REFRACTORY_FIXTURE: BlockStateId = BlockStateId::new(8);
 pub const BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL: BlockStateId = BlockStateId::new(9);
+pub const BLOCK_STATE_HEMATITE_ORE: BlockStateId = BlockStateId::new(10);
+pub const BLOCK_STATE_CASSITERITE_ORE: BlockStateId = BlockStateId::new(11);
+pub const BLOCK_STATE_SPHALERITE_ORE: BlockStateId = BlockStateId::new(12);
 
 pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistry {
     WorldRegistry::new(
@@ -193,6 +201,59 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                 )),
                 Some(BLOCK_TEMPLE_CORROSION_PANEL),
             ),
+            // Distinct compounds remain ore through mining and comminution;
+            // none can be melted directly into elemental iron, tin or zinc.
+            BlockDefinition::new(
+                WORLD_BLOCK_HEMATITE_ORE,
+                "hematite mineral deposit",
+                BLOCK_STATE_HEMATITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_HEMATITE, FORM_ORE)),
+                    full_cube_mass(materials, MATERIAL_HEMATITE),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(550_000_000),
+                    CommodityKey::new(MATERIAL_HEMATITE, FORM_ORE),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_HEMATITE_ORE),
+            ),
+            BlockDefinition::new(
+                WORLD_BLOCK_CASSITERITE_ORE,
+                "cassiterite mineral deposit",
+                BLOCK_STATE_CASSITERITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_CASSITERITE, FORM_ORE)),
+                    full_cube_mass(materials, MATERIAL_CASSITERITE),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(490_000_000),
+                    CommodityKey::new(MATERIAL_CASSITERITE, FORM_ORE),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_CASSITERITE_ORE),
+            ),
+            BlockDefinition::new(
+                WORLD_BLOCK_SPHALERITE_ORE,
+                "sphalerite mineral deposit",
+                BLOCK_STATE_SPHALERITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_SPHALERITE, FORM_ORE)),
+                    full_cube_mass(materials, MATERIAL_SPHALERITE),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(BlockExcavationDefinition::new(
+                    Pressure::from_pascals(350_000_000),
+                    CommodityKey::new(MATERIAL_SPHALERITE, FORM_ORE),
+                    Temperature::from_millikelvin(293_150),
+                )),
+                Some(BLOCK_SPHALERITE_ORE),
+            ),
         ],
         [
             BlockStateDefinition::new(BlockStateId::AIR, BlockDefinitionId::AIR),
@@ -216,6 +277,9 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                 BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL,
                 WORLD_BLOCK_TEMPLE_ZINC_CORROSION_PANEL,
             ),
+            BlockStateDefinition::new(BLOCK_STATE_HEMATITE_ORE, WORLD_BLOCK_HEMATITE_ORE),
+            BlockStateDefinition::new(BLOCK_STATE_CASSITERITE_ORE, WORLD_BLOCK_CASSITERITE_ORE),
+            BlockStateDefinition::new(BLOCK_STATE_SPHALERITE_ORE, WORLD_BLOCK_SPHALERITE_ORE),
         ],
     )
 }

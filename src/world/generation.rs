@@ -554,6 +554,18 @@ fn build_generated_chunk(
     // Alternate authored registries used by capability scenarios may not have ancient
     // relic blocks. Such worlds retain their valid original terrain identity.
     let temple = temple_site_for_chunk(registry, profile, coord);
+    // Only the canonical stone terrain includes these mineral seams. Capability
+    // registries without the complete authored mineral set retain their existing
+    // homogeneous terrain behavior.
+    let mineral_states = [
+        crate::content::BLOCK_STATE_HEMATITE_ORE,
+        crate::content::BLOCK_STATE_CASSITERITE_ORE,
+        crate::content::BLOCK_STATE_SPHALERITE_ORE,
+    ];
+    let mineral_enabled = profile.solid_state() == crate::content::BLOCK_STATE_STONE
+        && mineral_states
+            .iter()
+            .all(|&ore| registry.get_state(ore).is_some());
     for local_z in 0..CHUNK_SIDE {
         for local_x in 0..CHUNK_SIDE {
             let x = min_x + local_x as i64;
@@ -586,6 +598,16 @@ fn build_generated_chunk(
                     }
                     continue;
                 }
+                if mineral_enabled
+                    && let Some(ore) =
+                        seeded_mineral_state(profile.seed(), position, mineral_states)
+                {
+                    let mass = registry
+                        .represented_mass_for_state(ore)
+                        .unwrap_or_else(|| unreachable!("all mineral states are registered"));
+                    chunk.set_block(position, ore, crate::core::quantity::Mass::ZERO, mass);
+                    continue;
+                }
                 chunk.set_block(
                     position,
                     profile.solid_state(),
@@ -597,6 +619,27 @@ fn build_generated_chunk(
     }
     chunk.canonicalize_sections();
     Ok(chunk)
+}
+
+/// 4 m mineral lenses at bounded deep elevations. This is seeded terrain
+/// identity: no virtual deposits, no metal extracted from chemically bound ore,
+/// and no repeated discovery rolls when the same chunk is reloaded.
+fn seeded_mineral_state(
+    seed: WorldGenerationSeed,
+    position: VoxelCoord,
+    states: [BlockStateId; 3],
+) -> Option<BlockStateId> {
+    if !(-55..=-26).contains(&position.y()) {
+        return None;
+    }
+    let hash = mix64(
+        seed.value()
+            ^ (position.x().div_euclid(4) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            ^ (position.y().div_euclid(4) as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93)
+            ^ (position.z().div_euclid(4) as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+            ^ 0x4D49_4E45_5241_4C53,
+    );
+    (hash % 89 == 0).then(|| states[((hash >> 13) % 3) as usize])
 }
 
 /// Newly generated solid cells must not conceal finite loose material that

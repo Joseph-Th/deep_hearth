@@ -50,3 +50,7 @@ mod tests;
 #[cfg(test)]
 #[path = "temple_tests.rs"]
 mod temple_tests;
+
+#[cfg(test)]
+#[path = "mineral_tests.rs"]
+mod mineral_tests;

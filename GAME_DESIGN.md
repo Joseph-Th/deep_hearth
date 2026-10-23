@@ -207,6 +207,18 @@ Resources should usually have competing uses. Every material or social sink need
 | Workers and settlements | Skill, organization, specialization, trade, transport, and continuing economic relationships shift work away from direct player input. |
 | Sanitation and environment | Dense settlement and industry create physical waste, pollution, water-quality, and habitat constraints that require management. |
 
+The current mineral/metallurgy implementation covers more than the initial copper
+line but not the complete industrial progression in this table. Deep host rock
+contains finite lenses of hematite, cassiterite and sphalerite, distinguishable
+as actual mineral compounds. Mining yields their ore-lump forms; crushing and
+particle-size operations prepare these materials without magically releasing
+iron, tin or zinc. Oxide and sulfide reduction must later explicitly account for
+reductants, energy, oxygen/sulfur byproducts, waste and material yields. Separately,
+existing iron, tin and zinc stock or reclaimed scrap can be remelted with finite
+powered equipment and cast into new ingots. Metals differ in density, melting
+threshold, heat storage and structural behavior. This is a partial material
+chain, not a claim of complete smelting, alloying or GregTech-scale automation.
+
 ### Living-world adversaries
 
 Enemies are residents of the same world as the player, not combat encounters materialized for convenience.

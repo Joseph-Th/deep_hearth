@@ -85,6 +85,12 @@ pub const PROCESS_POWER_DRILL_CAST_COPPER_SCREEN_PLATE: ProcessId = ProcessId::n
 /// Rip prepared board stock into short handle blanks with explicit offcuts.
 pub const PROCESS_CUT_BOARD_HANDLES: ProcessId = ProcessId::new(73);
 pub const PROCESS_POWER_TURN_BOARD_HANDLES: ProcessId = ProcessId::new(74);
+pub const PROCESS_MELT_RECYCLED_IRON: ProcessId = ProcessId::new(75);
+pub const PROCESS_CAST_IRON_INGOT: ProcessId = ProcessId::new(76);
+pub const PROCESS_MELT_RECYCLED_TIN: ProcessId = ProcessId::new(77);
+pub const PROCESS_CAST_TIN_INGOT: ProcessId = ProcessId::new(78);
+pub const PROCESS_MELT_RECYCLED_ZINC: ProcessId = ProcessId::new(79);
+pub const PROCESS_CAST_ZINC_INGOT: ProcessId = ProcessId::new(80);
 
 mod fabrication;
 mod ore;
