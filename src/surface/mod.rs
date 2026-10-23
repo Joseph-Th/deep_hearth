@@ -130,11 +130,11 @@ pub(crate) fn split_bulk_scavenged_drop_step(
     )
 }
 
-/// Split a bulky drop with a local stone wedge, retaining both exact physical
-/// outputs: the hauled daughter and the wedge's abrasion debris at the worksite.
+/// Split a bulky drop with a local improvised head, retaining both exact physical
+/// outputs: the hauled daughter and the head's abrasion debris at the worksite.
 /// Creation and both source decrements are prevalidated as one surface operation.
 /// No bulk split succeeds if the surface cannot also represent tool wear.
-pub(crate) fn split_bulk_scavenged_drop_with_wedge_wear(
+pub(crate) fn split_bulk_scavenged_drop_with_head_wear(
     registries: &crate::registry::Registries,
     state: &mut crate::core::state::AppState,
     source: SurfaceResourceId,
@@ -142,8 +142,9 @@ pub(crate) fn split_bulk_scavenged_drop_with_wedge_wear(
     to: crate::spatial::VoxelCoord,
     at: crate::core::time::SimulationTick,
     maximum_mass: crate::core::quantity::Mass,
-    wedge: SurfaceResourceId,
+    head: SurfaceResourceId,
     wear_mass: crate::core::quantity::Mass,
+    residue_form: crate::material::FormId,
 ) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
     materialize_scavenged_portion(
         registries,
@@ -154,7 +155,7 @@ pub(crate) fn split_bulk_scavenged_drop_with_wedge_wear(
         at,
         maximum_mass,
         SurfaceResourceKind::Drop,
-        Some((wedge, wear_mass)),
+        Some((head, wear_mass, residue_form)),
     )
 }
 
@@ -169,9 +170,13 @@ fn materialize_scavenged_portion(
     at: crate::core::time::SimulationTick,
     maximum_mass: crate::core::quantity::Mass,
     source_kind: SurfaceResourceKind,
-    wedge_wear: Option<(SurfaceResourceId, crate::core::quantity::Mass)>,
+    head_wear: Option<(
+        SurfaceResourceId,
+        crate::core::quantity::Mass,
+        crate::material::FormId,
+    )>,
 ) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
-    let required_revisions = if wedge_wear.is_some() { 3 } else { 2 };
+    let required_revisions = if head_wear.is_some() { 3 } else { 2 };
     if !from.is_face_adjacent_to(to) || !state.can_spend_surface_revisions(required_revisions) {
         return None;
     }
@@ -202,9 +207,9 @@ fn materialize_scavenged_portion(
         origin.ambient_storage_age_parts_at(at)?,
     )
     .ok()?;
-    let abrasion_parcel = if let Some((wedge, abrasion)) = wedge_wear {
-        let worn = state.surface().get(wedge)?;
-        if wedge == source
+    let abrasion_parcel = if let Some((head, abrasion, residue_form)) = head_wear {
+        let worn = state.surface().get(head)?;
+        if head == source
             || abrasion.is_zero()
             || worn.kind() != SurfaceResourceKind::Drop
             || worn.lifecycle() != SurfaceResourceLifecycle::Available
@@ -213,12 +218,34 @@ fn materialize_scavenged_portion(
         {
             return None;
         }
+        // A working stone chip sheds more chips. A bent copper ingot sheds
+        // actual copper scrap, never magically smaller finished ingots.
+        // Only authored residual forms can be generated through abrasion.
+        if !registries
+            .materials()
+            .get_form(residue_form)
+            .is_some_and(|form| form.is_residual())
+        {
+            return None;
+        }
+        let profile = if worn.commodity().form() == residue_form {
+            worn.material_profile().clone()
+        } else {
+            let spec = crate::material::MaterialLotSpec::with_composition(
+                crate::material::CommodityKey::new(worn.commodity().material(), residue_form),
+                abrasion,
+                worn.temperature(),
+                worn.composition().clone(),
+            )
+            .ok()?;
+            crate::inventory::MaterialLotProfile::from_spec(&spec)
+        };
         Some(
             creation::SurfaceResourceSpec::from_existing_material(
                 SurfaceResourceKind::Drop,
                 from,
                 abrasion,
-                worn.material_profile().clone(),
+                profile,
                 worn.material_provenance(),
                 worn.ambient_storage_age_parts_at(at)?,
             )
@@ -240,15 +267,15 @@ fn materialize_scavenged_portion(
     state
         .surface_state_mut()
         .apply_gathering(source, mass, at, revision);
-    if let Some((wedge, abrasion)) = wedge_wear {
+    if let Some((head, abrasion, _)) = head_wear {
         let next_revision = state
             .surface()
             .revision()
             .checked_add(1)
-            .expect("wedge abrasion reserved its surface revision before creation");
+            .expect("tool-head abrasion reserved its surface revision before creation");
         state
             .surface_state_mut()
-            .apply_gathering(wedge, abrasion, at, next_revision);
+            .apply_gathering(head, abrasion, at, next_revision);
     }
     Some((drop, mass))
 }

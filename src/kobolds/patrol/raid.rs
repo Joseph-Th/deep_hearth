@@ -14,7 +14,7 @@ use super::super::scavenging::{
     matches_salvage_goal, reachable_detour_drop, reachable_detour_food,
     reachable_inherited_salvage, scout_wants_loose_drop,
 };
-use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_wedge};
+use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_better_head};
 use super::super::visibility::scout_visible_from;
 use super::super::{KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS};
 use super::{scout_can_enter, scout_sees_guarded_cell};
@@ -122,7 +122,7 @@ fn reachable_needed_tool_at_tip(
     at: SimulationTick,
     player_position: Option<VoxelCoord>,
 ) -> bool {
-    if !junction_awaits_wedge(state, colony) {
+    if !junction_awaits_better_head(state, colony) {
         return false;
     }
     let tip = colony.route[2];

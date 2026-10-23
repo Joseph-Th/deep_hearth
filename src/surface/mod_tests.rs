@@ -235,7 +235,7 @@ fn wedge_abrasion_and_bulk_salvage_are_one_conserved_surface_transaction() {
     let initial = state.clone();
     let at = state.tick();
     assert!(
-        split_bulk_scavenged_drop_with_wedge_wear(
+        split_bulk_scavenged_drop_with_head_wear(
             &registries,
             &mut state,
             bulk,
@@ -245,13 +245,14 @@ fn wedge_abrasion_and_bulk_salvage_are_one_conserved_surface_transaction() {
             Mass::from_milligrams(500_000),
             wedge,
             Mass::from_milligrams(25_000),
+            FORM_CHIP,
         )
         .is_none(),
         "wear cannot exhaust a wedge in the same split"
     );
     assert_eq!(state, initial);
 
-    let (daughter, divided) = split_bulk_scavenged_drop_with_wedge_wear(
+    let (daughter, divided) = split_bulk_scavenged_drop_with_head_wear(
         &registries,
         &mut state,
         bulk,
@@ -261,6 +262,7 @@ fn wedge_abrasion_and_bulk_salvage_are_one_conserved_surface_transaction() {
         Mass::from_milligrams(500_000),
         wedge,
         Mass::from_milligrams(10_000),
+        FORM_CHIP,
     )
     .expect("two conserved portions must be created before either source shrinks");
     assert_eq!(divided, Mass::from_milligrams(500_000));
@@ -296,7 +298,7 @@ fn wedge_abrasion_and_bulk_salvage_are_one_conserved_surface_transaction() {
 
     let after = state.clone();
     assert!(
-        split_bulk_scavenged_drop_with_wedge_wear(
+        split_bulk_scavenged_drop_with_head_wear(
             &registries,
             &mut state,
             bulk,
@@ -306,6 +308,7 @@ fn wedge_abrasion_and_bulk_salvage_are_one_conserved_surface_transaction() {
             Mass::from_milligrams(100_000),
             wedge,
             Mass::from_milligrams(20_000),
+            FORM_CHIP,
         )
         .is_none()
     );

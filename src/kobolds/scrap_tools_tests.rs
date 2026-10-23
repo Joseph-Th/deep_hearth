@@ -1,7 +1,7 @@
 //! A lower-caste scout builds useful work capability out of recoverable scrap.
 
 use super::*;
-use crate::content::{FORM_LUMP, build_registries};
+use crate::content::{FORM_INGOT, FORM_LUMP, FORM_REINFORCEMENT, FORM_SCRAP, build_registries};
 use crate::core::quantity::Temperature;
 use crate::core::state::validate_loaded_state;
 use crate::logistics::{add_traversable_edge_for_test, relocate_player_for_test};
@@ -98,7 +98,369 @@ fn a_junction_tool_needs_two_separate_portable_and_local_parts() {
     );
     let tool = current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
         .unwrap();
-    assert_eq!((tool.handle(), tool.wedge()), (handle, wedge));
+    assert_eq!((tool.handle(), tool.head()), (handle, wedge));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn only_active_tool_parts_and_one_stone_backup_are_reserved_from_scavenging() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, DEN, JUNCTION);
+    add_traversable_edge_for_test(&mut state, JUNCTION, TIP);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let parts = [
+        (MATERIAL_WOOD, FORM_HANDLE),
+        (MATERIAL_STONE, FORM_CHIP),
+        (MATERIAL_STONE, FORM_CHIP),
+        (MATERIAL_COPPER, FORM_INGOT),
+        (MATERIAL_COPPER, FORM_INGOT),
+    ]
+    .map(|(material, form)| {
+        drop_at(
+            &registries,
+            &mut state,
+            JUNCTION,
+            material,
+            form,
+            Mass::from_milligrams(50_000),
+        )
+    });
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        parts[3],
+    );
+    for (index, id) in parts.into_iter().enumerate() {
+        let record = state.surface().get(id).unwrap();
+        assert_eq!(
+            is_staged_scrap_tool_part(&state, record),
+            [true, true, false, true, false][index],
+            "only one currently useful head, one fallback, and the handle should be staged"
+        );
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn copper_fulcrum_beats_older_stone_but_loose_copper_scrap_does_not_make_a_head() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, DEN, JUNCTION);
+    add_traversable_edge_for_test(&mut state, JUNCTION, TIP);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let stone = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let loose_copper = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_SCRAP,
+        Mass::from_milligrams(50_000),
+    );
+    let stone_tool =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap();
+    assert_eq!(
+        (stone_tool.head(), stone_tool.kind()),
+        (stone, KoboldPryHeadKind::StoneWedge)
+    );
+    let _inert_relay_core = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_REINFORCEMENT,
+        Mass::from_milligrams(50_000),
+    );
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        stone,
+        "precision copper without a working den alarm does not disable local work"
+    );
+    let copper = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let durable_tool =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap();
+    assert_eq!(
+        (
+            durable_tool.handle(),
+            durable_tool.head(),
+            durable_tool.kind()
+        ),
+        (handle, copper, KoboldPryHeadKind::CopperFulcrum)
+    );
+    assert_ne!(durable_tool.head(), loose_copper);
+    assert_eq!(
+        durable_tool.kind().abrasion_per_split(),
+        Mass::from_milligrams(5_000)
+    );
+    assert_eq!(
+        stone_tool.kind().abrasion_per_split(),
+        Mass::from_milligrams(10_000)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn spent_copper_fulcrum_falls_back_to_the_existing_stone_head() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, DEN, JUNCTION);
+    add_traversable_edge_for_test(&mut state, JUNCTION, TIP);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let _handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let stone = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let ingot = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let bulk = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_LUMP,
+        Mass::from_milligrams(750_000),
+    );
+    let initial = calculate_matter_accounting(&state).unwrap().total();
+    for _ in 0..7 {
+        let tool =
+            current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+                .unwrap();
+        assert_eq!(
+            (tool.head(), tool.kind()),
+            (ingot, KoboldPryHeadKind::CopperFulcrum)
+        );
+        let at = state.tick();
+        assert!(
+            crate::surface::split_bulk_scavenged_drop_with_head_wear(
+                &registries,
+                &mut state,
+                bulk,
+                JUNCTION,
+                DEN,
+                at,
+                Mass::from_milligrams(50_000),
+                tool.head(),
+                tool.kind().abrasion_per_split(),
+                tool.kind().abrasion_form(),
+            )
+            .is_some()
+        );
+    }
+    let after = current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+        .expect("the original stone head remains useful after copper deforms");
+    assert_eq!(
+        (after.head(), after.kind()),
+        (stone, KoboldPryHeadKind::StoneWedge)
+    );
+    assert_eq!(
+        state.surface().get(ingot).unwrap().remaining_mass(),
+        Mass::from_milligrams(15_000)
+    );
+    assert_eq!(
+        state.surface().get(stone).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    let debris = state
+        .surface()
+        .available_resources_at(Some(JUNCTION))
+        .filter(|resource| resource.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
+        .collect::<Vec<_>>();
+    assert_eq!(debris.len(), 7);
+    assert!(debris.iter().all(|resource| {
+        resource.remaining_mass() == Mass::from_milligrams(5_000)
+            && resource.material_provenance()
+                == state.surface().get(ingot).unwrap().material_provenance()
+    }));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
+fn scout_upgrades_a_stone_kit_from_a_reachable_copper_fulcrum_and_wears_only_the_metal() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, DEN, JUNCTION);
+    add_traversable_edge_for_test(&mut state, JUNCTION, TIP);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let original_stone = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let bulk = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_LUMP,
+        Mass::from_milligrams(2_000_000),
+    );
+    let ingot = drop_at(
+        &registries,
+        &mut state,
+        TIP,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 180);
+    let mut guarded = state.clone();
+    validate_admit_player(&registries, &guarded, TIP)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    advance_to(&registries, &mut guarded, 195);
+    assert_eq!(guarded.surface().get(ingot).unwrap().position(), TIP);
+    assert_ne!(
+        current_junction_scrap_lever(&guarded, guarded.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldPryHeadKind::CopperFulcrum,
+    );
+    assert_eq!(
+        calculate_matter_accounting(&guarded).unwrap().total(),
+        before
+    );
+
+    advance_to(&registries, &mut state, 185);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        TIP,
+        "a fed scout should bypass nearby bulk for a visible, useful copper upgrade"
+    );
+    assert_eq!(
+        state.surface().get(bulk).unwrap().remaining_mass(),
+        Mass::from_milligrams(2_000_000),
+        "the scout must not split bulk without performing that work at the junction"
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 195);
+    advance_to(&registries, &mut replay, 195);
+    assert_eq!(state, replay);
+    let upgraded =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .expect("the scout physically delivered the recovered ingot to the worksite");
+    assert_eq!(
+        (upgraded.handle(), upgraded.head(), upgraded.kind()),
+        (handle, ingot, KoboldPryHeadKind::CopperFulcrum)
+    );
+    assert_eq!(
+        state.surface().get(ingot).unwrap().remaining_mass(),
+        Mass::from_milligrams(45_000),
+        "the ingot head must abrade by its own 5 g cost"
+    );
+    assert_eq!(
+        state
+            .surface()
+            .get(original_stone)
+            .unwrap()
+            .remaining_mass(),
+        Mass::from_milligrams(50_000),
+        "the unused stone wedge must stay intact as a fallback"
+    );
+    assert_eq!(
+        state.surface().get(bulk).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_500_000),
+        "the improved worksite must still haul only a den-fitting batch"
+    );
+    let copper_residue = state
+        .surface()
+        .available_resources_at(Some(JUNCTION))
+        .find(|resource| {
+            resource.id() != ingot
+                && resource.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)
+                && resource.remaining_mass() == Mass::from_milligrams(5_000)
+        })
+        .expect("spent copper must remain conserved at the worksite");
+    assert_eq!(
+        copper_residue.material_provenance(),
+        state.surface().get(ingot).unwrap().material_provenance()
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
@@ -139,7 +501,7 @@ fn worn_out_wedge_prompts_a_real_repair_trip_past_nearby_bulk() {
     for _ in 0..4 {
         let at = state.tick();
         assert!(
-            crate::surface::split_bulk_scavenged_drop_with_wedge_wear(
+            crate::surface::split_bulk_scavenged_drop_with_head_wear(
                 &registries,
                 &mut state,
                 bulk,
@@ -149,6 +511,7 @@ fn worn_out_wedge_prompts_a_real_repair_trip_past_nearby_bulk() {
                 Mass::from_milligrams(100_000),
                 old_wedge,
                 WEDGE_ABRASION_PER_SPLIT,
+                FORM_CHIP,
             )
             .is_some()
         );
@@ -228,7 +591,7 @@ fn worn_out_wedge_prompts_a_real_repair_trip_past_nearby_bulk() {
     let repaired =
         current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
             .expect("a genuinely delivered replacement must restore the same physical worksite");
-    assert_eq!((repaired.handle(), repaired.wedge()), (handle, spare));
+    assert_eq!((repaired.handle(), repaired.head()), (handle, spare));
     assert_eq!(
         state.surface().get(old_wedge).unwrap().remaining_mass(),
         Mass::from_milligrams(10_000),
@@ -290,7 +653,7 @@ fn scout_stages_physical_pry_parts_and_player_interception_reverses_its_effect()
     let lever = current_junction_scrap_lever(&world, world.kobold_state().colony.as_ref().unwrap())
         .expect("two actual return trips must stage the improvised kit");
     assert_eq!(
-        (lever.position(), lever.handle(), lever.wedge()),
+        (lever.position(), lever.handle(), lever.head()),
         (JUNCTION, handle, wedge)
     );
     assert_eq!(

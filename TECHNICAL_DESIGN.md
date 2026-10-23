@@ -251,29 +251,33 @@ returning scout can stage replacement copper and timber from real accessible
 spares on later visits, with ordinary player interception and exact conserved
 custody even across save/load. No distant cargo is reserved or teleported.
 
-A separate lower-caste junction pry kit is inferred from an actual portable
-wooden-handle drop and a portable stone-chip wedge of at least 20 g each.
-The scout gives the missing part priority over unrelated inert cargo at its
-real outer patrol stop, leaves each component at the junction on a completed
-return edge, and retains the handle while awaiting the wedge. Food still takes
-priority, as do needed copper-alarm clappers and junction relay components.
-When both usable pieces are physically present, a non-mobilized scout splitting
-bulk at that junction can take up to 500 g per return instead of 250 g, still
-bounded by free den storage. Its selected parts remain in ordinary recoverable
-surface custody and share no fictitious equipment ledger; local observation
-uses `available_nearby_kobold_scrap_lever`. Removing a piece through player
-pickup immediately restores hand-splitting behavior. Each successful assisted
-bulk split also ablates exactly 10 g from its real stone wedge into a new,
-recoverable chip parcel at the junction. The surface owner prevalidates
-both daughter parcels and the two source mass decrements as one three-revision
-transaction; failed wear or unavailable revision/identity headroom must not
-allow free powered splitting. Wedge fragments retain their original physical
-profile, ambient age and provenance. When the original wedge drops below the
-20 g working minimum the kit stops helping; a scout can prioritize an actual
-visible, den-fitting spare at its outer post over nearby inert bulk, but a
-player guarding the route prevents repair. A distant or oversized piece never
-completes the kit, and the bonus cannot apply at another worksite. The lever
-still lacks timed construction or portable weapon use.
+A lower-caste pry worksite requires an actual portable wooden handle plus a
+usable head: a stone chip or a solid copper ingot, each at least 20 g. Loose
+copper scrap does not pass for a rigid pry head. A copper ingot takes precedence
+over a stone wedge regardless of surface identity, but the scout keeps one
+stone head as a physical fallback, not an unlimited reserved component cache.
+Other spare parts remain contestable salvage. An inert precision copper relay
+core does not disable the tool; only a working den alarm with an actual staged
+junction core claims the clapper and worksite. The scout stages components on
+real completed patrol steps and retains a handle while awaiting a head. Food
+and viable alarm construction still have priority over tool upgrades.
+
+A working pry kit can increase non-mobilized bulk splits from 250 g to 500 g
+at its actual junction, bounded by finite den space. The selected parts remain
+surface-owned and player-recoverable, with local observation through
+`available_nearby_kobold_scrap_lever`. A stone wedge loses 10 g per assisted
+split as recoverable chips; a copper ingot loses 5 g as recoverable copper
+scrap. The surface owner prevalidates both resulting parcels and both source
+mass decrements in one three-revision transaction. Abrasion residue inherits
+the head's composition, temperature, provenance and ambient storage age; the
+copper output acquires an authored residual form rather than inventing a tiny
+finished ingot. Failed wear or exhausted revision/identity headroom cannot
+grant free assisted splitting. Once the active head falls below 20 g, the kit
+uses an available stone fallback or ceases working. A fed scout with an existing
+handle can walk past nearer inert bulk for a visible, den-fitting copper ingot
+or missing stone replacement, but only along a physically clear, unguarded,
+unlit route. A remote, oversized or concealed part never counts. No portable
+weapon or timed tool-fabrication action is implied.
 
 In generated-world patrols, a scout's two-cell standing footprint requires
 actual free space, including the player's airborne body cells, concealed temple

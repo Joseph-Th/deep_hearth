@@ -135,9 +135,10 @@ fn selected_core_at(state: &AppState, position: VoxelCoord) -> Option<SurfaceRes
         .map(|resource| resource.id())
 }
 
-/// Copper at the junction claims its clapper ahead of the improvised lever.
+/// Only an operational den alarm may reserve a junction copper core and its
+/// clapper for a relay. An inert precision parcel does not disable other work.
 pub(super) fn junction_has_relay_core(state: &AppState, colony: &KoboldColony) -> bool {
-    selected_core_at(state, colony.route[1]).is_some()
+    current_den_rig(state, colony).is_some() && selected_core_at(state, colony.route[1]).is_some()
 }
 
 fn selected_striker_at(

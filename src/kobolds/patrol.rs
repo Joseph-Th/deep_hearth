@@ -11,7 +11,7 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{
     SurfaceResourceId, SurfaceResourceLifecycle, forage_food_to_adjacent_den,
     relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
-    split_bulk_scavenged_drop_with_wedge_wear,
+    split_bulk_scavenged_drop_with_head_wear,
 };
 use crate::survival::Vitality;
 
@@ -24,8 +24,7 @@ use super::scavenging::{
     should_seek_local_food,
 };
 use super::scrap_tools::{
-    LEVER_SPLIT_BATCH, WEDGE_ABRASION_PER_SPLIT, current_junction_scrap_lever,
-    is_staged_scrap_tool_part,
+    LEVER_SPLIT_BATCH, current_junction_scrap_lever, is_staged_scrap_tool_part,
 };
 use super::visibility::scout_visible_from;
 use super::watchman::apply_watchman_tick;
@@ -363,7 +362,7 @@ fn split_scavenged_bulk_with_available_tool(
             .flatten()
     });
     if let Some(tool) = tool {
-        split_bulk_scavenged_drop_with_wedge_wear(
+        split_bulk_scavenged_drop_with_head_wear(
             registries,
             state,
             source,
@@ -371,8 +370,9 @@ fn split_scavenged_bulk_with_available_tool(
             to,
             at,
             bare_batch.max(LEVER_SPLIT_BATCH).min(den_space),
-            tool.wedge(),
-            WEDGE_ABRASION_PER_SPLIT,
+            tool.head(),
+            tool.kind().abrasion_per_split(),
+            tool.kind().abrasion_form(),
         )
     } else {
         split_bulk_scavenged_drop_step(

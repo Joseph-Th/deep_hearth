@@ -353,14 +353,18 @@ from a surface den do not instantly inform a buried archive; temple response nee
 routes, signals, witnesses and its own finite capacity. Calm coexistence or leaving valuable
 infrastructure intact must be viable outcomes, not merely a delay until a fixed combat wave.
 
-The first material-backed worksite is a crude pry lever: two separately retrieved,
-portable scrap parcels (a wooden handle and stone wedge) remain staged at the junction.
-Their co-location improves a scout's real bulk-splitting operation without giving it a
-free equipment instance. A player can reclaim either part and remove that advantage.
-Each assisted split physically wears down the wedge into recoverable stone chips.
-An exhausted kit can be repaired only with a locally sighted spare brought through
-an actual, interruptible patrol; defending its route prevents that recovery. It
-remains a stationary arrangement, not yet a timed fabrication job or carried weapon.
+The first material-backed worksite is a crude pry lever: a wooden handle and a
+stone wedge or reclaimed solid copper ingot stay at the junction as recoverable
+parcels. The same scavenger can physically upgrade its crude stone head from
+player-shaped copper, if a route to the material remains visible and safe.
+A stone head loses 10 g of recoverable chips per assisted split; a copper head
+lasts longer, deforming into 5 g of recoverable copper scrap instead. When
+copper becomes unusable, a staged stone fallback can take over without new matter.
+An active alarm relay retains priority over using its components as tools, but an
+inert copper relic cannot claim the worksite by mere proximity. Surplus materials
+remain contestable. Players can take any part or guard an upgrade route to deny
+the resulting work advantage. This remains a stationary arrangement, not yet a
+timed fabrication job, carried tool or combat weapon.
 
 Further faction milestones are ordered by causality rather than combat tier: meaningful
 work time, tool portability and choices between implements, alarm parts and provisions; then a
