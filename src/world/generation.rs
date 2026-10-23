@@ -725,6 +725,17 @@ pub(crate) fn first_embodied_structure_collision_in_world(
     })
 }
 
+/// Trusted-load counterpart of prospective enclosure terrain admission.
+/// Only generated block truth may bury a completed stationary enclosure.
+pub(crate) fn first_buried_stationary_enclosure_in_world(
+    registries: &Registries,
+    state: &AppState,
+) -> Option<VoxelCoord> {
+    state.world().chunks().find_map(|chunk| {
+        first_stationary_enclosure_collision_in_generated_chunk(registries.world(), state, chunk)
+    })
+}
+
 fn temple_site_for_chunk(
     registry: &WorldRegistry,
     profile: WorldGenerationProfile,

@@ -294,6 +294,9 @@ Prospective terrain generation also protects the occupied voxel of each
 completed stationary storage enclosure from newly created full-cube rock.
 Ordinary unenclosed ground stockpiles remain locality/custody rather than
 terrain obstacles; fully built boxes above generated terrain remain valid.
+Trusted save admission uses the same generated-chunk test to reject any
+completed stationary enclosure already buried in solid terrain, returning
+the precise obstructed voxel; encoded tampering cannot bypass the boundary.
 Trusted save admission reuses the same chunk-clipped structural overlap test
 against existing generated terrain, rejecting embedded built matter with a
 specific obstructed voxel while preserving empty planned blueprints.

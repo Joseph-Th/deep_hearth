@@ -48,6 +48,9 @@ pub enum LogisticsValidationError {
         position: VoxelCoord,
         element: StructuralElementId,
     },
+    StationaryEnclosureIntersectsSolidTerrain {
+        voxel: VoxelCoord,
+    },
     UnknownLocatedEquipment {
         equipment: EquipmentId,
     },
@@ -318,6 +321,13 @@ impl Display for LogisticsValidationError {
                 position.y(),
                 position.z(),
                 element.value()
+            ),
+            Self::StationaryEnclosureIntersectsSolidTerrain { voxel } => write!(
+                formatter,
+                "completed stationary enclosure intersects solid terrain at ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
             ),
             Self::TraversalEdgeNotCanonical { first, second } => write!(
                 formatter,
@@ -834,6 +844,9 @@ pub(crate) fn validate_loaded_logistics(
     validate_pending_secondary_use(app, state)?;
     validate_pending_primary_break(app, state)?;
     validate_stockpile_locations(state, app.inventory(), app.structures())?;
+    if let Some(voxel) = crate::world::first_buried_stationary_enclosure_in_world(registries, app) {
+        return Err(LogisticsValidationError::StationaryEnclosureIntersectsSolidTerrain { voxel });
+    }
     validate_equipment_locations(state, app.equipment(), app.structures())?;
     validate_energy_store_locations(state, app.energy())?;
     validate_fluid_store_locations(state, app.fluid(), app.structures())?;

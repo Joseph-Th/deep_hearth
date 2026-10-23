@@ -11,7 +11,9 @@ use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{deposit_lot_for_test, validate_place_player_storage_at};
-use crate::logistics::{add_traversable_edge_for_test, validate_allocate_ground_stockpile};
+use crate::logistics::{
+    LogisticsValidationError, add_traversable_edge_for_test, validate_allocate_ground_stockpile,
+};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -199,6 +201,51 @@ fn terrain_generation_preserves_completed_enclosure_in_open_air() {
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())
+    );
+}
+
+#[test]
+fn trusted_load_rejects_stationary_enclosure_embedded_in_generated_stone() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_admit_player(&registries, &state, VoxelCoord::new(5, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    // Author the enclosure in clear terrain, then forge a saved solid overlap
+    // through the test-only world mutation rather than ordinary placement.
+    set_generated_block_for_test(registries.world(), &mut state, at, BlockStateId::AIR);
+    place_completed_field_box_at(&registries, &mut state, at);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    set_generated_block_for_test(registries.world(), &mut state, at, BLOCK_STATE_STONE);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Logistics(
+            LogisticsValidationError::StationaryEnclosureIntersectsSolidTerrain { voxel: at }
+        )),
+        "trusted loading cannot accept a completed field box buried in solid generated rock"
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
     );
 }
 
