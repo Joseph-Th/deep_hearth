@@ -76,6 +76,7 @@ pub(in super::super) struct FieldworkTool {
 /// would inspect. Adding a valid provider therefore expands the actor's candidate frame instead of
 /// making the harness stale until a hard-coded list is updated.
 pub(in super::super) fn fieldwork_tools(registries: &Registries) -> Vec<FieldworkTool> {
+    let known_local_inputs = disclosed_raw_inputs();
     let method = registries
         .mining()
         .get_method(MINING_METHOD_HAND_PICK)
@@ -85,7 +86,22 @@ pub(in super::super) fn fieldwork_tools(registries: &Registries) -> Vec<Fieldwor
         .definitions()
         .filter(|definition| {
             !definition.requires_structural_support()
-                && definition.assembly_profile().is_some()
+                // The actor only considers tool designs it can actually build
+                // from its disclosed local supply. A legitimate iron pick
+                // exists, but a copper/stone-only fieldwork campaign cannot
+                // pre-budget unobserved temple salvage as a free source.
+                && definition.assembly_profile().is_some_and(|assembly| {
+                    assembly.inputs().iter().all(|input| {
+                        manual_construction_route_from_roots(
+                            registries,
+                            input.commodity(),
+                            input.mass(),
+                            &known_local_inputs,
+                            "fieldwork tool discovery",
+                        )
+                        .is_some()
+                    })
+                })
                 && matches!(
                     definition
                         .capabilities()

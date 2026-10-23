@@ -173,6 +173,148 @@ fn oxide_and_sulfide_ores_are_not_elemental_melting_inputs() {
 }
 
 #[test]
+fn recovered_iron_has_a_conserved_toolhead_path_and_a_repairable_mining_tool() {
+    use crate::capability::CapabilityValue;
+    use crate::content::capabilities::{
+        CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW, CAPABILITY_MINING_FLOW,
+        CAPABILITY_MINING_MAX_HARDNESS,
+    };
+    use crate::content::{
+        EQUIPMENT_IRON_PICK, EQUIPMENT_STONE_PICK, EQUIPMENT_TIMBER_TREADLE_GRINDSTONE,
+        PROCESS_FINISH_IRON_PICK_HEAD_FROM_INGOT, PROCESS_FINISH_IRON_PICK_HEAD_FROM_SCRAP,
+    };
+    use crate::core::quantity::{Mass, Pressure};
+    use crate::crafting::ManualCraftOutput;
+
+    let registry = build_registries();
+    for (process, input_form) in [
+        (PROCESS_FINISH_IRON_PICK_HEAD_FROM_SCRAP, FORM_SCRAP),
+        (PROCESS_FINISH_IRON_PICK_HEAD_FROM_INGOT, FORM_INGOT),
+    ] {
+        let recipe = registry.crafting().get_manual(process).unwrap();
+        assert_eq!(recipe.input(), CommodityKey::new(MATERIAL_IRON, input_form));
+        assert_eq!(recipe.input_mass(), Mass::from_milligrams(1_000_000));
+        assert_eq!(
+            recipe.outputs(),
+            &[
+                ManualCraftOutput::new(
+                    CommodityKey::new(MATERIAL_IRON, FORM_TOOL),
+                    Mass::from_milligrams(800_000)
+                ),
+                ManualCraftOutput::new(
+                    CommodityKey::new(MATERIAL_IRON, FORM_CHIP),
+                    Mass::from_milligrams(200_000)
+                ),
+            ]
+        );
+        let profile = recipe.equipment_profile().unwrap();
+        assert!(profile.requires_equipment());
+        assert_eq!(
+            profile.mass_flow_capability(),
+            CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW
+        );
+        assert!(registry.production().get_process(process).is_some());
+    }
+    let grinder = registry
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_TREADLE_GRINDSTONE)
+        .unwrap();
+    assert!(
+        grinder
+            .capabilities()
+            .get_capability(CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW)
+            .is_some()
+    );
+    let pick = registry
+        .equipment()
+        .get_equipment(EQUIPMENT_IRON_PICK)
+        .unwrap();
+    let stone = registry
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_PICK)
+        .unwrap();
+    assert_eq!(pick.mass(), Mass::from_milligrams(1_000_000));
+    assert!(matches!(
+        pick.capabilities().get_capability(CAPABILITY_MINING_MAX_HARDNESS),
+        Some(CapabilityValue::Pressure(value)) if value == Pressure::from_pascals(900_000_000)
+    ));
+    assert!(matches!(
+        pick.capabilities().get_capability(CAPABILITY_MINING_FLOW),
+        Some(CapabilityValue::MassFlow(value)) if value.milligrams_per_second() == 55_000
+    ));
+    assert_ne!(pick.capabilities(), stone.capabilities());
+    let assembly = pick.assembly_profile().unwrap();
+    assert!(assembly.inputs().iter().any(|input| input.commodity()
+        == CommodityKey::new(MATERIAL_IRON, FORM_TOOL)
+        && input.mass() == Mass::from_milligrams(800_000)));
+    let maintenance = pick.maintenance_profile().unwrap();
+    assert_eq!(
+        maintenance.replacement(),
+        CommodityKey::new(MATERIAL_IRON, FORM_TOOL)
+    );
+    assert_eq!(
+        registry
+            .textures()
+            .get_equipment_appearance(EQUIPMENT_IRON_PICK)
+            .is_some(),
+        true
+    );
+    let head = registry
+        .textures()
+        .get_commodity_appearance(CommodityKey::new(MATERIAL_IRON, FORM_TOOL))
+        .unwrap();
+    assert!(
+        registry
+            .textures()
+            .get_object(head.object().unwrap())
+            .is_some()
+    );
+}
+
+#[test]
+fn industrial_temperature_range_admits_iron_while_primitive_furnaces_do_not() {
+    use crate::capability::CapabilityValue;
+    use crate::content::capabilities::CAPABILITY_THERMAL_MAX_TEMPERATURE;
+    use crate::content::{
+        EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+    };
+    let registry = build_registries();
+    let temp = |equipment| {
+        let value = registry
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap()
+            .capabilities()
+            .get_capability(CAPABILITY_THERMAL_MAX_TEMPERATURE)
+            .unwrap();
+        match value {
+            CapabilityValue::Temperature(temperature) => temperature,
+            other => panic!("expected temperature limit, got {other:?}"),
+        }
+    };
+    let iron = registry
+        .materials()
+        .get_material(MATERIAL_IRON)
+        .unwrap()
+        .properties()
+        .thermal()
+        .melting_point()
+        .unwrap();
+    assert!(
+        temp(EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE) < iron,
+        "primitive furnace cannot directly remelt iron"
+    );
+    assert!(
+        temp(EQUIPMENT_ELECTRIC_FURNACE) > iron,
+        "industrial furnace must reach actual iron fusion temperature"
+    );
+    assert!(
+        temp(EQUIPMENT_CASTING_MOLD) > iron,
+        "industrial mold must tolerate newly molten iron"
+    );
+}
+
+#[test]
 fn metal_stock_and_excavated_scrap_have_separate_renderable_object_bindings() {
     let materials = build_material_registry();
     let textures = build_texture_registry();

@@ -389,6 +389,22 @@ Inputs are iron/tin/zinc ingots, stock blocks, chips and scrap. The output is
 molten elemental metal, which can be cooled to ingots. No furnace operation is
 unlocked without an equipment provider with sufficient heating power and maximum
 temperature; iron requires 1,811 K, zinc 692.68 K, and tin 505.08 K.
+The industrial furnace and cooled mold each have a 1,950 K operating limit,
+so ordinary pure iron remelting/casting is a valid high-temperature process
+when such structurally supported machinery and finite power are present. Small
+arc-crucible toolroom furnaces remain limited to 1,450 K, which prevents an
+early iron shortcut. Six heavy industrial machine classes require mass-scaled
+service stock: iron on the crusher, casting mold, dry screen, grinder and
+separator, copper on the furnace's electrical servicing. Service returns
+corresponding scrap and preserves existing time, condition and matter accounting.
+A metal-abrasive-finishing capability belongs to the timber treadle and flywheel
+grindstones. Two material-specific manual definitions require that capability,
+consume exactly 1 kg of reclaimed iron scrap or cast ingot per batch, and
+return an 800 g iron toolhead and 200 g loose iron chips. The 1 kg iron pick
+assembly adds a 200 g replaceable wooden handle; its complete iron head can
+be exchanged for new stock during timed maintenance. Mining capability values
+are 55 g/s nominal throughput, 500 g per extraction batch and 900 MPa
+hardness admission, with degradation and finite component repair.
 
 Deep generated stone terrain contains sparse deterministic 4 m mineral lenses
 between elevations -55 and -26. Each mineral lens is selected by the world seed
@@ -405,7 +421,7 @@ remain outside the implemented chain. The ore lens placement is not a registered
 finite geology deposit and is not automatically discoverable via survey evidence.
 
 The archive shell, motive-drive shell and external threshold use copper.
-The active built-in registry schema is 142; saves with another registry schema
+The active built-in registry schema is 143; saves with another registry schema
 are rejected before material mass and identity validation. No older content
 schema migration is available in this build. All seven devices are finite and inactive
 until an explicit operation exists.

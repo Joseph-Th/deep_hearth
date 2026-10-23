@@ -1,6 +1,7 @@
 //! Fixed workshop machinery definitions.
 
 use crate::capability::CapabilityValue;
+use crate::content::materials::{MATERIAL_COPPER, MATERIAL_IRON};
 use crate::core::quantity::{Mass, MassFlow, Power, Temperature};
 use crate::equipment::EquipmentDefinition;
 
@@ -59,7 +60,7 @@ fn jaw_crusher() -> EquipmentDefinition {
         )],
     )
     .with_required_structural_support()
-    .with_maintenance_profile(industrial_maintenance(JAW_CRUSHER_MASS))
+    .with_maintenance_profile(industrial_maintenance(JAW_CRUSHER_MASS, MATERIAL_IRON))
 }
 
 fn electric_furnace() -> EquipmentDefinition {
@@ -74,7 +75,7 @@ fn electric_furnace() -> EquipmentDefinition {
             ),
             (
                 CAPABILITY_THERMAL_MAX_TEMPERATURE,
-                CapabilityValue::Temperature(Temperature::from_millikelvin(1_500_000)),
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1_950_000)),
             ),
             (
                 CAPABILITY_THERMAL_BATCH,
@@ -89,7 +90,10 @@ fn electric_furnace() -> EquipmentDefinition {
         )],
     )
     .with_required_structural_support()
-    .with_maintenance_profile(industrial_maintenance(ELECTRIC_FURNACE_MASS))
+    .with_maintenance_profile(industrial_maintenance(
+        ELECTRIC_FURNACE_MASS,
+        MATERIAL_COPPER,
+    ))
 }
 
 fn casting_mold() -> EquipmentDefinition {
@@ -104,7 +108,7 @@ fn casting_mold() -> EquipmentDefinition {
             ),
             (
                 CAPABILITY_THERMAL_MAX_TEMPERATURE,
-                CapabilityValue::Temperature(Temperature::from_millikelvin(1_600_000)),
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1_950_000)),
             ),
             (
                 CAPABILITY_THERMAL_BATCH,
@@ -119,7 +123,7 @@ fn casting_mold() -> EquipmentDefinition {
         )],
     )
     .with_required_structural_support()
-    .with_maintenance_profile(industrial_maintenance(CASTING_MOLD_MASS))
+    .with_maintenance_profile(industrial_maintenance(CASTING_MOLD_MASS, MATERIAL_IRON))
 }
 
 fn dry_screen() -> EquipmentDefinition {
@@ -145,7 +149,7 @@ fn dry_screen() -> EquipmentDefinition {
         )],
     )
     .with_required_structural_support()
-    .with_maintenance_profile(industrial_maintenance(DRY_SCREEN_MASS))
+    .with_maintenance_profile(industrial_maintenance(DRY_SCREEN_MASS, MATERIAL_IRON))
 }
 
 fn grinding_mill() -> EquipmentDefinition {
@@ -171,7 +175,7 @@ fn grinding_mill() -> EquipmentDefinition {
         )],
     )
     .with_required_structural_support()
-    .with_maintenance_profile(industrial_maintenance(GRINDING_MILL_MASS))
+    .with_maintenance_profile(industrial_maintenance(GRINDING_MILL_MASS, MATERIAL_IRON))
 }
 
 fn gravity_separator() -> EquipmentDefinition {
@@ -197,5 +201,8 @@ fn gravity_separator() -> EquipmentDefinition {
         )],
     )
     .with_required_structural_support()
-    .with_maintenance_profile(industrial_maintenance(GRAVITY_SEPARATOR_MASS))
+    .with_maintenance_profile(industrial_maintenance(
+        GRAVITY_SEPARATOR_MASS,
+        MATERIAL_IRON,
+    ))
 }

@@ -91,6 +91,8 @@ pub const PROCESS_MELT_RECYCLED_TIN: ProcessId = ProcessId::new(77);
 pub const PROCESS_CAST_TIN_INGOT: ProcessId = ProcessId::new(78);
 pub const PROCESS_MELT_RECYCLED_ZINC: ProcessId = ProcessId::new(79);
 pub const PROCESS_CAST_ZINC_INGOT: ProcessId = ProcessId::new(80);
+pub const PROCESS_FINISH_IRON_PICK_HEAD_FROM_SCRAP: ProcessId = ProcessId::new(81);
+pub const PROCESS_FINISH_IRON_PICK_HEAD_FROM_INGOT: ProcessId = ProcessId::new(82);
 
 mod fabrication;
 mod ore;

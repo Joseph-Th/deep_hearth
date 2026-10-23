@@ -8,10 +8,10 @@ use crate::equipment::{
     EquipmentMaintenanceProfile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::{CommodityKey, MaterialAssemblyProfile};
+use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialId};
 use crate::survival::SurvivalExertion;
 
-use super::super::materials::{FORM_INGOT, FORM_SCRAP, MATERIAL_COPPER};
+use super::super::materials::{FORM_INGOT, FORM_SCRAP};
 
 pub(super) const INDUSTRIAL_MAINTENANCE_MASS_DIVISOR: u64 = 1_000;
 const COMPONENT_MAINTENANCE_MILLIGRAMS_PER_TICK: u64 = 20_000;
@@ -127,7 +127,10 @@ pub(super) fn component_maintenance(
     )
 }
 
-pub(super) fn industrial_maintenance(equipment_mass: Mass) -> EquipmentMaintenanceProfile {
+pub(super) fn industrial_maintenance(
+    equipment_mass: Mass,
+    service_metal: MaterialId,
+) -> EquipmentMaintenanceProfile {
     // A full overhaul replaces a small mass-proportional stock of wear components. Runtime
     // maintenance scales that stock by condition restored, so preventive service consumes less
     // material than deep repair.
@@ -143,9 +146,9 @@ pub(super) fn industrial_maintenance(equipment_mass: Mass) -> EquipmentMaintenan
             .max(1),
     );
     EquipmentMaintenanceProfile::new(
-        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        CommodityKey::new(service_metal, FORM_INGOT),
         replacement_mass,
-        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+        CommodityKey::new(service_metal, FORM_SCRAP),
         condition(900_000),
         duration,
         maintenance_exertion(),

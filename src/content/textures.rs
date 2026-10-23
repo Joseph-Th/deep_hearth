@@ -172,6 +172,8 @@ pub const OBJECT_CRUSHED_SPHALERITE: ObjectAppearanceId = ObjectAppearanceId::ne
 pub const OBJECT_MOLTEN_IRON: ObjectAppearanceId = ObjectAppearanceId::new(100);
 pub const OBJECT_MOLTEN_TIN: ObjectAppearanceId = ObjectAppearanceId::new(101);
 pub const OBJECT_MOLTEN_ZINC: ObjectAppearanceId = ObjectAppearanceId::new(102);
+pub const OBJECT_IRON_PICK_HEAD: ObjectAppearanceId = ObjectAppearanceId::new(103);
+pub const OBJECT_IRON_PICK: ObjectAppearanceId = ObjectAppearanceId::new(104);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

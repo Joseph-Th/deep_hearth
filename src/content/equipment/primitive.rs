@@ -27,6 +27,7 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         metalworking::timber_wire_drawbench(),
         metalworking::flywheel_wire_drawbench(),
         mining::stone_pick(),
+        mining::iron_pick(),
         mining::stone_digging_shovel(),
         power::stone_hand_crank(),
         mining::copper_reinforced_pick(),

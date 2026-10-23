@@ -14,9 +14,9 @@ use super::super::{
     EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
     EQUIPMENT_TIMBER_SPRING_POLE_LATHE, EQUIPMENT_TIMBER_TREADLE_DRIVE,
     EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_BOARD, FORM_CHIP, FORM_FOOD, FORM_HANDLE, FORM_LOG,
-    FORM_LUMP, FORM_NATIVE_METAL, FORM_TOOL, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER,
-    MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
-    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_TOOL,
+    FORM_LUMP, FORM_NATIVE_METAL, FORM_SCRAP, FORM_TOOL, MATERIAL_BERRIES, MATERIAL_CLAY,
+    MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_STONE, MATERIAL_WOOD,
+    MINING_METHOD_HAND_PICK, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_TOOL,
     PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
     STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     SURFACE_GATHERING_HAND_COLLECT_CLAY, SURFACE_GATHERING_HAND_COLLECT_STONE,
@@ -576,13 +576,16 @@ fn copper_extends_existing_stone_age_specializations_instead_of_creating_the_fir
 fn every_declared_post_wilderness_primitive_infrastructure_component_has_a_transitive_runtime_route()
  {
     let registries = build_registries();
-    // This broader primitive-workshop closure deliberately includes already-acquired native copper.
-    // It proves the post-wilderness copper graph, not the fresh wilderness starting boundary above.
+    // Post-wilderness roots include native copper and finite iron salvage from
+    // the generated temple bearing housing. The iron housing has real world
+    // custody, copper-pick-reachable excavation hardness and fragmented iron
+    // scrap output; this does not claim hematite can already be reduced.
     let roots = BTreeSet::from([
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        CommodityKey::new(MATERIAL_IRON, FORM_SCRAP),
     ]);
     let mut required = BTreeSet::new();
     for definition in registries.equipment().definitions() {

@@ -437,6 +437,10 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         ),
         (CommodityKey::new(MATERIAL_IRON, FORM_SCRAP), "iron scrap"),
         (CommodityKey::new(MATERIAL_IRON, FORM_CHIP), "iron chips"),
+        (
+            CommodityKey::new(MATERIAL_IRON, FORM_TOOL),
+            "finished iron pick head",
+        ),
         (CommodityKey::new(MATERIAL_IRON, FORM_MOLTEN), "molten iron"),
         (CommodityKey::new(MATERIAL_TIN, FORM_INGOT), "tin ingot"),
         (

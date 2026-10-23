@@ -43,6 +43,7 @@ pub(crate) const CAPABILITY_EARTHWORK_FLOW: CapabilityId = CapabilityId::new(35)
 pub(crate) const CAPABILITY_EARTHWORK_MAX_BATCH: CapabilityId = CapabilityId::new(36);
 pub(crate) const CAPABILITY_EARTHWORK_MAX_HARDNESS: CapabilityId = CapabilityId::new(37);
 pub(crate) const CAPABILITY_MORTAR_GRINDING_FLOW: CapabilityId = CapabilityId::new(38);
+pub(crate) const CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW: CapabilityId = CapabilityId::new(39);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -243,6 +244,11 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
         higher_is_better(
             CAPABILITY_MORTAR_GRINDING_FLOW,
             "manual mortar grinding throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW,
+            "abrasive metal toolhead finishing throughput",
             CapabilityValueKind::MassFlow,
         ),
     ] {

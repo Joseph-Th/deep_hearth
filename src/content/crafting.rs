@@ -4,6 +4,7 @@ use crate::crafting::CraftingRegistry;
 
 mod clay;
 mod copper;
+mod iron;
 mod powered;
 mod stone;
 mod wood;
@@ -14,7 +15,8 @@ pub(crate) fn build_crafting_registry() -> CraftingRegistry {
             .into_iter()
             .chain(wood::definitions())
             .chain(clay::definitions())
-            .chain(copper::definitions()),
+            .chain(copper::definitions())
+            .chain(iron::definitions()),
         powered::definitions(),
     )
 }

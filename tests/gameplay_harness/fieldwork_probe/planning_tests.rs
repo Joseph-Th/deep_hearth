@@ -66,6 +66,18 @@ fn fieldwork_actor_market_is_registry_derived_and_contains_current_specializatio
 }
 
 #[test]
+fn iron_tool_requires_an_equipped_toolroom_outside_the_fieldwork_starting_market() {
+    use deep_hearth::content::EQUIPMENT_IRON_PICK;
+    let registries = deep_hearth::content::build_registries();
+    assert!(
+        !fieldwork_tools(&registries)
+            .iter()
+            .any(|tool| tool.target == EQUIPMENT_IRON_PICK),
+        "fieldwork planning cannot treat an equipment-required iron process as unaided work"
+    );
+}
+
+#[test]
 fn organic_bulk_orders_vary_without_selecting_for_tool_outcome() {
     let registries = deep_hearth::content::build_registries();
     let limits = fieldwork_mining_limits(&registries);

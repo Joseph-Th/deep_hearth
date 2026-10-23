@@ -22,7 +22,8 @@ use crate::content::capabilities::{
 use crate::content::materials::{
     FORM_BOARD, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL,
     FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE,
-    FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::Condition;
@@ -498,13 +499,13 @@ fn timber_riddle_opens_sizing_before_copper_and_plate_upgrade_preserves_the_inve
 #[test]
 fn industrial_maintenance_replacement_mass_scales_with_machine_mass() {
     let registry = build_equipment_registry();
-    for equipment in [
-        EQUIPMENT_JAW_CRUSHER,
-        EQUIPMENT_ELECTRIC_FURNACE,
-        EQUIPMENT_CASTING_MOLD,
-        EQUIPMENT_DRY_SCREEN,
-        EQUIPMENT_GRINDING_MILL,
-        EQUIPMENT_GRAVITY_SEPARATOR,
+    for (equipment, service_metal) in [
+        (EQUIPMENT_JAW_CRUSHER, MATERIAL_IRON),
+        (EQUIPMENT_ELECTRIC_FURNACE, MATERIAL_COPPER),
+        (EQUIPMENT_CASTING_MOLD, MATERIAL_IRON),
+        (EQUIPMENT_DRY_SCREEN, MATERIAL_IRON),
+        (EQUIPMENT_GRINDING_MILL, MATERIAL_IRON),
+        (EQUIPMENT_GRAVITY_SEPARATOR, MATERIAL_IRON),
     ] {
         let definition = registry
             .get_equipment(equipment)
@@ -527,11 +528,11 @@ fn industrial_maintenance_replacement_mass_scales_with_machine_mass() {
         );
         assert_eq!(
             maintenance.replacement(),
-            CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
+            CommodityKey::new(service_metal, FORM_INGOT)
         );
         assert_eq!(
             maintenance.spent(),
-            CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)
+            CommodityKey::new(service_metal, FORM_SCRAP)
         );
     }
 }

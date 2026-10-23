@@ -9,7 +9,9 @@ use crate::content::capabilities::{
     CAPABILITY_EARTHWORK_FLOW, CAPABILITY_EARTHWORK_MAX_BATCH, CAPABILITY_EARTHWORK_MAX_HARDNESS,
     CAPABILITY_MINING_FLOW, CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS,
 };
-use crate::content::materials::{FORM_HANDLE, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD};
+use crate::content::materials::{
+    FORM_HANDLE, FORM_TOOL, MATERIAL_IRON, MATERIAL_STONE, MATERIAL_WOOD,
+};
 
 use super::super::authoring::{
     EquipmentDefinitionAuthoringExt, assembled_definition,
@@ -17,10 +19,50 @@ use super::super::authoring::{
 };
 use super::super::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_COPPER_REINFORCED_PICK,
-    EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK, EQUIPMENT_STONE_DIGGING_SHOVEL,
-    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK, EQUIPMENT_IRON_PICK,
+    EQUIPMENT_STONE_DIGGING_SHOVEL, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK,
+    EQUIPMENT_STONE_QUARRY_PICK,
 };
 use super::{copper_reinforcement_input, copper_upgrade};
+
+/// Fully replaceable iron tool head rather than copper reinforcement on stone.
+pub(super) fn iron_pick() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_IRON_PICK,
+        "iron mining pick",
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_IRON, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ]),
+        profile([
+            (
+                CAPABILITY_MINING_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(55_000)),
+            ),
+            (
+                CAPABILITY_MINING_MAX_BATCH,
+                CapabilityValue::Mass(Mass::from_milligrams(500_000)),
+            ),
+            (
+                CAPABILITY_MINING_MAX_HARDNESS,
+                CapabilityValue::Pressure(Pressure::from_pascals(900_000_000)),
+            ),
+        ]),
+        thresholds(),
+        vec![mass_flow_condition_curve(
+            CAPABILITY_MINING_FLOW,
+            500_000,
+            MassFlow::from_milligrams_per_second(25_000),
+        )],
+    )
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_IRON, FORM_TOOL))
+}
 
 pub(super) fn stone_pick() -> EquipmentDefinition {
     assembled_definition_with_condition_curves(

@@ -82,6 +82,7 @@ pub const EQUIPMENT_CLAY_FACED_STONE_CASTING_BED: EquipmentDefinitionId =
     EquipmentDefinitionId::new(51);
 pub const EQUIPMENT_STONE_DIGGING_SHOVEL: EquipmentDefinitionId = EquipmentDefinitionId::new(52);
 pub const EQUIPMENT_STONE_MORTAR_AND_PESTLE: EquipmentDefinitionId = EquipmentDefinitionId::new(53);
+pub const EQUIPMENT_IRON_PICK: EquipmentDefinitionId = EquipmentDefinitionId::new(54);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

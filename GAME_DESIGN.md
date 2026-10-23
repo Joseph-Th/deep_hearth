@@ -215,7 +215,14 @@ particle-size operations prepare these materials without magically releasing
 iron, tin or zinc. Oxide and sulfide reduction must later explicitly account for
 reductants, energy, oxygen/sulfur byproducts, waste and material yields. Separately,
 existing iron, tin and zinc stock or reclaimed scrap can be remelted with finite
-powered equipment and cast into new ingots. Metals differ in density, melting
+powered equipment and cast into new ingots. The industrial electrical furnace
+and casting mold operate above iron's fusion temperature; small stone crucibles
+remain limited to lower-temperature metals. Reclaimed iron scrap or cast ingots
+can be ground into a 0.8 kg mining head with 0.2 kg of recoverable chips using
+an abrasive toolroom machine. A replaceable timber handle makes a serviceable
+iron mining pick with a higher hardness and throughput range than stone tools.
+Industrial crushers, sizing screens, mills and molds use iron service stock;
+the furnace's electrical service retains copper. Metals differ in density, melting
 threshold, heat storage and structural behavior. This is a partial material
 chain, not a claim of complete smelting, alloying or GregTech-scale automation.
 

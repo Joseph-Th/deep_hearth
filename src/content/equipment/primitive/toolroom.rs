@@ -2,7 +2,8 @@
 
 use crate::capability::CapabilityValue;
 use crate::content::capabilities::{
-    CAPABILITY_POWERED_STONE_GRINDING_FLOW, CAPABILITY_STONE_GRINDING_FLOW,
+    CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW, CAPABILITY_POWERED_STONE_GRINDING_FLOW,
+    CAPABILITY_STONE_GRINDING_FLOW,
 };
 use crate::content::crafted_parts::{STONE_FLYWHEEL_MASS, STONE_GRINDSTONE_WHEEL_MASS};
 use crate::content::materials::{
@@ -42,10 +43,16 @@ pub(super) fn timber_treadle_grindstone() -> EquipmentDefinition {
                 Mass::from_milligrams(400_000),
             ),
         ]),
-        profile([(
-            CAPABILITY_STONE_GRINDING_FLOW,
-            CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10_000)),
-        )]),
+        profile([
+            (
+                CAPABILITY_STONE_GRINDING_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10_000)),
+            ),
+            (
+                CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(4_000)),
+            ),
+        ]),
         thresholds(),
         vec![mass_flow_condition_curve(
             CAPABILITY_STONE_GRINDING_FLOW,
@@ -87,6 +94,10 @@ pub(super) fn timber_flywheel_grinding_bench() -> EquipmentDefinition {
             (
                 CAPABILITY_STONE_GRINDING_FLOW,
                 CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(15_000)),
+            ),
+            (
+                CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(6_000)),
             ),
             (
                 CAPABILITY_POWERED_STONE_GRINDING_FLOW,

@@ -8,6 +8,7 @@ use super::{
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
     PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_CUT_BOARD_HANDLES,
     PROCESS_DRAW_COPPER_ELECTRICAL_WINDING, PROCESS_DRESS_STONE_CHIP_DRILL_BIT,
+    PROCESS_FINISH_IRON_PICK_HEAD_FROM_INGOT, PROCESS_FINISH_IRON_PICK_HEAD_FROM_SCRAP,
     PROCESS_GRIND_STONE_SCRAP_DRILL_BIT, PROCESS_GRIND_STONE_SCRAP_TOOL,
     PROCESS_KNAP_STONE_CRUSHER_JAW_FACE, PROCESS_KNAP_STONE_DRILL_BIT, PROCESS_KNAP_STONE_TOOL,
     PROCESS_PACK_CLAY_BINDER, PROCESS_PIERCE_CAST_COPPER_SCREEN_PLATE,
@@ -20,8 +21,18 @@ use super::{
     PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 32] {
+pub(super) fn definitions() -> [ProcessDefinition; 34] {
     [
+        ProcessDefinition::new(
+            PROCESS_FINISH_IRON_PICK_HEAD_FROM_SCRAP,
+            "grind reclaimed iron stock into mining head",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_FINISH_IRON_PICK_HEAD_FROM_INGOT,
+            "grind cast iron stock into mining head",
+            Vec::new(),
+        ),
         ProcessDefinition::new(
             PROCESS_CUT_BOARD_HANDLES,
             "cut handles from dressed boards",
