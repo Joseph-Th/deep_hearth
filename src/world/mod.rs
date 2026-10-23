@@ -7,6 +7,7 @@ mod state;
 mod targeting;
 mod validation;
 
+pub(crate) use definitions::mixed_full_cube_mass;
 pub use definitions::{
     BlockCollisionShape, BlockDefinition, BlockDefinitionId, BlockExcavationDefinition,
     BlockPhysicalDefinition, BlockStateDefinition, BlockStateId, WorldRegistry,
@@ -54,3 +55,7 @@ mod temple_tests;
 #[cfg(test)]
 #[path = "mineral_tests.rs"]
 mod mineral_tests;
+
+#[cfg(test)]
+#[path = "mineral_grade_tests.rs"]
+mod mineral_grade_tests;

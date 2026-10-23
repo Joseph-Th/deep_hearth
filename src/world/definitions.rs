@@ -5,7 +5,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Mass, Pressure, Temperature};
-use crate::material::{CommodityKey, MaterialFormCohesion, MaterialPhase, MaterialRegistry};
+use crate::material::{
+    CommodityKey, CompositionComponent, MaterialComposition, MaterialFormCohesion, MaterialId,
+    MaterialLotSpec, MaterialPhase, MaterialRegistry,
+};
 use crate::texture::{BlockAppearanceId, TextureRegistry};
 
 use super::state::SECTION_CELL_COUNT;
@@ -62,6 +65,7 @@ pub struct BlockExcavationDefinition {
     hardness: Pressure,
     fragmented_commodity: CommodityKey,
     temperature: Temperature,
+    gangue: Option<(MaterialId, u32)>,
 }
 
 impl BlockExcavationDefinition {
@@ -79,7 +83,50 @@ impl BlockExcavationDefinition {
             hardness,
             fragmented_commodity,
             temperature,
+            gangue: None,
         }
+    }
+
+    /// Homogeneous non-target rock fraction, by mass in parts per million.
+    #[must_use]
+    pub fn with_gangue(mut self, material: MaterialId, fraction_ppm: u32) -> Self {
+        assert_ne!(material, self.fragmented_commodity.material());
+        assert!((1..1_000_000).contains(&fraction_ppm));
+        self.gangue = Some((material, fraction_ppm));
+        self
+    }
+
+    #[must_use]
+    pub const fn gangue(self) -> Option<(MaterialId, u32)> {
+        self.gangue
+    }
+
+    /// The compact block state owns its grade; every excavated milligram retains it.
+    #[must_use]
+    pub fn composition(self) -> MaterialComposition {
+        match self.gangue {
+            Some((material, fraction_ppm)) => MaterialComposition::new(vec![
+                CompositionComponent::new(
+                    self.fragmented_commodity.material(),
+                    1_000_000 - fraction_ppm,
+                ),
+                CompositionComponent::new(material, fraction_ppm),
+            ])
+            .expect("authored ore grade must have normalized composition"),
+            None => MaterialComposition::pure(self.fragmented_commodity.material()),
+        }
+    }
+
+    /// Single source of fragment identity for both admission and delayed completion.
+    #[must_use]
+    pub fn fragmented_lot(self, mass: Mass) -> MaterialLotSpec {
+        MaterialLotSpec::with_composition(
+            self.fragmented_commodity,
+            mass,
+            self.temperature,
+            self.composition(),
+        )
+        .expect("authored block grade must produce a valid excavated material lot")
     }
 
     #[must_use]
@@ -194,6 +241,38 @@ impl BlockPhysicalDefinition {
     pub const fn excavation(self) -> Option<BlockExcavationDefinition> {
         self.excavation
     }
+}
+
+/// Material mass of a fully occupied one-cubic-metre mixed-mineral voxel.
+///
+/// Ore grade is a mass fraction, so density follows the reciprocal mass-weighted
+/// specific volume rather than the arithmetic average of constituent densities.
+/// Division floors to the game's whole-milligram material precision.
+pub(crate) fn mixed_full_cube_mass(
+    materials: &MaterialRegistry,
+    host: MaterialId,
+    gangue: MaterialId,
+    gangue_ppm: u32,
+) -> Mass {
+    assert!((1..1_000_000).contains(&gangue_ppm));
+    assert_ne!(host, gangue);
+    let density = |material: MaterialId| {
+        u128::from(
+            materials
+                .get_material(material)
+                .unwrap_or_else(|| panic!("unregistered ore constituent {}", material.value()))
+                .properties()
+                .density_kg_per_m3(),
+        )
+    };
+    let target_density = density(host);
+    let gangue_density = density(gangue);
+    let denominator = u128::from(1_000_000 - gangue_ppm) * gangue_density
+        + u128::from(gangue_ppm) * target_density;
+    let mass_mg = 1_000_000_u128 * 1_000_000 * target_density * gangue_density / denominator;
+    Mass::from_milligrams(
+        u64::try_from(mass_mg).expect("mixed mineral cell mass exceeds supported range"),
+    )
 }
 
 /// Immutable behavior/material presentation shared by one or more block states.
@@ -402,13 +481,26 @@ impl WorldRegistry {
                             });
                     // One cubic metre contains 1,000,000 mg per kg; scaling by the
                     // fill fraction in ppm cancels those million units exactly.
-                    let expected_mass = Mass::from_milligrams(
-                        u64::from(material.properties().density_kg_per_m3())
-                            .checked_mul(u64::from(block.material_fill_fraction_ppm()))
-                            .unwrap_or_else(|| {
-                                panic!("full-cube material mass exceeds supported range")
-                            }),
-                    );
+                    let expected_mass = match block
+                        .excavation()
+                        .and_then(BlockExcavationDefinition::gangue)
+                    {
+                        Some((gangue, fraction)) => {
+                            assert_eq!(
+                                block.material_fill_fraction_ppm(),
+                                1_000_000,
+                                "mixed-mineral voxel must occupy a full cubic metre",
+                            );
+                            mixed_full_cube_mass(materials, commodity.material(), gangue, fraction)
+                        }
+                        None => Mass::from_milligrams(
+                            u64::from(material.properties().density_kg_per_m3())
+                                .checked_mul(u64::from(block.material_fill_fraction_ppm()))
+                                .unwrap_or_else(|| {
+                                    panic!("full-cube material mass exceeds supported range")
+                                }),
+                        ),
+                    };
                     assert_eq!(
                         block.represented_mass(),
                         expected_mass,
@@ -433,6 +525,18 @@ impl WorldRegistry {
                     block.id().value(),
                     excavation.fragmented_commodity().value()
                 );
+                if let Some((gangue, _)) = excavation.gangue() {
+                    assert!(
+                        materials.get_material(gangue).is_some(),
+                        "block {} references unregistered ore gangue",
+                        block.id().value(),
+                    );
+                    assert_eq!(
+                        block.collision(),
+                        BlockCollisionShape::FullCube,
+                        "grade-bearing ore must occupy a full cube",
+                    );
+                }
                 let form = materials
                     .get_form(excavation.fragmented_commodity().form())
                     .unwrap_or_else(|| unreachable!("registered commodity has a form definition"));

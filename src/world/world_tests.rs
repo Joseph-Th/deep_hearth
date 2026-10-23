@@ -36,6 +36,8 @@ use super::*;
 mod batch_admission;
 #[path = "world_tests/excavation_selection.rs"]
 mod excavation_selection;
+#[path = "world_tests/graded_ore.rs"]
+mod graded_ore;
 #[path = "world_tests/palette.rs"]
 mod palette;
 #[path = "world_tests/progression.rs"]

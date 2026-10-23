@@ -420,7 +420,16 @@ selection favors magnetite and pyrite. A deterministic whole-lens choice
 cannot change under chunk-order permutation. The authored ore form is loose, matching the excavated product;
 rock cohesion is provided by its still-intact world block. Existing real ore
 crushing and sizing resolvers accept the mined ore material without creating
-any refined metal. The reaction-reference table encodes ten atom-balanced
+any refined metal. Cassiterite and magnetite lenses also have seed-selected
+40%-mineral, 60%-stone variants, with grade fixed across each four-metre lattice
+body. A compact block-state identity retains the authored mass fractions; the
+full-cube represented mass uses reciprocal mass-weighted constituent density
+rather than pretending that gangue has the ore mineral's density. Partial
+excavation places the same exact composition in carried inventory or a finite
+loose surface parcel, including across save/load continuation. Subsequent
+crushing and grinding preserve that composition until selective separation
+produces concentrate and physical tailings.
+The reaction-reference table encodes ten atom-balanced
 equations using integer atomic masses, positive molar coefficients and per-element
 conservation; tests reject a missing CO/SO2 exhaust term. Nine gas-forming
 reduction/roasting reactions are **not executable** without physical gas custody.

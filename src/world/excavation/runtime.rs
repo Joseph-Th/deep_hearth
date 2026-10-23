@@ -11,7 +11,6 @@ use crate::inventory::{
 };
 use crate::labor::{BlockExcavationOutputCustody, BlockExcavationWork};
 use crate::maintenance::{Condition, calculate_condition_after_active_control_ticks};
-use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
@@ -127,11 +126,7 @@ pub(crate) fn decide_block_excavation_completion(
     let excavation = block.excavation().unwrap_or_else(|| {
         panic!("runtime invariant broken: active excavation block lost definition")
     });
-    let lot = MaterialLotSpec::new(
-        excavation.fragmented_commodity(),
-        work.excavated_mass(),
-        excavation.temperature(),
-    );
+    let lot = excavation.fragmented_lot(work.excavated_mass());
     let settlement = match work.output() {
         BlockExcavationOutputCustody::Carried { stockpile } => {
             let ingress = validate_reserved_material_ingress(

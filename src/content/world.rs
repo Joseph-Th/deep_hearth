@@ -5,6 +5,7 @@ use crate::material::{CommodityKey, MaterialId, MaterialRegistry};
 use crate::world::{
     BlockCollisionShape, BlockDefinition, BlockDefinitionId, BlockExcavationDefinition,
     BlockPhysicalDefinition, BlockStateDefinition, BlockStateId, WorldRegistry,
+    mixed_full_cube_mass,
 };
 
 use super::materials::{
@@ -36,6 +37,8 @@ pub const WORLD_BLOCK_GALENA_ORE: BlockDefinitionId = BlockDefinitionId::new(14)
 pub const WORLD_BLOCK_PYRITE_ORE: BlockDefinitionId = BlockDefinitionId::new(15);
 pub const WORLD_BLOCK_GRAPHITE_ORE: BlockDefinitionId = BlockDefinitionId::new(16);
 pub const WORLD_BLOCK_QUARTZ_ORE: BlockDefinitionId = BlockDefinitionId::new(17);
+pub const WORLD_BLOCK_GRADED_CASSITERITE_ORE: BlockDefinitionId = BlockDefinitionId::new(18);
+pub const WORLD_BLOCK_GRADED_MAGNETITE_ORE: BlockDefinitionId = BlockDefinitionId::new(19);
 
 pub const BLOCK_STATE_STONE: BlockStateId = BlockStateId::new(2);
 pub const BLOCK_STATE_TEMPLE_ARCHIVE: BlockStateId = BlockStateId::new(3);
@@ -53,6 +56,8 @@ pub const BLOCK_STATE_GALENA_ORE: BlockStateId = BlockStateId::new(14);
 pub const BLOCK_STATE_PYRITE_ORE: BlockStateId = BlockStateId::new(15);
 pub const BLOCK_STATE_GRAPHITE_ORE: BlockStateId = BlockStateId::new(16);
 pub const BLOCK_STATE_QUARTZ_ORE: BlockStateId = BlockStateId::new(17);
+pub const BLOCK_STATE_GRADED_CASSITERITE_ORE: BlockStateId = BlockStateId::new(18);
+pub const BLOCK_STATE_GRADED_MAGNETITE_ORE: BlockStateId = BlockStateId::new(19);
 
 pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistry {
     WorldRegistry::new(
@@ -351,6 +356,46 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                 )),
                 Some(BLOCK_QUARTZ_ORE),
             ),
+            BlockDefinition::new(
+                WORLD_BLOCK_GRADED_CASSITERITE_ORE,
+                "cassiterite-bearing stone deposit (40% SnO2 by mass)",
+                BLOCK_STATE_GRADED_CASSITERITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_CASSITERITE, FORM_ORE)),
+                    mixed_full_cube_mass(materials, MATERIAL_CASSITERITE, MATERIAL_STONE, 600_000),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(
+                    BlockExcavationDefinition::new(
+                        Pressure::from_pascals(490_000_000),
+                        CommodityKey::new(MATERIAL_CASSITERITE, FORM_ORE),
+                        Temperature::from_millikelvin(293_150),
+                    )
+                    .with_gangue(MATERIAL_STONE, 600_000),
+                ),
+                Some(BLOCK_CASSITERITE_ORE),
+            ),
+            BlockDefinition::new(
+                WORLD_BLOCK_GRADED_MAGNETITE_ORE,
+                "magnetite-bearing stone deposit (40% Fe3O4 by mass)",
+                BLOCK_STATE_GRADED_MAGNETITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_MAGNETITE, FORM_ORE)),
+                    mixed_full_cube_mass(materials, MATERIAL_MAGNETITE, MATERIAL_STONE, 600_000),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(
+                    BlockExcavationDefinition::new(
+                        Pressure::from_pascals(515_000_000),
+                        CommodityKey::new(MATERIAL_MAGNETITE, FORM_ORE),
+                        Temperature::from_millikelvin(293_150),
+                    )
+                    .with_gangue(MATERIAL_STONE, 600_000),
+                ),
+                Some(BLOCK_MAGNETITE_ORE),
+            ),
         ],
         [
             BlockStateDefinition::new(BlockStateId::AIR, BlockDefinitionId::AIR),
@@ -382,6 +427,14 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
             BlockStateDefinition::new(BLOCK_STATE_PYRITE_ORE, WORLD_BLOCK_PYRITE_ORE),
             BlockStateDefinition::new(BLOCK_STATE_GRAPHITE_ORE, WORLD_BLOCK_GRAPHITE_ORE),
             BlockStateDefinition::new(BLOCK_STATE_QUARTZ_ORE, WORLD_BLOCK_QUARTZ_ORE),
+            BlockStateDefinition::new(
+                BLOCK_STATE_GRADED_CASSITERITE_ORE,
+                WORLD_BLOCK_GRADED_CASSITERITE_ORE,
+            ),
+            BlockStateDefinition::new(
+                BLOCK_STATE_GRADED_MAGNETITE_ORE,
+                WORLD_BLOCK_GRADED_MAGNETITE_ORE,
+            ),
         ],
     )
 }

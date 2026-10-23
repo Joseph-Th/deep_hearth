@@ -35,11 +35,14 @@ These steps reuse canonical selection, processing time, condition wear, energy c
 two-stream output reservations, matter accounting and deterministic save continuation.
 Neither bypasses an absent reduction/smelting chemistry owner. Their immediate practical benefit
 is the ability to improve heterogeneous ore grade and preserve gangue for downstream operations,
-not an invented complete steel or tin production chain. **Current reachability limit:** block-ore
-excavation generates pure single-mineral lots; these separation routes require real mixed-grade
-input to have a meaningful target/gangue split. Such mixed lots are represented and accepted
-by geology and inventory, but the ordinary generated-world excavation path does not provide
-them. This is implemented processing capability, not proof of a complete ordinary-play ore chain.
+not an invented complete steel or tin production chain. **World acquisition:** seeded
+four-metre cassiterite and magnetite lenses include fixed 40%-mineral, 60%-stone
+variants alongside richer pure-mineral seams. Their full-cell masses obey physical
+mixture density, and partial timed player excavation carries the same grade into
+inventory or finite surface drops. Crushing, fine grinding and the distinct
+separators can then act on the same represented constituents. Locating and
+physically reaching deep seams, obtaining the machines and electrical supply,
+and eventually reducing concentrate into metal remain real progression work.
 
 ## Highest-impact unresolved dependencies
 

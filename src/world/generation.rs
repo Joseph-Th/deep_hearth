@@ -607,6 +607,7 @@ fn build_generated_chunk(
                     && let Some(ore) =
                         seeded_mineral_state(profile.seed(), position, mineral_states)
                 {
+                    let ore = select_mineral_grade(registry, profile.seed(), position, ore);
                     let mass = registry
                         .represented_mass_for_state(ore)
                         .unwrap_or_else(|| unreachable!("all mineral states are registered"));
@@ -660,6 +661,41 @@ pub(super) fn seeded_mineral_state(
         };
         states[index]
     })
+}
+
+fn select_mineral_grade(
+    registry: &WorldRegistry,
+    seed: WorldGenerationSeed,
+    position: VoxelCoord,
+    mineral: BlockStateId,
+) -> BlockStateId {
+    let graded = match mineral {
+        crate::content::BLOCK_STATE_CASSITERITE_ORE => {
+            Some(crate::content::BLOCK_STATE_GRADED_CASSITERITE_ORE)
+        }
+        crate::content::BLOCK_STATE_MAGNETITE_ORE => {
+            Some(crate::content::BLOCK_STATE_GRADED_MAGNETITE_ORE)
+        }
+        _ => None,
+    };
+    graded
+        .filter(|&state| {
+            registry.get_state(state).is_some() && seeded_mineral_is_graded(seed, position)
+        })
+        .unwrap_or(mineral)
+}
+
+/// A second seeded lattice decision chooses rich vs gangue-bearing material in the same
+/// four-metre body, preserving the original mineral species across all grade variants.
+fn seeded_mineral_is_graded(seed: WorldGenerationSeed, position: VoxelCoord) -> bool {
+    let hash = mix64(
+        seed.value()
+            ^ (position.x().div_euclid(4) as u64).wrapping_mul(0xAA9C_3E12_6B65_8D21)
+            ^ (position.y().div_euclid(4) as u64).wrapping_mul(0xCA12_4D09_3578_F6EB)
+            ^ (position.z().div_euclid(4) as u64).wrapping_mul(0xE9C3_56B1_420A_DD75)
+            ^ 0x4752_4144_4544_4F52,
+    );
+    hash & 1 == 1
 }
 
 /// Newly generated solid cells must not conceal finite loose material that

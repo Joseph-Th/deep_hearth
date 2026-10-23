@@ -26,7 +26,7 @@ use crate::labor::{
     PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start_control_rate,
 };
 use crate::logistics::{PlayerEquipmentAccessError, validate_player_equipment_access};
-use crate::material::{CommodityKey, MaterialLotSpec};
+use crate::material::CommodityKey;
 use crate::mining::{MiningMethodId, MiningPhysicsError, resolve_mining_physics};
 use crate::registry::Registries;
 use crate::spatial::{ViewDirection, VoxelCoord};
@@ -459,11 +459,7 @@ fn validate_start_player_block_excavation_targeted(
         .inventory()
         .get_stockpile(player.carried_stockpile())
         .ok_or(BlockExcavationError::CarriedStockpileMissing)?;
-    let output = MaterialLotSpec::new(
-        excavation.fragmented_commodity(),
-        request.mass,
-        excavation.temperature(),
-    );
+    let output = excavation.fragmented_lot(request.mass);
     let carried_storage_valid = validate_stockpile_storage(
         registries,
         destination,
