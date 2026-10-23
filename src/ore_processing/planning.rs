@@ -137,6 +137,10 @@ pub(super) fn powered_profile(
                 })
                 .operating_profile(),
         ),
+        ProcessExecutionFamily::Precipitation => registries
+            .ore_processing()
+            .get_precipitation(process)
+            .map(|definition| definition.operating_profile()),
         ProcessExecutionFamily::ConstituentSeparation => Some(
             registries
                 .ore_processing()

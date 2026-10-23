@@ -388,6 +388,9 @@ impl Display for StateValidationError {
             Self::ComminutionJob(error) => {
                 write!(formatter, "invalid comminution production job: {error}")
             }
+            Self::PrecipitationJob(error) => {
+                write!(formatter, "invalid chemical precipitation job: {error}")
+            }
             Self::ConstituentSeparationJob(error) => {
                 write!(
                     formatter,

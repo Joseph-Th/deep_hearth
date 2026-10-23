@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn all_nine_mineral_reaction_equations_conserve_atoms_and_exact_mass() {
+fn all_ten_mineral_reaction_equations_conserve_atoms_and_exact_mass() {
     for reaction in REACTIONS {
         assert!(
             reaction.is_balanced(),
@@ -19,6 +19,7 @@ fn all_nine_mineral_reaction_equations_conserve_atoms_and_exact_mass() {
     assert_eq!(REACTIONS[2].mass_milligrams(true), 174_730);
     assert_eq!(REACTIONS[3].mass_milligrams(true), 290_874);
     assert_eq!(REACTIONS[8].mass_milligrams(true), 84_105);
+    assert_eq!(REACTIONS[9].mass_milligrams(true), 295_105);
 }
 
 #[test]

@@ -216,10 +216,18 @@ different mineral occurrences. Excavation yields each material's actual ore
 lumps; crushing and particle-size operations prepare these materials without
 magically releasing elemental metals. Carbon-rich graphite, sulfur-bearing
 sulfides and multiple iron oxide sources make different industrial feedstocks.
-Reduction and roasting must account for reductants, oxygen supply, energy,
-carbon monoxide, sulfur dioxide and material yields. Nine atom-balanced
-reaction equations specify these dependencies but cannot be executed until
-gas custody and chemical processing exist. Separately,
+Reduction and roasting account for reductants, oxygen supply, energy,
+carbon monoxide, sulfur dioxide and material yields. Nine balanced gas-forming
+reactions remain reference equations, not free metal-conversion shortcuts.
+A separate closed-mass iron precipitation reaction (PbS + Fe → Pb + FeS)
+executes in a supported high-temperature electric furnace. Crushed galena and
+reclaimed iron must be separately selected in an exact molar ratio; the process
+consumes finite electricity, occupies the furnace for time, degrades equipment,
+and reserves distinct hot-liquid lead and solid iron-sulfide matte destinations.
+Molten lead can then enter a real cooled-mold ingot casting operation. The first
+chemical process models an authored electrical work budget rather than detailed
+reaction enthalpy or ambient heat transport; gas-forming operations await their
+own custody physics. Separately,
 existing iron, tin and zinc stock or reclaimed scrap can be remelted with finite
 powered equipment and cast into new ingots. The industrial electrical furnace
 and casting mold operate above iron's fusion temperature; small stone crucibles

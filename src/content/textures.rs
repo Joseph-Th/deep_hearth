@@ -194,6 +194,10 @@ pub const OBJECT_CRUSHED_GALENA: ObjectAppearanceId = ObjectAppearanceId::new(11
 pub const OBJECT_CRUSHED_PYRITE: ObjectAppearanceId = ObjectAppearanceId::new(112);
 pub const OBJECT_CRUSHED_GRAPHITE: ObjectAppearanceId = ObjectAppearanceId::new(113);
 pub const OBJECT_CRUSHED_QUARTZ: ObjectAppearanceId = ObjectAppearanceId::new(114);
+pub const OBJECT_LEAD_INGOT: ObjectAppearanceId = ObjectAppearanceId::new(115);
+pub const OBJECT_MOLTEN_LEAD: ObjectAppearanceId = ObjectAppearanceId::new(116);
+pub const OBJECT_LEAD_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(117);
+pub const OBJECT_IRON_SULFIDE_MATTE: ObjectAppearanceId = ObjectAppearanceId::new(118);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

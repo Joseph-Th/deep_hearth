@@ -18,7 +18,7 @@ use crate::material::{CommodityKey, MaterialId, MaterialPhaseStateError, Particl
 use crate::mining::{MiningJobValidationError, MiningValidationError};
 use crate::ore_processing::{
     ComminutionJobValidationError, ConstituentSeparationJobValidationError,
-    ScreeningJobValidationError,
+    PrecipitationJobValidationError, ScreeningJobValidationError,
 };
 use crate::production::{
     ProcessId, ProductionJobId, ProductionSiteEndpoint, ProductionValidationError,
@@ -233,6 +233,7 @@ pub enum StateValidationError {
     },
     FluidStructuralLoad(FluidStructuralLoadError),
     ComminutionJob(ComminutionJobValidationError),
+    PrecipitationJob(PrecipitationJobValidationError),
     ConstituentSeparationJob(ConstituentSeparationJobValidationError),
     ScreeningJob(ScreeningJobValidationError),
     ThermalJob(ThermalJobValidationError),

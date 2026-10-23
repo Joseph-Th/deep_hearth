@@ -405,5 +405,31 @@ impl OreProcessingRegistry {
         for definition in self.manual_separation.values().copied() {
             validate_manual_separation_references(definition, production, capabilities, materials);
         }
+        for definition in self.precipitation.values().copied() {
+            validate_powered_process_contract(
+                "sulfide precipitation",
+                definition.process(),
+                definition.operating_profile(),
+                production,
+                capabilities,
+            );
+            for commodity in [
+                CommodityKey::new(
+                    crate::content::MATERIAL_GALENA,
+                    crate::content::FORM_CRUSHED,
+                ),
+                CommodityKey::new(crate::content::MATERIAL_IRON, crate::content::FORM_SCRAP),
+                CommodityKey::new(crate::content::MATERIAL_LEAD, crate::content::FORM_MOLTEN),
+                CommodityKey::new(
+                    crate::content::MATERIAL_IRON_SULFIDE,
+                    crate::content::FORM_MATTE,
+                ),
+            ] {
+                assert!(
+                    materials.has_commodity(commodity),
+                    "sulfide precipitation references missing commodity {commodity:?}"
+                );
+            }
+        }
     }
 }

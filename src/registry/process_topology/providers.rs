@@ -48,6 +48,7 @@ pub(super) fn process_equipment_role(
         | ProcessExecutionFamily::Comminution
         | ProcessExecutionFamily::Screening
         | ProcessExecutionFamily::ConstituentSeparation
+        | ProcessExecutionFamily::Precipitation
         | ProcessExecutionFamily::SensibleHeating
         | ProcessExecutionFamily::Melting
         | ProcessExecutionFamily::Casting => ProcessEquipmentRole::Required,
@@ -70,6 +71,7 @@ pub(super) fn nominal_providers(
         | ProcessExecutionFamily::Comminution
         | ProcessExecutionFamily::Screening
         | ProcessExecutionFamily::ConstituentSeparation
+        | ProcessExecutionFamily::Precipitation
         | ProcessExecutionFamily::SensibleHeating
         | ProcessExecutionFamily::Melting
         | ProcessExecutionFamily::Casting => nominal_machine_providers(domains, process),
@@ -120,6 +122,7 @@ fn nominal_manual_ore_providers(
         | ProcessExecutionFamily::Comminution
         | ProcessExecutionFamily::Screening
         | ProcessExecutionFamily::ConstituentSeparation
+        | ProcessExecutionFamily::Precipitation
         | ProcessExecutionFamily::SensibleHeating
         | ProcessExecutionFamily::Melting
         | ProcessExecutionFamily::Casting => None,

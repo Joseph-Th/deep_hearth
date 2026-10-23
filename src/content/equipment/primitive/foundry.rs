@@ -2,8 +2,8 @@
 
 use crate::capability::CapabilityValue;
 use crate::content::capabilities::{
-    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_THERMAL_BATCH,
-    CAPABILITY_THERMAL_MAX_TEMPERATURE, CAPABILITY_TREADLE_DYNAMO_OUTPUT,
+    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_SULFIDE_PRECIPITATION_FLOW,
+    CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE, CAPABILITY_TREADLE_DYNAMO_OUTPUT,
     CAPABILITY_TREADLE_POWER_OUTPUT,
 };
 use crate::content::crafted_parts::{COPPER_ELECTRICAL_WINDING_MASS, TIMBER_FLYWHEEL_MASS};
@@ -274,6 +274,12 @@ pub(super) fn four_pot_arc_crucible_furnace() -> EquipmentDefinition {
             ),
         ]),
         profile([
+            (
+                CAPABILITY_SULFIDE_PRECIPITATION_FLOW,
+                CapabilityValue::MassFlow(
+                    crate::core::quantity::MassFlow::from_milligrams_per_second(15_000),
+                ),
+            ),
             (
                 CAPABILITY_HEATING_POWER,
                 CapabilityValue::Power(Power::from_microwatts(300_000_000)),

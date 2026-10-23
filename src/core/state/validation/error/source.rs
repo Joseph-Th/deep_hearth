@@ -29,6 +29,7 @@ impl Error for StateValidationError {
             Self::PlayerWork(error) => Some(error),
             Self::Survival(error) => Some(error),
             Self::ComminutionJob(error) => Some(error),
+            Self::PrecipitationJob(error) => Some(error),
             Self::ConstituentSeparationJob(error) => Some(error),
             Self::ScreeningJob(error) => Some(error),
             Self::ThermalJob(error) => Some(error),

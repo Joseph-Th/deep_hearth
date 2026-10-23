@@ -124,6 +124,10 @@ pub const LEAD: ChemicalSpecies = ChemicalSpecies {
     formula: "Pb",
     atoms: &[atom!(Lead, 1)],
 };
+pub const IRON_SULFIDE: ChemicalSpecies = ChemicalSpecies {
+    formula: "FeS",
+    atoms: &[atom!(Iron, 1), atom!(Sulfur, 1)],
+};
 pub const SILICON: ChemicalSpecies = ChemicalSpecies {
     formula: "Si",
     atoms: &[atom!(Silicon, 1)],
@@ -236,10 +240,10 @@ impl ReactionEquation {
     }
 }
 
-/// Nine balanced reference reactions. Reactants O2 and products CO/SO2 are
-/// deliberately not inventory commodities: the game currently lacks gas vessels
-/// and chemical-reaction execution. They cannot be run using a melting recipe.
-pub const REACTIONS: [ReactionEquation; 9] = [
+/// Ten atom-balanced reactions. The galena/iron precipitation is the first
+/// executable no-offgas chemistry; the nine gas-forming equations remain
+/// reference data until finite atmosphere and exhaust handling exist.
+pub const REACTIONS: [ReactionEquation; 10] = [
     ReactionEquation {
         description: "hematite carbon reduction",
         inputs: &[ReactionTerm::new(HEMATITE, 1), ReactionTerm::new(CARBON, 3)],
@@ -325,6 +329,14 @@ pub const REACTIONS: [ReactionEquation; 9] = [
         outputs: &[
             ReactionTerm::new(SILICON, 1),
             ReactionTerm::new(CARBON_MONOXIDE, 2),
+        ],
+    },
+    ReactionEquation {
+        description: "galena iron precipitation",
+        inputs: &[ReactionTerm::new(GALENA, 1), ReactionTerm::new(IRON, 1)],
+        outputs: &[
+            ReactionTerm::new(LEAD, 1),
+            ReactionTerm::new(IRON_SULFIDE, 1),
         ],
     },
 ];

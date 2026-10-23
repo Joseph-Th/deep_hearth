@@ -6,6 +6,7 @@ mod manual_physics;
 mod order;
 mod planning;
 mod powered_physics;
+mod precipitation_execution;
 mod registry;
 mod screening_execution;
 mod separation_execution;
@@ -21,6 +22,11 @@ pub use planning::{
     PoweredOreReplenishmentConstraint, assess_powered_ore_mass_envelope,
 };
 pub use powered_physics::{PoweredOreBottleneck, PoweredOreJobValidationError};
+pub(crate) use precipitation_execution::validate_loaded_precipitation_job;
+pub use precipitation_execution::{
+    PrecipitationBatchError, PrecipitationJobValidationError, PrecipitationRequest,
+    PrecipitationResolutionError, ResolvedPrecipitation, resolve_precipitation_process,
+};
 pub use registry::OreProcessingRegistry;
 
 pub use comminution_execution::{
@@ -37,7 +43,8 @@ pub use definitions::{
     ComminutionProcessDefinition, ConstituentRecoveryProfile,
     ConstituentSeparationProcessDefinition, ManualComminutionProcessDefinition,
     ManualConstituentSeparationProcessDefinition, ManualOreEquipmentProfile,
-    ManualOreProcessProfile, PoweredOreProcessProfile, ScreeningProcessDefinition,
+    ManualOreProcessProfile, PoweredOreProcessProfile, PrecipitationProcessDefinition,
+    ScreeningProcessDefinition,
 };
 pub use manual_physics::{
     ManualOreEquipmentError, ManualOreJobValidationError, ManualOrePhysicsError,

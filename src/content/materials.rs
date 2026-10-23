@@ -32,6 +32,9 @@ pub const MATERIAL_GALENA: MaterialId = MaterialId::new(20);
 pub const MATERIAL_PYRITE: MaterialId = MaterialId::new(21);
 pub const MATERIAL_GRAPHITE: MaterialId = MaterialId::new(22);
 pub const MATERIAL_QUARTZ: MaterialId = MaterialId::new(23);
+pub const MATERIAL_LEAD: MaterialId = MaterialId::new(24);
+/// Iron sulfide matte (FeS), recovered from iron precipitation of galena.
+pub const MATERIAL_IRON_SULFIDE: MaterialId = MaterialId::new(25);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 pub(crate) const IRON_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_811_000);
 pub(crate) const TIN_MELTING_POINT: Temperature = Temperature::from_millikelvin(505_080);
@@ -74,6 +77,7 @@ pub const FORM_PACKED_CLAY_BINDER: FormId = FormId::new(32);
 pub const FORM_CRUSHER_JAW_FACE: FormId = FormId::new(33);
 pub const FORM_CRUSHER_BLOCK: FormId = FormId::new(34);
 pub const FORM_BLOCK: FormId = FormId::new(35);
+pub const FORM_MATTE: FormId = FormId::new(36);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -176,6 +180,13 @@ fn register_forms(registry: &mut MaterialRegistry) {
             ParticleSizeStatePolicy::Required,
         ),
         consolidated_form(FORM_INGOT, "ingot"),
+        loose_form(
+            FORM_MATTE,
+            "sulfide matte",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        )
+        .as_residual(),
         loose_form(
             FORM_MOLTEN,
             "molten",
@@ -335,6 +346,31 @@ fn register_materials(registry: &mut MaterialRegistry) {
                 Some(StructuralProperties::new(250_000, 18_000)),
             ),
         ),
+        MaterialDefinition::new(
+            MATERIAL_LEAD,
+            "lead",
+            MaterialProperties::new(
+                11_340,
+                ThermalProperties::new(
+                    128,
+                    Some(FusionProperties::new(
+                        Temperature::from_millikelvin(600_610),
+                        24_500,
+                    )),
+                ),
+                Some(StructuralProperties::new(18_000, 12_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_IRON_SULFIDE,
+            "iron sulfide (FeS)",
+            MaterialProperties::new(
+                4_840,
+                ThermalProperties::new(570, None),
+                Some(StructuralProperties::new(65_000, 7_000)),
+            ),
+        )
+        .as_residual(),
         MaterialDefinition::new(
             MATERIAL_SLAG,
             "slag",
@@ -557,6 +593,13 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         (
             CommodityKey::new(MATERIAL_GRAPHITE, FORM_CRUSHED),
             "crushed graphite",
+        ),
+        (CommodityKey::new(MATERIAL_LEAD, FORM_MOLTEN), "molten lead"),
+        (CommodityKey::new(MATERIAL_LEAD, FORM_INGOT), "lead ingot"),
+        (CommodityKey::new(MATERIAL_LEAD, FORM_SCRAP), "lead scrap"),
+        (
+            CommodityKey::new(MATERIAL_IRON_SULFIDE, FORM_MATTE),
+            "iron sulfide matte",
         ),
         (CommodityKey::new(MATERIAL_QUARTZ, FORM_ORE), "quartz ore"),
         (

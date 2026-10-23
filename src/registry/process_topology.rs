@@ -21,6 +21,7 @@ pub enum ProcessExecutionFamily {
     Comminution,
     Screening,
     ConstituentSeparation,
+    Precipitation,
     SensibleHeating,
     Melting,
     Casting,

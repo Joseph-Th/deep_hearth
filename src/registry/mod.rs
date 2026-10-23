@@ -301,6 +301,7 @@ impl Registries {
             | ProcessExecutionFamily::Comminution
             | ProcessExecutionFamily::Screening
             | ProcessExecutionFamily::ConstituentSeparation
+            | ProcessExecutionFamily::Precipitation
             | ProcessExecutionFamily::SensibleHeating
             | ProcessExecutionFamily::Melting
             | ProcessExecutionFamily::Casting => None,

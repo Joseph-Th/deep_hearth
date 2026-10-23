@@ -420,17 +420,40 @@ selection favors magnetite and pyrite. A deterministic whole-lens choice
 cannot change under chunk-order permutation. The authored ore form is loose, matching the excavated product;
 rock cohesion is provided by its still-intact world block. Existing real ore
 crushing and sizing resolvers accept the mined ore material without creating
-any refined metal. The content reaction table encodes nine atom-balanced
-carbon reduction and oxidative roasting equations, using integer atomic masses,
-positive molar coefficients and per-element conservation; tests reject a missing
-CO/SO2 exhaust term. This table is **not** a production registry and does not
-authorize any furnace job. Reductant admission, oxidation gas flows,
-chemical heat, reaction timing, retained exhaust vessel custody, species phases,
+any refined metal. The reaction-reference table encodes ten atom-balanced
+equations using integer atomic masses, positive molar coefficients and per-element
+conservation; tests reject a missing CO/SO2 exhaust term. Nine gas-forming
+reduction/roasting reactions are **not executable** without physical gas custody.
+
+One no-offgas equation is executable: PbS + Fe → Pb + FeS. The ore-processing
+registry owns a dedicated precipitation process family and the production
+registry owns its capability requirements. Input selection binds exact pure
+crushed-galena matter and iron scrap/chips, in exact one-fifth-mole charge
+units (47,852 mg PbS + 11,169 mg Fe). Five units equal the balanced full
+mole (239,260 mg PbS + 55,845 mg Fe). This exact integer subdivision
+fits the physically constructible four-pot arc furnace's 80 g batch bound. Runtime rejects missing
+reactants, invalid ratios, impure or over-temperature feed, inadequate
+energy, unsupported equipment and incorrect output containment. The mounted
+industrial furnace offers 100 g/s charge flow. The assembled four-pot arc
+furnace offers 15 g/s and 80 g maximum batch capacity. Both need 1,325 K
+operating admission and finite electrical supply; the single-pot 20 g
+furnace cannot admit even the minimum balanced charge. A constant
+mass-specific electrical work budget currently stands in for detailed thermal
+reaction enthalpy and heat dissipation; this approximation is not a thermodynamic
+simulator. Each fifth-mole charge yields exactly 41,440 mg molten lead at
+1,325 K and 17,581 mg iron sulfide matte in separate material streams;
+five charges produce 207,200 mg lead and 87,905 mg matte. The molten
+lead must land in a heat-rated liquid store; matte can land in a solids store.
+Reservations, equipment wear, output capacity and atomic completion use the
+canonical production mechanism. Trusted-load replay reconstructs both output
+masses, consumed electrical work, timing and wear from immutable input traces.
+A distinct molten-lead-to-ingot process uses ordinary cooled-mold casting.
+Oxidation gas flows, fuel enthalpy, ambient heat, exhausted gas vessel custody,
 alloying, heat treatment and survey discoverability still require runtime systems. The ore lens placement is not a registered
 finite geology deposit and is not automatically discoverable via survey evidence.
 
 The archive shell, motive-drive shell and external threshold use copper.
-The active built-in registry schema is 144; saves with another registry schema
+The active built-in registry schema is 145; saves with another registry schema
 are rejected before material mass and identity validation. No older content
 schema migration is available in this build. All seven devices are finite and inactive
 until an explicit operation exists.

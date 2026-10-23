@@ -13,12 +13,13 @@ use super::capabilities::{
 };
 use super::materials::{
     FORM_BLOCK, FORM_CHIP, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
-    FORM_SCRAP, MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_TIN, MATERIAL_ZINC,
+    FORM_SCRAP, MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_LEAD, MATERIAL_TIN, MATERIAL_ZINC,
 };
 use super::processes::{
-    PROCESS_CAST_IRON_INGOT, PROCESS_CAST_PURE_COPPER, PROCESS_CAST_TIN_INGOT,
-    PROCESS_CAST_ZINC_INGOT, PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER,
-    PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC,
+    PROCESS_CAST_IRON_INGOT, PROCESS_CAST_LEAD_INGOT, PROCESS_CAST_PURE_COPPER,
+    PROCESS_CAST_TIN_INGOT, PROCESS_CAST_ZINC_INGOT, PROCESS_HEAT_MATERIAL_BATCH,
+    PROCESS_MELT_PURE_COPPER, PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_TIN,
+    PROCESS_MELT_RECYCLED_ZINC,
 };
 
 pub(crate) fn build_thermal_registry() -> ThermalRegistry {
@@ -129,6 +130,15 @@ pub(crate) fn build_thermal_registry() -> ThermalRegistry {
                 PROCESS_CAST_ZINC_INGOT,
                 casting_profile(),
                 MATERIAL_ZINC,
+                CastingPhaseChange::new(
+                    PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+                    Temperature::from_millikelvin(293_150),
+                ),
+            ),
+            CastingProcessDefinition::new(
+                PROCESS_CAST_LEAD_INGOT,
+                casting_profile(),
+                MATERIAL_LEAD,
                 CastingPhaseChange::new(
                     PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
                     Temperature::from_millikelvin(293_150),

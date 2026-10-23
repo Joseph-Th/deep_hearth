@@ -93,7 +93,10 @@ pub const PROCESS_MELT_RECYCLED_ZINC: ProcessId = ProcessId::new(79);
 pub const PROCESS_CAST_ZINC_INGOT: ProcessId = ProcessId::new(80);
 pub const PROCESS_FINISH_IRON_PICK_HEAD_FROM_SCRAP: ProcessId = ProcessId::new(81);
 pub const PROCESS_FINISH_IRON_PICK_HEAD_FROM_INGOT: ProcessId = ProcessId::new(82);
+pub const PROCESS_PRECIPITATE_LEAD_FROM_GALENA: ProcessId = ProcessId::new(83);
+pub const PROCESS_CAST_LEAD_INGOT: ProcessId = ProcessId::new(84);
 
+mod chemical;
 mod fabrication;
 mod ore;
 mod powered;
@@ -156,6 +159,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
     for process in ore::definitions()
         .into_iter()
         .chain(thermal::definitions())
+        .chain(chemical::definitions())
         .chain(storage::definitions())
         .chain(fabrication::definitions())
         .chain(powered::definitions())

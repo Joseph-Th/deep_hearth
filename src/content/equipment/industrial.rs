@@ -16,7 +16,8 @@ use crate::content::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
-    CAPABILITY_SEPARATOR_FLOW, CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
+    CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SULFIDE_PRECIPITATION_FLOW, CAPABILITY_THERMAL_BATCH,
+    CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 
 const JAW_CRUSHER_MASS: Mass = Mass::from_milligrams(3_600_000_000);
@@ -69,6 +70,10 @@ fn electric_furnace() -> EquipmentDefinition {
         "workshop electric furnace",
         ELECTRIC_FURNACE_MASS,
         profile([
+            (
+                CAPABILITY_SULFIDE_PRECIPITATION_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(100_000)),
+            ),
             (
                 CAPABILITY_HEATING_POWER,
                 CapabilityValue::Power(Power::from_microwatts(2_000_000_000_000)),

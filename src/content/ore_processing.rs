@@ -13,14 +13,15 @@ use crate::ore_processing::{
     ConstituentSeparationProcessDefinition, ManualComminutionProcessDefinition,
     ManualConstituentSeparationProcessDefinition, ManualOreEquipmentProfile,
     ManualOreProcessProfile, OreProcessingRegistry, PoweredOreProcessProfile,
-    ScreeningProcessDefinition,
+    PrecipitationProcessDefinition, ScreeningProcessDefinition,
 };
 
 use super::capabilities::{
     CAPABILITY_COBBING_FLOW, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_MORTAR_GRINDING_FLOW,
     CAPABILITY_ORE_PICKING_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
-    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
+    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SULFIDE_PRECIPITATION_FLOW,
+    CAPABILITY_THERMAL_BATCH,
 };
 use super::materials::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_ORE,
@@ -30,8 +31,8 @@ use super::processes::{
     PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
     PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE,
     PROCESS_HAND_GRIND_CRUSHED_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
-    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
-    PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_PRECIPITATE_LEAD_FROM_GALENA, PROCESS_REGRIND_COPPER_TAILINGS,
+    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
 use crate::survival::SurvivalExertion;
 
@@ -274,4 +275,18 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
             )),
         )],
     )
+    .with_precipitation([PrecipitationProcessDefinition::new(
+        PROCESS_PRECIPITATE_LEAD_FROM_GALENA,
+        PoweredOreProcessProfile::new(
+            CAPABILITY_SULFIDE_PRECIPITATION_FLOW,
+            CAPABILITY_THERMAL_BATCH,
+            EnergyCarrier::Electrical,
+            // Input charge heating and reaction work are currently one
+            // conservative powered budget; ambient heat/offgas remains a
+            // separate future physics layer.
+            MassSpecificEnergy::from_nanojoules_per_milligram(1_800_000_000),
+            40,
+        ),
+        crate::core::quantity::Temperature::from_millikelvin(1_325_000),
+    )])
 }

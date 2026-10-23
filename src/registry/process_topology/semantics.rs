@@ -78,6 +78,15 @@ pub(super) fn process_execution_semantics(
                 )
             }),
         domains
+            .ore_processing
+            .get_precipitation(process)
+            .map(|definition| {
+                (
+                    ProcessExecutionFamily::Precipitation,
+                    ProcessEnergyRole::Supply(definition.energy_carrier()),
+                )
+            }),
+        domains
             .thermal
             .get_sensible_heating(process)
             .map(|definition| {

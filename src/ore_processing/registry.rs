@@ -7,7 +7,7 @@ use crate::production::ProcessId;
 use super::{
     ComminutionProcessDefinition, ConstituentSeparationProcessDefinition,
     ManualComminutionProcessDefinition, ManualConstituentSeparationProcessDefinition,
-    ScreeningProcessDefinition,
+    PrecipitationProcessDefinition, ScreeningProcessDefinition,
 };
 
 /// Immutable lookup table for ore/material-preparation process semantics.
@@ -18,6 +18,7 @@ pub struct OreProcessingRegistry {
     pub(super) screening: BTreeMap<ProcessId, ScreeningProcessDefinition>,
     pub(super) separation: BTreeMap<ProcessId, ConstituentSeparationProcessDefinition>,
     pub(super) manual_separation: BTreeMap<ProcessId, ManualConstituentSeparationProcessDefinition>,
+    pub(super) precipitation: BTreeMap<ProcessId, PrecipitationProcessDefinition>,
 }
 
 impl OreProcessingRegistry {
@@ -115,12 +116,45 @@ impl OreProcessingRegistry {
             screening,
             separation,
             manual_separation,
+            precipitation: BTreeMap::new(),
         }
     }
 
     #[must_use]
     pub fn get_comminution(&self, process: ProcessId) -> Option<&ComminutionProcessDefinition> {
         self.comminution.get(&process)
+    }
+
+    /// Adds chemical semantics after the ordinary mechanical-processing registry is built.
+    pub(crate) fn with_precipitation(
+        mut self,
+        definitions: impl IntoIterator<Item = PrecipitationProcessDefinition>,
+    ) -> Self {
+        for definition in definitions {
+            let process = definition.process();
+            assert!(
+                self.get_comminution(process).is_none()
+                    && self.get_manual_comminution(process).is_none()
+                    && self.get_screening(process).is_none()
+                    && self.get_constituent_separation(process).is_none()
+                    && self.get_manual_constituent_separation(process).is_none()
+                    && self.precipitation.insert(process, definition).is_none(),
+                "process {} has competing chemical or mechanical resolver semantics",
+                process.value()
+            );
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn get_precipitation(&self, process: ProcessId) -> Option<PrecipitationProcessDefinition> {
+        self.precipitation.get(&process).copied()
+    }
+
+    pub fn precipitation_definitions(
+        &self,
+    ) -> impl Iterator<Item = PrecipitationProcessDefinition> + '_ {
+        self.precipitation.values().copied()
     }
 
     #[must_use]
