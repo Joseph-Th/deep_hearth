@@ -312,7 +312,7 @@ fn control_stepping_required(registries: &Registries, state: &AppState) -> bool 
             state.player_work().active(),
             Some(PlayerWork::BlockExcavation { .. })
         )
-        || automatic_surface_pickup_requires_control_stepping(state)
+        || automatic_surface_pickup_requires_control_stepping(registries, state)
     {
         return true;
     }

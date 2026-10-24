@@ -12,7 +12,7 @@ use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
 
 use super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
-use super::{SurfaceResourceId, SurfaceResourceKind};
+use super::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
 
 #[must_use]
 pub(crate) struct SurfaceDropPickupPlan {
@@ -76,15 +76,79 @@ fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelC
     (!capacity.is_zero()).then_some((destination, player.position(), capacity))
 }
 
-/// A full pack or dead player cannot pick up a drop during a skipped control interval.
-pub(crate) fn automatic_surface_pickup_requires_control_stepping(state: &AppState) -> bool {
-    let Some((_, position, _)) = available_pickup_destination(state) else {
+/// A full pack, dead player, or unallocatable parcel cannot produce a pickup
+/// during a skipped interval. A merge into an existing lot remains possible
+/// even if no new lot identities can be allocated.
+pub(crate) fn automatic_surface_pickup_requires_control_stepping(
+    registries: &Registries,
+    state: &AppState,
+) -> bool {
+    let Some((destination, position, available_capacity)) = available_pickup_destination(state)
+    else {
         return false;
     };
-    state
+    let mut drops = state
         .surface()
         .available_resources_at(Some(position))
-        .any(|resource| resource.kind() == SurfaceResourceKind::Drop)
+        .filter(|resource| resource.kind() == SurfaceResourceKind::Drop);
+    // With one available identity after reserving all future obligations,
+    // any currently available local drop can be picked up on a control step.
+    if state.has_material_lot_id_headroom_from(state.inventory().next_lot_id(), 1) {
+        return drops.next().is_some();
+    }
+    // At identity exhaustion only parcels which coalesce with an existing lot
+    // can transfer. This must use inventory's actual merge admission policy.
+    drops.any(|resource| {
+        validate_pickup_ingress(
+            registries,
+            state,
+            destination,
+            available_capacity,
+            resource,
+            state.tick(),
+        )
+        .is_some()
+    })
+}
+
+fn validate_pickup_ingress(
+    registries: &Registries,
+    state: &AppState,
+    destination: StockpileId,
+    available_capacity: Mass,
+    resource: &SurfaceResourceRecord,
+    picked_at: SimulationTick,
+) -> Option<ValidatedMaterialIngress> {
+    let picked_mass = resource.remaining_mass().min(available_capacity);
+    let entry = MaterialIngressEntry::from_surface_parcel(
+        picked_mass,
+        resource.material_profile().clone(),
+        resource.material_provenance(),
+        resource
+            .ambient_storage_history_at(picked_at)
+            .unwrap_or_else(|| unreachable!("surface drop exposure cannot precede creation")),
+    );
+    let ingress = match validate_material_ingress(
+        registries,
+        state.inventory(),
+        destination,
+        [entry],
+        picked_at,
+    ) {
+        Ok(ingress) => ingress,
+        Err(MaterialIngressError::CapacityExceeded { .. }) => {
+            unreachable!("pickup mass is bounded by current carried available capacity")
+        }
+        Err(MaterialIngressError::LotIdExhausted | MaterialIngressError::RevisionExhausted) => {
+            return None;
+        }
+        Err(error) => {
+            panic!("runtime invariant broken: local surface drop pickup failed: {error}")
+        }
+    };
+    state
+        .has_material_lot_id_headroom_from(ingress.next_lot_id(), 0)
+        .then_some(ingress)
 }
 
 pub(crate) fn decide_automatic_surface_drop_pickup(
@@ -107,37 +171,18 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
                 continue;
             }
         }
-        let picked_mass = resource.remaining_mass().min(available_capacity);
-        let entry = MaterialIngressEntry::from_surface_parcel(
-            picked_mass,
-            resource.material_profile().clone(),
-            resource.material_provenance(),
-            resource
-                .ambient_storage_history_at(picked_at)
-                .unwrap_or_else(|| unreachable!("surface drop exposure cannot precede creation")),
-        );
-        let ingress = match validate_material_ingress(
+        let Some(ingress) = validate_pickup_ingress(
             registries,
-            state.inventory(),
+            state,
             destination,
-            [entry],
+            available_capacity,
+            resource,
             picked_at,
-        ) {
-            Ok(ingress) => ingress,
-            Err(MaterialIngressError::CapacityExceeded { .. }) => {
-                unreachable!("pickup mass is bounded by current carried available capacity")
-            }
-            // A different parcel may coalesce into an existing carried lot without allocating
-            // an identity. One unallocatable candidate must not starve that independent pickup.
-            Err(MaterialIngressError::LotIdExhausted) => continue,
-            Err(MaterialIngressError::RevisionExhausted) => return None,
-            Err(error) => {
-                panic!("runtime invariant broken: local surface drop pickup failed: {error}")
-            }
+        ) else {
+            // An unallocatable parcel cannot starve a later mergeable drop.
+            continue;
         };
-        if !state.has_material_lot_id_headroom_from(ingress.next_lot_id(), 0) {
-            return None;
-        }
+        let picked_mass = resource.remaining_mass().min(available_capacity);
         let next_surface_revision = state.surface().revision().checked_add(1)?;
         return Some(SurfaceDropPickupPlan {
             expected_surface_revision: state.surface().revision(),
