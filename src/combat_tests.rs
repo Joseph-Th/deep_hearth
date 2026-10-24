@@ -430,6 +430,223 @@ fn melee_miss_ignores_unknown_world_beyond_authored_reach() {
 }
 
 #[test]
+fn repeated_club_contacts_stagger_scout_then_physical_recovery_replays() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::matter::calculate_matter_accounting;
+    use crate::simulation::{
+        PlayerDirectControlInput, PrimaryActionOutcome, PrimaryControlIntent, advance_control_tick,
+        advance_control_tick_with_direct_input,
+    };
+
+    let (registries, mut state, den, junction, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let initial_mass = calculate_matter_accounting(&state).unwrap().total();
+    let west = ViewDirection::new(-1_000_000, 0, 0).unwrap();
+    let strike = PlayerDirectControlInput::NEUTRAL.with_primary(PrimaryControlIntent::strike(west));
+
+    for (attack_index, expected_balance) in [720_000, 440_840, 162_520].into_iter().enumerate() {
+        // 22 control ticks is the authored club recovery. There is no bypass
+        // through fast repeated primary requests.
+        if attack_index > 0 {
+            for _ in 0..22 {
+                let _ = advance_control_tick(&registries, &mut state).unwrap();
+            }
+        }
+        let result =
+            advance_control_tick_with_direct_input(&registries, &mut state, strike).unwrap();
+        let outcome = result.primary_action().unwrap();
+        if attack_index < 2 {
+            assert!(
+                matches!(
+                    outcome,
+                    PrimaryActionOutcome::Strike(PrimitiveAttackOutcome::Startled {
+                        resident: KoboldRole::Scout, position,
+                    }) if *position == junction
+                ),
+                "impact {}: {outcome:?}",
+                attack_index + 1
+            );
+        } else {
+            assert!(
+                matches!(
+                    outcome,
+                    PrimaryActionOutcome::Strike(PrimitiveAttackOutcome::Staggered {
+                        resident: KoboldRole::Scout, position, ..
+                    }) if *position == junction
+                ),
+                "stagger outcome: {outcome:?}"
+            );
+        }
+        let observed = crate::kobolds::available_nearby_kobold_scouts(&registries, &state)
+            .find(|resident| resident.role() == KoboldRole::Scout)
+            .unwrap();
+        assert_eq!(
+            observed.balance_ppm(),
+            Some(expected_balance),
+            "impact {}",
+            attack_index + 1
+        );
+        assert_eq!(observed.is_staggered(), attack_index == 2);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial_mass
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(club)
+            .unwrap()
+            .condition()
+            .parts_per_million(),
+        991_000
+    );
+
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    for target_tick in [185_u64, 190_u64] {
+        while state.tick().value() < target_tick {
+            assert_eq!(
+                advance_control_tick(&registries, &mut state).unwrap(),
+                advance_control_tick(&registries, &mut replay).unwrap(),
+            );
+        }
+        let observed = crate::kobolds::available_nearby_kobold_scouts(&registries, &state)
+            .find(|resident| resident.role() == KoboldRole::Scout)
+            .unwrap();
+        let expected_position = if target_tick == 185 { junction } else { den };
+        assert_eq!(observed.position(), expected_position);
+        assert_eq!(observed.is_staggered(), target_tick == 185);
+        assert_eq!(state, replay);
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn watchman_can_be_staggered_without_affecting_a_remote_scout() {
+    use crate::content::{BLOCK_STATE_STONE, EQUIPMENT_WOODEN_CLUB};
+    use crate::simulation::{
+        PlayerDirectControlInput, PrimaryActionOutcome, PrimaryControlIntent, advance_control_tick,
+        advance_control_tick_with_direct_input,
+    };
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, den, junction, _) = opening_contact_world();
+    let player_at = VoxelCoord::new(0, 0, 1);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(0, -1, 1),
+        BLOCK_STATE_STONE,
+    );
+    for y in 0..=2 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(0, y, 1),
+            BlockStateId::AIR,
+        );
+    }
+    validate_admit_player(&registries, &state, player_at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let north = ViewDirection::new(0, 0, -1_000_000).unwrap();
+    let strike =
+        PlayerDirectControlInput::NEUTRAL.with_primary(PrimaryControlIntent::strike(north));
+    let scout_before = crate::kobolds::available_nearby_kobold_scouts(&registries, &state)
+        .find(|resident| resident.role() == KoboldRole::Scout)
+        .unwrap()
+        .balance_ppm();
+    for index in 0..3 {
+        if index > 0 {
+            for _ in 0..22 {
+                let _ = advance_control_tick(&registries, &mut state).unwrap();
+            }
+        }
+        let result =
+            advance_control_tick_with_direct_input(&registries, &mut state, strike).unwrap();
+        assert!(
+            matches!(
+                result.primary_action(),
+                Some(PrimaryActionOutcome::Strike(
+                    PrimitiveAttackOutcome::Startled { resident: KoboldRole::Watchman, position }
+                    | PrimitiveAttackOutcome::Staggered { resident: KoboldRole::Watchman, position, .. }
+                )) if *position == den
+            ),
+            "watchman contact: {:?}",
+            result.primary_action()
+        );
+    }
+    let seen =
+        crate::kobolds::available_nearby_kobold_scouts(&registries, &state).collect::<Vec<_>>();
+    assert_eq!(
+        seen.iter()
+            .find(|resident| resident.role() == KoboldRole::Watchman)
+            .unwrap()
+            .is_staggered(),
+        true,
+    );
+    assert_eq!(
+        seen.iter()
+            .find(|resident| resident.role() == KoboldRole::Scout)
+            .unwrap()
+            .balance_ppm(),
+        scout_before
+    );
+    assert_eq!(
+        close_contact_at(&state, junction),
+        Ok(Some((KoboldRole::Scout, junction)))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn forged_kobold_balance_cannot_enter_runtime() {
+    let (registries, state, ..) = opening_contact_world();
+    let base = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    for (value, error) in [
+        (1_000_001_u32, "kobold balance exceeds stable footing"),
+        (
+            800_000_u32,
+            "kobold lost balance without recorded local impact",
+        ),
+    ] {
+        let mut forged = base.clone();
+        forged["state"]["systems"]["kobolds"]["colony"]["scout_balance_ppm"] =
+            serde_json::json!(value);
+        let encoded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+        assert_eq!(
+            encoded.into_state(&registries),
+            Err(crate::persistence::LoadError::InvalidState(
+                crate::core::state::StateValidationError::Kobolds(error)
+            ))
+        );
+    }
+    let mut unearned = base;
+    unearned["state"]["systems"]["kobolds"]["colony"]["scout_shoved_at"] = serde_json::json!(1_u64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(unearned).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(
+            crate::core::state::StateValidationError::Kobolds(
+                "kobold impact record lacks authoritative player combat history"
+            )
+        ))
+    );
+}
+
+#[test]
 fn forged_weapon_recovery_duration_fails_trusted_load() {
     let registries = build_registries();
     let mut game = AppState::new();

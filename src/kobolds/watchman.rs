@@ -102,6 +102,9 @@ fn plan_watch_step(
     pressured: bool,
 ) -> Option<(VoxelCoord, u8)> {
     let [den, junction, tip] = colony.route;
+    if colony.is_staggered(super::KoboldRole::Watchman) {
+        return None;
+    }
     match colony.watch_deployed_at {
         None if colony.mobilized_at.is_some()
             && at >= colony.watch_ready_at

@@ -23,7 +23,7 @@ pub(super) fn wooden_club() -> EquipmentDefinition {
         profile([]),
         thresholds(),
     )
-    .with_melee_profile(MeleeWeaponProfile::new(1_500, 22, 3_000))
+    .with_melee_profile(MeleeWeaponProfile::new(1_500, 22, 3_000, 280_000))
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
 }
 
@@ -46,6 +46,6 @@ pub(super) fn stone_spear() -> EquipmentDefinition {
         profile([]),
         thresholds(),
     )
-    .with_melee_profile(MeleeWeaponProfile::new(2_750, 28, 4_500))
+    .with_melee_profile(MeleeWeaponProfile::new(2_750, 28, 4_500, 150_000))
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
 }

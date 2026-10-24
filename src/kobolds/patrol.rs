@@ -234,7 +234,8 @@ fn plan_scout_move(
         ahead_is_guarded,
         turned_back_at_barrier,
         cancelled_empty_cache_raid,
-        physically_clear: step != colony.scout_step
+        physically_clear: !colony.is_staggered(super::KoboldRole::Scout)
+            && step != colony.scout_step
             // A calm returning scavenger must not carry food or scrap into a
             // newly bright approach. A scout already in danger may still flee
             // along its real edge instead of freezing beside the light.
@@ -467,6 +468,14 @@ pub(crate) fn apply_kobold_scout_tick(
     {
         return (None, Vec::new());
     }
+    // Balance recovers only on the existing five-simulation-tick resident cadence.
+    // This is not healing of injured tissue and transfers no matter.
+    state
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap()
+        .recover_balance();
     let colony = state
         .kobold_state()
         .colony

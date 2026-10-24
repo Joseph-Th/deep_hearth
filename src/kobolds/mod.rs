@@ -65,6 +65,11 @@ const SCOUT_MEAL_INTERVAL_TICKS: u64 = 400;
 const SCOUT_MEAL_MASS: Mass = Mass::from_milligrams(20_000);
 /// A chased scout stays wary for 2.4 simulation minutes after the most recent threat.
 const SCOUT_WARY_INTERVAL_TICKS: u64 = 40;
+/// Stance is a transient fraction of secure footing, never tissue damage or virtual hit points.
+const FULL_BALANCE_PPM: u32 = 1_000_000;
+pub(crate) const STAGGERED_BELOW_PPM: u32 = 350_000;
+/// One recovery increment per five slow ticks; a heavily staggered resident needs real time.
+const BALANCE_RECOVERY_PPM_PER_STEP: u32 = 120_000;
 /// A low, dying ember does not repel the same scout as a maintained bright fire.
 const SCOUT_DETERRENT_LIGHT_LEVEL: u8 = 3;
 /// The second opening resident can watch the junction for twenty slow ticks per full meal.
@@ -99,6 +104,7 @@ pub struct KoboldSighting {
     has_noticed_player_drop: bool,
     is_wary: bool,
     is_defending: bool,
+    balance_ppm: Option<u32>,
     mobilized: bool,
     scavenged_material: Option<(CommodityKey, Mass)>,
 }
@@ -107,6 +113,19 @@ impl KoboldSighting {
     #[must_use]
     pub const fn role(self) -> KoboldRole {
         self.role
+    }
+
+    #[must_use]
+    pub const fn balance_ppm(self) -> Option<u32> {
+        self.balance_ppm
+    }
+
+    #[must_use]
+    pub const fn is_staggered(self) -> bool {
+        match self.balance_ppm {
+            Some(balance) => balance < STAGGERED_BELOW_PPM,
+            None => false,
+        }
     }
 
     #[must_use]
@@ -317,6 +336,9 @@ struct KoboldColony {
     scout_shoved_at: Option<ControlTick>,
     #[serde(deserialize_with = "required_optional_control_tick")]
     watch_shoved_at: Option<ControlTick>,
+    /// Required current-schema physical stance, not replenishable health or blood.
+    scout_balance_ppm: u32,
+    watch_balance_ppm: u32,
 }
 
 fn required_optional_control_tick<'de, D>(deserializer: D) -> Result<Option<ControlTick>, D::Error>
@@ -455,6 +477,29 @@ impl KoboldColony {
         Ok(())
     }
 
+    fn balance(&self, role: KoboldRole) -> u32 {
+        match role {
+            KoboldRole::Scout => self.scout_balance_ppm,
+            KoboldRole::Watchman => self.watch_balance_ppm,
+            _ => unreachable!("only opening residents have provisional balance"),
+        }
+    }
+
+    fn is_staggered(&self, role: KoboldRole) -> bool {
+        self.balance(role) < STAGGERED_BELOW_PPM
+    }
+
+    fn recover_balance(&mut self) {
+        self.scout_balance_ppm = self
+            .scout_balance_ppm
+            .saturating_add(BALANCE_RECOVERY_PPM_PER_STEP)
+            .min(FULL_BALANCE_PPM);
+        self.watch_balance_ppm = self
+            .watch_balance_ppm
+            .saturating_add(BALANCE_RECOVERY_PPM_PER_STEP)
+            .min(FULL_BALANCE_PPM);
+    }
+
     fn recently_shoved(&self, role: KoboldRole, now: ControlTick) -> bool {
         let at = match role {
             KoboldRole::Scout => self.scout_shoved_at,
@@ -565,6 +610,8 @@ impl KoboldState {
             wary_until: None,
             scout_shoved_at: None,
             watch_shoved_at: None,
+            scout_balance_ppm: FULL_BALANCE_PPM,
+            watch_balance_ppm: FULL_BALANCE_PPM,
         });
     }
 
@@ -584,6 +631,7 @@ impl KoboldState {
                 is_wary: colony.wary_until.is_some_and(|until| until > state.tick())
                     || colony.recently_shoved(KoboldRole::Scout, state.control_tick()),
                 is_defending: false,
+                balance_ppm: Some(colony.scout_balance_ppm),
                 mobilized: colony.mobilized_at.is_some(),
                 scavenged_material: colony
                     .scavenged_drop
@@ -600,6 +648,7 @@ impl KoboldState {
                     is_wary: colony.watch_alarm_pending
                         || colony.recently_shoved(KoboldRole::Watchman, state.control_tick()),
                     is_defending: false,
+                    balance_ppm: Some(colony.watch_balance_ppm),
                     mobilized: colony.mobilized_at.is_some(),
                     scavenged_material: None,
                 })
@@ -653,6 +702,7 @@ impl KoboldState {
                         is_wary: role == KoboldRole::TempleWarden
                             && temple_guard::warden_has_damage_warning(registries, state, position),
                         is_defending,
+                        balance_ppm: None,
                         mobilized: false,
                         scavenged_material: None,
                     }),
@@ -698,18 +748,35 @@ pub(crate) fn close_contact_at(
     }
 }
 
-/// Contact changes the struck resident's own caution through kobold custody.
-/// The combat owner has already validated the target and player recovery.
-pub(crate) fn record_close_contact(state: &mut AppState, role: KoboldRole) {
+/// Exposes only the unique opening victim's stance to the already-local combat operation.
+pub(crate) fn opening_balance(state: &AppState, role: KoboldRole) -> u32 {
+    state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .expect("validated opening contact requires colony")
+        .balance(role)
+}
+
+/// Changes only the struck resident's local caution and footing after validated contact.
+/// Equipment wear and attack tempo remain owned by combat/equipment.
+pub(crate) fn record_close_contact(state: &mut AppState, role: KoboldRole, impulse_ppm: u32) {
     let at = state.control_tick();
     let colony = state
         .kobold_state_mut()
         .colony
         .as_mut()
         .expect("validated opening resident");
+    assert!((1..=500_000).contains(&impulse_ppm));
     match role {
-        KoboldRole::Scout => colony.scout_shoved_at = Some(at),
-        KoboldRole::Watchman => colony.watch_shoved_at = Some(at),
+        KoboldRole::Scout => {
+            colony.scout_shoved_at = Some(at);
+            colony.scout_balance_ppm = colony.scout_balance_ppm.saturating_sub(impulse_ppm);
+        }
+        KoboldRole::Watchman => {
+            colony.watch_shoved_at = Some(at);
+            colony.watch_balance_ppm = colony.watch_balance_ppm.saturating_sub(impulse_ppm);
+        }
         _ => unreachable!("primitive contact targets only opening residents"),
     }
 }
@@ -893,13 +960,29 @@ fn validate_consumed_matter(
 fn validate_contact_history(
     colony: &KoboldColony,
     current: ControlTick,
+    combat: &crate::combat::CombatState,
 ) -> Result<(), &'static str> {
+    if colony.scout_balance_ppm > FULL_BALANCE_PPM || colony.watch_balance_ppm > FULL_BALANCE_PPM {
+        return Err("kobold balance exceeds stable footing");
+    }
+    if (colony.scout_balance_ppm < FULL_BALANCE_PPM && colony.scout_shoved_at.is_none())
+        || (colony.watch_balance_ppm < FULL_BALANCE_PPM && colony.watch_shoved_at.is_none())
+    {
+        return Err("kobold lost balance without recorded local impact");
+    }
     if [colony.scout_shoved_at, colony.watch_shoved_at]
         .into_iter()
         .flatten()
         .any(|at| at > current)
     {
         return Err("kobold contact record originates in the future");
+    }
+    if [colony.scout_shoved_at, colony.watch_shoved_at]
+        .into_iter()
+        .flatten()
+        .any(|at| !combat.admits_contact_at(at))
+    {
+        return Err("kobold impact record lacks authoritative player combat history");
     }
     Ok(())
 }
@@ -922,7 +1005,7 @@ pub(crate) fn validate_loaded_kobolds(
             .ok_or("uninhabited kobold state contains consumed matter");
     };
     validate_opening_resident_infrastructure(state, colony)?;
-    validate_contact_history(colony, state.control_tick())?;
+    validate_contact_history(colony, state.control_tick(), state.combat())?;
     if colony.scout_step > 3
         || (colony.scout_step == 3 && (colony.returning || colony.detour_goal.is_none()))
         || !colony.route[0].is_face_adjacent_to(colony.route[1])

@@ -22,6 +22,8 @@ pub struct MeleeWeaponProfile {
     reach_millimeters: u32,
     recovery_control_ticks: u32,
     wear_ppm_per_swing: u32,
+    /// Maximum modelled loss of footing from a full-condition blow, not a wound.
+    balance_impulse_ppm: u32,
 }
 impl MeleeWeaponProfile {
     #[must_use]
@@ -29,14 +31,17 @@ impl MeleeWeaponProfile {
         reach_millimeters: u32,
         recovery_control_ticks: u32,
         wear_ppm_per_swing: u32,
+        balance_impulse_ppm: u32,
     ) -> Self {
         assert!(reach_millimeters >= 800 && reach_millimeters <= 3_500);
         assert!(recovery_control_ticks >= 8 && recovery_control_ticks <= 60);
         assert!(wear_ppm_per_swing >= 1 && wear_ppm_per_swing <= 20_000);
+        assert!(balance_impulse_ppm >= 1 && balance_impulse_ppm <= 500_000);
         Self {
             reach_millimeters,
             recovery_control_ticks,
             wear_ppm_per_swing,
+            balance_impulse_ppm,
         }
     }
     pub const fn reach_millimeters(self) -> u32 {
@@ -47,6 +52,9 @@ impl MeleeWeaponProfile {
     }
     pub const fn wear_ppm_per_swing(self) -> u32 {
         self.wear_ppm_per_swing
+    }
+    pub const fn balance_impulse_ppm(self) -> u32 {
+        self.balance_impulse_ppm
     }
 }
 

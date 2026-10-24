@@ -6,7 +6,9 @@ use crate::core::time::ControlTick;
 use crate::equipment::{
     EquipmentId, EquipmentOperationConditionOutcome, MeleeWeaponProfile, equipment_occupancy,
 };
-use crate::kobolds::{KoboldRole, close_contact_at, record_close_contact};
+use crate::kobolds::{
+    KoboldRole, STAGGERED_BELOW_PPM, close_contact_at, opening_balance, record_close_contact,
+};
 use crate::logistics::PlayerActiveSelection;
 use crate::maintenance::Condition;
 use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
@@ -17,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 const SHOVE_RECOVERY_TICKS: u32 = 16;
 const SHOVE_REACH_MILLIMETERS: u32 = 1_600;
+const SHOVE_BALANCE_IMPULSE_PPM: u32 = 80_000;
 
 /// The actor's durable attack tempo; no client-controlled timer or virtual damage.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +39,10 @@ impl CombatState {
     }
     pub(crate) const fn revision(&self) -> u64 {
         self.revision
+    }
+    /// A resident cannot remember a blow later than the last player attack.
+    pub(crate) fn admits_contact_at(&self, at: ControlTick) -> bool {
+        self.last_attack_at.is_some_and(|last| last >= at)
     }
     pub(crate) fn validate(&self, now: ControlTick) -> Result<(), &'static str> {
         if self.last_attack_at.is_some_and(|at| at > now)
@@ -87,6 +94,12 @@ pub enum PrimitiveAttackOutcome {
         resident: KoboldRole,
         position: VoxelCoord,
     },
+    /// Loss of footing, not lasting tissue damage or an instant knockback.
+    Staggered {
+        resident: KoboldRole,
+        position: VoxelCoord,
+        remaining_balance_ppm: u32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,6 +111,7 @@ pub enum PrimitiveAttackCommitError {
     WeaponChanged,
     StaleSurvivalRevision,
     TargetMoved,
+    StaleResidentBalance,
 }
 
 #[must_use]
@@ -109,6 +123,8 @@ pub struct ValidatedPrimitiveAttack {
     outcome: PrimitiveAttackOutcome,
     recovery_control_ticks: u32,
     weapon_wear: Option<(EquipmentId, Condition, Condition, u64)>,
+    balance_impulse_ppm: u32,
+    expected_resident_balance: Option<u32>,
 }
 impl ValidatedPrimitiveAttack {
     pub fn commit(
@@ -143,10 +159,20 @@ impl ValidatedPrimitiveAttack {
                 return Err(PrimitiveAttackCommitError::WeaponChanged);
             }
         }
-        if let PrimitiveAttackOutcome::Startled { resident, position } = self.outcome
-            && close_contact_at(state, position) != Ok(Some((resident, position)))
-        {
-            return Err(PrimitiveAttackCommitError::TargetMoved);
+        let victim = match self.outcome {
+            PrimitiveAttackOutcome::Miss => None,
+            PrimitiveAttackOutcome::Startled { resident, position }
+            | PrimitiveAttackOutcome::Staggered {
+                resident, position, ..
+            } => Some((resident, position)),
+        };
+        if let Some((resident, position)) = victim {
+            if close_contact_at(state, position) != Ok(Some((resident, position))) {
+                return Err(PrimitiveAttackCommitError::TargetMoved);
+            }
+            if Some(opening_balance(state, resident)) != self.expected_resident_balance {
+                return Err(PrimitiveAttackCommitError::StaleResidentBalance);
+            }
         }
         if let Some((equipment, before, after, expected_revision)) = self.weapon_wear {
             state
@@ -164,8 +190,8 @@ impl ValidatedPrimitiveAttack {
             self.at,
             self.recovery_control_ticks,
         );
-        if let PrimitiveAttackOutcome::Startled { resident, .. } = self.outcome {
-            record_close_contact(state, resident);
+        if let Some((resident, _)) = victim {
+            record_close_contact(state, resident, self.balance_impulse_ppm);
         }
         Ok(self.outcome)
     }
@@ -246,7 +272,31 @@ fn validate_attack(
     let reach = weapon.map_or(SHOVE_REACH_MILLIMETERS, |(profile, _)| {
         profile.reach_millimeters()
     });
-    let outcome = resolve_contact(registries, state, direction, reach)?;
+    let mut outcome = resolve_contact(registries, state, direction, reach)?;
+    // Material condition reduces delivered impact, independently of tempo and reach.
+    // The transient posture metric is not health, blood, or unaccounted material.
+    let balance_impulse_ppm =
+        weapon.map_or(SHOVE_BALANCE_IMPULSE_PPM, |(profile, (_, before, _, _))| {
+            let scaled = u64::from(profile.balance_impulse_ppm())
+                * u64::from(before.parts_per_million())
+                / 1_000_000;
+            u32::try_from(scaled.max(1)).expect("bounded authored impact")
+        });
+    let expected_resident_balance = match outcome {
+        PrimitiveAttackOutcome::Startled { resident, position } => {
+            let before = opening_balance(state, resident);
+            let after = before.saturating_sub(balance_impulse_ppm);
+            if after < STAGGERED_BELOW_PPM {
+                outcome = PrimitiveAttackOutcome::Staggered {
+                    resident,
+                    position,
+                    remaining_balance_ppm: after,
+                };
+            }
+            Some(before)
+        }
+        _ => None,
+    };
     Ok(ValidatedPrimitiveAttack {
         player_action,
         at,
@@ -257,6 +307,8 @@ fn validate_attack(
             profile.recovery_control_ticks()
         }),
         weapon_wear: weapon.map(|(_, wear)| wear),
+        balance_impulse_ppm,
+        expected_resident_balance,
     })
 }
 
