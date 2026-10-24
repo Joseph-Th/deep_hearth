@@ -553,6 +553,18 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             "crushed hematite",
         ),
         (
+            CommodityKey::new(MATERIAL_HEMATITE, FORM_CONCENTRATE),
+            "hematite dry-density concentrate",
+        ),
+        (
+            CommodityKey::new(MATERIAL_HEMATITE, FORM_TAILINGS),
+            "hematite dressing tailings",
+        ),
+        (
+            CommodityKey::new(MATERIAL_HEMATITE, FORM_EXHAUSTED_TAILINGS),
+            "exhausted hematite dressing tailings",
+        ),
+        (
             CommodityKey::new(MATERIAL_CASSITERITE, FORM_ORE),
             "cassiterite ore",
         ),

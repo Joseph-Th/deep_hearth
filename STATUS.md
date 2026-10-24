@@ -17,7 +17,7 @@ Progression:
 | Prospecting and mining | Player-facing survey choices, bounded evidence, tool-dependent extraction, and inventory claim. Hidden reserves remain non-public. |
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
-| Processing | Graded tin/iron/lead ores; cassiterite and galena dressing with mechanical tailings recovery. Copper casting and PbS+Fe lead smelting; no general reduction. |
+| Processing | Graded tin/iron/lead ores; cassiterite, hematite and galena dressing with mechanical tailings recovery. Copper casting and PbS+Fe lead smelting; no general reduction. |
 | Opening wilderness acquisition | Kobold scouts raid, forage and track; light and guards deter them. Scavenged two-hop alarms can be sabotaged and rebuilt from spares. Local sound travels short open air paths without revealing hidden machinery. No combat. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 

@@ -22,7 +22,7 @@ For current reachability, [STATUS.md](STATUS.md) is authoritative.
 
 ## Connected mineral-dressing content
 
-Three GregTech-inspired branches use existing authoritative process owners:
+Four GregTech-inspired branches use existing authoritative process owners:
 
 1. Cassiterite (SnO2) is ground to a liberated particle size and enriched by mechanical gravity
    separation. Its target remains cassiterite concentrate rather than tin; tailings retain the
@@ -30,7 +30,16 @@ Three GregTech-inspired branches use existing authoritative process owners:
 2. Magnetite (Fe3O4) is ground and separated by an assembled copper-wound machine consuming finite
    electricity. Cast iron poles, formed copper winding, timber framing and replaceable conductor
    stock are required. An unpowered stone separator cannot substitute; the product remains oxide.
-3. Galena (PbS) is mined from rich or 80%-sulfide stone lenses and hand-sorted as coarse
+3. Hematite (Fe2O3) has a distinct mechanical-dressing route: a copper-reinforced
+   pick can excavate seeded 65%-hematite / 35%-stone seams whose 550 MPa hardness
+   exceeds the primitive pick's 500 MPa limit. Coarse hand selection recovers
+   60% of Fe2O3; an assembled quern then liberates remaining grains, followed by
+   dry-density scavenging (80% Fe2O3 and 12% gangue) and a 92%-recovery cleanup.
+   A 100 g mined batch yields 39 g hand-picked Fe2O3 and 19.136 g additional
+   pure Fe2O3, leaving 41.864 g of exhausted solid residue. All four timed
+   operations conserve the oxide and stone, with finite equipment and energy.
+   No blast furnace, oxygen removal, iron metal or steel is implied.
+4. Galena (PbS) is mined from rich or 80%-sulfide stone lenses and hand-sorted as coarse
    crystalline fragments at 65% sulfide recovery, leaving real stone and unrecovered PbS
    tailings. The selected output remains pure crushed PbS. One 100 g batch of 80%-grade
    ore yields 52 g selected sulfide, enough for the existing 47.852 g balanced charge
@@ -71,7 +80,8 @@ oxide reduction are still absent. Their practical benefit is selective
 recovery and explicit gangue custody, not invented steel or tin production.
 **World acquisition:** seeded
 four-metre cassiterite and magnetite lenses include fixed 40%-mineral, 60%-stone
-variants, while galena has 80%-sulfide, 20%-stone variants, alongside richer
+variants, galena has 80%-sulfide, 20%-stone variants, and hematite has
+65%-oxide, 35%-stone variants, alongside richer
 pure-mineral seams. Their full-cell masses obey physical
 mixture density, and partial timed player excavation carries the same grade into
 inventory or finite surface drops. Crushing, fine grinding and the distinct

@@ -670,6 +670,9 @@ fn select_mineral_grade(
     mineral: BlockStateId,
 ) -> BlockStateId {
     let graded = match mineral {
+        crate::content::BLOCK_STATE_HEMATITE_ORE => {
+            Some(crate::content::BLOCK_STATE_GRADED_HEMATITE_ORE)
+        }
         crate::content::BLOCK_STATE_CASSITERITE_ORE => {
             Some(crate::content::BLOCK_STATE_GRADED_CASSITERITE_ORE)
         }

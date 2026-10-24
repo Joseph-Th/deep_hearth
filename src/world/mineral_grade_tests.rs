@@ -5,9 +5,10 @@ use std::collections::BTreeSet;
 
 use crate::content::{
     BLOCK_STATE_CASSITERITE_ORE, BLOCK_STATE_GALENA_ORE, BLOCK_STATE_GRADED_CASSITERITE_ORE,
-    BLOCK_STATE_GRADED_GALENA_ORE, BLOCK_STATE_GRADED_MAGNETITE_ORE, BLOCK_STATE_MAGNETITE_ORE,
-    BLOCK_STATE_STONE, MATERIAL_CASSITERITE, MATERIAL_GALENA, MATERIAL_MAGNETITE, MATERIAL_STONE,
-    build_registries,
+    BLOCK_STATE_GRADED_GALENA_ORE, BLOCK_STATE_GRADED_HEMATITE_ORE,
+    BLOCK_STATE_GRADED_MAGNETITE_ORE, BLOCK_STATE_HEMATITE_ORE, BLOCK_STATE_MAGNETITE_ORE,
+    BLOCK_STATE_STONE, MATERIAL_CASSITERITE, MATERIAL_GALENA, MATERIAL_HEMATITE,
+    MATERIAL_MAGNETITE, MATERIAL_STONE, build_registries,
 };
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::spatial::VoxelCoord;
@@ -34,6 +35,12 @@ fn seeded_lenses_have_recoverable_gangue_at_density_correct_material_mass() {
             MATERIAL_GALENA,
             BLOCK_STATE_GALENA_ORE,
             200_000,
+        ),
+        (
+            BLOCK_STATE_GRADED_HEMATITE_ORE,
+            MATERIAL_HEMATITE,
+            BLOCK_STATE_HEMATITE_ORE,
+            350_000,
         ),
     ];
     let mut state = AppState::new();

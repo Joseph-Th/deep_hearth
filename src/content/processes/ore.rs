@@ -10,18 +10,20 @@ use super::super::capabilities::{
 };
 
 use super::{
-    PROCESS_CLEAN_GALENA_CONCENTRATE, PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
-    PROCESS_CONCENTRATE_CASSITERITE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_GRIND_CRUSHED_ORE, PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_PICK_GALENA,
+    PROCESS_CLEAN_GALENA_CONCENTRATE, PROCESS_CLEAN_HEMATITE_CONCENTRATE,
+    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_CASSITERITE,
+    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
+    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_PICK_GALENA, PROCESS_HAND_PICK_HEMATITE,
     PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
     PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS, PROCESS_REGRIND_COPPER_TAILINGS,
-    PROCESS_REGRIND_GALENA_PICKING_TAILINGS, PROCESS_SCAVENGE_CASSITERITE_TAILINGS,
-    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCAVENGE_GALENA_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
-    PROCESS_SEPARATE_NATIVE_COPPER, mass_flow_resolver_requirements,
+    PROCESS_REGRIND_GALENA_PICKING_TAILINGS, PROCESS_REGRIND_HEMATITE_PICKING_TAILINGS,
+    PROCESS_SCAVENGE_CASSITERITE_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS,
+    PROCESS_SCAVENGE_GALENA_TAILINGS, PROCESS_SCAVENGE_HEMATITE_TAILINGS,
+    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER, mass_flow_resolver_requirements,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 21] {
+pub(super) fn definitions() -> [ProcessDefinition; 25] {
     [
         ProcessDefinition::new(
             PROCESS_CRUSH_ORE,
@@ -58,6 +60,26 @@ pub(super) fn definitions() -> [ProcessDefinition; 21] {
             PROCESS_HAND_PICK_GALENA,
             "hand pick massive galena crystals from coarse ore",
             Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_HAND_PICK_HEMATITE,
+            "hand pick coarse specular hematite from broken iron ore",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_REGRIND_HEMATITE_PICKING_TAILINGS,
+            "regrind coarse hematite picking tailings for liberation",
+            mass_flow_resolver_requirements(CAPABILITY_GRINDER_FLOW, CAPABILITY_GRINDER_BATCH),
+        ),
+        ProcessDefinition::new(
+            PROCESS_SCAVENGE_HEMATITE_TAILINGS,
+            "dry-density scavenge hematite oxide from liberated tailings",
+            mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
+        ),
+        ProcessDefinition::new(
+            PROCESS_CLEAN_HEMATITE_CONCENTRATE,
+            "clean hematite oxide from dry-density concentrate",
+            mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
         ),
         ProcessDefinition::new(
             PROCESS_REGRIND_GALENA_PICKING_TAILINGS,

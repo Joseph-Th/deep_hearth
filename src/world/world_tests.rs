@@ -38,6 +38,9 @@ mod batch_admission;
 mod excavation_selection;
 #[path = "world_tests/graded_ore.rs"]
 mod graded_ore;
+
+#[path = "world_tests/graded_hematite.rs"]
+mod graded_hematite;
 #[path = "world_tests/palette.rs"]
 mod palette;
 #[path = "world_tests/progression.rs"]

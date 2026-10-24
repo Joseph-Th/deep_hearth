@@ -40,6 +40,7 @@ pub const WORLD_BLOCK_QUARTZ_ORE: BlockDefinitionId = BlockDefinitionId::new(17)
 pub const WORLD_BLOCK_GRADED_CASSITERITE_ORE: BlockDefinitionId = BlockDefinitionId::new(18);
 pub const WORLD_BLOCK_GRADED_MAGNETITE_ORE: BlockDefinitionId = BlockDefinitionId::new(19);
 pub const WORLD_BLOCK_GRADED_GALENA_ORE: BlockDefinitionId = BlockDefinitionId::new(20);
+pub const WORLD_BLOCK_GRADED_HEMATITE_ORE: BlockDefinitionId = BlockDefinitionId::new(21);
 
 pub const BLOCK_STATE_STONE: BlockStateId = BlockStateId::new(2);
 pub const BLOCK_STATE_TEMPLE_ARCHIVE: BlockStateId = BlockStateId::new(3);
@@ -60,6 +61,7 @@ pub const BLOCK_STATE_QUARTZ_ORE: BlockStateId = BlockStateId::new(17);
 pub const BLOCK_STATE_GRADED_CASSITERITE_ORE: BlockStateId = BlockStateId::new(18);
 pub const BLOCK_STATE_GRADED_MAGNETITE_ORE: BlockStateId = BlockStateId::new(19);
 pub const BLOCK_STATE_GRADED_GALENA_ORE: BlockStateId = BlockStateId::new(20);
+pub const BLOCK_STATE_GRADED_HEMATITE_ORE: BlockStateId = BlockStateId::new(21);
 
 pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistry {
     WorldRegistry::new(
@@ -418,6 +420,26 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                 ),
                 Some(BLOCK_GALENA_ORE),
             ),
+            BlockDefinition::new(
+                WORLD_BLOCK_GRADED_HEMATITE_ORE,
+                "hematite-bearing stone deposit (65% Fe2O3 by mass)",
+                BLOCK_STATE_GRADED_HEMATITE_ORE,
+                BlockPhysicalDefinition::new(
+                    Some(CommodityKey::new(MATERIAL_HEMATITE, FORM_ORE)),
+                    mixed_full_cube_mass(materials, MATERIAL_HEMATITE, MATERIAL_STONE, 350_000),
+                    BlockCollisionShape::FullCube,
+                    true,
+                )
+                .with_excavation(
+                    BlockExcavationDefinition::new(
+                        Pressure::from_pascals(550_000_000),
+                        CommodityKey::new(MATERIAL_HEMATITE, FORM_ORE),
+                        Temperature::from_millikelvin(293_150),
+                    )
+                    .with_gangue(MATERIAL_STONE, 350_000),
+                ),
+                Some(BLOCK_HEMATITE_ORE),
+            ),
         ],
         [
             BlockStateDefinition::new(BlockStateId::AIR, BlockDefinitionId::AIR),
@@ -458,6 +480,10 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                 WORLD_BLOCK_GRADED_MAGNETITE_ORE,
             ),
             BlockStateDefinition::new(BLOCK_STATE_GRADED_GALENA_ORE, WORLD_BLOCK_GRADED_GALENA_ORE),
+            BlockStateDefinition::new(
+                BLOCK_STATE_GRADED_HEMATITE_ORE,
+                WORLD_BLOCK_GRADED_HEMATITE_ORE,
+            ),
         ],
     )
 }

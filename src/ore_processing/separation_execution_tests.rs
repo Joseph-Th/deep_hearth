@@ -2436,6 +2436,9 @@ mod galena_tailings;
 
 #[path = "separation_execution_tests/galena_tailings_player.rs"]
 mod galena_tailings_player;
+
+#[path = "separation_execution_tests/hematite_tailings_player.rs"]
+mod hematite_tailings_player;
 #[cfg(feature = "test-soak")]
 #[path = "separation_execution_tests/soak.rs"]
 mod soak;

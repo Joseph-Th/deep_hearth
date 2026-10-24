@@ -26,18 +26,21 @@ use super::capabilities::{
 };
 use super::materials::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_TAILINGS, MATERIAL_CASSITERITE, MATERIAL_COPPER, MATERIAL_GALENA, MATERIAL_MAGNETITE,
+    FORM_TAILINGS, MATERIAL_CASSITERITE, MATERIAL_COPPER, MATERIAL_GALENA, MATERIAL_HEMATITE,
+    MATERIAL_MAGNETITE,
 };
 use super::processes::{
-    PROCESS_CLEAN_GALENA_CONCENTRATE, PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
-    PROCESS_CONCENTRATE_CASSITERITE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_GRIND_CRUSHED_ORE, PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_PICK_GALENA,
+    PROCESS_CLEAN_GALENA_CONCENTRATE, PROCESS_CLEAN_HEMATITE_CONCENTRATE,
+    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_CASSITERITE,
+    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE,
+    PROCESS_HAND_PICK_CASSITERITE, PROCESS_HAND_PICK_GALENA, PROCESS_HAND_PICK_HEMATITE,
     PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
     PROCESS_PRECIPITATE_LEAD_FROM_GALENA, PROCESS_REGRIND_CASSITERITE_PICKING_TAILINGS,
     PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_REGRIND_GALENA_PICKING_TAILINGS,
-    PROCESS_SCAVENGE_CASSITERITE_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS,
-    PROCESS_SCAVENGE_GALENA_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_REGRIND_HEMATITE_PICKING_TAILINGS, PROCESS_SCAVENGE_CASSITERITE_TAILINGS,
+    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCAVENGE_GALENA_TAILINGS,
+    PROCESS_SCAVENGE_HEMATITE_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
 use crate::survival::SurvivalExertion;
 
@@ -157,6 +160,22 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
             ),
             ComminutionProcessDefinition::new_with_input_particle_size_range(
                 PROCESS_REGRIND_GALENA_PICKING_TAILINGS,
+                FORM_TAILINGS,
+                FORM_TAILINGS,
+                hand_sortable_particle_size,
+                fine_particle_size.clone(),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_GRINDER_FLOW,
+                    CAPABILITY_GRINDER_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(4_000_000),
+                    400,
+                ),
+            ),
+            // Dense Fe2O3 grains can be liberated from coarse picking refuse
+            // without inventing an iron-reduction reaction.
+            ComminutionProcessDefinition::new_with_input_particle_size_range(
+                PROCESS_REGRIND_HEMATITE_PICKING_TAILINGS,
                 FORM_TAILINGS,
                 FORM_TAILINGS,
                 hand_sortable_particle_size,
@@ -315,6 +334,38 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     230,
                 ),
             ),
+            // Dry density separation recovers Fe2O3, not elemental Fe. Rock
+            // entrainment and remaining oxide report to explicit tailings.
+            ConstituentSeparationProcessDefinition::new_concentration(
+                PROCESS_SCAVENGE_HEMATITE_TAILINGS,
+                FORM_TAILINGS,
+                liberated_concentration_range,
+                CommodityKey::new(MATERIAL_HEMATITE, FORM_CONCENTRATE),
+                FORM_EXHAUSTED_TAILINGS,
+                ConstituentRecoveryProfile::new(800_000, 120_000),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(375_000),
+                    210,
+                ),
+            ),
+            ConstituentSeparationProcessDefinition::new_sorting(
+                PROCESS_CLEAN_HEMATITE_CONCENTRATE,
+                FORM_CONCENTRATE,
+                MATERIAL_HEMATITE,
+                FORM_CRUSHED,
+                FORM_EXHAUSTED_TAILINGS,
+                920_000,
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(450_000),
+                    230,
+                ),
+            ),
             // Fe3O4 is magnetically separable, but never silently reduced to elemental Fe.
             ConstituentSeparationProcessDefinition::new_concentration(
                 PROCESS_MAGNETIC_CONCENTRATE_MAGNETITE,
@@ -424,6 +475,28 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 CommodityKey::new(MATERIAL_GALENA, FORM_CRUSHED),
                 FORM_TAILINGS,
                 650_000,
+                ManualOreProcessProfile::new(
+                    MassFlow::from_milligrams_per_second(250),
+                    Mass::from_milligrams(100_000),
+                    SurvivalExertion::new(
+                        Energy::from_nanojoules(850_000_000_000),
+                        Volume::from_microliters(220),
+                    ),
+                )
+                .with_equipment_profile(ManualOreEquipmentProfile::new(
+                    CAPABILITY_ORE_PICKING_FLOW,
+                    300,
+                )),
+            ),
+            // Coarse specular Fe2O3 can be visually picked without machinery.
+            // Both useful mineral and residue remain oxide-bearing solids.
+            ManualConstituentSeparationProcessDefinition::new_sorting(
+                PROCESS_HAND_PICK_HEMATITE,
+                FORM_CRUSHED,
+                hand_sortable_particle_size,
+                CommodityKey::new(MATERIAL_HEMATITE, FORM_CRUSHED),
+                FORM_TAILINGS,
+                600_000,
                 ManualOreProcessProfile::new(
                     MassFlow::from_milligrams_per_second(250),
                     Mass::from_milligrams(100_000),

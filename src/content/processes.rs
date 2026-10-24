@@ -106,6 +106,11 @@ pub const PROCESS_SCAVENGE_GALENA_TAILINGS: ProcessId = ProcessId::new(92);
 pub const PROCESS_CLEAN_GALENA_CONCENTRATE: ProcessId = ProcessId::new(93);
 /// Reclaimed lead is metal, unlike PbS galena which needs the balanced furnace reaction.
 pub const PROCESS_MELT_RECYCLED_LEAD: ProcessId = ProcessId::new(94);
+/// Manual visual Fe2O3 selection and mechanical recovery; no iron reduction.
+pub const PROCESS_HAND_PICK_HEMATITE: ProcessId = ProcessId::new(95);
+pub const PROCESS_REGRIND_HEMATITE_PICKING_TAILINGS: ProcessId = ProcessId::new(96);
+pub const PROCESS_SCAVENGE_HEMATITE_TAILINGS: ProcessId = ProcessId::new(97);
+pub const PROCESS_CLEAN_HEMATITE_CONCENTRATE: ProcessId = ProcessId::new(98);
 
 mod chemical;
 mod fabrication;

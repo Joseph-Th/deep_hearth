@@ -1,9 +1,8 @@
 //! Contract tests for ore-processing registry ownership and routing.
 
 use crate::content::{
-    FORM_CONCENTRATE, FORM_CRUSHED, FORM_NATIVE_METAL, FORM_REINFORCEMENT, MATERIAL_COPPER,
-    PROCESS_HAND_BREAK_ORE, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
-    build_registries,
+    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_REINFORCEMENT, MATERIAL_COPPER, PROCESS_HAND_BREAK_ORE,
+    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::Mass;
 use crate::production::{ProcessDefinition, ProductionRegistry};
@@ -196,7 +195,7 @@ fn separation_registry_requires_a_usable_non_target_residue_commodity() {
             FORM_CRUSHED,
             MATERIAL_COPPER,
             FORM_NATIVE_METAL,
-            FORM_CONCENTRATE,
+            FORM_NATIVE_METAL,
             authored.target_recovery_ppm(),
             PoweredOreProcessProfile::new(
                 authored.mass_flow_capability(),
