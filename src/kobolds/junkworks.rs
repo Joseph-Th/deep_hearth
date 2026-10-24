@@ -4,7 +4,9 @@
 //! material ledger. Taking either component away immediately makes the device unusable.
 //! There is no radio: the second edge needs a physical junction resonator.
 
-use crate::content::{FORM_BOARD, FORM_CHIP, FORM_HANDLE, MATERIAL_STONE, MATERIAL_WOOD};
+use crate::content::{
+    FORM_BOARD, FORM_CHIP, FORM_HANDLE, FORM_SCRAP, MATERIAL_IRON, MATERIAL_STONE, MATERIAL_WOOD,
+};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -19,11 +21,13 @@ use super::{FIRST_SCOUT_TICK, KoboldColony, SCOUT_STEP_TICKS};
 const CORE_MINIMUM: Mass = Mass::from_milligrams(10_000);
 const STRIKER_MINIMUM: Mass = Mass::from_milligrams(20_000);
 
-/// Timber shims damp the rattling mechanism; bare stone clappers jam more often.
+/// Recovered striker materials govern warning cadence and acoustic reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KoboldJunkRigKind {
     TimberRatchet,
     StoneClatter,
+    /// An iron clapper rings clearly and returns to position more reliably.
+    IronChime,
 }
 
 /// Player-local acoustic evidence of a real alarm strike, not an index of
@@ -95,6 +99,7 @@ impl KoboldJunkRig {
         let cycle = match self.kind {
             KoboldJunkRigKind::TimberRatchet => 3,
             KoboldJunkRigKind::StoneClatter => 5,
+            KoboldJunkRigKind::IronChime => 2,
         };
         steps.is_multiple_of(cycle)
     }
@@ -104,7 +109,15 @@ pub(super) fn is_junk_striker(resource: &SurfaceResourceRecord) -> bool {
     let commodity = resource.commodity();
     ((commodity.material() == MATERIAL_WOOD
         && [FORM_HANDLE, FORM_BOARD].contains(&commodity.form()))
-        || (commodity.material() == MATERIAL_STONE && commodity.form() == FORM_CHIP))
+        || (commodity.material() == MATERIAL_STONE && commodity.form() == FORM_CHIP)
+        || is_iron_chime_striker(resource))
+        && resource.remaining_mass() >= STRIKER_MINIMUM
+}
+
+pub(super) fn is_iron_chime_striker(resource: &SurfaceResourceRecord) -> bool {
+    resource.kind() == SurfaceResourceKind::Drop
+        && resource.commodity().material() == MATERIAL_IRON
+        && resource.commodity().form() == FORM_SCRAP
         && resource.remaining_mass() >= STRIKER_MINIMUM
 }
 
@@ -151,6 +164,9 @@ fn selected_striker_at(
             .available_resources_at(Some(position))
             .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
     };
+    if let Some(resource) = drops().find(|resource| is_iron_chime_striker(resource)) {
+        return Some((resource.id(), KoboldJunkRigKind::IronChime));
+    }
     if let Some(resource) = drops().find(|resource| {
         resource.commodity().material() == MATERIAL_WOOD
             && [FORM_HANDLE, FORM_BOARD].contains(&resource.commodity().form())
@@ -214,6 +230,18 @@ pub(super) fn den_or_relay_needs_striker(state: &AppState, den: VoxelCoord) -> b
         && selected_striker_at(state, colony.route[1]).is_none()
 }
 
+/// A shaped iron replacement is useful only for an operating den source or a
+/// connected, partly assembled relay. No absent machine creates a free goal.
+pub(super) fn den_or_relay_wants_iron_chime(state: &AppState, colony: &KoboldColony) -> bool {
+    let Some(den_rig) = current_den_rig(state, colony) else {
+        return false;
+    };
+    den_rig.kind() != KoboldJunkRigKind::IronChime
+        || (selected_core_at(state, colony.route[1]).is_some()
+            && selected_striker_at(state, colony.route[1])
+                .is_some_and(|(_, kind)| kind != KoboldJunkRigKind::IronChime))
+}
+
 /// A returning scavenger will not haul home the specific copper or clapper
 /// already staged at its junction after the den rig becomes operational.
 /// It may still take extra parcels. The player can freely recover any part,
@@ -228,9 +256,11 @@ pub(super) fn is_staged_relay_component(
     if resource.position() != colony.route[1] || current_den_rig(state, colony).is_none() {
         return false;
     }
-    selected_core_at(state, colony.route[1]) == Some(resource.id())
-        || selected_striker_at(state, colony.route[1])
-            .is_some_and(|(striker, _)| striker == resource.id())
+    let core = selected_core_at(state, colony.route[1]);
+    core == Some(resource.id())
+        || (core.is_some()
+            && selected_striker_at(state, colony.route[1])
+                .is_some_and(|(striker, _)| striker == resource.id()))
 }
 
 /// Show only a device at the player's genuinely observable den. This returns no

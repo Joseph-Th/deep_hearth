@@ -3,8 +3,8 @@
 use super::*;
 
 use crate::content::{
-    ENERGY_ELECTRICAL_BUFFER, FORM_ELECTRICAL_WINDING, FORM_HANDLE, MATERIAL_COPPER,
-    build_registries,
+    ENERGY_ELECTRICAL_BUFFER, FORM_ELECTRICAL_WINDING, FORM_HANDLE, FORM_SCRAP, MATERIAL_COPPER,
+    MATERIAL_IRON, build_registries,
 };
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -146,6 +146,196 @@ fn two_hop_alarm_fixture() -> (Registries, AppState, SurfaceResourceId) {
         .commit(&mut state)
         .unwrap();
     (registries, state, clapper)
+}
+
+#[test]
+fn undersized_iron_fragment_cannot_replace_a_working_wooden_clapper() {
+    let (registries, mut state) = mobilized_den();
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let commodity = CommodityKey::new(MATERIAL_IRON, FORM_SCRAP);
+    let small = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        DEN,
+        commodity,
+        Mass::from_milligrams(19_000),
+        TEMPERATURE,
+        MaterialComposition::pure(MATERIAL_IRON),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [small])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldJunkRigKind::TimberRatchet,
+    );
+    let baseline = calculate_matter_accounting(&state).unwrap().total();
+    put_drop(&registries, &mut state, commodity);
+    assert_eq!(
+        current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldJunkRigKind::IronChime,
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        baseline
+            .checked_add(crate::core::quantity::AggregateMass::from_milligrams(
+                50_000
+            ))
+            .unwrap()
+    );
+}
+
+#[test]
+fn iron_clapper_improves_an_existing_den_alarm_through_real_scavenging() {
+    let (registries, mut state) = mobilized_den();
+    let copper = put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    let wood = put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    put_drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        CommodityKey::new(MATERIAL_STONE, crate::content::FORM_LUMP),
+    );
+    let mut without_iron = state.clone();
+    let iron = put_drop_at(
+        &registries,
+        &mut state,
+        TIP,
+        CommodityKey::new(MATERIAL_IRON, FORM_SCRAP),
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 205);
+    advance_to(&registries, &mut without_iron, 205);
+    assert_eq!(state.kobold_state().colony.as_ref().unwrap().scout_step, 2);
+    assert_eq!(
+        without_iron
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_step,
+        0,
+        "without a visible upgrade the scout collects ordinary junction scrap"
+    );
+    advance_to(&registries, &mut state, 210);
+    assert_eq!(state.surface().get(iron).unwrap().position(), JUNCTION);
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().scavenged_drop,
+        Some(iron)
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 215);
+    advance_to(&registries, &mut replay, 215);
+    assert_eq!(state, replay);
+    assert_eq!(state.kobold_state().colony.as_ref().unwrap().scout_step, 0);
+    assert_eq!(state.surface().get(iron).unwrap().position(), DEN);
+    let rig = current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap()).unwrap();
+    assert_eq!(rig.kind(), KoboldJunkRigKind::IronChime);
+    assert_eq!((rig.core(), rig.striker()), (copper, iron));
+    assert_eq!(state.surface().get(wood).unwrap().position(), DEN);
+    assert!(rig.sounds_at(SimulationTick::new(220)));
+    assert!(!rig.sounds_at(SimulationTick::new(215)));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        iron,
+        DEN,
+        JUNCTION,
+    ));
+    assert_eq!(
+        current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldJunkRigKind::TimberRatchet,
+        "removing the recoverable iron clapper restores the inferior wooden part"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn upgraded_junction_relay_keeps_its_recovered_iron_clapper() {
+    let (registries, mut state) = mobilized_den();
+    advance_to(&registries, &mut state, 205);
+    for position in [DEN, JUNCTION] {
+        put_drop_at(
+            &registries,
+            &mut state,
+            position,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+        );
+        put_drop_at(
+            &registries,
+            &mut state,
+            position,
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        );
+    }
+    let iron = put_drop_at(
+        &registries,
+        &mut state,
+        TIP,
+        CommodityKey::new(MATERIAL_IRON, FORM_SCRAP),
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 210);
+    let relay =
+        current_junction_relay(&state, state.kobold_state().colony.as_ref().unwrap()).unwrap();
+    assert_eq!(relay.kind(), KoboldJunkRigKind::IronChime);
+    assert_eq!(relay.striker(), iron);
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 220);
+    advance_to(&registries, &mut replay, 220);
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(iron).unwrap().position(), JUNCTION);
+    assert_eq!(
+        current_junction_relay(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldJunkRigKind::IronChime
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

@@ -396,7 +396,10 @@ fn relocated_part_stays_at_junction(
 ) -> bool {
     relocated
         .and_then(|id| state.surface().get(id))
-        .is_some_and(|resource| is_staged_scrap_tool_part(state, resource))
+        .is_some_and(|resource| {
+            is_staged_scrap_tool_part(state, resource)
+                || super::junkworks::is_staged_relay_component(state, resource)
+        })
 }
 
 /// A returning scout may not leave a still-held parcel behind merely because

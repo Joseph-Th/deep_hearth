@@ -258,6 +258,56 @@ fn bare_stone_carries_five_air_steps_but_a_damped_timber_ratchet_does_not() {
 }
 
 #[test]
+fn recovered_iron_chime_is_heard_one_cell_beyond_stone_but_not_through_rock() {
+    let (registries, mut state) = solid_generated_chunk();
+    let corridor = (8..=14)
+        .map(|x| VoxelCoord::new(x, -10, 8))
+        .collect::<Vec<_>>();
+    carve(&registries, &mut state, &corridor);
+    let source = corridor[0];
+    let listener = corridor[6];
+    assert!(audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::IronChime
+    ));
+    assert!(!audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::StoneClatter
+    ));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert!(audible_path(
+        &registries,
+        &replay,
+        source,
+        listener,
+        KoboldJunkRigKind::IronChime
+    ));
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        corridor[3],
+        BLOCK_STATE_STONE,
+    );
+    assert!(!audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::IronChime
+    ));
+}
+
+#[test]
 fn missing_chunk_is_never_assumed_to_be_an_open_sound_passage() {
     let (registries, mut state) = solid_generated_chunk();
     let source = VoxelCoord::new(15, -10, 8);

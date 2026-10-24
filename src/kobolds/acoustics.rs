@@ -19,6 +19,8 @@ fn acoustic_reach(kind: KoboldJunkRigKind) -> u8 {
         // The wooden brace dampens the crack; a bare stone clapper carries farther.
         KoboldJunkRigKind::TimberRatchet => 3,
         KoboldJunkRigKind::StoneClatter => 5,
+        // Shaped iron rings clearly beyond the radius of a raw stone clapper.
+        KoboldJunkRigKind::IronChime => 6,
     }
 }
 
@@ -55,7 +57,7 @@ fn neighbors(voxel: VoxelCoord) -> impl Iterator<Item = VoxelCoord> {
 
 /// Sound travels along actual face-connected, empty voxels; a short bend is
 /// audible even when the ordinary two-cell visual ray is blocked. No unloaded
-/// or opaque voxel is treated as free air. Every search is capped at five steps
+/// or opaque voxel is treated as free air. Every search is capped at six steps
 /// and cannot discover a remote region or leak a blocked source location.
 pub(super) fn can_hear_junk_rig(
     registries: &Registries,

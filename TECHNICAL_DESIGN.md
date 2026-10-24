@@ -205,12 +205,15 @@ Cross-owner operations coordinate owner APIs; they do not mutate another owner's
 
 Kobold junkworks use existing surface custody rather than minting an equipment instance: after a
 physical industrial sighting has reached the den, co-located precision-copper salvage plus
-stone-chip or shaped-timber striker forms an improvised mechanical alarm. The player-local
+stone-chip, shaped-timber, or recovered iron-scrap striker forms an improvised mechanical
+alarm. The player-local
 `available_nearby_kobold_junk_rig` projection exposes actual component identities only from a
 visible den. `apply_watchman_tick` relays a witnessed warning only across the den-to-junction
 traversal edge to an actually adjacent scout. Timber-braced mechanisms sound every third scout
-clock opportunity; crude stone clappers every fifth. Missed beats retain the warning, and moving
-either loose part immediately disables the device. A successful warning makes the scout retreat
+clock opportunity; crude stone clappers every fifth, and more reliable iron chimes every second.
+Missed beats retain the warning. Removing the copper core disables the device; removing
+a striker either exposes a weaker substitute or disables it if none remains. A successful
+warning makes the scout retreat
 through its ordinary route; it does not create a radio, energy source, or duplicate material.
 For a scout two edges out at the authored tip, `relay_watch_alarm` requires both current
 traversal edges and a second physically co-located copper-and-striker rig at the junction;
@@ -224,7 +227,7 @@ percussion independently of a visible `KoboldScoutEvent`. The watchman must reta
 a pending report and physically attend its den when its finite-material source rig
 sounds on the authored scout clock. On a successful two-edge warning, an assembled
 and synchronous junction relay also produces its own impulse. Local perception
-now follows a bounded 3-step timber or 5-step stone-clapper air route: generated
+follows a bounded 3-step timber, 5-step stone, or 6-step iron-clapper air route: generated
 worlds use a face-connected search through non-colliding voxels, rejecting solid
 rock and unloaded cells, whereas the pre-generation opening uses a short
 Manhattan-radius approximation without inventing terrain. A bend may carry
@@ -240,11 +243,16 @@ precision-copper core but no striker, its existing bounded patrol and two-edge d
 prefer shaped timber or stone chips over ordinary inert scraps. A usable striker on the
 original outer post may outweigh a nearer rock pile only while the part is actually visible,
 reachable, unlit, unguarded and den-fitting. Cache clearing protects assembled rig parts rather
-than expelling the alarm it depends on. Once the den rig is complete, its scout stages the
-first selected copper core and clapper at the junction instead of delivering them into the
-den's loose cache. A staged core without a clapper prioritizes the missing striker on real
-visible routes. Source and junction components remain the *same* surface parcel identities,
-selected deterministically from actual local drops. The scout ignores those staged parcels
+than expelling the alarm it depends on. Once the den rig is complete, its scout stages a
+selected copper core at the junction instead of delivering it into the den's loose cache.
+A staged core without a clapper prioritizes a missing striker on real visible routes.
+A scout with a weaker alarm may seek a visible, den-fitting iron-scrap upgrade on its outer
+patrol rather than take nearer inert cargo. Without a staged copper core, it carries the
+iron clapper home to improve the den; with a junction core, it leaves the clapper there
+to improve the connected resonator. Substitutes change audible reach and cadence, and
+removing iron immediately exposes any weaker remaining component. Source and junction
+components remain the *same* surface parcel identities, selected deterministically from
+actual local drops. The scout ignores those staged parcels
 while the den signal exists, but can recover them again if the source rig is dismantled.
 Other exposed salvage remains contestable. If a player removes relay parts, a
 returning scout can stage replacement copper and timber from real accessible

@@ -11,7 +11,10 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
-use super::junkworks::{den_or_relay_needs_striker, is_junk_striker, is_staged_relay_component};
+use super::junkworks::{
+    den_or_relay_needs_striker, den_or_relay_wants_iron_chime, is_iron_chime_striker,
+    is_junk_striker, is_staged_relay_component,
+};
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::scrap_tools::{is_needed_outer_tool_part, is_staged_scrap_tool_part};
 use super::visibility::scout_visible_from;
@@ -79,17 +82,35 @@ fn scout_loot_priority(
     mobilized: bool,
     needs_striker: bool,
     needed_tool_part: bool,
-) -> (bool, bool, bool, bool, u64, SurfaceResourceId) {
+    wants_iron: bool,
+) -> (bool, bool, bool, bool, bool, u64, SurfaceResourceId) {
     let not_food = resource.commodity().form() != crate::content::FORM_FOOD;
     let (inadequate_food, partial_size) = food_serving_priority(resource);
     (
         not_food,
         inadequate_food,
+        !(wants_iron && is_iron_chime_striker(resource)),
         !(mobilized && matches_salvage_goal(resource, needs_striker)),
         !needed_tool_part,
         partial_size,
         resource.id(),
     )
+}
+
+/// Actual den/repeater need controls component preference without remote discovery.
+fn scout_striker_interest(state: &AppState, mobilized: bool) -> (bool, bool) {
+    state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .filter(|_| mobilized)
+        .map_or((false, false), |colony| {
+            let missing = den_or_relay_needs_striker(state, colony.route[0]);
+            (
+                missing,
+                missing || den_or_relay_wants_iron_chime(state, colony),
+            )
+        })
 }
 
 pub(super) fn matches_salvage_goal(
@@ -211,12 +232,7 @@ pub(super) fn local_portable_source(
     food_only: bool,
     mobilized: bool,
 ) -> Option<SurfaceResourceId> {
-    let needs_striker = mobilized
-        && state
-            .kobold_state()
-            .colony
-            .as_ref()
-            .is_some_and(|colony| den_or_relay_needs_striker(state, colony.route[0]));
+    let (needs_striker, wants_iron) = scout_striker_interest(state, mobilized);
     state
         .surface()
         .available_resources_at(Some(position))
@@ -232,6 +248,7 @@ pub(super) fn local_portable_source(
                 mobilized,
                 needs_striker,
                 is_needed_outer_tool_part(state, position, resource),
+                wants_iron,
             )
         })
         .map(|resource| resource.id())
@@ -248,12 +265,7 @@ pub(super) fn local_split_source(
     food_only: bool,
     mobilized: bool,
 ) -> Option<SurfaceResourceId> {
-    let needs_striker = mobilized
-        && state
-            .kobold_state()
-            .colony
-            .as_ref()
-            .is_some_and(|colony| den_or_relay_needs_striker(state, colony.route[0]));
+    let (needs_striker, wants_iron) = scout_striker_interest(state, mobilized);
     state
         .surface()
         .available_resources_at(Some(position))
@@ -269,6 +281,7 @@ pub(super) fn local_split_source(
                 mobilized,
                 needs_striker,
                 is_needed_outer_tool_part(state, position, resource),
+                wants_iron,
             )
         })
         .map(|resource| resource.id())

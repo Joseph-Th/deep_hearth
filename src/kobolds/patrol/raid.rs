@@ -8,7 +8,10 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::super::feeding::scout_wants_food_opportunity;
-use super::super::junkworks::{den_or_relay_needs_striker, is_junk_striker};
+use super::super::junkworks::{
+    den_or_relay_needs_striker, den_or_relay_wants_iron_chime, is_iron_chime_striker,
+    is_junk_striker,
+};
 use super::super::scavenging::{
     best_local_forage, has_local_scout_interest, is_portable_drop, local_portable_source,
     matches_salvage_goal, reachable_detour_drop, reachable_detour_food,
@@ -76,6 +79,27 @@ pub(super) fn scout_raid_interest(
         && !scout_sees_guarded_cell(registries, state, from, colony.route[2])
         && assess_local_illumination(registries, state, colony.route[2]).level()
             < SCOUT_DETERRENT_LIGHT_LEVEL;
+    // Having actually seen a usable metal replacement, the scout will not
+    // turn home for inert junk at the junction. Visibility, carriage, den
+    // capacity and deterrents are checked before treating this as a goal.
+    let useful_iron_at_tip = colony.mobilized_at.is_some()
+        && colony.scout_step == 1
+        && !colony.returning
+        && !pressured
+        && den_or_relay_wants_iron_chime(state, colony)
+        && state
+            .surface()
+            .available_resources_at(Some(colony.route[2]))
+            .any(|resource| {
+                is_portable_drop(resource)
+                    && resource.remaining_mass() <= capacity
+                    && is_iron_chime_striker(resource)
+            })
+        && scout_visible_from(registries, state, from, colony.route[2])
+        && scout_can_enter(registries, state, colony.route[2], player_position)
+        && !scout_sees_guarded_cell(registries, state, from, colony.route[2])
+        && assess_local_illumination(registries, state, colony.route[2]).level()
+            < SCOUT_DETERRENT_LIGHT_LEVEL;
     let missing_tool_at_tip = !pressured
         && colony.scout_step == 1
         && !colony.returning
@@ -97,7 +121,10 @@ pub(super) fn scout_raid_interest(
         at,
         colony.seeks_food_at_junction(),
     ) || (colony.scout_step == 2 && local_food))
-        && ((inherited_target.is_none() && !missing_striker_at_tip && !missing_tool_at_tip)
+        && ((inherited_target.is_none()
+            && !missing_striker_at_tip
+            && !useful_iron_at_tip
+            && !missing_tool_at_tip)
             || local_food)
         && !continue_to_planned_far_raid(
             registries,
