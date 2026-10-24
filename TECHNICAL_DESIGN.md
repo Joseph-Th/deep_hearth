@@ -537,9 +537,17 @@ the semantic save schema, without migrating older saves. A warden follows a fixe
 three-cell, face-adjacent defensive route on the existing five-tick kobold clock.
 During quiet local presence it makes a 120-slow-tick inner-gallery inspection.
 Every third inspection continues through the actual supported engine passage,
-ending beside the dormant copper drive without operating it; the warden then
-walks back over the same physical cells. The patrol's outward and return
-positions share geometry but keep distinct persisted cursors. The round
+ending beside the dormant copper drive without operating it. If the actual
+housing block is absent and exposed as air, a locally attended guard holds
+that position instead of returning; replacing it with opaque stone cannot
+reveal a breach. At the central threshold, a warden seeing the real archivist
+at its missing-archive vigil holds its ground instead of turning east. Both
+responses require a nearby living player and physical observation; intervening
+stone conceals the archivist's signal. Warden sightings mark this as wary,
+while defensive posture still requires seeing a living intruder directly.
+After the player leaves, wardens retreat through real neighboring cells.
+The patrol's outward and return positions share geometry but keep distinct
+persisted cursors. The round
 cannot begin from a remote site or merely because a player is far above the
 same buried column. It yields to actual intruder sight, blocked routes, missing
 support, and occupant clearance. Local perception checks the guard's
@@ -555,8 +563,9 @@ embodied structural member bounds. A stationary enclosure or built timber
 member can obstruct an otherwise clear lane; a displaced guardian cannot
 retreat through a newly occupied ancestral post.
 Loss of contact causes one-cell-at-a-time withdrawal, including an
-interrupted engine inspection; nobody teleports from a side passage home. Local sightings distinguish a physically moving sentry from a
-warden actively challenging a visible, living intruder on its guarded side.
+interrupted engine inspection; nobody teleports from a side passage home.
+Local sightings distinguish wary sentries from wardens actively challenging
+a visible, living intruder on the guarded side.
 The kobold owner persists only moving castes in strictly sorted per-temple
 records. Trusted load rejects duplicates, nonexistent sites,
 blocked/absent occupancy, invalid route cursors and constructed stationary objects

@@ -343,7 +343,11 @@ player's technology advances. Temple wardens react locally to living intruders:
 they advance through supported hall cells without entering the player's occupied voxel and
 withdraw one step at a time after contact is lost. During quiet periods, they also
 inspect the existing inner hall and occasionally the drive-room gallery by walking
-its connected cells; no inspection operates, repairs or restores dormant machinery.
+its connected cells. A warden that finds the actual copper drive housing
+empty guards its approach, while a warden seeing an archivist's breach vigil
+holds the central hall rather than completing its routine machinery round.
+Stone screens block that caste signal; remote or absent intruders do not hold
+the guards at their posts. Neither inspection operates or restores machinery.
 Their visible defensive posture and position survive save/load, and displaced
 wardens complete their physical retreat even when the player
 leaves the temple chunk. Heavy wardens now obstruct the player's continuous walking footprint,

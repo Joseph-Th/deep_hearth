@@ -1712,6 +1712,258 @@ fn inspecting_sentinel_is_not_defending_until_it_observes_a_threat_to_the_inner_
 }
 
 #[test]
+fn missing_copper_drive_prompts_a_local_warden_watch_without_free_machinery() {
+    let (registries, mut state, route) = occupied_temple();
+    let center = route[2];
+    let drive = VoxelCoord::new(center.x() + 5, center.y(), center.z());
+    let chunk = ChunkCoord::containing(center);
+    assert_eq!(
+        state.world().block_at(drive),
+        Some(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+    );
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(center.x() - 4, center.y(), center.z()),
+    );
+    set_generated_block_for_test(registries.world(), &mut state, drive, BlockStateId::AIR);
+    let matter = crate::matter::calculate_matter_accounting(&state)
+        .unwrap()
+        .total();
+    advance_to(&registries, &mut state, 380);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 6);
+    assert!(
+        !warden_sees_missing_drive(&registries, &state, warden_position(route, 6).unwrap(),),
+        "the warden has not yet reached a view of the housing"
+    );
+    advance_to(&registries, &mut state, 385);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 7);
+    let at_drive = warden_position(route, 7).unwrap();
+    assert!(warden_sees_missing_drive(&registries, &state, at_drive));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 390);
+    advance_to(&registries, &mut replay, 390);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.kobold_state().temple_warden_step(chunk),
+        7,
+        "the vacant drive housing holds the local warden's attention"
+    );
+    let mut observed = state.clone();
+    relocate_player_for_test(
+        &mut observed,
+        VoxelCoord::new(at_drive.x(), at_drive.y(), at_drive.z() + 1),
+    );
+    let guard = crate::kobolds::available_nearby_kobold_scouts(&registries, &observed)
+        .find(|seen| seen.role() == crate::kobolds::KoboldRole::TempleWarden)
+        .unwrap();
+    assert_eq!(guard.position(), at_drive);
+    assert!(guard.is_wary());
+    assert_eq!(validate_loaded_state(&registries, &observed), Ok(()));
+
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(center.x() + 24, center.y(), center.z()),
+    );
+    relocate_player_for_test(
+        &mut replay,
+        VoxelCoord::new(center.x() + 24, center.y(), center.z()),
+    );
+    for (at, expected) in [(395, 6), (400, 5), (405, 4), (410, 2), (415, 1), (420, 0)] {
+        advance_to(&registries, &mut state, at);
+        advance_to(&registries, &mut replay, at);
+        assert_eq!(state, replay);
+        assert_eq!(state.kobold_state().temple_warden_step(chunk), expected);
+    }
+    assert_eq!(state.world().block_at(drive), Some(BlockStateId::AIR));
+    assert_eq!(
+        crate::matter::calculate_matter_accounting(&state)
+            .unwrap()
+            .total(),
+        matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn intact_or_opaque_drive_housing_does_not_create_a_false_breach_watch() {
+    let (registries, mut intact, route) = occupied_temple();
+    let center = route[2];
+    let chunk = ChunkCoord::containing(center);
+    let drive = VoxelCoord::new(center.x() + 5, center.y(), center.z());
+    relocate_player_for_test(
+        &mut intact,
+        VoxelCoord::new(center.x() - 4, center.y(), center.z()),
+    );
+    advance_to(&registries, &mut intact, 385);
+    let at_drive = warden_position(route, 7).unwrap();
+    assert_eq!(intact.kobold_state().temple_warden_step(chunk), 7);
+    assert!(!warden_sees_missing_drive(&registries, &intact, at_drive));
+    advance_to(&registries, &mut intact, 390);
+    assert_eq!(intact.kobold_state().temple_warden_step(chunk), 8);
+
+    let (registries, mut opaque, route) = occupied_temple();
+    relocate_player_for_test(
+        &mut opaque,
+        VoxelCoord::new(center.x() - 4, center.y(), center.z()),
+    );
+    set_generated_block_for_test(registries.world(), &mut opaque, drive, BLOCK_STATE_STONE);
+    advance_to(&registries, &mut opaque, 385);
+    assert_eq!(opaque.kobold_state().temple_warden_step(chunk), 7);
+    assert!(!warden_sees_missing_drive(
+        &registries,
+        &opaque,
+        warden_position(route, 7).unwrap(),
+    ));
+    advance_to(&registries, &mut opaque, 390);
+    assert_eq!(
+        opaque.kobold_state().temple_warden_step(chunk),
+        8,
+        "a stone-filled housing does not reveal missing copper by magic"
+    );
+    assert_eq!(validate_loaded_state(&registries, &opaque), Ok(()));
+}
+
+#[test]
+fn temple_warden_heeds_a_visible_archivist_breach_vigil_and_guards_the_inner_throat() {
+    let (registries, mut state, route) = occupied_temple();
+    let center = route[2];
+    let chunk = ChunkCoord::containing(center);
+    let west_observer = VoxelCoord::new(center.x() - 4, center.y(), center.z());
+    let archive = VoxelCoord::new(center.x() - 5, center.y(), center.z());
+    assert_eq!(
+        state.world().block_at(archive),
+        Some(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
+    );
+    relocate_player_for_test(&mut state, west_observer);
+    set_generated_block_for_test(registries.world(), &mut state, archive, BlockStateId::AIR);
+    let matter = crate::matter::calculate_matter_accounting(&state)
+        .unwrap()
+        .total();
+    advance_to(&registries, &mut state, 360);
+    assert_eq!(state.kobold_state().temple_archivist_step(chunk), 5);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 1);
+    assert!(
+        !warden_sees_archive_vigil(&registries, &state, route[1]),
+        "the outer hall cannot receive an unobserved archive report"
+    );
+    advance_to(&registries, &mut state, 365);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 2);
+    assert!(
+        warden_sees_archive_vigil(&registries, &state, center),
+        "the inner sentinel can now see the actual archivist's breach vigil"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 370);
+    advance_to(&registries, &mut replay, 370);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.kobold_state().temple_warden_step(chunk),
+        2,
+        "the warden should hold its threshold rather than leave on the drive circuit"
+    );
+    assert_eq!(state.kobold_state().temple_archivist_step(chunk), 5);
+    let mut observed = state.clone();
+    relocate_player_for_test(
+        &mut observed,
+        VoxelCoord::new(center.x() + 1, center.y(), center.z() + 1),
+    );
+    let guard = crate::kobolds::available_nearby_kobold_scouts(&registries, &observed)
+        .find(|seen| seen.role() == crate::kobolds::KoboldRole::TempleWarden)
+        .unwrap();
+    assert_eq!(guard.position(), center);
+    assert!(
+        guard.is_wary(),
+        "local posture reflects observed caste coordination"
+    );
+    assert_eq!(validate_loaded_state(&registries, &observed), Ok(()));
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(center.x() + 24, center.y(), center.z()),
+    );
+    relocate_player_for_test(
+        &mut replay,
+        VoxelCoord::new(center.x() + 24, center.y(), center.z()),
+    );
+    for (at, guard_step) in [(375, 1), (380, 0), (385, 0), (390, 0)] {
+        advance_to(&registries, &mut state, at);
+        advance_to(&registries, &mut replay, at);
+        assert_eq!(state, replay);
+        assert_eq!(state.kobold_state().temple_warden_step(chunk), guard_step);
+    }
+    assert_eq!(
+        crate::matter::calculate_matter_accounting(&state)
+            .unwrap()
+            .total(),
+        matter
+    );
+    assert_eq!(state.world().block_at(archive), Some(BlockStateId::AIR));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn a_solid_wall_prevents_breach_posture_from_reaching_the_warden() {
+    let (registries, mut state, route) = occupied_temple();
+    let center = route[2];
+    let west_observer = VoxelCoord::new(center.x() - 4, center.y(), center.z());
+    let archive = VoxelCoord::new(center.x() - 5, center.y(), center.z());
+    relocate_player_for_test(&mut state, west_observer);
+    set_generated_block_for_test(registries.world(), &mut state, archive, BlockStateId::AIR);
+    // Between the warden's inner hall and the large archivist's nearest
+    // exposed side. The archivist can still reach and inspect the real shell.
+    let screen = VoxelCoord::new(center.x() - 1, center.y(), center.z());
+    set_generated_block_for_test(registries.world(), &mut state, screen, BLOCK_STATE_STONE);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(screen.x(), screen.y() + 1, screen.z()),
+        BLOCK_STATE_STONE,
+    );
+    advance_to(&registries, &mut state, 365);
+    let chunk = ChunkCoord::containing(center);
+    assert_eq!(state.kobold_state().temple_archivist_step(chunk), 5);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 2);
+    assert!(
+        !warden_sees_archive_vigil(&registries, &state, center),
+        "solid intervening matter stops a caste signal, not just the player"
+    );
+    advance_to(&registries, &mut state, 370);
+    assert_eq!(
+        state.kobold_state().temple_warden_step(chunk),
+        4,
+        "a warden without local evidence keeps its normal drive-round schedule"
+    );
+    assert_eq!(state.kobold_state().temple_archivist_step(chunk), 5);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn intact_archive_cannot_trigger_an_invented_caste_warning() {
+    let (registries, mut state, route) = occupied_temple();
+    let center = route[2];
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(center.x() - 4, center.y(), center.z()),
+    );
+    advance_to(&registries, &mut state, 370);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(center)),
+        4,
+    );
+    assert!(!warden_sees_archive_vigil(&registries, &state, center));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn temple_warden_makes_a_real_engine_gallery_round_without_operating_the_drive() {
     let (registries, mut state, route) = occupied_temple();
     let center = route[2];

@@ -143,6 +143,28 @@ pub(super) fn archivist_visible_from(
     })
 }
 
+/// A warden can notice a fellow caste's stationary breach vigil only by
+/// seeing the actual attending body across its inner hall. The archive's
+/// missing block is not revealed to an unseen warden or a distant sanctuary.
+/// The archivist must first have reached the physical maintenance throat.
+pub(super) fn archive_vigil_visible_to_warden(
+    registries: &Registries,
+    state: &AppState,
+    warden: VoxelCoord,
+) -> bool {
+    let Some([post, home]) = temple_residents_at(registries, state, warden) else {
+        return false;
+    };
+    let step = state
+        .kobold_state()
+        .temple_archivist_step(ChunkCoord::containing(post));
+    let Some(at) = archivist_position(home, step) else {
+        return false;
+    };
+    archive_shell_breached(state, home, step)
+        && archivist_visible_from(registries, state, at, warden)
+}
+
 pub(super) fn archivist_is_guarding_breach(
     registries: &Registries,
     state: &AppState,

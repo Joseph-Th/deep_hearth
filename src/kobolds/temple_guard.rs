@@ -169,6 +169,48 @@ fn inspection_step(at: SimulationTick, step: u8, player_near: bool, seen: bool) 
     }
 }
 
+/// A warden can inherit a caste warning only by directly seeing the
+/// archivist at its actual breached-archive post, not by knowing remote blocks.
+pub(super) fn warden_sees_archive_vigil(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    super::temple_archivist::archive_vigil_visible_to_warden(registries, state, position)
+}
+
+/// The drive watch uses its actual adjacent copper housing, not a remotely
+/// flagged machine. Only an empty authored drive cell is an observable breach;
+/// a full-cube replacement or ungenerated terrain does not disclose what is
+/// behind it. The resident must physically reach the end of the engine patrol.
+pub(super) fn warden_sees_missing_drive(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    let Some(route) = temple_warden_route_at(registries, state, position) else {
+        return false;
+    };
+    if warden_position(route, 7) != Some(position) {
+        return false;
+    }
+    let Some(x) = position.x().checked_add(1) else {
+        return false;
+    };
+    let housing = VoxelCoord::new(x, position.y(), position.z());
+    state.world().block_at(housing) == Some(BlockStateId::AIR)
+        && !state.structures().blocks_full_cell(housing)
+}
+
+pub(super) fn warden_has_damage_warning(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    warden_sees_archive_vigil(registries, state, position)
+        || warden_sees_missing_drive(registries, state, position)
+}
+
 /// Choose between a real intruder challenge, a local inspection and retreat.
 fn plan_warden_step(
     registries: &Registries,
@@ -185,12 +227,12 @@ fn plan_warden_step(
         .abs_diff(route[0].x())
         .saturating_add(player.y().abs_diff(route[0].y()))
         .saturating_add(player.z().abs_diff(route[0].z()));
-    let seen = local
-        && state
-            .survival()
-            .player()
-            .is_some_and(|actor| actor.vitality() != Vitality::ZERO)
-        && warden_sees_intruder(registries, state, current, player);
+    let alive = state
+        .survival()
+        .player()
+        .is_some_and(|actor| actor.vitality() != Vitality::ZERO);
+    let nearby = local && alive && distance <= TEMPLE_INSPECTION_LOCAL_REACH;
+    let seen = local && alive && warden_sees_intruder(registries, state, current, player);
     // The ancestral post determines the guarded boundary even if a side
     // intruder moves across the actual sentry's present position.
     let aware = seen && player.z() <= route[0].z();
@@ -202,12 +244,17 @@ fn plan_warden_step(
     {
         return step + 1;
     }
-    if let Some(round) = inspection_step(
-        at,
-        step,
-        local && distance <= TEMPLE_INSPECTION_LOCAL_REACH,
-        seen,
-    ) {
+    // When the inner-hall sentry can actually see an archivist holding a
+    // damaged archive, it keeps the threshold rather than wandering east
+    // on routine machinery rounds. That posture vanishes when the visual
+    // link is broken; no extra alarm entity or hidden knowledge is created.
+    if nearby
+        && ((step == 2 && warden_sees_archive_vigil(registries, state, current))
+            || (step == 7 && warden_sees_missing_drive(registries, state, current)))
+    {
+        return step;
+    }
+    if let Some(round) = inspection_step(at, step, nearby, seen) {
         return round;
     }
     if !aware && step > 0 {

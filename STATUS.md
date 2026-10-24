@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite power/loss-limited energy, campfire heat, drinking, and exact local/downhill fluid transfer with player choice previews. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Mass-backed eight-mineral geology, temple rooms, seven assemblies and solid caste bodies, with local drive inspections and archivist archive vigils. Excavation and targeting exist; placement, UI, residency absent. |
+| Block world | Mass-backed eight-mineral geology, temple rooms, seven assemblies and solid caste bodies, with locally coordinated archive and drive damage watches. Excavation and targeting exist; placement, UI, residency absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

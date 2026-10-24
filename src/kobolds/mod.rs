@@ -128,7 +128,8 @@ impl KoboldSighting {
         self.has_noticed_player_drop
     }
 
-    /// The nearby scout is still avoiding danger after player or firelight pressure.
+    /// Scouts avoid recent danger; wardens guard visibly breached machinery
+    /// or heed a directly observed archivist's damaged-archive vigil.
     #[must_use]
     pub const fn is_wary(self) -> bool {
         self.is_wary
@@ -622,7 +623,8 @@ impl KoboldState {
                         role,
                         position,
                         has_noticed_player_drop: false,
-                        is_wary: false,
+                        is_wary: role == KoboldRole::TempleWarden
+                            && temple_guard::warden_has_damage_warning(registries, state, position),
                         is_defending,
                         mobilized: false,
                         scavenged_material: None,
