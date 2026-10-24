@@ -87,15 +87,24 @@ pub fn available_adjacent_drink_sources<'a>(
     registries: &'a Registries,
     state: &'a AppState,
 ) -> impl Iterator<Item = AdjacentDrinkSource> + 'a {
-    let player_position = state.logistics().player().map(|player| player.position());
-    state
+    // Observation is bounded by the admitted player's authored neighbors,
+    // not by the total number of fluid vessels across the generated world.
+    let mut nearby = state
         .logistics()
-        .fluid_store_locations()
-        .filter(move |(_, position)| {
-            player_position
-                .is_some_and(|player| state.logistics().has_traversal_edge(player, *position))
+        .player()
+        .into_iter()
+        .flat_map(|player| {
+            state
+                .logistics()
+                .traversable_destinations(player.position())
         })
-        .filter_map(move |(store, position)| {
+        .flat_map(|position| {
+            state
+                .logistics()
+                .fluid_stores_at(position)
+                .map(move |store| (store, position))
+        })
+        .filter_map(|(store, position)| {
             let contents = state.fluid().get_store(store)?.contents()?;
             let drink = registries.survival().get_drink(contents.fluid())?;
             drink
@@ -107,6 +116,11 @@ pub fn available_adjacent_drink_sources<'a>(
                     position,
                 })
         })
+        .collect::<Vec<_>>();
+    // Preserve the previous stable fluid-ID order, independent of which
+    // neighboring voxel happens to be first in the traversal index.
+    nearby.sort_unstable_by_key(|source| source.store);
+    nearby.into_iter()
 }
 
 impl LocalDrinkSource {

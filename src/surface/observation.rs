@@ -4,7 +4,7 @@ use crate::core::state::AppState;
 use crate::material::CommodityKey;
 use crate::spatial::VoxelCoord;
 
-use super::{SurfaceResourceId, SurfaceResourceLifecycle};
+use super::SurfaceResourceId;
 
 /// Actor-visible loose surface matter on one authorized adjacent traversal voxel.
 ///
@@ -42,18 +42,27 @@ impl AdjacentSurfaceResource {
 pub fn available_adjacent_surface_resources(
     state: &AppState,
 ) -> impl Iterator<Item = AdjacentSurfaceResource> + '_ {
-    let player_position = state.logistics().player().map(|player| player.position());
-    state.surface().resources().filter_map(move |resource| {
-        let player = player_position?;
-        (resource.lifecycle() == SurfaceResourceLifecycle::Available
-            && !resource.remaining_mass().is_zero()
-            && state
+    // Only visit authored neighboring positions, then their indexed live parcels.
+    // Scanning every surface record here would make a local HUD query grow with
+    // remote world generation and the number of historically depleted sources.
+    let mut nearby = state
+        .logistics()
+        .player()
+        .into_iter()
+        .flat_map(|player| {
+            state
                 .logistics()
-                .has_traversal_edge(player, resource.position()))
-        .then_some(AdjacentSurfaceResource {
+                .traversable_destinations(player.position())
+        })
+        .flat_map(|position| state.surface().available_resources_at(Some(position)))
+        .map(|resource| AdjacentSurfaceResource {
             resource: resource.id(),
             commodity: resource.commodity(),
             position: resource.position(),
         })
-    })
+        .collect::<Vec<_>>();
+    // The old actor projection was sorted by global resource ID. Preserve that
+    // stable choice order instead of exposing topology/voxel iteration order.
+    nearby.sort_unstable_by_key(|resource| resource.resource);
+    nearby.into_iter()
 }

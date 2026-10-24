@@ -153,6 +153,57 @@ fn local_drink_source_observation_exposes_only_currently_usable_colocated_fluid(
 }
 
 #[test]
+fn adjacent_drink_source_observation_preserves_store_id_order_across_neighbor_indexes() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player = VoxelCoord::new(0, 0, 0);
+    let east = VoxelCoord::new(1, 0, 0);
+    let west = VoxelCoord::new(-1, 0, 0);
+    let far = VoxelCoord::new(100, 0, 100);
+    let serving = minimum_drink_volume(&registries);
+    let place = |state: &mut AppState, position| {
+        let store = add_fluid_store_with_contents_for_fixture(
+            &registries,
+            state,
+            serving,
+            FLUID_WATER,
+            serving,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("adjacent water fixture failed: {error}"));
+        validate_place_fluid_store(state, store, position)
+            .unwrap_or_else(|error| panic!("adjacent water placement failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("adjacent water placement commit failed: {error}"));
+        store
+    };
+    let first = place(&mut state, east);
+    let remote = place(&mut state, far);
+    let second = place(&mut state, west);
+    let third = place(&mut state, east);
+    validate_initialize_player_logistics(&state, player, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("adjacent water player setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("adjacent water player commit failed: {error}"));
+    add_traversable_edge_for_test(&mut state, player, west);
+    add_traversable_edge_for_test(&mut state, player, east);
+    let observed = available_adjacent_drink_sources(&registries, &state)
+        .map(|source| (source.store(), source.position()))
+        .collect::<Vec<_>>();
+    assert_eq!(observed, vec![(first, east), (second, west), (third, east)]);
+    assert!(!observed.iter().any(|(id, _)| *id == remote));
+
+    let _ = place(&mut state, far);
+    assert_eq!(
+        available_adjacent_drink_sources(&registries, &state)
+            .map(|source| (source.store(), source.position()))
+            .collect::<Vec<_>>(),
+        observed,
+        "remote liquid custody cannot change adjacent choices or their ID order"
+    );
+}
+
+#[test]
 fn local_drink_source_observation_keeps_visible_remainders_below_the_serving_floor() {
     let registries = build_registries();
     let mut state = AppState::new();

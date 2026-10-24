@@ -3091,6 +3091,47 @@ fn adjacent_surface_observation_requires_persisted_access_and_hides_exact_state(
     assert_ne!(reachable, blocked);
 }
 
+#[test]
+fn adjacent_surface_observation_preserves_global_identity_order_across_neighbor_indexes() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player = VoxelCoord::new(0, 0, 0);
+    let east = VoxelCoord::new(1, 0, 0);
+    let west = VoxelCoord::new(-1, 0, 0);
+    let far = VoxelCoord::new(100, 0, 100);
+    let make = |state: &mut AppState, position| {
+        seed_surface(
+            &registries,
+            state,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(1_000),
+        )
+    };
+    let first = make(&mut state, east);
+    let remote = make(&mut state, far);
+    let second = make(&mut state, west);
+    let third = make(&mut state, east);
+    let _ = admit_player(&registries, &mut state, player);
+    // Neighbor coordinates iterate west before east, unlike resource creation order.
+    add_traversable_edge_for_test(&mut state, player, west);
+    add_traversable_edge_for_test(&mut state, player, east);
+    let observed = available_adjacent_surface_resources(&state)
+        .map(|resource| (resource.resource(), resource.position()))
+        .collect::<Vec<_>>();
+    assert_eq!(observed, vec![(first, east), (second, west), (third, east)]);
+    assert!(!observed.iter().any(|(id, _)| *id == remote));
+
+    let _ = make(&mut state, far);
+    assert_eq!(
+        available_adjacent_surface_resources(&state)
+            .map(|resource| (resource.resource(), resource.position()))
+            .collect::<Vec<_>>(),
+        observed,
+        "new remote custody must not change nearby choices or their order"
+    );
+}
+
 fn admit_player(
     registries: &crate::registry::Registries,
     state: &mut AppState,
