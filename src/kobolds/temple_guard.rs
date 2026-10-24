@@ -221,7 +221,6 @@ fn plan_warden_step(
     at: SimulationTick,
 ) -> u8 {
     let current = warden_position(route, step).expect("trusted patrol has a valid cursor");
-    let local = ChunkCoord::containing(player) == ChunkCoord::containing(route[0]);
     let distance = player
         .x()
         .abs_diff(route[0].x())
@@ -231,8 +230,8 @@ fn plan_warden_step(
         .survival()
         .player()
         .is_some_and(|actor| actor.vitality() != Vitality::ZERO);
-    let nearby = local && alive && distance <= TEMPLE_INSPECTION_LOCAL_REACH;
-    let seen = local && alive && warden_sees_intruder(registries, state, current, player);
+    let nearby = alive && distance <= TEMPLE_INSPECTION_LOCAL_REACH;
+    let seen = alive && warden_sees_intruder(registries, state, current, player);
     // The ancestral post determines the guarded boundary even if a side
     // intruder moves across the actual sentry's present position.
     let aware = seen && player.z() <= route[0].z();
@@ -293,9 +292,11 @@ pub(super) fn apply_temple_warden_tick(
                 .map(|route| (record.chunk, route))
         })
         .collect::<Vec<_>>();
-    if let Some(route) = temple_warden_route_at(registries, state, player) {
-        let chunk = ChunkCoord::containing(route[0]);
+    for [post, _] in crate::world::nearby_temple_residents(registries, state, player) {
+        let chunk = ChunkCoord::containing(post);
         if !active.iter().any(|(present, _)| *present == chunk) {
+            let route = temple_warden_route_at(registries, state, post)
+                .expect("generated temple resident retains its patrol route");
             active.push((chunk, route));
         }
     }

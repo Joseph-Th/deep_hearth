@@ -577,8 +577,7 @@ impl KoboldState {
                 })
             }))
             .chain(
-                crate::world::temple_residents_at(registries, state, position)
-                    .into_iter()
+                crate::world::nearby_temple_residents(registries, state, position)
                     .flat_map(move |[post, archivist]| {
                         let step =
                             self.temple_warden_step(crate::world::ChunkCoord::containing(post));

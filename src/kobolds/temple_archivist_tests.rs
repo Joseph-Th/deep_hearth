@@ -52,6 +52,46 @@ fn archive_cell(home: VoxelCoord) -> VoxelCoord {
 }
 
 #[test]
+fn archivist_inspects_when_a_living_player_is_near_across_a_generated_chunk_border() {
+    let (registries, mut state, home) = occupied_archive();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(-1, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let observer = VoxelCoord::new(-1, home.y(), home.z());
+    assert_eq!(home.x().abs_diff(observer.x()), 7);
+    for position in [
+        observer,
+        VoxelCoord::new(observer.x(), observer.y() + 1, observer.z()),
+    ] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    }
+    relocate_player_for_test(&mut state, observer);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    advance_to(&registries, &mut state, 240);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_archivist_step(ChunkCoord::containing(home)),
+        1,
+        "a nearby player across a chunk edge must trigger the existing physical inspection"
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, restored);
+}
+
+#[test]
 fn archivist_walks_a_real_wide_supported_approach_to_the_archive_and_back() {
     let (registries, mut state, home) = occupied_archive();
     let chunk = ChunkCoord::containing(home);
@@ -257,6 +297,49 @@ fn local_player_in_the_next_wide_archivist_cell_prevents_inspection() {
         VoxelCoord::new(home.x() - 4, home.y(), home.z() + 2),
     );
     advance_to(&registries, &mut state, 270);
+    assert_eq!(state.kobold_state().temple_archivist_step(chunk), 1);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn archivist_cannot_step_off_a_mined_out_floor_until_support_is_restored() {
+    let (registries, mut state, home) = occupied_archive();
+    advance_to(&registries, &mut state, 250);
+    let chunk = ChunkCoord::containing(home);
+    assert_eq!(state.kobold_state().temple_archivist_step(chunk), 2);
+    let anchor = archivist_position(home, 2).unwrap();
+    let undermined = VoxelCoord::new(anchor.x() + 1, anchor.y() - 1, anchor.z() - 1);
+    assert_eq!(state.world().block_at(undermined), Some(BLOCK_STATE_STONE));
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        undermined,
+        BlockStateId::AIR,
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    advance_to(&registries, &mut state, 260);
+    assert_eq!(
+        state.kobold_state().temple_archivist_step(chunk),
+        2,
+        "a massive resident cannot depart while any part of its floor is absent"
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored_from_save = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 270);
+    advance_to(&registries, &mut restored_from_save, 270);
+    assert_eq!(state, restored_from_save);
+    assert_eq!(state.kobold_state().temple_archivist_step(chunk), 2);
+
+    for game in [&mut state, &mut restored_from_save] {
+        set_generated_block_for_test(registries.world(), game, undermined, BLOCK_STATE_STONE);
+    }
+    advance_to(&registries, &mut state, 280);
+    advance_to(&registries, &mut restored_from_save, 280);
+    assert_eq!(state, restored_from_save);
     assert_eq!(state.kobold_state().temple_archivist_step(chunk), 1);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

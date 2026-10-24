@@ -421,6 +421,17 @@ impl LogisticsState {
             .map(|(store, position)| (*store, *position))
     }
 
+    /// Exact-position energy custody in stable store-ID order, without remote scans.
+    pub(crate) fn energy_stores_at(
+        &self,
+        position: VoxelCoord,
+    ) -> impl Iterator<Item = EnergyStoreId> + '_ {
+        self.energy_stores_by_position
+            .get(&position)
+            .into_iter()
+            .flat_map(|stores| stores.iter().copied())
+    }
+
     /// Only stores inside the maximum mathematically possible finite-light range.
     /// Source order remains stable by ID for deterministic equal-brightness ties.
     pub(crate) fn energy_store_locations_near(

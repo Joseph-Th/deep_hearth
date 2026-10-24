@@ -919,21 +919,28 @@ fn first_prospective_temple_overlap(
     None
 }
 
-/// Resolves one site within the observer's own seeded world column. Absent
+/// Resolves one site in an already-generated seeded world column. Absent
 /// authored relic definitions never produce an ancient sanctuary.
-fn temple_site_at(
+fn temple_site_in_chunk(
     registries: &Registries,
     state: &AppState,
-    observer: VoxelCoord,
+    coord: ChunkCoord,
 ) -> Option<temple::TempleSite> {
     let profile = state.world().generation_profile()?;
-    let coord = ChunkCoord::containing(observer);
     // A seeded site is deterministic, but its heavy occupants do not exist
     // before the containing chunk is generated. Otherwise generating an
     // unrelated distant chunk can retroactively overlap an admitted player
     // at an unloaded sanctuary.
     state.world().get_chunk(coord)?;
     temple_site_for_chunk(registries.world(), profile, coord)
+}
+
+fn temple_site_at(
+    registries: &Registries,
+    state: &AppState,
+    observer: VoxelCoord,
+) -> Option<temple::TempleSite> {
+    temple_site_in_chunk(registries, state, ChunkCoord::containing(observer))
 }
 
 /// Returns original temple resident identities, not their current mutable
@@ -946,6 +953,26 @@ pub(crate) fn temple_residents_at(
 ) -> Option<[VoxelCoord; 2]> {
     let site = temple_site_at(registries, state, observer)?;
     Some([site.warden(), site.archivist()])
+}
+
+/// Resident candidates in the observer's column and its eight immediate neighbors.
+/// A caste may be only a few cells away across a chunk boundary. Return only
+/// already-generated sanctuaries; callers still enforce their own physical
+/// observation radius or occluded sight before any behavior or presentation.
+/// No world-wide temple index or distant generation is consulted.
+pub(crate) fn nearby_temple_residents<'a>(
+    registries: &'a Registries,
+    state: &'a AppState,
+    observer: VoxelCoord,
+) -> impl Iterator<Item = [VoxelCoord; 2]> + 'a {
+    let origin = ChunkCoord::containing(observer);
+    (-1_i64..=1).flat_map(move |dx| {
+        (-1_i64..=1).filter_map(move |dz| {
+            let chunk = ChunkCoord::new(origin.x().checked_add(dx)?, origin.z().checked_add(dz)?);
+            temple_site_in_chunk(registries, state, chunk)
+                .map(|site| [site.warden(), site.archivist()])
+        })
+    })
 }
 
 /// Three physically adjacent cells, entirely inside a generated ancient hall.

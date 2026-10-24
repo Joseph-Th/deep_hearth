@@ -144,6 +144,7 @@ fn local_energy_observation_requires_actor_admission_and_exact_colocation() {
     let local = assemble("local");
     let remote = assemble("remote");
     let _unlocated = assemble("unlocated");
+    let second_local = assemble("second local");
     let player_position = VoxelCoord::new(0, 0, 0);
     state
         .logistics_state_mut()
@@ -154,6 +155,9 @@ fn local_energy_observation_requires_actor_admission_and_exact_colocation() {
         remote,
         VoxelCoord::new(1, 0, 0),
     );
+    state
+        .logistics_state_mut()
+        .apply_energy_store_placement(2, 3, second_local, player_position);
 
     assert!(
         state.available_local_energy_stores().next().is_none(),
@@ -169,8 +173,8 @@ fn local_energy_observation_requires_actor_admission_and_exact_colocation() {
             .available_local_energy_stores()
             .map(|store| store.id())
             .collect::<Vec<_>>(),
-        vec![local],
-        "local energy observation must exclude remote and unlocated stores"
+        vec![local, second_local],
+        "local energy observation must include only co-located stores in stable ID order"
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

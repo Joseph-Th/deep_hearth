@@ -62,16 +62,8 @@ fn clear_body_cells(state: &AppState, anchor: VoxelCoord) -> bool {
         .all(|voxel| state.world().block_at(voxel) == Some(BlockStateId::AIR))
 }
 
-fn supported_and_clear(registries: &Registries, state: &AppState, anchor: VoxelCoord) -> bool {
+fn has_supporting_floor(registries: &Registries, state: &AppState, anchor: VoxelCoord) -> bool {
     anchor.y() > WORLD_MIN_Y
-        && clear_body_cells(state, anchor)
-        && resident_body_cells(anchor).all(|voxel| {
-            !state.logistics().has_stationary_occupant_at(voxel)
-                && !state.structures().elements().any(|member| {
-                    !member.embodied_material().is_empty() && member.bounds().has_voxel(voxel)
-                })
-                && !crate::logistics::player_body_occupies_voxel(registries, state, voxel)
-        })
         && (0..=1).all(|dx| {
             (0..=1).all(|dz| {
                 let floor = VoxelCoord::new(anchor.x() + dx, anchor.y() - 1, anchor.z() - dz);
@@ -84,12 +76,23 @@ fn supported_and_clear(registries: &Registries, state: &AppState, anchor: VoxelC
         })
 }
 
+fn supported_and_clear(registries: &Registries, state: &AppState, anchor: VoxelCoord) -> bool {
+    has_supporting_floor(registries, state, anchor)
+        && clear_body_cells(state, anchor)
+        && resident_body_cells(anchor).all(|voxel| {
+            !state.logistics().has_stationary_occupant_at(voxel)
+                && !state.structures().elements().any(|member| {
+                    !member.embodied_material().is_empty() && member.bounds().has_voxel(voxel)
+                })
+                && !crate::logistics::player_body_occupies_voxel(registries, state, voxel)
+        })
+}
+
 fn locally_observed(state: &AppState, home: VoxelCoord, player: VoxelCoord) -> bool {
     state
         .survival()
         .player()
         .is_some_and(|actor| actor.vitality() != Vitality::ZERO)
-        && ChunkCoord::containing(home) == ChunkCoord::containing(player)
         && home
             .x()
             .abs_diff(player.x())
@@ -230,7 +233,7 @@ pub(super) fn apply_temple_archivist_tick(
                 .map(|[_, home]| (record.chunk, home))
         })
         .collect::<Vec<_>>();
-    if let Some([_, home]) = temple_residents_at(registries, state, player) {
+    for [_, home] in crate::world::nearby_temple_residents(registries, state, player) {
         let chunk = ChunkCoord::containing(home);
         if !active.iter().any(|(present, _)| *present == chunk) {
             active.push((chunk, home));
@@ -241,7 +244,7 @@ pub(super) fn apply_temple_archivist_tick(
         let Some(current) = archivist_position(home, step) else {
             continue;
         };
-        if !supported_and_clear_without_player(state, current) {
+        if !resident_can_depart(registries, state, current) {
             continue;
         }
         let nearby = locally_observed(state, home, player);
@@ -275,8 +278,8 @@ pub(super) fn apply_temple_archivist_tick(
 /// A resident already standing on a floor may have had that floor mined away.
 /// Do not remove the resident from the physical world simply because support
 /// was lost later, but prohibit additional movement until it is restored.
-fn supported_and_clear_without_player(state: &AppState, anchor: VoxelCoord) -> bool {
-    clear_body_cells(state, anchor)
+fn resident_can_depart(registries: &Registries, state: &AppState, anchor: VoxelCoord) -> bool {
+    clear_body_cells(state, anchor) && has_supporting_floor(registries, state, anchor)
 }
 
 /// A loaded cursor must name a real locally generated sanctuary, valid

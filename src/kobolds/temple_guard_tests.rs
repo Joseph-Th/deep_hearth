@@ -66,6 +66,44 @@ fn occupied_temple() -> (Registries, AppState, [VoxelCoord; 3]) {
 }
 
 #[test]
+fn warden_inspects_when_a_living_player_is_near_across_a_generated_chunk_border() {
+    let (registries, mut state, route) = occupied_temple();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(-1, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let observer = VoxelCoord::new(-1, route[0].y(), route[0].z());
+    assert_eq!(route[0].x().abs_diff(observer.x()), 7);
+    for position in [
+        observer,
+        VoxelCoord::new(observer.x(), observer.y() + 1, observer.z()),
+    ] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    }
+    relocate_player_for_test(&mut state, observer);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    for _ in 0..120 {
+        let _ = crate::simulation::advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        1,
+        "a nearby observer cannot make a real guardian invisible to its patrol scheduler"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn generating_a_temple_cannot_instantiate_a_guard_inside_an_admitted_player() {
     let (registries, _, route) = occupied_temple();
     let mut state = AppState::new();
