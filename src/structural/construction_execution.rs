@@ -37,6 +37,7 @@ pub(crate) use requirement::resolve_structural_material_requirement;
 pub(crate) struct ValidatedStructuralConstruction {
     element: StructuralElementId,
     expected_world_revision: u64,
+    expected_surface_revision: u64,
     expected_structure_revision: u64,
     next_structure_revision: u64,
     material: Vec<ConsumedMaterialTrace>,
@@ -60,6 +61,12 @@ impl ValidatedStructuralConstruction {
             return Err(StructuralConstructionCommitError::StaleWorldRevision {
                 expected: self.expected_world_revision,
                 actual: state.world().revision(),
+            });
+        }
+        if state.surface().revision() != self.expected_surface_revision {
+            return Err(StructuralConstructionCommitError::StaleSurfaceRevision {
+                expected: self.expected_surface_revision,
+                actual: state.surface().revision(),
             });
         }
         let actual_structure_revision = state.structures().revision();
@@ -115,6 +122,12 @@ impl ValidatedStructuralConstruction {
             return Err(StructuralConstructionCommitError::StaleWorldRevision {
                 expected: self.expected_world_revision,
                 actual: state.world().revision(),
+            });
+        }
+        if state.surface().revision() != self.expected_surface_revision {
+            return Err(StructuralConstructionCommitError::StaleSurfaceRevision {
+                expected: self.expected_surface_revision,
+                actual: state.surface().revision(),
             });
         }
         let actual_projected_revision = state.structures().revision().checked_add(1).ok_or(
@@ -264,6 +277,7 @@ pub(crate) fn validate_structural_construction_for_planned_member(
     Ok(ValidatedStructuralConstruction {
         element,
         expected_world_revision: state.world().revision(),
+        expected_surface_revision: state.surface().revision(),
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),
@@ -285,6 +299,22 @@ fn validate_structural_construction_world(
             element: record.id(),
             voxel,
         });
+    }
+    if record.geometry().covers_horizontal_footprint() {
+        if let Some(voxel) = state
+            .surface()
+            .resources()
+            .filter(|resource| {
+                resource.lifecycle() == crate::surface::SurfaceResourceLifecycle::Available
+            })
+            .map(|resource| resource.position())
+            .find(|&voxel| record.bounds().has_voxel(voxel))
+        {
+            return Err(StructuralConstructionError::ExposedSurfaceMatter {
+                element: record.id(),
+                voxel,
+            });
+        }
     }
     if let Some(voxel) = crate::kobolds::first_kobold_member_overlap(
         registries,
@@ -466,6 +496,7 @@ pub(crate) fn validate_structural_construction(
     Ok(ValidatedStructuralConstruction {
         element,
         expected_world_revision: state.world().revision(),
+        expected_surface_revision: state.surface().revision(),
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),

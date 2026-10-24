@@ -49,14 +49,24 @@ fn validate_direct_placement_position(
         || crate::kobolds::opening_kobold_occupies_voxel(state, position)
         || state.logistics().has_stationary_occupant_at(position)
         || state
-            .surface()
-            .available_resources_at(Some(position))
-            .next()
-            .is_some()
-        || state
             .structures()
             .elements()
             .any(|record| record.bounds().has_voxel(position))
+    {
+        return Err(DirectPlacementTargetError::LocationOccupied { position });
+    }
+    Ok(())
+}
+
+fn validate_structural_placement_position(
+    state: &AppState,
+    position: VoxelCoord,
+) -> Result<(), DirectPlacementTargetError> {
+    if state
+        .surface()
+        .available_resources_at(Some(position))
+        .next()
+        .is_some()
     {
         return Err(DirectPlacementTargetError::LocationOccupied { position });
     }
@@ -259,6 +269,9 @@ pub(super) fn attempt_selected_timber_cover_placement(
         Ok(None) => return Some(SecondaryActionOutcome::NoStructuralPlacementTarget),
         Err(error) => return Some(error),
     };
+    if let Err(error) = validate_structural_placement_position(state, bounds.min()) {
+        return Some(structural_placement_error(error));
+    }
     let geometry = StructuralElementGeometry::new(
         bounds,
         BASIC_TIMBER_COVER_PANEL_THICKNESS,

@@ -108,6 +108,10 @@ pub enum PlayerMaterialDropCommitError {
         expected: u64,
         actual: u64,
     },
+    StructureRevisionChanged {
+        expected: u64,
+        actual: u64,
+    },
     SurfaceIdentityChanged {
         expected: u32,
         actual: u32,
@@ -168,6 +172,10 @@ impl Display for PlayerMaterialDropCommitError {
             Self::WorldRevisionChanged { expected, actual } => write!(
                 formatter,
                 "world revision changed from {expected} to {actual} before material drop"
+            ),
+            Self::StructureRevisionChanged { expected, actual } => write!(
+                formatter,
+                "structural revision changed from {expected} to {actual} before material drop"
             ),
             Self::SurfaceIdentityChanged { expected, actual } => write!(
                 formatter,
@@ -267,6 +275,9 @@ impl ValidatedPlayerMaterialDrop {
             }
             SurfaceResourceCreationCommitError::WorldRevision { expected, actual } => {
                 PlayerMaterialDropCommitError::WorldRevisionChanged { expected, actual }
+            }
+            SurfaceResourceCreationCommitError::StructureRevision { expected, actual } => {
+                PlayerMaterialDropCommitError::StructureRevisionChanged { expected, actual }
             }
             SurfaceResourceCreationCommitError::NextResourceId { expected, actual } => {
                 PlayerMaterialDropCommitError::SurfaceIdentityChanged { expected, actual }

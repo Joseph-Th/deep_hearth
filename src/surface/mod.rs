@@ -61,6 +61,7 @@ pub(crate) fn relocate_scavenged_drop_step(
 ) -> bool {
     if !from.is_face_adjacent_to(to)
         || state::validation::surface_position_has_full_cube(registries.world(), state.world(), to)
+        || state.structures().blocks_full_cell(to)
         || !state.surface().get(resource).is_some_and(|record| {
             record.kind() == SurfaceResourceKind::Drop
                 && record.lifecycle() == SurfaceResourceLifecycle::Available

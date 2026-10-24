@@ -10,6 +10,7 @@ use crate::material::{
     validate_material_phase_state,
 };
 use crate::spatial::VoxelCoord;
+use crate::structural::StructureState;
 use crate::surface::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
 use crate::world::{BlockCollisionShape, WorldRegistry, WorldState};
 
@@ -21,6 +22,10 @@ use super::{
 pub enum SurfaceResourceValidationError {
     InvalidLocationIndex,
     EmbeddedInSolidWorld {
+        resource: SurfaceResourceId,
+        voxel: VoxelCoord,
+    },
+    EmbeddedInSolidStructure {
         resource: SurfaceResourceId,
         voxel: VoxelCoord,
     },
@@ -126,6 +131,14 @@ impl Display for SurfaceResourceValidationError {
             Self::EmbeddedInSolidWorld { resource, voxel } => write!(
                 formatter,
                 "available surface resource {} is embedded in solid generated terrain at ({},{},{})",
+                resource.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::EmbeddedInSolidStructure { resource, voxel } => write!(
+                formatter,
+                "available surface resource {} is embedded in a full-cell structural member at ({},{},{})",
                 resource.value(),
                 voxel.x(),
                 voxel.y(),
@@ -293,6 +306,7 @@ impl Error for SurfaceResourceValidationError {
             Self::InvalidParticleSizeState { error, .. } => Some(error),
             Self::InvalidLocationIndex
             | Self::EmbeddedInSolidWorld { .. }
+            | Self::EmbeddedInSolidStructure { .. }
             | Self::ZeroNextResourceId
             | Self::NextIdNotAfterExisting { .. }
             | Self::ZeroResourceId
@@ -498,15 +512,24 @@ pub(in crate::surface) fn surface_position_has_full_cube(
         .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
 }
 
-pub(in crate::surface) fn validate_surface_resource_world_position(
+pub(in crate::surface) fn validate_surface_resource_physical_position(
     world_registry: &WorldRegistry,
     world: &WorldState,
+    structures: &StructureState,
     record: &SurfaceResourceRecord,
 ) -> Result<(), SurfaceResourceValidationError> {
     if record.lifecycle() == SurfaceResourceLifecycle::Available
         && surface_position_has_full_cube(world_registry, world, record.position())
     {
         return Err(SurfaceResourceValidationError::EmbeddedInSolidWorld {
+            resource: record.id(),
+            voxel: record.position(),
+        });
+    }
+    if record.lifecycle() == SurfaceResourceLifecycle::Available
+        && structures.blocks_full_cell(record.position())
+    {
+        return Err(SurfaceResourceValidationError::EmbeddedInSolidStructure {
             resource: record.id(),
             voxel: record.position(),
         });
@@ -521,6 +544,7 @@ pub(crate) fn validate_loaded_surface_resources(
     current_control: ControlTick,
     world_registry: &WorldRegistry,
     world: &WorldState,
+    structures: &StructureState,
 ) -> Result<(), SurfaceResourceValidationError> {
     if state.next_resource_id == 0 {
         return Err(SurfaceResourceValidationError::ZeroNextResourceId);
@@ -535,7 +559,7 @@ pub(crate) fn validate_loaded_surface_resources(
     }
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
-        validate_surface_resource_world_position(world_registry, world, record)?;
+        validate_surface_resource_physical_position(world_registry, world, structures, record)?;
     }
     if !state.has_valid_position_index() {
         return Err(SurfaceResourceValidationError::InvalidLocationIndex);

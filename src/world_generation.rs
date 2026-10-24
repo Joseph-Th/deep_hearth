@@ -345,6 +345,12 @@ impl ValidatedInitialWildernessGeneration {
                 SurfaceResourceCreationCommitError::WorldRevision { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleWorldRevision { expected, actual }
                 }
+                SurfaceResourceCreationCommitError::StructureRevision { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StaleStructureRevision {
+                        expected,
+                        actual,
+                    }
+                }
                 SurfaceResourceCreationCommitError::NextResourceId { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleSurfaceIdentity {
                         expected,

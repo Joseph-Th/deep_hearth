@@ -34,6 +34,10 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         voxel: VoxelCoord,
     },
+    ExposedSurfaceMatter {
+        element: StructuralElementId,
+        voxel: VoxelCoord,
+    },
     ActorOccupied {
         element: StructuralElementId,
         voxel: VoxelCoord,
@@ -134,6 +138,14 @@ impl Display for StructuralConstructionError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::ExposedSurfaceMatter { element, voxel } => write!(
+                formatter,
+                "structural element {} cannot receive matter over exposed surface matter at ({},{},{})",
+                element.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::ActorOccupied { element, voxel } => write!(
                 formatter,
                 "structural element {} cannot receive matter inside a resident at ({},{},{})",
@@ -195,6 +207,9 @@ impl Error for StructuralConstructionError {
             | Self::EmbeddedInSolidTerrain {
                 element: _element, ..
             }
+            | Self::ExposedSurfaceMatter {
+                element: _element, ..
+            }
             | Self::ActorOccupied {
                 element: _element, ..
             }
@@ -242,6 +257,7 @@ impl Error for StructuralConstructionError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StructuralConstructionCommitError {
     StaleWorldRevision { expected: u64, actual: u64 },
+    StaleSurfaceRevision { expected: u64, actual: u64 },
     StaleStructureRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StateChanged { element: StructuralElementId },
@@ -254,6 +270,10 @@ impl Display for StructuralConstructionCommitError {
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "validated construction expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleSurfaceRevision { expected, actual } => write!(
+                formatter,
+                "validated construction expected surface revision {expected} but current revision is {actual}"
             ),
             Self::StaleStructureRevision { expected, actual } => write!(
                 formatter,
@@ -281,7 +301,11 @@ impl Error for StructuralConstructionCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::StaleWorldRevision { .. } => None,
-            Self::StaleStructureRevision {
+            Self::StaleSurfaceRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleStructureRevision {
                 expected: _expected,
                 actual: _actual,
             }

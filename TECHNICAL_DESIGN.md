@@ -1252,6 +1252,16 @@ stable/strained/cracked/failed transitions with support-loss cascades. Support e
 voxel contact: overlapping bounds qualify, as do face-abutting bounds with positive overlap on the other two
 axes. Edge-only and corner-only touches do not carry support; sub-voxel joint geometry is outside the model.
 
+An inert plan may overlap existing surface custody. A full-footprint member cannot materialize
+inside an available loose parcel or natural opportunity, while slender supports may share the
+voxel. Construction validation checks full-cell vacancy alongside solid terrain and creatures,
+and its revision-bound commit rejects intervening surface changes before removing exact
+inventory material.
+Conversely, surface creation and trusted-load promotion reject loose matter inside an embodied
+full-cell structural member, while narrow supports remain traversable. Surface-creation tokens
+bind the structural revision, and physical scavenging cannot move parcels through a built full-cell
+obstruction.
+
 The gameplay-audit fixture may materialize a planned member from exact conserved inventory traces after
 validating geometry-derived mass, consolidated form, composition, source capacity, and self-weight. This is
 setup infrastructure, not a player construction action. Embodied matter has no generic deletion path; any

@@ -3,14 +3,15 @@
 use super::*;
 
 use crate::content::{
-    BLOCK_STATE_STONE, FORM_LOG, MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, BLOCK_STATE_STONE,
+    FORM_CHIP, FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::inventory::{MaterialLotSelection, deposit_lot_for_test};
 use crate::logistics::relocate_player_for_test;
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -24,6 +25,7 @@ use crate::structural::{
     validate_plan_player_grounded_structural_element,
     validate_plan_player_supported_structural_element,
 };
+use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, insert_surface_resource_for_test};
 use crate::survival::{Vitality, player_record};
 use crate::world::{
     BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
@@ -235,6 +237,135 @@ fn admitted_player_with_planned_member() -> (
     )
     .unwrap_or_else(|error| panic!("player construction carried timber failed: {error}"));
     (registries, state, element, lot)
+}
+
+fn admitted_player_with_full_footprint_plan() -> (
+    crate::registry::Registries,
+    AppState,
+    StructuralElementId,
+    crate::inventory::MaterialLotId,
+) {
+    let (registries, mut state, _, lot) = admitted_player_with_planned_member();
+    let bounds = VoxelBounds::new(VoxelCoord::new(1, 0, 1), VoxelCoord::new(2, 1, 2)).unwrap();
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap();
+    assert!(geometry.covers_horizontal_footprint());
+    let element = validate_plan_player_grounded_structural_element(
+        &registries,
+        &state,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    (registries, state, element, lot)
+}
+
+#[test]
+fn player_construction_rejects_surface_occupied_member_without_spending_timber() {
+    for kind in [SurfaceResourceKind::Opportunity, SurfaceResourceKind::Drop] {
+        let (registries, mut state, element, lot) = admitted_player_with_full_footprint_plan();
+        let occupied = VoxelCoord::new(1, 0, 1);
+        let resource = insert_surface_resource_for_test(
+            &registries,
+            &mut state,
+            SurfaceResourceSpec::new(
+                kind,
+                occupied,
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(100_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_STONE),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let before = state.clone();
+        let matter_before = calculate_matter_accounting(&state).unwrap().total();
+        assert_eq!(
+            validate_start_player_structural_construction(
+                &registries,
+                &state,
+                STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+                element,
+                &[MaterialLotSelection::new(
+                    lot,
+                    Mass::from_milligrams(MEMBER_MASS_MG),
+                )],
+            )
+            .err(),
+            Some(PlayerStructuralConstructionError::Material(
+                StructuralConstructionError::ExposedSurfaceMatter {
+                    element,
+                    voxel: occupied,
+                }
+            ))
+        );
+        assert_eq!(state, before);
+        assert_eq!(state.surface().get(resource).unwrap().position(), occupied);
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            matter_before
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
+fn validated_player_construction_rejects_new_surface_matter_before_commit() {
+    let (registries, mut state, element, lot) = admitted_player_with_full_footprint_plan();
+    let authorized = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        element,
+        &[MaterialLotSelection::new(
+            lot,
+            Mass::from_milligrams(MEMBER_MASS_MG),
+        )],
+    )
+    .unwrap();
+    let expected = state.surface().revision();
+    insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            VoxelCoord::new(1, 0, 1),
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(100_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let actual = state.surface().revision();
+    let before = state.clone();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        authorized.commit(&mut state),
+        Err(PlayerStructuralConstructionCommitError::Material(
+            StructuralConstructionCommitError::StaleSurfaceRevision { expected, actual }
+        ))
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes).unwrap();
+    assert_eq!(decoded.into_state(&registries).unwrap(), state);
 }
 
 #[test]

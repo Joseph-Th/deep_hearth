@@ -1,4 +1,4 @@
-//! Pointed construction cannot consume the location of exposed physical matter.
+//! Pointed construction distinguishes slender post overlap from full-cell obstruction.
 
 use super::*;
 use crate::content::{FORM_CHIP, MATERIAL_STONE};
@@ -8,7 +8,7 @@ use crate::matter::calculate_matter_accounting;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, insert_surface_resource_for_test};
 
 #[test]
-fn direct_timber_placement_preserves_exposed_surface_custody() {
+fn direct_timber_post_can_share_a_cell_with_loose_matter() {
     for occupied in [false, true] {
         let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
         let ground = VoxelCoord::new(1, foot_y - 1, 0);
@@ -61,8 +61,6 @@ fn direct_timber_placement_preserves_exposed_surface_custody() {
             Some((ground, crate::spatial::CubeFace::Top))
         );
         let matter_before = calculate_matter_accounting(&state).unwrap().total();
-        let inventory_before = state.inventory().clone();
-        let structures_before = state.structures().clone();
         let surface_before = state.surface().clone();
         let mut outcome = advance_control_tick_with_direct_input(
             &registries,
@@ -78,30 +76,19 @@ fn direct_timber_placement_preserves_exposed_surface_custody() {
         for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
             outcome = advance_control_tick(&registries, &mut state).unwrap();
         }
-        if let Some(resource) = loose {
-            assert_eq!(
+        assert!(
+            matches!(
                 outcome.secondary_action(),
-                Some(
-                    &SecondaryActionOutcome::StructuralPlacementLocationOccupied {
-                        position: destination,
-                    }
-                )
-            );
-            assert_eq!(state.inventory(), &inventory_before);
-            assert_eq!(state.structures(), &structures_before);
-            assert_eq!(state.surface(), &surface_before);
+                Some(SecondaryActionOutcome::StructuralConstructionStarted(_))
+            ),
+            "slender post did not start construction: {:?}",
+            outcome.secondary_action()
+        );
+        assert_eq!(state.surface(), &surface_before);
+        if let Some(resource) = loose {
             assert_eq!(
                 state.surface().get(resource).unwrap().remaining_mass(),
                 Mass::from_milligrams(50_000)
-            );
-        } else {
-            assert!(
-                matches!(
-                    outcome.secondary_action(),
-                    Some(SecondaryActionOutcome::StructuralConstructionStarted(_))
-                ),
-                "vacant target did not start construction: {:?}",
-                outcome.secondary_action()
             );
         }
         assert_eq!(

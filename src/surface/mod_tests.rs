@@ -61,6 +61,158 @@ fn positive_x_view() -> ViewDirection {
         .unwrap_or_else(|error| panic!("surface positive-X view failed: {error}"))
 }
 
+fn materialize_test_wall(
+    registries: &crate::registry::Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+    full_cell: bool,
+) {
+    let bounds = VoxelBounds::new(
+        position,
+        VoxelCoord::new(position.x() + 1, position.y() + 1, position.z() + 1),
+    )
+    .unwrap();
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        if full_cell {
+            BASIC_TIMBER_COVER_PANEL_THICKNESS
+        } else {
+            BASIC_TIMBER_POST_LENGTH
+        },
+        if full_cell {
+            BASIC_TIMBER_COVER_PANEL_AREA
+        } else {
+            BASIC_TIMBER_POST_CROSS_SECTION
+        },
+    )
+    .unwrap();
+    let element = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(registries, state, element, FORM_LOG);
+}
+
+#[test]
+fn surface_creation_respects_built_wall_but_permits_narrow_support() {
+    for full_cell in [false, true] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        let position = VoxelCoord::new(2, 0, 0);
+        materialize_test_wall(&registries, &mut state, position, full_cell);
+        assert_eq!(state.structures().blocks_full_cell(position), full_cell);
+        let specification = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(100_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap();
+        let before = state.clone();
+        let result = validate_create_surface_resources(&registries, &state, [specification]);
+        if full_cell {
+            let resource = SurfaceResourceId::new(state.surface().next_resource_id());
+            assert_eq!(
+                result.err(),
+                Some(SurfaceResourceCreationError::InvalidResource(
+                    SurfaceResourceValidationError::EmbeddedInSolidStructure {
+                        resource,
+                        voxel: position,
+                    }
+                ))
+            );
+            assert_eq!(state, before);
+        } else {
+            result.unwrap().commit(&mut state).unwrap();
+            assert_eq!(
+                state
+                    .surface()
+                    .available_resources_at(Some(position))
+                    .count(),
+                1
+            );
+            assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        }
+    }
+}
+
+#[test]
+fn surface_creation_token_and_scavenged_drop_cannot_cross_a_new_wall() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let blocked = VoxelCoord::new(2, 0, 0);
+    let adjacent = VoxelCoord::new(3, 0, 0);
+    let specification = |position| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(100_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let drop =
+        insert_surface_resource_for_test(&registries, &mut state, specification(adjacent)).unwrap();
+    let pending =
+        validate_create_surface_resources(&registries, &state, [specification(blocked)]).unwrap();
+    let expected = state.structures().revision();
+    materialize_test_wall(&registries, &mut state, blocked, true);
+    let actual = state.structures().revision();
+    let before = state.clone();
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(SurfaceResourceCreationCommitError::StructureRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    assert!(!relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        drop,
+        adjacent,
+        blocked
+    ));
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+
+    let revision = state.surface().revision() + 1;
+    state
+        .surface_state_mut()
+        .apply_scavenged_drop_step(drop, adjacent, blocked, revision);
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Surface(
+            SurfaceResourceValidationError::EmbeddedInSolidStructure {
+                resource: drop,
+                voxel: blocked,
+            }
+        ))
+    );
+    let tampered = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&tampered)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+}
+
 #[test]
 fn local_surface_index_tracks_creation_partial_use_relocation_and_depletion_across_load() {
     let registries = build_registries();
