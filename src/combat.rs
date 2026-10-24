@@ -23,7 +23,7 @@ use crate::world::PlayerBlockTargetError;
 use serde::{Deserialize, Serialize};
 
 mod preparation;
-pub(crate) use preparation::validate_loaded_preparation;
+pub(crate) use preparation::validate_loaded_combat_references;
 pub use preparation::{
     PrimitivePreparationOutcome, ValidatedPrimitivePreparation,
     validate_cancel_primitive_preparation, validate_prepare_primitive_strike,

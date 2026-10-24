@@ -818,6 +818,67 @@ fn trusted_combat_recovery_accepts_the_authored_prepared_maximum_only() {
 }
 
 #[test]
+fn trusted_load_rejects_prepared_strike_with_real_non_melee_equipment() {
+    use crate::content::{EQUIPMENT_STONE_PICK, EQUIPMENT_WOODEN_CLUB};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let pick = arm_player(&registries, &mut state, EQUIPMENT_STONE_PICK);
+    let club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let prepared = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(matches!(
+        prepared,
+        PrimitivePreparationOutcome::Prepared { .. }
+    ));
+    assert_eq!(
+        state.combat().prepared.map(|strike| strike.weapon),
+        Some(club)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    forged["state"]["systems"]["combat"]["prepared"]["weapon"] =
+        serde_json::to_value(pick).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert_eq!(
+        loaded.into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(
+            crate::core::state::StateValidationError::Combat(
+                "prepared strike references equipment without a melee profile"
+            )
+        ))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_combat_history_without_player_admission() {
+    let registries = build_registries();
+    let state = AppState::new();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // Two combat revisions could represent a completed preparation/cancellation,
+    // but neither operation can occur without an admitted player.
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    forged["state"]["systems"]["combat"]["revision"] = serde_json::json!(2);
+    let loaded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert_eq!(
+        loaded.into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(
+            crate::core::state::StateValidationError::Combat(
+                "combat history requires an admitted player"
+            )
+        ))
+    );
+}
+
+#[test]
 fn prepared_attack_exertion_rejects_unrepresentable_costs() {
     let energy = SurvivalExertion::new(
         Energy::from_nanojoules(u128::MAX),

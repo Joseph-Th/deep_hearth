@@ -185,10 +185,17 @@ pub fn validate_cancel_primitive_preparation(
     })
 }
 
-/// Cross-owner save admission: the weapon must be a real identity. Losing
-/// carrying custody or changing quick slots during preparation is legal:
-/// release then rejects until the player restores or cancels the stance.
-pub(crate) fn validate_loaded_preparation(state: &AppState) -> Result<(), &'static str> {
+/// Cross-owner save admission: combat history requires an admitted actor, and
+/// a prepared strike must reference a real melee-capable weapon. Losing carrying
+/// custody or changing quick slots during preparation is legal; release then
+/// rejects until the player restores or cancels the stance.
+pub(crate) fn validate_loaded_combat_references(
+    equipment_registry: &crate::equipment::EquipmentRegistry,
+    state: &AppState,
+) -> Result<(), &'static str> {
+    if state.combat().revision() != 0 && state.logistics().player().is_none() {
+        return Err("combat history requires an admitted player");
+    }
     let Some(prepared) = state.combat().prepared else {
         return Ok(());
     };
@@ -199,8 +206,15 @@ pub(crate) fn validate_loaded_preparation(state: &AppState) -> Result<(), &'stat
     {
         return Err("dead or absent actor cannot retain a prepared strike");
     }
-    if state.equipment().get_equipment(prepared.weapon).is_none() {
-        return Err("prepared melee weapon has no equipment identity");
+    let weapon = state
+        .equipment()
+        .get_equipment(prepared.weapon)
+        .ok_or("prepared melee weapon has no equipment identity")?;
+    if !equipment_registry
+        .get_equipment(weapon.definition())
+        .is_some_and(|definition| definition.melee_profile().is_some())
+    {
+        return Err("prepared strike references equipment without a melee profile");
     }
     Ok(())
 }
