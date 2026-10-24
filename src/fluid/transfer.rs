@@ -15,6 +15,7 @@ use crate::player::{PlayerActionGuard, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralAnalysis, StructuralCommitError, StructuralMutationOutcome};
+use crate::world::BlockCollisionShape;
 
 use super::state::FluidContents;
 use super::structural_integration::{
@@ -31,6 +32,12 @@ pub enum FluidTransferError {
     DestinationAccess(PlayerFluidStoreAccessError),
     InvalidGravityRoute {
         source_position: VoxelCoord,
+        destination_position: VoxelCoord,
+    },
+    BlockedGravityDestination {
+        destination_position: VoxelCoord,
+    },
+    UnknownGravityTerrain {
         destination_position: VoxelCoord,
     },
     UnknownStore {
@@ -75,6 +82,7 @@ impl Error for FluidTransferError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidTransferCommitError {
     StaleFluidRevision { expected: u64, actual: u64 },
+    StaleWorldRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
     ContentsChanged { store: FluidStoreId },
@@ -87,6 +95,12 @@ impl Display for FluidTransferCommitError {
     }
 }
 impl Error for FluidTransferCommitError {}
+
+mod catalog;
+
+pub use catalog::{
+    PlayerFluidTransferOption, PlayerFluidTransferRoute, player_fluid_transfer_options,
+};
 
 /// Computes same-fluid equilibrium without any external heat source or sink.
 ///
@@ -130,6 +144,7 @@ pub struct ValidatedFluidTransfer {
     after_destination: FluidContents,
     volume: Volume,
     expected_fluid_revision: u64,
+    expected_world_revision: Option<u64>,
     expected_logistics_revision: u64,
     player_action: PlayerActionGuard,
     structural: Option<ValidatedFluidStructuralLoad>,
@@ -180,6 +195,12 @@ impl ValidatedFluidTransfer {
                 expected: self.expected_fluid_revision,
                 actual: actual_fluid,
             });
+        }
+        if let Some(expected) = self.expected_world_revision {
+            let actual = state.world().revision();
+            if actual != expected {
+                return Err(FluidTransferCommitError::StaleWorldRevision { expected, actual });
+            }
         }
         for (store, expected) in [
             (self.source, Some(self.before_source)),
@@ -268,6 +289,7 @@ enum TransferGeometry {
 }
 
 fn validate_transfer_geometry(
+    registries: &Registries,
     state: &AppState,
     source: FluidStoreId,
     destination: FluidStoreId,
@@ -296,6 +318,26 @@ fn validate_transfer_geometry(
                     source_position,
                     destination_position,
                 });
+            }
+            match state.world().block_at(destination_position) {
+                Some(block)
+                    if registries
+                        .world()
+                        .block_for_state(block)
+                        .is_some_and(|definition| {
+                            definition.collision() == BlockCollisionShape::FullCube
+                        }) =>
+                {
+                    return Err(FluidTransferError::BlockedGravityDestination {
+                        destination_position,
+                    });
+                }
+                None if state.world().generation_profile().is_some() => {
+                    return Err(FluidTransferError::UnknownGravityTerrain {
+                        destination_position,
+                    });
+                }
+                _ => {}
             }
             Ok(())
         }
@@ -329,7 +371,7 @@ fn validate_transfer_fluid(
     let destination_record = fluid
         .get_store(destination)
         .ok_or(FluidTransferError::UnknownStore { store: destination })?;
-    validate_transfer_geometry(state, source, destination, geometry)?;
+    validate_transfer_geometry(registries, state, source, destination, geometry)?;
     let before_source = source_record
         .contents()
         .ok_or(FluidTransferError::EmptySource { store: source })?;
@@ -411,6 +453,8 @@ fn validate_transfer_fluid(
         after_destination,
         volume,
         expected_fluid_revision: fluid.revision(),
+        expected_world_revision: matches!(geometry, TransferGeometry::Gravity)
+            .then_some(state.world().revision()),
         expected_logistics_revision: state.logistics().revision(),
         player_action,
         structural,

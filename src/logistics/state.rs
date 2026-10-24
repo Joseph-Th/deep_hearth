@@ -356,6 +356,9 @@ pub struct LogisticsState {
     energy_stores_by_position: BTreeMap<VoxelCoord, BTreeSet<EnergyStoreId>>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     fluid_store_locations: BTreeMap<FluidStoreId, VoxelCoord>,
+    /// Local finite-fluid lookup rebuilt solely from authoritative location custody.
+    #[serde(skip)]
+    fluid_stores_by_position: BTreeMap<VoxelCoord, BTreeSet<FluidStoreId>>,
 }
 
 impl LogisticsState {
@@ -377,6 +380,7 @@ impl LogisticsState {
             energy_store_locations: BTreeMap::new(),
             energy_stores_by_position: BTreeMap::new(),
             fluid_store_locations: BTreeMap::new(),
+            fluid_stores_by_position: BTreeMap::new(),
         }
     }
 
@@ -391,6 +395,17 @@ impl LogisticsState {
         self.fluid_store_locations
             .iter()
             .map(|(store, position)| (*store, *position))
+    }
+
+    /// A single exact location's finite-fluid stores in stable ID order.
+    pub(crate) fn fluid_stores_at(
+        &self,
+        position: VoxelCoord,
+    ) -> impl Iterator<Item = FluidStoreId> + '_ {
+        self.fluid_stores_by_position
+            .get(&position)
+            .into_iter()
+            .flat_map(|stores| stores.iter().copied())
     }
 
     /// Returns the world voxel of one finite-energy store managed by logistics.
@@ -448,6 +463,21 @@ impl LogisticsState {
                 .or_default()
                 .insert(*store);
         }
+        self.fluid_stores_by_position.clear();
+        for (store, position) in &self.fluid_store_locations {
+            self.fluid_stores_by_position
+                .entry(*position)
+                .or_default()
+                .insert(*store);
+        }
+    }
+
+    pub(crate) fn has_valid_fluid_position_index(&self) -> bool {
+        let mut expected = BTreeMap::<VoxelCoord, BTreeSet<FluidStoreId>>::new();
+        for (store, position) in &self.fluid_store_locations {
+            expected.entry(*position).or_default().insert(*store);
+        }
+        self.fluid_stores_by_position == expected
     }
 
     pub(crate) fn has_valid_energy_position_index(&self) -> bool {
@@ -1155,6 +1185,10 @@ impl LogisticsState {
         );
         let previous = self.fluid_store_locations.insert(store, position);
         assert!(previous.is_none());
+        self.fluid_stores_by_position
+            .entry(position)
+            .or_default()
+            .insert(store);
         self.revision = next_revision;
     }
 
@@ -1192,6 +1226,10 @@ impl LogisticsState {
             .fluid_store_locations
             .insert(water_store, water_position);
         assert!(previous.is_none());
+        self.fluid_stores_by_position
+            .entry(water_position)
+            .or_default()
+            .insert(water_store);
         self.traversable_edges = traversable_edges;
         self.traversal_neighbors.clear();
         for edge in &self.traversable_edges {

@@ -50,7 +50,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. Deep exposed residue layers obstruct ground-storage footing until cleared. |
-| Energy and fluids | Finite power/loss-limited energy, campfire heat, drinking, same-fluid local decant and one-voxel downhill delivery with exact thermal equilibration. |
+| Energy and fluids | Finite power/loss-limited energy, campfire heat, drinking, and exact local/downhill fluid transfer with player choice previews. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
 | Block world | Mass-backed eight-mineral geology, temple rooms, seven assemblies and solid caste bodies. Excavation and targeting exist; placement, UI, residency absent. |

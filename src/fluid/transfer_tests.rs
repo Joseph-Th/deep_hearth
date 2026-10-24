@@ -12,6 +12,12 @@ mod gravity;
 #[path = "transfer_tests/gravity_capacity.rs"]
 mod gravity_capacity;
 
+#[path = "transfer_tests/terrain.rs"]
+mod terrain;
+
+#[path = "transfer_tests/catalog.rs"]
+mod catalog;
+
 #[path = "transfer_tests/molten.rs"]
 mod molten;
 

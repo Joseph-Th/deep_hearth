@@ -1116,6 +1116,11 @@ changes, player-authorized same-voxel decant and manual gravity feed from the
 player's exact source voxel into one explicitly located vessel immediately below in
 the same vertical column. The latter does not authorize sideways or upward transfer,
 skip a voxel, connect arbitrary vessels, or require a new fluid network owner.
+In a generated block world, a downhill target also requires explicitly generated,
+non-full-cube terrain at the receiving vessel. A solid block or missing chunk
+blocks the pour, and the transfer proof binds the world revision so intervening
+terrain generation/excavation cannot admit a stale route. Terrain-free test worlds
+retain the existing controlled-setup transfer semantics.
 It models a short downhill pour, not a pump, persistent pipe, simulated
 free-surface flow, fluid pressure, or automated throughput. Both modes share the same
 two-endpoint,
@@ -1138,6 +1143,20 @@ remain absent. Shared owner projections convert
 represented volume/density into exact mass for structural load and thermal accounting. Fluid sensible/latent
 energy remains a read-only diagnostic projection; local and downhill transfer
 conserve the same thermal quantities at their destination. Passive heat transport is absent.
+
+`player_fluid_transfer_options` projects both exact-local and one-voxel-downhill
+source/destination pairs for one caller-chosen positive volume. It enumerates only
+filled vessels at the player's current voxel and potential receiving vessels
+there or directly below, never remote contents. Every row uses the canonical
+validator to expose either the exact remaining source contents and equilibrium
+destination contents or a typed blocker (heat divisibility, capacity, terrain,
+support, fluid incompatibility). This is read-only assessment, not reservation;
+acting on a row must revalidate the selected transfer against current revisions.
+Logistics derives a nonpersisted voxel-to-fluid-store index from authoritative
+store locations on every placement, generated opening, and trusted load.
+Both exact-player-local fluid observation and transfer-candidate lookup use
+that index, avoiding a scan of remote vessels. Trusted validation verifies
+index parity with stored locations; no new save format is required.
 
 ## Structures
 

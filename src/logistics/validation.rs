@@ -105,6 +105,7 @@ pub enum LogisticsValidationError {
     UnknownLocatedFluidStore {
         store: FluidStoreId,
     },
+    FluidStorePositionIndexInconsistent,
     FluidStoreOutsideSupport {
         store: FluidStoreId,
         position: VoxelCoord,
@@ -196,6 +197,9 @@ impl Display for LogisticsValidationError {
                 "fluid-store location references missing store {}",
                 store.value()
             ),
+            Self::FluidStorePositionIndexInconsistent => {
+                formatter.write_str("fluid-store spatial lookup disagrees with location custody")
+            }
             Self::FluidStoreOutsideSupport {
                 store,
                 position,
@@ -788,6 +792,9 @@ fn validate_fluid_store_locations(
     fluid: &FluidState,
     structures: &StructureState,
 ) -> Result<(), LogisticsValidationError> {
+    if !state.has_valid_fluid_position_index() {
+        return Err(LogisticsValidationError::FluidStorePositionIndexInconsistent);
+    }
     for (store, position) in state.fluid_store_locations() {
         let record = fluid
             .get_store(store)

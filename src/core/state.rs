@@ -258,11 +258,10 @@ impl AppState {
             .logistics
             .player()
             .map(|player| player.position());
-        self.systems
-            .logistics
-            .fluid_store_locations()
-            .filter(move |(_, position)| Some(*position) == player_position)
-            .map(|(store, _)| {
+        player_position
+            .into_iter()
+            .flat_map(move |position| self.systems.logistics.fluid_stores_at(position))
+            .map(|store| {
                 self.systems.fluid.get_store(store).unwrap_or_else(|| {
                     panic!(
                         "runtime invariant broken: logistics references missing fluid store {}",

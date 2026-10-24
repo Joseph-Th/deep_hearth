@@ -89,7 +89,10 @@ directly below an accessible elevated source, including exact same-fluid thermal
 fixed-density/specific-heat model. Transfers requiring fractional-millikelvin rounding
 reject without spilling heat; simultaneous structural loads and saved fluid custody
 remain exact. The downwards path recomputes separate supporting-member loads
-and refuses upward, sideways or skipped-voxel destinations. This is preparation
+and refuses upward, sideways or skipped-voxel destinations; generated solid
+terrain and unknown lower cells also block delivery. Player-facing local
+transfer choices now expose exact-volume preview or typed failure without
+revealing distant vessels. This is preparation
 for, not an implementation of, washing, pressure networks, chemical mixing
 or general routed fluid distribution.
 Iron and tin reduction need reductant and oxygen/sulfur destinations, energy budgets and gas

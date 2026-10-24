@@ -21,7 +21,8 @@ pub use structural_integration::{
     ValidatedFluidSupportChange, validate_mount_fluid_store, validate_unmount_fluid_store,
 };
 pub use transfer::{
-    FluidTransferCommitError, FluidTransferError, FluidTransferOutcome, ValidatedFluidTransfer,
+    FluidTransferCommitError, FluidTransferError, FluidTransferOutcome, PlayerFluidTransferOption,
+    PlayerFluidTransferRoute, ValidatedFluidTransfer, player_fluid_transfer_options,
     validate_gravity_feed_fluid_to_lower_store, validate_transfer_fluid_between_local_stores,
 };
 
