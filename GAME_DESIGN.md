@@ -324,8 +324,11 @@ melting properties where applicable, hardness, and distinct rendered material. T
 four bays have physically connected approaches and seeded placement variations,
 without moving the existing wardens, archivists or supported stair. Removed components
 yield recoverable tin, iron or zinc scrap, or stone chips; they do not grant new
-recipes, power sources or an unlocked technology. The original copper machinery
-remains finite legacy content rather than the default composition of every new device.
+recipes, power sources or an unlocked technology. Heavy enough recovered iron
+scrap can be clamped into a surface scavenger's crude pry tool, but wears faster
+than a proper iron shoe and remains exposed, interceptable physical matter.
+The original copper machinery remains finite legacy content rather than the
+default composition of every new device.
 
 The subterranean castes differ physically and socially from surface raiders. Small **scouts**
 and **watchmen** forage and improvise. Heavy **vault wardens** are temple-bred defenders
@@ -338,8 +341,11 @@ perfect obedience. Their origins and the ancestry of their most advanced machine
 Temple inhabitants remain in real rooms; they must not emerge from nowhere whenever the
 player's technology advances. Temple wardens react locally to living intruders:
 they advance through supported hall cells without entering the player's occupied voxel and
-withdraw one step at a time after contact is lost. Their visible defensive posture and position
-survive save/load, and displaced wardens complete their physical retreat even when the player
+withdraw one step at a time after contact is lost. During quiet periods, they also
+inspect the existing inner hall and occasionally the drive-room gallery by walking
+its connected cells; no inspection operates, repairs or restores dormant machinery.
+Their visible defensive posture and position survive save/load, and displaced
+wardens complete their physical retreat even when the player
 leaves the temple chunk. Heavy wardens now obstruct the player's continuous walking footprint,
 while massive archivists occupy a real two-by-two-by-three-cell chamber volume at their
 inherited machines. Neither can be bypassed by walking through a sighted or concealed body;

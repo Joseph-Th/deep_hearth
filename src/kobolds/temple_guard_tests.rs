@@ -1712,6 +1712,166 @@ fn inspecting_sentinel_is_not_defending_until_it_observes_a_threat_to_the_inner_
 }
 
 #[test]
+fn temple_warden_makes_a_real_engine_gallery_round_without_operating_the_drive() {
+    let (registries, mut state, route) = occupied_temple();
+    let center = route[2];
+    let west_annex = VoxelCoord::new(center.x() - 4, center.y(), center.z());
+    let drive = VoxelCoord::new(center.x() + 5, center.y(), center.z());
+    assert_eq!(state.world().block_at(west_annex), Some(BlockStateId::AIR));
+    assert_eq!(
+        state.world().block_at(drive),
+        Some(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+    );
+    relocate_player_for_test(&mut state, west_annex);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let chunk = ChunkCoord::containing(route[0]);
+    let matter = crate::matter::calculate_matter_accounting(&state)
+        .unwrap()
+        .total();
+    advance_to(&registries, &mut state, 350);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 0);
+    for (tick, step) in [(360, 1), (365, 2), (370, 4), (375, 5), (380, 6), (385, 7)] {
+        advance_to(&registries, &mut state, tick);
+        assert_eq!(state.kobold_state().temple_warden_step(chunk), step);
+        let position = warden_position(route, step).unwrap();
+        assert_eq!(state.world().block_at(position), Some(BlockStateId::AIR));
+        assert!(crate::kobolds::temple_caste_occupies_voxel(
+            &registries,
+            &state,
+            position
+        ));
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+    let by_drive = warden_position(route, 7).unwrap();
+    assert_eq!(by_drive.x() + 1, drive.x());
+    assert_eq!(by_drive.z(), drive.z());
+    assert_eq!(
+        state.world().block_at(drive),
+        Some(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+    );
+    // A real person can observe the inspecting guard, but not occupy its cell.
+    let mut observed = state.clone();
+    let approach = VoxelCoord::new(by_drive.x(), by_drive.y(), by_drive.z() + 1);
+    relocate_player_for_test(&mut observed, approach);
+    assert_eq!(visible_guard(&registries, &observed), Some(by_drive));
+    assert_eq!(defending_guard(&registries, &observed), Some(true));
+    advance_to(&registries, &mut observed, 390);
+    assert_eq!(observed.kobold_state().temple_warden_step(chunk), 7);
+    assert_eq!(visible_guard(&registries, &observed), Some(by_drive));
+    assert!(crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &observed,
+        by_drive
+    ));
+    assert_eq!(validate_loaded_state(&registries, &observed), Ok(()));
+    assert!(matches!(
+        project_player_adjacent_walk(&registries, &observed, by_drive),
+        Err(PlayerWalkProjectionError::DestinationUnreachableBeforeBoundary { .. })
+    ));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for (tick, step) in [
+        (390, 8),
+        (395, 9),
+        (400, 10),
+        (405, 11),
+        (410, 12),
+        (415, 0),
+    ] {
+        advance_to(&registries, &mut state, tick);
+        advance_to(&registries, &mut replay, tick);
+        assert_eq!(state, replay);
+        assert_eq!(state.kobold_state().temple_warden_step(chunk), step);
+    }
+    assert!(state.kobold_state().temple_wardens.is_empty());
+    assert_eq!(
+        crate::matter::calculate_matter_accounting(&state)
+            .unwrap()
+            .total(),
+        matter
+    );
+    assert_eq!(
+        state.world().block_at(drive),
+        Some(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+    );
+}
+
+#[test]
+fn engine_gallery_warden_retreats_along_real_cells_after_lost_contact() {
+    let (registries, mut state, route) = occupied_temple();
+    let west = VoxelCoord::new(route[2].x() - 4, route[2].y(), route[2].z());
+    relocate_player_for_test(&mut state, west);
+    advance_to(&registries, &mut state, 380);
+    let chunk = ChunkCoord::containing(route[0]);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 6);
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(route[0].x() + 24, route[0].y(), route[0].z()),
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for (tick, step) in [(385, 5), (390, 4), (395, 2), (400, 1), (405, 0)] {
+        advance_to(&registries, &mut state, tick);
+        advance_to(&registries, &mut replay, tick);
+        assert_eq!(state, replay);
+        assert_eq!(state.kobold_state().temple_warden_step(chunk), step);
+    }
+    assert!(state.kobold_state().temple_wardens.is_empty());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn engine_inspection_respects_wall_clearance_and_trusted_structure_occupancy() {
+    let (registries, mut state, route) = occupied_temple();
+    let west = VoxelCoord::new(route[2].x() - 4, route[2].y(), route[2].z());
+    relocate_player_for_test(&mut state, west);
+    let blocker = warden_position(route, 5).unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, blocker, BLOCK_STATE_STONE);
+    advance_to(&registries, &mut state, 375);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        4,
+        "the warden cannot pass through a filled machinery corridor"
+    );
+    advance_to(&registries, &mut state, 380);
+    assert_eq!(
+        state
+            .kobold_state()
+            .temple_warden_step(ChunkCoord::containing(route[0])),
+        2,
+        "an interrupted inspection returns over the actual neighboring hall cell"
+    );
+    let mut clear = state.clone();
+    set_generated_block_for_test(registries.world(), &mut clear, blocker, BlockStateId::AIR);
+    relocate_player_for_test(&mut clear, west);
+    advance_to(&registries, &mut clear, 480);
+    assert_eq!(validate_loaded_state(&registries, &clear), Ok(()));
+
+    let (registries, mut occupied, route) = occupied_temple();
+    relocate_player_for_test(&mut occupied, west);
+    advance_to(&registries, &mut occupied, 385);
+    let occupied_head = warden_position(route, 7).unwrap();
+    let head = VoxelCoord::new(occupied_head.x(), occupied_head.y() + 1, occupied_head.z());
+    let member = materialize_timber_member_at(&registries, &mut occupied, route[1]);
+    assert_eq!(validate_loaded_state(&registries, &occupied), Ok(()));
+    assert!(
+        forge_member_position_in_save(&registries, &occupied, member, head)
+            .into_state(&registries)
+            .is_err(),
+        "the trusted load may not embed finished timber into an inspecting guardian"
+    );
+}
+
+#[test]
 fn quiet_temple_warden_makes_a_supported_archivist_gallery_round_then_returns() {
     let (registries, mut state, route) = occupied_temple();
     // This annex is real empty temple terrain, inside the same generated
@@ -2006,6 +2166,16 @@ fn hostile_saved_warden_cursors_are_rejected_without_spawning_actor() {
     out_of_range["state"]["systems"]["kobolds"]["temple_wardens"][0]["step"] = serde_json::json!(3);
     let loaded = serde_json::from_value::<LoadedSaveEnvelope>(out_of_range).unwrap();
     assert!(loaded.into_state(&registries).is_err());
+
+    let mut premature = save.clone();
+    premature["state"]["systems"]["kobolds"]["temple_wardens"][0]["step"] = serde_json::json!(7);
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(premature)
+            .unwrap()
+            .into_state(&registries)
+            .is_err(),
+        "a machine-gallery resident cannot appear before any physical circuit"
+    );
 
     let mut duplicate = save.clone();
     let same = duplicate["state"]["systems"]["kobolds"]["temple_wardens"][0].clone();

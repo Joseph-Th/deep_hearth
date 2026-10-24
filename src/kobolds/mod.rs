@@ -567,8 +567,10 @@ impl KoboldState {
                     .flat_map(move |[post, archivist]| {
                         let step =
                             self.temple_warden_step(crate::world::ChunkCoord::containing(post));
-                        let warden =
-                            VoxelCoord::new(post.x(), post.y(), post.z() - i64::from(step));
+                        let route = crate::world::temple_warden_route_at(registries, state, post)
+                            .expect("generated temple residents retain a real warden route");
+                        let warden = temple_guard::warden_position(route, step)
+                            .expect("trusted temple cursor names a real cell");
                         [
                             (
                                 warden,
@@ -667,7 +669,12 @@ pub(crate) fn temple_caste_occupies_voxel(
     let step = state
         .kobold_state()
         .temple_warden_step(crate::world::ChunkCoord::containing(post));
-    let warden = VoxelCoord::new(post.x(), post.y(), post.z() - i64::from(step));
+    let Some(route) = crate::world::temple_warden_route_at(registries, state, post) else {
+        return false;
+    };
+    let Some(warden) = temple_guard::warden_position(route, step) else {
+        return false;
+    };
     initial_temple_caste_occupies_voxel(voxel, warden, archivist)
 }
 

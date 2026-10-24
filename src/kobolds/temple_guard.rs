@@ -22,6 +22,47 @@ use super::{SCOUT_STEP_TICKS, visibility::scout_visible_from};
 /// sanctuaries stay at their standing post and consume no offscreen AI work.
 const TEMPLE_INSPECTION_CYCLE_TICKS: u64 = 120;
 const TEMPLE_INSPECTION_LOCAL_REACH: u64 = 8;
+/// Every third quiet circuit checks the existing dormant drive bay.
+const TEMPLE_ENGINE_INSPECTION_INTERVAL_CYCLES: u64 = 3;
+
+/// Resolve a durable cursor to the actual face-adjacent temple corridor.
+/// The returning half repeats cells; no cursor enters the installed copper drive.
+pub(super) fn warden_position(route: [VoxelCoord; 3], step: u8) -> Option<VoxelCoord> {
+    match step {
+        0..=2 => Some(route[usize::from(step)]),
+        4..=12 => {
+            let dx = match step {
+                4 | 10 => 1,
+                5 | 9 => 2,
+                6 | 8 => 3,
+                7 => 4,
+                11 | 12 => 0,
+                _ => unreachable!("bounded engine gallery cursor"),
+            };
+            Some(VoxelCoord::new(
+                route[2].x().checked_add(dx)?,
+                route[2].y(),
+                if step == 12 {
+                    route[1].z()
+                } else {
+                    route[2].z()
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn retreat_step(step: u8) -> u8 {
+    match step {
+        0 => 0,
+        4 => 2,
+        1 | 2 | 5..=7 => step - 1,
+        8..=11 => step + 1,
+        12 => 0,
+        _ => unreachable!("trusted temple cursor must name a real patrol cell"),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -113,11 +154,17 @@ fn inspection_step(at: SimulationTick, step: u8, player_near: bool, seen: bool) 
     if !player_near || seen {
         return None;
     }
-    match (step, at.value() % TEMPLE_INSPECTION_CYCLE_TICKS) {
+    let phase = at.value() % TEMPLE_INSPECTION_CYCLE_TICKS;
+    let engine_round = (at.value() / TEMPLE_INSPECTION_CYCLE_TICKS)
+        .is_multiple_of(TEMPLE_ENGINE_INSPECTION_INTERVAL_CYCLES);
+    match (step, phase) {
         (0, 0) => Some(1),
         (1, SCOUT_STEP_TICKS) => Some(2),
-        (2, phase) if phase == 2 * SCOUT_STEP_TICKS => Some(1),
-        (1, phase) if phase == 3 * SCOUT_STEP_TICKS => Some(0),
+        (2, p) if p == 2 * SCOUT_STEP_TICKS && engine_round => Some(4),
+        (2, p) if p == 2 * SCOUT_STEP_TICKS => Some(1),
+        (1, p) if p == 3 * SCOUT_STEP_TICKS => Some(0),
+        (4..=11, p) if p == (u64::from(step) - 1) * SCOUT_STEP_TICKS => Some(step + 1),
+        (12, p) if p == 11 * SCOUT_STEP_TICKS => Some(0),
         _ => None,
     }
 }
@@ -131,7 +178,7 @@ fn plan_warden_step(
     player: VoxelCoord,
     at: SimulationTick,
 ) -> u8 {
-    let current = route[usize::from(step)];
+    let current = warden_position(route, step).expect("trusted patrol has a valid cursor");
     let local = ChunkCoord::containing(player) == ChunkCoord::containing(route[0]);
     let distance = player
         .x()
@@ -163,7 +210,11 @@ fn plan_warden_step(
     ) {
         return round;
     }
-    if !aware && step > 0 { step - 1 } else { step }
+    if !aware && step > 0 {
+        retreat_step(step)
+    } else {
+        step
+    }
 }
 
 /// Advance one resident over at most one real face-adjacent hall cell on the
@@ -203,7 +254,7 @@ pub(super) fn apply_temple_warden_tick(
     }
     for (chunk, route) in active {
         let step = state.kobold_state().temple_warden_step(chunk);
-        let current = route[usize::from(step)];
+        let current = warden_position(route, step).expect("trusted patrol has a valid cursor");
         if !clear_standing_cell(registries, state, current) {
             continue;
         }
@@ -211,7 +262,7 @@ pub(super) fn apply_temple_warden_tick(
         if next_step == step {
             continue;
         }
-        let destination = route[usize::from(next_step)];
+        let destination = warden_position(route, next_step).expect("patrol plan names a real cell");
         // A warden fills two vertical cells. An airborne intruder may occupy
         // only the upper one, even when the floor cell is free.
         let intersects_player =
@@ -256,8 +307,17 @@ pub(super) fn validate_temple_wardens(
             return Err("kobold temple warden records must have unique sorted homes");
         }
         previous = Some(chunk);
-        if !(1..=2).contains(&step) {
+        if !matches!(step, 1..=2 | 4..=12) {
             return Err("kobold temple warden has an invalid off-post cursor");
+        }
+        if step >= 4 {
+            // A forged future gallery position cannot appear before the first
+            // scheduled engine tour could physically have reached that cell.
+            let earliest = TEMPLE_INSPECTION_CYCLE_TICKS * TEMPLE_ENGINE_INSPECTION_INTERVAL_CYCLES
+                + (u64::from(step) - 2) * SCOUT_STEP_TICKS;
+            if state.tick().value() < earliest {
+                return Err("kobold temple warden precedes its first physical engine tour");
+            }
         }
         let Some(x) = chunk.world_min_x().and_then(|min| min.checked_add(8)) else {
             return Err("kobold temple warden has an overflowing home chunk");
@@ -272,7 +332,7 @@ pub(super) fn validate_temple_wardens(
         // A player may mine away the supporting floor *after* the warden
         // occupies this cell. Preserve that stranded location across saves;
         // movement stays suspended until a real supported step is available.
-        if !clear_body_cell(state, route[usize::from(step)]) {
+        if !warden_position(route, step).is_some_and(|position| clear_body_cell(state, position)) {
             return Err("kobold temple warden occupies obstructed or absent world geometry");
         }
     }
@@ -352,11 +412,13 @@ fn validate_structural_clearance_at_temple(
     let step = state
         .kobold_state()
         .temple_warden_step(ChunkCoord::containing(post));
-    let Some(warden_z) = post.z().checked_sub(i64::from(step)) else {
-        return Err("temple warden displaced beyond representable coordinates");
+    let Some(warden) = crate::world::temple_warden_route_at(registries, state, post)
+        .and_then(|route| warden_position(route, step))
+    else {
+        return Err("temple warden cursor lacks an actual generated corridor");
     };
     for dy in 0..=1 {
-        let cell = VoxelCoord::new(post.x(), post.y() + dy, warden_z);
+        let cell = VoxelCoord::new(warden.x(), warden.y() + dy, warden.z());
         if structure_intersects_temple_caste_cell(registries, state, cell) {
             return Err("structural member intersects an occupied temple caste cell");
         }
@@ -415,9 +477,10 @@ pub(super) fn first_temple_member_overlap(
         let step = state
             .kobold_state()
             .temple_warden_step(ChunkCoord::containing(post));
-        let warden_z = post.z().checked_sub(i64::from(step))?;
+        let warden = crate::world::temple_warden_route_at(registries, state, post)
+            .and_then(|route| warden_position(route, step))?;
         for dy in 0..=1 {
-            let cell = VoxelCoord::new(post.x(), post.y().checked_add(dy)?, warden_z);
+            let cell = VoxelCoord::new(warden.x(), warden.y().checked_add(dy)?, warden.z());
             if bounds.has_voxel(cell) {
                 return Some(cell);
             }

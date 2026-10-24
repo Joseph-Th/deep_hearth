@@ -53,6 +53,265 @@ fn drop_at(
 }
 
 #[test]
+fn scavenger_fits_recovered_iron_bearing_scrap_and_conserves_its_abrasion() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (a, b) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+        add_traversable_edge_for_test(&mut state, a, b);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let stone = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let bulk = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_LUMP,
+        Mass::from_milligrams(2_000_000),
+    );
+    // Temple bearing housings yield this actual material/form, not an ingot.
+    let recovered = drop_at(
+        &registries,
+        &mut state,
+        TIP,
+        MATERIAL_IRON,
+        FORM_SCRAP,
+        Mass::from_milligrams(50_000),
+    );
+    let initial = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 180);
+    let mut guarded = state.clone();
+    validate_admit_player(&registries, &guarded, TIP)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    advance_to(&registries, &mut guarded, 195);
+    assert_eq!(guarded.surface().get(recovered).unwrap().position(), TIP);
+    advance_to(&registries, &mut state, 185);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        TIP
+    );
+    assert_eq!(
+        state.surface().get(bulk).unwrap().remaining_mass(),
+        Mass::from_milligrams(2_000_000)
+    );
+    advance_to(&registries, &mut state, 190);
+    assert_eq!(state.surface().get(recovered).unwrap().position(), JUNCTION);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        stone,
+        "scavenged scrap still needs a two-step physical fitting"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 195);
+    advance_to(&registries, &mut replay, 195);
+    assert_eq!(state, replay);
+    let work = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .pry_fitting
+        .unwrap();
+    assert_eq!(
+        (work.handle, work.head, work.completed_at),
+        (handle, recovered, None)
+    );
+    advance_to(&registries, &mut state, 200);
+    advance_to(&registries, &mut replay, 200);
+    assert_eq!(state, replay);
+    let kit = current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+        .unwrap();
+    assert_eq!(
+        (kit.head(), kit.kind()),
+        (recovered, KoboldPryHeadKind::IronScrapTooth)
+    );
+    assert_eq!(
+        kit.kind().abrasion_per_split(),
+        Mass::from_milligrams(4_000)
+    );
+    advance_to(&registries, &mut state, 205);
+    advance_to(&registries, &mut replay, 205);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(recovered).unwrap().remaining_mass(),
+        Mass::from_milligrams(46_000)
+    );
+    assert_eq!(
+        state.surface().get(stone).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    assert_eq!(
+        state.surface().get(bulk).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_500_000)
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(JUNCTION))
+            .any(|part| {
+                part.id() != recovered
+                    && part.commodity() == CommodityKey::new(MATERIAL_IRON, FORM_SCRAP)
+                    && part.remaining_mass() == Mass::from_milligrams(4_000)
+                    && part.material_provenance()
+                        == state
+                            .surface()
+                            .get(recovered)
+                            .unwrap()
+                            .material_provenance()
+            })
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+}
+
+#[test]
+fn short_iron_scrap_only_strikes_alarms_and_cannot_inherit_fitting() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (a, b) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+        add_traversable_edge_for_test(&mut state, a, b);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let small_scrap = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_IRON,
+        FORM_SCRAP,
+        Mass::from_milligrams(20_000),
+    );
+    assert!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .is_none()
+    );
+    assert!(!is_needed_outer_tool_part(
+        &state,
+        TIP,
+        state.surface().get(small_scrap).unwrap()
+    ));
+    let larger_scrap = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_IRON,
+        FORM_SCRAP,
+        Mass::from_milligrams(40_000),
+    );
+    let stone = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    advance_to(&registries, &mut state, 190);
+    let fitted =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap();
+    assert_eq!(
+        (fitted.head(), fitted.kind()),
+        (larger_scrap, KoboldPryHeadKind::IronScrapTooth)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut forged = saved;
+    forged["state"]["systems"]["kobolds"]["colony"]["pry_fitting"]["head"] =
+        serde_json::to_value(small_scrap).unwrap();
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(forged)
+            .unwrap()
+            .into_state(&registries)
+            .is_err(),
+        "a tiny but alarm-useful iron clapper cannot become a structural tooth"
+    );
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let bulk = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_LUMP,
+        Mass::from_milligrams(1_000_000),
+    );
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let at = state.tick();
+    assert!(
+        crate::surface::split_bulk_scavenged_drop_with_head_wear(
+            &registries,
+            &mut state,
+            bulk,
+            JUNCTION,
+            DEN,
+            at,
+            Mass::from_milligrams(250_000),
+            larger_scrap,
+            fitted.kind().abrasion_per_split(),
+            fitted.kind().abrasion_form(),
+        )
+        .is_some()
+    );
+    assert!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head()
+            == stone,
+        "the tooth immediately falls below its 40 g usable limit and the stone wedge takes over"
+    );
+    assert_eq!(
+        state.surface().get(larger_scrap).unwrap().remaining_mass(),
+        Mass::from_milligrams(36_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert!(before < total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn new_iron_upgrade_does_not_disable_a_working_copper_tool_before_fitting() {
     let registries = build_registries();
     let mut state = AppState::new();
@@ -372,7 +631,7 @@ fn forged_iron_pry_fitting_rejects_wrong_form_and_stale_work_cannot_rebind() {
         JUNCTION,
         MATERIAL_IRON,
         FORM_SCRAP,
-        Mass::from_milligrams(50_000),
+        Mass::from_milligrams(20_000),
     );
     advance_to(&registries, &mut state, 190);
     assert_eq!(

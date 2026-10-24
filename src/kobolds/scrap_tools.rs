@@ -24,6 +24,9 @@ pub(super) const LEVER_SPLIT_BATCH: Mass = Mass::from_milligrams(500_000);
 pub(super) const WEDGE_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(10_000);
 const COPPER_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(5_000);
 const IRON_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(2_000);
+/// A ragged tooth needs more material to clamp to the handle than a solid shoe.
+const MINIMUM_IRON_SCRAP_TOOTH: Mass = Mass::from_milligrams(40_000);
+const IRON_SCRAP_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(4_000);
 
 /// Persisted proof of physical fitting work for a particular pair of parcels.
 /// A replacement ingot or handle never inherits the predecessor's work.
@@ -49,6 +52,7 @@ pub enum KoboldPryHeadKind {
     StoneWedge,
     CopperFulcrum,
     IronShoe,
+    IronScrapTooth,
 }
 
 impl KoboldPryHeadKind {
@@ -58,6 +62,7 @@ impl KoboldPryHeadKind {
             Self::StoneWedge => WEDGE_ABRASION_PER_SPLIT,
             Self::CopperFulcrum => COPPER_ABRASION_PER_SPLIT,
             Self::IronShoe => IRON_ABRASION_PER_SPLIT,
+            Self::IronScrapTooth => IRON_SCRAP_ABRASION_PER_SPLIT,
         }
     }
 
@@ -65,7 +70,7 @@ impl KoboldPryHeadKind {
     pub const fn abrasion_form(self) -> FormId {
         match self {
             Self::StoneWedge => FORM_CHIP,
-            Self::CopperFulcrum | Self::IronShoe => FORM_SCRAP,
+            Self::CopperFulcrum | Self::IronShoe | Self::IronScrapTooth => FORM_SCRAP,
         }
     }
 }
@@ -131,6 +136,16 @@ fn is_iron_shoe(resource: &SurfaceResourceRecord) -> bool {
         && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
+/// This is a *head-sized* irregular fragment, not every tiny loose clapper.
+/// It remains exposed, finite iron scrap even after an actual fitting.
+fn is_iron_scrap_tooth(resource: &SurfaceResourceRecord) -> bool {
+    resource.kind() == SurfaceResourceKind::Drop
+        && resource.commodity().material() == MATERIAL_IRON
+        && resource.commodity().form() == FORM_SCRAP
+        && resource.remaining_mass() >= MINIMUM_IRON_SCRAP_TOOTH
+        && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+}
+
 fn selected_handle(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
     // Active copper warning machinery needs its clapper before scrap tools.
     if super::junkworks::junction_has_relay_core(state, colony)
@@ -169,12 +184,23 @@ fn selected_iron(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResou
         .map(|resource| resource.id())
 }
 
+fn selected_iron_scrap(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
+    state
+        .surface()
+        .available_resources_at(Some(colony.route[1]))
+        .find(|resource| is_iron_scrap_tooth(resource))
+        .map(|resource| resource.id())
+}
+
 fn selected_metal_head(
     state: &AppState,
     colony: &KoboldColony,
 ) -> Option<(SurfaceResourceId, KoboldPryHeadKind)> {
     selected_iron(state, colony)
         .map(|id| (id, KoboldPryHeadKind::IronShoe))
+        .or_else(|| {
+            selected_iron_scrap(state, colony).map(|id| (id, KoboldPryHeadKind::IronScrapTooth))
+        })
         .or_else(|| selected_copper(state, colony).map(|id| (id, KoboldPryHeadKind::CopperFulcrum)))
 }
 
@@ -214,6 +240,11 @@ pub(super) fn current_junction_scrap_lever(
                 .filter(|head| work.matches(handle, *head))
                 .map(|head| (head, KoboldPryHeadKind::IronShoe))
                 .or_else(|| {
+                    selected_iron_scrap(state, colony)
+                        .filter(|head| work.matches(handle, *head))
+                        .map(|head| (head, KoboldPryHeadKind::IronScrapTooth))
+                })
+                .or_else(|| {
                     selected_copper(state, colony)
                         .filter(|head| work.matches(handle, *head))
                         .map(|head| (head, KoboldPryHeadKind::CopperFulcrum))
@@ -250,7 +281,8 @@ pub(super) fn apply_pry_fitting_tick(
         let still_assembled = work.completed_at.is_some()
             && selected_handle(state, colony) == Some(work.handle)
             && (selected_iron(state, colony) == Some(work.head)
-                || selected_copper(state, colony) == Some(work.head));
+                || selected_copper(state, colony) == Some(work.head)
+                || selected_iron_scrap(state, colony) == Some(work.head));
         (!can_work && still_assembled)
             || (parts.is_some_and(|(handle, head)| work.matches(handle, head))
                 && (work.completed_at.is_some() || can_work))
@@ -308,10 +340,15 @@ pub(super) fn validate_pry_fitting(
             && record.initial_mass() >= MINIMUM_PART_MASS
             && record.created_at() <= work.started_at
     }) || !head.is_some_and(|record| {
-        [MATERIAL_COPPER, MATERIAL_IRON].contains(&record.commodity().material())
-            && record.commodity().form() == FORM_INGOT
-            && record.initial_mass() >= MINIMUM_PART_MASS
-            && record.created_at() <= work.started_at
+        let commodity = record.commodity();
+        let valid_metal = (commodity.material() == MATERIAL_COPPER
+            || commodity.material() == MATERIAL_IRON)
+            && commodity.form() == FORM_INGOT
+            && record.initial_mass() >= MINIMUM_PART_MASS;
+        let valid_fragment = commodity.material() == MATERIAL_IRON
+            && commodity.form() == FORM_SCRAP
+            && record.initial_mass() >= MINIMUM_IRON_SCRAP_TOOTH;
+        (valid_metal || valid_fragment) && record.created_at() <= work.started_at
     }) {
         return Err("kobold pry fitting refers to nonexistent or impossible parts");
     }
@@ -435,6 +472,9 @@ pub(super) fn is_needed_outer_tool_part(
             || (selected_head(state, colony)
                 .is_none_or(|(_, kind)| kind == KoboldPryHeadKind::StoneWedge)
                 && is_copper_fulcrum(resource))
+            || (selected_head(state, colony).is_none_or(|(_, kind)| {
+                kind == KoboldPryHeadKind::StoneWedge || kind == KoboldPryHeadKind::CopperFulcrum
+            }) && is_iron_scrap_tooth(resource))
             || (selected_head(state, colony)
                 .is_none_or(|(_, kind)| kind != KoboldPryHeadKind::IronShoe)
                 && is_iron_shoe(resource))
