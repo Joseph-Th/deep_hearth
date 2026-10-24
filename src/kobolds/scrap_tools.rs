@@ -1,10 +1,11 @@
 //! Recoverable improvised lever staged at a scavenger's work junction.
 //!
-//! A wooden handle and a stone chip or solid copper ingot remain ordinary
+//! A wooden handle with a stone, copper, or iron head remains ordinary
 //! recoverable surface parcels. Each substitute brings its own real wear cost.
 
 use crate::content::{
-    FORM_CHIP, FORM_HANDLE, FORM_INGOT, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_CHIP, FORM_HANDLE, FORM_INGOT, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
@@ -22,6 +23,7 @@ pub(super) const LEVER_SPLIT_BATCH: Mass = Mass::from_milligrams(500_000);
 /// The stone wedge loses recoverable chips each time it helps divide a bulk pile.
 pub(super) const WEDGE_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(10_000);
 const COPPER_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(5_000);
+const IRON_ABRASION_PER_SPLIT: Mass = Mass::from_milligrams(2_000);
 
 /// Persisted proof of physical fitting work for a particular pair of parcels.
 /// A replacement ingot or handle never inherits the predecessor's work.
@@ -46,6 +48,7 @@ impl KoboldPryFitting {
 pub enum KoboldPryHeadKind {
     StoneWedge,
     CopperFulcrum,
+    IronShoe,
 }
 
 impl KoboldPryHeadKind {
@@ -54,6 +57,7 @@ impl KoboldPryHeadKind {
         match self {
             Self::StoneWedge => WEDGE_ABRASION_PER_SPLIT,
             Self::CopperFulcrum => COPPER_ABRASION_PER_SPLIT,
+            Self::IronShoe => IRON_ABRASION_PER_SPLIT,
         }
     }
 
@@ -61,7 +65,7 @@ impl KoboldPryHeadKind {
     pub const fn abrasion_form(self) -> FormId {
         match self {
             Self::StoneWedge => FORM_CHIP,
-            Self::CopperFulcrum => FORM_SCRAP,
+            Self::CopperFulcrum | Self::IronShoe => FORM_SCRAP,
         }
     }
 }
@@ -119,6 +123,14 @@ fn is_copper_fulcrum(resource: &SurfaceResourceRecord) -> bool {
         && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
+fn is_iron_shoe(resource: &SurfaceResourceRecord) -> bool {
+    resource.kind() == SurfaceResourceKind::Drop
+        && resource.commodity().material() == MATERIAL_IRON
+        && resource.commodity().form() == FORM_INGOT
+        && resource.remaining_mass() >= MINIMUM_PART_MASS
+        && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+}
+
 fn selected_handle(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
     // Active copper warning machinery needs its clapper before scrap tools.
     if super::junkworks::junction_has_relay_core(state, colony)
@@ -149,25 +161,40 @@ fn selected_copper(state: &AppState, colony: &KoboldColony) -> Option<SurfaceRes
         .map(|resource| resource.id())
 }
 
+fn selected_iron(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
+    state
+        .surface()
+        .available_resources_at(Some(colony.route[1]))
+        .find(|resource| is_iron_shoe(resource))
+        .map(|resource| resource.id())
+}
+
+fn selected_metal_head(
+    state: &AppState,
+    colony: &KoboldColony,
+) -> Option<(SurfaceResourceId, KoboldPryHeadKind)> {
+    selected_iron(state, colony)
+        .map(|id| (id, KoboldPryHeadKind::IronShoe))
+        .or_else(|| selected_copper(state, colony).map(|id| (id, KoboldPryHeadKind::CopperFulcrum)))
+}
+
 fn selected_head(
     state: &AppState,
     colony: &KoboldColony,
 ) -> Option<(SurfaceResourceId, KoboldPryHeadKind)> {
-    selected_copper(state, colony)
-        .map(|id| (id, KoboldPryHeadKind::CopperFulcrum))
-        .or_else(|| {
-            selected_stone_fallback(state, colony).map(|id| (id, KoboldPryHeadKind::StoneWedge))
-        })
+    selected_metal_head(state, colony).or_else(|| {
+        selected_stone_fallback(state, colony).map(|id| (id, KoboldPryHeadKind::StoneWedge))
+    })
 }
 
-/// A partial or stone-headed worksite can justify seeking a visible copper upgrade.
+/// A partial or weaker worksite can justify seeking a visible metal upgrade.
 /// Without a staged handle, the scout never leaves ordinary nearby salvage
 /// merely because a component for a hypothetical tool exists farther away.
 pub(super) fn junction_awaits_better_head(state: &AppState, colony: &KoboldColony) -> bool {
     selected_handle(state, colony).is_some()
         && !matches!(
             selected_head(state, colony),
-            Some((_, KoboldPryHeadKind::CopperFulcrum))
+            Some((_, KoboldPryHeadKind::IronShoe))
         )
 }
 
@@ -176,16 +203,25 @@ pub(super) fn current_junction_scrap_lever(
     colony: &KoboldColony,
 ) -> Option<KoboldScrapLever> {
     let handle = selected_handle(state, colony)?;
-    let fitted = selected_copper(state, colony).filter(|head| {
-        colony
-            .pry_fitting
-            .is_some_and(|work| work.matches(handle, *head) && work.completed_at.is_some())
-    });
-    let (head, kind) = fitted
-        .map(|id| (id, KoboldPryHeadKind::CopperFulcrum))
-        .or_else(|| {
-            selected_stone_fallback(state, colony).map(|id| (id, KoboldPryHeadKind::StoneWedge))
-        })?;
+    // A newly found iron upgrade is not fitted merely by being put beside
+    // an already working copper head. Until real fitting begins, the old
+    // completed pair remains active and its identity is still recoverable.
+    let fitted = colony
+        .pry_fitting
+        .filter(|work| work.completed_at.is_some())
+        .and_then(|work| {
+            selected_iron(state, colony)
+                .filter(|head| work.matches(handle, *head))
+                .map(|head| (head, KoboldPryHeadKind::IronShoe))
+                .or_else(|| {
+                    selected_copper(state, colony)
+                        .filter(|head| work.matches(handle, *head))
+                        .map(|head| (head, KoboldPryHeadKind::CopperFulcrum))
+                })
+        });
+    let (head, kind) = fitted.or_else(|| {
+        selected_stone_fallback(state, colony).map(|id| (id, KoboldPryHeadKind::StoneWedge))
+    })?;
     Some(KoboldScrapLever {
         position: colony.route[1],
         handle,
@@ -195,7 +231,7 @@ pub(super) fn current_junction_scrap_lever(
 }
 
 /// Two consecutive slow-clock work slots must be spent at the actual junction
-/// to fit a copper head. Any interruption before completion forfeits the work.
+/// to fit a solid metal head. Any interruption before completion forfeits the work.
 /// Finished work is only valid for the exact original handle and head identities.
 pub(super) fn apply_pry_fitting_tick(
     state: &mut AppState,
@@ -205,13 +241,19 @@ pub(super) fn apply_pry_fitting_tick(
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return false;
     };
-    let parts = selected_handle(state, colony).zip(selected_copper(state, colony));
+    let parts = selected_handle(state, colony)
+        .zip(selected_metal_head(state, colony).map(|(head, _)| head));
     let can_work =
         colony.scout_step == 1 && colony.scavenged_drop.is_none() && !colony.hungry && !pressured;
     let previous = colony.pry_fitting;
     let retained = previous.filter(|work| {
-        parts.is_some_and(|(handle, head)| work.matches(handle, head))
-            && (work.completed_at.is_some() || can_work)
+        let still_assembled = work.completed_at.is_some()
+            && selected_handle(state, colony) == Some(work.handle)
+            && (selected_iron(state, colony) == Some(work.head)
+                || selected_copper(state, colony) == Some(work.head));
+        (!can_work && still_assembled)
+            || (parts.is_some_and(|(handle, head)| work.matches(handle, head))
+                && (work.completed_at.is_some() || can_work))
     });
     let next = if !can_work {
         retained
@@ -266,7 +308,7 @@ pub(super) fn validate_pry_fitting(
             && record.initial_mass() >= MINIMUM_PART_MASS
             && record.created_at() <= work.started_at
     }) || !head.is_some_and(|record| {
-        record.commodity().material() == MATERIAL_COPPER
+        [MATERIAL_COPPER, MATERIAL_IRON].contains(&record.commodity().material())
             && record.commodity().form() == FORM_INGOT
             && record.initial_mass() >= MINIMUM_PART_MASS
             && record.created_at() <= work.started_at
@@ -331,7 +373,7 @@ pub fn available_nearby_kobold_pry_work(
         .filter(|work| work.completed_at.is_none())?;
     if colony.scout_position() != colony.route[1]
         || selected_handle(state, colony) != Some(work.handle)
-        || selected_copper(state, colony) != Some(work.head)
+        || selected_metal_head(state, colony).map(|(head, _)| head) != Some(work.head)
     {
         return None;
     }
@@ -346,9 +388,9 @@ pub fn available_nearby_kobold_pry_work(
     )
 }
 
-/// The scout protects one selected handle, the active head, and at most one
-/// stone fallback. Surplus pieces remain ordinary contested salvage; none are
-/// reserved from player pickup.
+/// The scout leaves its selected handle, currently fitted head, next upgrade
+/// and one stone fallback at the actual worksite. All other pieces remain
+/// ordinary salvage; even staged parts are freely recoverable by the player.
 pub(super) fn is_staged_scrap_tool_part(
     state: &AppState,
     resource: &SurfaceResourceRecord,
@@ -365,7 +407,9 @@ pub(super) fn is_staged_scrap_tool_part(
     let selected = selected_head(state, colony);
     resource.id() == handle
         || selected.is_some_and(|(head, _)| head == resource.id())
-        || (selected.is_some_and(|(_, kind)| kind == KoboldPryHeadKind::CopperFulcrum)
+        || current_junction_scrap_lever(state, colony)
+            .is_some_and(|tool| tool.head() == resource.id())
+        || (selected.is_some_and(|(_, kind)| kind != KoboldPryHeadKind::StoneWedge)
             && selected_stone_fallback(state, colony) == Some(resource.id()))
 }
 
@@ -389,8 +433,11 @@ pub(super) fn is_needed_outer_tool_part(
     } else {
         (selected_head(state, colony).is_none() && is_wedge(resource))
             || (selected_head(state, colony)
-                .is_none_or(|(_, kind)| kind != KoboldPryHeadKind::CopperFulcrum)
+                .is_none_or(|(_, kind)| kind == KoboldPryHeadKind::StoneWedge)
                 && is_copper_fulcrum(resource))
+            || (selected_head(state, colony)
+                .is_none_or(|(_, kind)| kind != KoboldPryHeadKind::IronShoe)
+                && is_iron_shoe(resource))
     }
 }
 

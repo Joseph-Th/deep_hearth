@@ -1,11 +1,11 @@
 //! Heavy temple wardens physically challenge intruders on a short, supported hall lane.
 //!
 //! The architect's original post is implicit in generated geometry. Only a
-//! resident actually displaced by local player contact needs persistent state.
+//! resident actually walking a challenge or local inspection needs persistent state.
 //! Local sight uses the full two-high body and respects opaque stone. A guardian
-//! advances only while its next real hall cell can still see the same intruder,
-//! avoiding a blind charge/retreat oscillation. It does not pursue beyond its post
-//! toward the outer hall. Distant temples are never scanned, and there is no combat.
+//! advances defensively only while its next hall cell can still see the intruder;
+//! it also makes brief, collision-checked quiet gallery inspections on a local clock.
+//! It never pursues beyond its post. Distant temples are not scanned; there is no combat.
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -17,6 +17,11 @@ use crate::world::{
 };
 
 use super::{SCOUT_STEP_TICKS, visibility::scout_visible_from};
+
+/// One inspection of the inner gallery every 2.4 simulated hours. Unvisited
+/// sanctuaries stay at their standing post and consume no offscreen AI work.
+const TEMPLE_INSPECTION_CYCLE_TICKS: u64 = 120;
+const TEMPLE_INSPECTION_LOCAL_REACH: u64 = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -87,9 +92,84 @@ fn warden_sees_intruder(
     })
 }
 
+/// Only a living intruder on the sanctuary side of the ancestral post can
+/// trigger a challenge. The same rule owns visible defensive posture.
+pub(super) fn warden_is_challenging(
+    registries: &Registries,
+    state: &AppState,
+    post: VoxelCoord,
+    current: VoxelCoord,
+    player: VoxelCoord,
+) -> bool {
+    player.z() <= post.z()
+        && state
+            .survival()
+            .player()
+            .is_some_and(|actor| actor.vitality() != Vitality::ZERO)
+        && warden_sees_intruder(registries, state, current, player)
+}
+
+fn inspection_step(at: SimulationTick, step: u8, player_near: bool, seen: bool) -> Option<u8> {
+    if !player_near || seen {
+        return None;
+    }
+    match (step, at.value() % TEMPLE_INSPECTION_CYCLE_TICKS) {
+        (0, 0) => Some(1),
+        (1, SCOUT_STEP_TICKS) => Some(2),
+        (2, phase) if phase == 2 * SCOUT_STEP_TICKS => Some(1),
+        (1, phase) if phase == 3 * SCOUT_STEP_TICKS => Some(0),
+        _ => None,
+    }
+}
+
+/// Choose between a real intruder challenge, a local inspection and retreat.
+fn plan_warden_step(
+    registries: &Registries,
+    state: &AppState,
+    route: [VoxelCoord; 3],
+    step: u8,
+    player: VoxelCoord,
+    at: SimulationTick,
+) -> u8 {
+    let current = route[usize::from(step)];
+    let local = ChunkCoord::containing(player) == ChunkCoord::containing(route[0]);
+    let distance = player
+        .x()
+        .abs_diff(route[0].x())
+        .saturating_add(player.y().abs_diff(route[0].y()))
+        .saturating_add(player.z().abs_diff(route[0].z()));
+    let seen = local
+        && state
+            .survival()
+            .player()
+            .is_some_and(|actor| actor.vitality() != Vitality::ZERO)
+        && warden_sees_intruder(registries, state, current, player);
+    // The ancestral post determines the guarded boundary even if a side
+    // intruder moves across the actual sentry's present position.
+    let aware = seen && player.z() <= route[0].z();
+    // Never advance into a blind spot merely because the previous cell saw
+    // the same intruder.
+    if aware
+        && step < 2
+        && warden_sees_intruder(registries, state, route[usize::from(step + 1)], player)
+    {
+        return step + 1;
+    }
+    if let Some(round) = inspection_step(
+        at,
+        step,
+        local && distance <= TEMPLE_INSPECTION_LOCAL_REACH,
+        seen,
+    ) {
+        return round;
+    }
+    if !aware && step > 0 { step - 1 } else { step }
+}
+
 /// Advance one resident over at most one real face-adjacent hall cell on the
 /// existing sparse scout clock. A living, visible intruder draws the guardian
-/// forward; otherwise it retreats one cell toward its ancestral post.
+/// forward; otherwise a locally simulated, unseen resident may make a brief
+/// scheduled inspection, or withdraw one cell toward its ancestral post.
 pub(super) fn apply_temple_warden_tick(
     registries: &Registries,
     state: &mut AppState,
@@ -121,36 +201,13 @@ pub(super) fn apply_temple_warden_tick(
             active.push((chunk, route));
         }
     }
-    let alive = state
-        .survival()
-        .player()
-        .is_some_and(|actor| actor.vitality() != Vitality::ZERO);
     for (chunk, route) in active {
         let step = state.kobold_state().temple_warden_step(chunk);
         let current = route[usize::from(step)];
         if !clear_standing_cell(registries, state, current) {
             continue;
         }
-        // The ancestral post sets the defended inner-hall boundary. Checking
-        // direction against each future position would make a guardian forget
-        // a side intruder simply by stepping past it.
-        let aware = alive
-            && ChunkCoord::containing(player) == chunk
-            && player.z() <= route[0].z()
-            && warden_sees_intruder(registries, state, current, player);
-        // A defender must not oscillate between its post and a cell from
-        // which the same observed flank vanishes. It may challenge only a
-        // destination that preserves a local line of sight to that intruder.
-        let can_advance_while_watching = aware
-            && step < 2
-            && warden_sees_intruder(registries, state, route[usize::from(step + 1)], player);
-        let next_step = if can_advance_while_watching {
-            step + 1
-        } else if !aware && step > 0 {
-            step - 1
-        } else {
-            step
-        };
+        let next_step = plan_warden_step(registries, state, route, step, player, at);
         if next_step == step {
             continue;
         }

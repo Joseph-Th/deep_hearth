@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Graded tin/iron/lead ores; cassiterite, hematite and galena dressing with mechanical tailings recovery. Copper casting and PbS+Fe lead smelting; no general reduction. |
-| Opening wilderness acquisition | Kobold scouts raid, forage and track; light and guards deter them. Scavenged two-hop alarms can be sabotaged and rebuilt from spares. Local sound travels short open air paths without revealing hidden machinery. No combat. |
+| Opening wilderness acquisition | Scouts raid, forage and track; light and guards deter them. Recovered metal improves conserved scrap tools and repairable two-hop alarms. Hearing respects air paths and concealment; no combat. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite power/loss-limited energy, campfire heat, drinking, and exact local/downhill fluid transfer with player choice previews. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Mass-backed eight-mineral geology, temple rooms, seven assemblies and solid caste bodies. Excavation and targeting exist; placement, UI, residency absent. |
+| Block world | Mass-backed eight-mineral geology, temple rooms, seven assemblies and solid caste bodies, including supported local warden inspection rounds. Excavation and targeting exist; placement, UI, residency absent. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
@@ -79,7 +79,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, chemical blending/contamination, and pressure-dependent behavior. |
-| Ecology and society | Agriculture, ecology, creature collision/combat/pursuit, broader temple-caste movement and physiology, active relic restoration, settlements, trade, economy, migration, and raids beyond the opening patrol. |
+| Ecology and society | Agriculture, ecology, creature collision/combat/pursuit, broader temple-caste duties and physiology, active relic restoration, settlements, trade, economy, migration, and raids beyond the opening patrol. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
 

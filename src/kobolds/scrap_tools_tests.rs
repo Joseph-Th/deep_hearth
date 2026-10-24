@@ -1,7 +1,9 @@
 //! A lower-caste scout builds useful work capability out of recoverable scrap.
 
 use super::*;
-use crate::content::{FORM_INGOT, FORM_LUMP, FORM_REINFORCEMENT, FORM_SCRAP, build_registries};
+use crate::content::{
+    FORM_INGOT, FORM_LUMP, FORM_REINFORCEMENT, FORM_SCRAP, MATERIAL_IRON, build_registries,
+};
 use crate::core::quantity::Temperature;
 use crate::core::state::validate_loaded_state;
 use crate::logistics::{add_traversable_edge_for_test, relocate_player_for_test};
@@ -48,6 +50,361 @@ fn drop_at(
     let id = planned.first_resource_id();
     planned.commit(state).unwrap();
     id
+}
+
+#[test]
+fn new_iron_upgrade_does_not_disable_a_working_copper_tool_before_fitting() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (a, b) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+        add_traversable_edge_for_test(&mut state, a, b);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let stone = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let copper = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    advance_to(&registries, &mut state, 190);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        copper
+    );
+    let iron = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_IRON,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        copper,
+        "an unfitted replacement must not disable an existing completed pair"
+    );
+    assert!(is_staged_scrap_tool_part(
+        &state,
+        state.surface().get(copper).unwrap()
+    ));
+    assert!(is_staged_scrap_tool_part(
+        &state,
+        state.surface().get(iron).unwrap()
+    ));
+    // Player pressure postpones the retrofit. The installed copper head must
+    // not silently lose its prior work while the scout avoids danger.
+    let mut guarded = state.clone();
+    validate_admit_player(&registries, &guarded, TIP)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    advance_to(&registries, &mut guarded, 195);
+    assert_eq!(
+        current_junction_scrap_lever(&guarded, guarded.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        copper
+    );
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 195);
+    advance_to(&registries, &mut replay, 195);
+    assert_eq!(state, replay);
+    let fitted =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap();
+    assert_eq!(
+        fitted.head(),
+        stone,
+        "retooling occupies the first real work slot"
+    );
+    advance_to(&registries, &mut state, 200);
+    advance_to(&registries, &mut replay, 200);
+    assert_eq!(state, replay);
+    let fitted =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap();
+    assert_eq!(
+        (fitted.handle(), fitted.head(), fitted.kind()),
+        (handle, iron, KoboldPryHeadKind::IronShoe)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        iron,
+        JUNCTION,
+        TIP
+    ));
+    let fallback =
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap();
+    assert_eq!(
+        fallback.head(),
+        stone,
+        "the old copper head does not inherit the iron fitting"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn iron_work_shoe_requires_fitting_and_wears_less_than_copper_on_real_bulk() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (from, to) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let stone = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_CHIP,
+        Mass::from_milligrams(50_000),
+    );
+    let bulk = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_STONE,
+        FORM_LUMP,
+        Mass::from_milligrams(2_000_000),
+    );
+    let iron = drop_at(
+        &registries,
+        &mut state,
+        TIP,
+        MATERIAL_IRON,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let initial = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 180);
+    let mut guarded = state.clone();
+    validate_admit_player(&registries, &guarded, TIP)
+        .unwrap()
+        .commit(&mut guarded)
+        .unwrap();
+    advance_to(&registries, &mut guarded, 195);
+    assert_eq!(guarded.surface().get(iron).unwrap().position(), TIP);
+    assert_eq!(
+        current_junction_scrap_lever(&guarded, guarded.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldPryHeadKind::StoneWedge
+    );
+    advance_to(&registries, &mut state, 185);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        TIP,
+        "the scout must pass exposed bulk for a reachable upgrade"
+    );
+    advance_to(&registries, &mut state, 190);
+    assert_eq!(state.surface().get(iron).unwrap().position(), JUNCTION);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        stone,
+        "loose iron is not a fitted tool"
+    );
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 195);
+    advance_to(&registries, &mut replay, 195);
+    assert_eq!(state, replay);
+    let work = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .pry_fitting
+        .unwrap();
+    assert_eq!(
+        (work.handle, work.head, work.completed_at),
+        (handle, iron, None)
+    );
+    let mut witness = state.clone();
+    validate_admit_player(&registries, &witness, DEN)
+        .unwrap()
+        .commit(&mut witness)
+        .unwrap();
+    assert_eq!(
+        available_nearby_kobold_pry_work(&registries, &witness)
+            .unwrap()
+            .head(),
+        iron
+    );
+    advance_to(&registries, &mut state, 200);
+    advance_to(&registries, &mut replay, 200);
+    assert_eq!(state, replay);
+    let shoe = current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+        .unwrap();
+    assert_eq!(
+        (shoe.handle(), shoe.head(), shoe.kind()),
+        (handle, iron, KoboldPryHeadKind::IronShoe)
+    );
+    assert_eq!(
+        shoe.kind().abrasion_per_split(),
+        Mass::from_milligrams(2_000)
+    );
+    assert_eq!(shoe.kind().abrasion_form(), FORM_SCRAP);
+    advance_to(&registries, &mut state, 205);
+    advance_to(&registries, &mut replay, 205);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(iron).unwrap().remaining_mass(),
+        Mass::from_milligrams(48_000)
+    );
+    assert_eq!(
+        state.surface().get(stone).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    assert_eq!(
+        state.surface().get(bulk).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_500_000)
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(JUNCTION))
+            .any(|resource| {
+                resource.commodity() == CommodityKey::new(MATERIAL_IRON, FORM_SCRAP)
+                    && resource.remaining_mass() == Mass::from_milligrams(2_000)
+                    && resource.material_provenance()
+                        == state.surface().get(iron).unwrap().material_provenance()
+            })
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &guarded), Ok(()));
+}
+
+#[test]
+fn forged_iron_pry_fitting_rejects_wrong_form_and_stale_work_cannot_rebind() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (a, b) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+        add_traversable_edge_for_test(&mut state, a, b);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let iron = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_IRON,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let _copper = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let unsuitable = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_IRON,
+        FORM_SCRAP,
+        Mass::from_milligrams(50_000),
+    );
+    advance_to(&registries, &mut state, 190);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        iron
+    );
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut forged = saved.clone();
+    forged["state"]["systems"]["kobolds"]["colony"]["pry_fitting"]["head"] =
+        serde_json::to_value(unsuitable).unwrap();
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(forged)
+            .unwrap()
+            .into_state(&registries)
+            .is_err(),
+        "a loose iron scrap clapper cannot be forged into a fitted solid pry shoe"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        iron,
+        JUNCTION,
+        TIP
+    ));
+    assert!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .is_none(),
+        "the remaining unfitted copper must not inherit iron's completed labor"
+    );
 }
 
 #[test]

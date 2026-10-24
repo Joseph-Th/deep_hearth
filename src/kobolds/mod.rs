@@ -564,14 +564,19 @@ impl KoboldState {
             .chain(
                 crate::world::temple_residents_at(registries, state, position)
                     .into_iter()
-                    .flat_map(|[post, archivist]| {
+                    .flat_map(move |[post, archivist]| {
                         let step =
                             self.temple_warden_step(crate::world::ChunkCoord::containing(post));
+                        let warden =
+                            VoxelCoord::new(post.x(), post.y(), post.z() - i64::from(step));
                         [
                             (
-                                VoxelCoord::new(post.x(), post.y(), post.z() - i64::from(step)),
+                                warden,
                                 KoboldRole::TempleWarden,
-                                step != 0,
+                                step != 0
+                                    && temple_guard::warden_is_challenging(
+                                        registries, state, post, warden, position,
+                                    ),
                             ),
                             (archivist, KoboldRole::TempleArchivist, false),
                         ]

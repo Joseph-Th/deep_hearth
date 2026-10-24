@@ -1683,6 +1683,125 @@ fn distant_side_sighting_does_not_lure_a_warden_into_a_blind_patrol_oscillation(
 }
 
 #[test]
+fn inspecting_sentinel_is_not_defending_until_it_observes_a_threat_to_the_inner_hall() {
+    let (registries, mut state, route) = occupied_temple();
+    let annex = VoxelCoord::new(route[2].x() + 4, route[2].y(), route[2].z());
+    relocate_player_for_test(&mut state, annex);
+    advance_to(&registries, &mut state, 120);
+    let chunk = ChunkCoord::containing(route[0]);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 1);
+
+    // A visible person beyond the guarded post is not an inner-sanctum threat.
+    let rear = VoxelCoord::new(route[0].x(), route[0].y(), route[0].z() + 1);
+    assert_eq!(state.world().block_at(rear), Some(BlockStateId::AIR));
+    relocate_player_for_test(&mut state, rear);
+    assert_eq!(visible_guard(&registries, &state), Some(route[1]));
+    assert_eq!(defending_guard(&registries, &state), Some(false));
+
+    // The very same moving resident challenges a person in its inner hall.
+    relocate_player_for_test(&mut state, route[2]);
+    assert_eq!(visible_guard(&registries, &state), Some(route[1]));
+    assert_eq!(defending_guard(&registries, &state), Some(true));
+    advance_to(&registries, &mut state, 125);
+    assert_eq!(
+        state.kobold_state().temple_warden_step(chunk),
+        1,
+        "a defensive challenge cannot move the warden inside the player"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn quiet_temple_warden_makes_a_supported_archivist_gallery_round_then_returns() {
+    let (registries, mut state, route) = occupied_temple();
+    // This annex is real empty temple terrain, inside the same generated
+    // district but outside the sentry's two-cell visual range.
+    let annex = VoxelCoord::new(route[2].x() + 4, route[2].y(), route[2].z());
+    assert_eq!(state.world().block_at(annex), Some(BlockStateId::AIR));
+    relocate_player_for_test(&mut state, annex);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let chunk = ChunkCoord::containing(route[0]);
+    let matter = crate::matter::calculate_matter_accounting(&state)
+        .unwrap()
+        .total();
+    advance_to(&registries, &mut state, 115);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 0);
+    advance_to(&registries, &mut state, 120);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 1);
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for (until, expected) in [(125, 2), (130, 1), (135, 0)] {
+        advance_to(&registries, &mut state, until);
+        advance_to(&registries, &mut replay, until);
+        assert_eq!(state, replay);
+        assert_eq!(state.kobold_state().temple_warden_step(chunk), expected);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+    assert!(state.kobold_state().temple_wardens.is_empty());
+    assert_eq!(
+        crate::matter::calculate_matter_accounting(&state)
+            .unwrap()
+            .total(),
+        matter
+    );
+    // A full shift does not materialize a second resident or an inactive device.
+    advance_to(&registries, &mut state, 155);
+    assert!(state.kobold_state().temple_wardens.is_empty());
+}
+
+#[test]
+fn temple_inspections_require_a_local_observer_and_a_physically_open_hall() {
+    let (registries, initial, route) = occupied_temple();
+    let chunk = ChunkCoord::containing(route[0]);
+    let annex = VoxelCoord::new(route[2].x() + 4, route[2].y(), route[2].z());
+    let mut obstructed = initial.clone();
+    relocate_player_for_test(&mut obstructed, annex);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut obstructed,
+        route[1],
+        BLOCK_STATE_STONE,
+    );
+    advance_to(&registries, &mut obstructed, 125);
+    assert_eq!(obstructed.kobold_state().temple_warden_step(chunk), 0);
+    assert_eq!(validate_loaded_state(&registries, &obstructed), Ok(()));
+
+    let mut absent = initial;
+    relocate_player_for_test(
+        &mut absent,
+        VoxelCoord::new(route[0].x() + 24, route[0].y(), route[0].z()),
+    );
+    advance_to(&registries, &mut absent, 125);
+    assert_eq!(absent.kobold_state().temple_warden_step(chunk), 0);
+    assert!(absent.kobold_state().temple_wardens.is_empty());
+    assert_eq!(validate_loaded_state(&registries, &absent), Ok(()));
+
+    // Once an inspection has physically begun, it cannot teleport home if
+    // the player moves out of the column. Its saved cursor walks back.
+    let mut returning = obstructed;
+    set_generated_block_for_test(
+        registries.world(),
+        &mut returning,
+        route[1],
+        BlockStateId::AIR,
+    );
+    // The next inspection is at 240; this remains a local real resident, not
+    // a remote AI routine on a second temple.
+    advance_to(&registries, &mut returning, 240);
+    assert_eq!(returning.kobold_state().temple_warden_step(chunk), 1);
+    relocate_player_for_test(
+        &mut returning,
+        VoxelCoord::new(route[0].x() + 24, route[0].y(), route[0].z()),
+    );
+    advance_to(&registries, &mut returning, 245);
+    assert!(returning.kobold_state().temple_wardens.is_empty());
+    assert_eq!(validate_loaded_state(&registries, &returning), Ok(()));
+}
+
+#[test]
 fn temple_warden_challenges_a_visible_side_approach_but_not_a_distant_or_rear_actor() {
     let (registries, mut state, route) = occupied_temple();
     let flank = VoxelCoord::new(route[0].x() + 1, route[0].y(), route[0].z());

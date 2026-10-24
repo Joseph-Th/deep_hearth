@@ -260,11 +260,15 @@ spares on later visits, with ordinary player interception and exact conserved
 custody even across save/load. No distant cargo is reserved or teleported.
 
 A lower-caste pry worksite requires an actual portable wooden handle plus a
-usable head: a stone chip or a solid copper ingot, each at least 20 g. Loose
-copper scrap does not pass for a rigid pry head. An ingot takes precedence over
-a stone wedge only after a scout fits that exact handle/head identity with
-physical labor. The scout keeps one stone head as a useful unfinished-work
-fallback rather than reserving an unlimited component cache.
+usable head: a stone chip or a solid copper or iron ingot, each at least 20 g.
+Loose metal scrap does not pass for a rigid pry head. A solid metal head takes
+precedence over a stone wedge only after a scout fits that exact handle/head
+identity with physical labor. A fitted iron shoe is preferred over copper, but
+neither material grants an instant tool merely by lying near a handle. An
+unfitted iron ingot does not disable a fitted copper head; actual retooling
+spends a work slot and may use the stone fallback until the new head is fitted.
+The scout keeps one stone head as an unfinished-work fallback rather than
+reserving an unlimited component cache.
 Other spare parts remain contestable salvage. An inert precision copper relay
 core does not disable the tool; only a working den alarm with an actual staged
 junction core claims the clapper and worksite. The scout stages components on
@@ -276,29 +280,31 @@ at its actual junction, bounded by finite den space. The selected parts remain
 surface-owned and player-recoverable, with local observation through
 `available_nearby_kobold_scrap_lever`. A stone wedge loses 10 g per assisted
 split as recoverable chips; a copper ingot loses 5 g as recoverable copper
-scrap. The surface owner prevalidates both resulting parcels and both source
-mass decrements in one three-revision transaction. Abrasion residue inherits
+scrap; a fitted iron shoe loses 2 g as recoverable iron scrap. The surface
+owner prevalidates both resulting parcels and both source-mass debits in
+one three-revision transaction. Abrasion residue inherits
 the head's composition, temperature, provenance and ambient storage age; the
-copper output acquires an authored residual form rather than inventing a tiny
+metal residue keeps its authored scrap form rather than inventing a tiny
 finished ingot. Failed wear or exhausted revision/identity headroom cannot
 grant free assisted splitting. Once the active head falls below 20 g, the kit
 uses an available stone fallback or ceases working. A fed scout with an existing
-handle can walk past nearer inert bulk for a visible, den-fitting copper ingot
-or missing stone replacement, but only along a physically clear, unguarded,
-unlit route. A remote, oversized or concealed part never counts.
+handle can walk past nearer inert bulk for a visible, den-fitting solid copper
+or iron ingot or a missing stone replacement, but only along a physically
+clear, unguarded, unlit route. A remote, oversized or concealed part never counts.
 
-Copper fitting uses the resident's existing five-tick slow clock and holds the
+Metal fitting uses the resident's existing five-tick slow clock and holds the
 scout at the actual junction for two consecutive scheduled steps, with no
 scavenging, movement or free material conversion during those slots. Work
-requires the currently selected wooden handle and a real copper ingot, an
+requires the selected wooden handle, a real copper or iron ingot, and an
 empty-handed, fed scout and no active player/light/alarm pressure. Interruption
 cancels unfinished progress; taking or replacing a component immediately
 invalidates any old activation. Persisted `pry_fitting` records exact parcel
 identities, a started tick and optional consecutive completion tick. Trusted
 load checks actual source identities, authored forms, source chronology, work
 alignment, completion spacing and the in-progress resident's junction position.
-The current save schema is 118 and earlier shapes require migration. Nearby
-players may observe active unfinished work via
+The fitting record is shared by copper and iron; it does not introduce another
+persistent work ledger or require an additional save shape. Nearby players
+may observe active unfinished work via
 `available_nearby_kobold_pry_work`; remote observers learn nothing.
 Fitting consumes scout time, not an invented assembly mass or equipment record.
 The lever is still not a portable tool or combat weapon.
@@ -509,8 +515,13 @@ check; materialization or other structural mutation before commit invalidates
 the pending plan rather than bypassing prospective occupancy admission.
 Archivists remain at their old posts with a solid two-by-two-cell floor footprint and
 three-cell body height; wardens occupy one-by-one-by-two cells. A warden follows a fixed
-three-cell, face-adjacent defensive route on the existing five-tick kobold clock when
-a player is in its generated temple column. Local perception checks the guard's
+three-cell, face-adjacent route on the existing five-tick kobold clock when
+a player is in its generated temple column. During local, quiet presence, the
+warden makes one brief inspection of its inner gallery on a 120-slow-tick cycle,
+physically traversing two cells inward and returning to its post. The round
+cannot begin from a remote site or merely because a player is far above the
+same buried column. It yields to actual intruder sight, blocked routes, missing
+support, and occupant clearance. Local perception checks the guard's
 floor and upper body against both occupied player-body levels, with the same
 bounded opaque-block sight rays as other kobolds. Side approaches at the
 ancestral post's depth can be challenged, but the original post defines the
@@ -519,10 +530,14 @@ step also needs to preserve sight of the currently observed intruder, so a
 flank cannot induce a blind advance-and-retreat loop. Its movement requires
 real air at body and head, full-cube support underfoot and clearance from the
 actual continuous player body footprint, stationary equipment and stores, and
-embodied structural member bounds. A stationary enclosure or built timber member can hold an
-otherwise clear lane; a displaced guardian cannot retreat through a newly occupied ancestral post.
-Loss of contact causes one-cell-at-a-time withdrawal. The kobold owner persists only displaced wardens in
-strictly sorted per-temple records. Trusted load rejects duplicates, nonexistent sites,
+embodied structural member bounds. A stationary enclosure or built timber
+member can obstruct an otherwise clear lane; a displaced guardian cannot
+retreat through a newly occupied ancestral post.
+Loss of contact causes one-cell-at-a-time withdrawal outside an actual quiet
+inspection. Local sightings distinguish a physically moving sentry from a
+warden actively challenging a visible, living intruder on its guarded side.
+The kobold owner persists only displaced wardens in strictly sorted per-temple
+records. Trusted load rejects duplicates, nonexistent sites,
 blocked/absent occupancy, invalid route cursors and constructed stationary objects
 or embodied structural members intersecting generated resident bodies. A resident stranded by later
 floor excavation retains its saved position but cannot move without support.
