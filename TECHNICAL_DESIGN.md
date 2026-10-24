@@ -1265,6 +1265,13 @@ Materialization and trusted-load promotion also reject two embodied full-footpri
 claiming the same voxel. Distinct inert plans and slender structural framing retain their
 separate permitted overlap rules. Construction vacancy queries use the surface position index,
 not a scan of remote and depleted resources.
+In generated terrain, full-footprint materialization also verifies that the continuous player
+body does not occupy the proposed member, using the same body extent as locomotion and save
+admission. Full-footprint construction tokens bind logistics revision when generated terrain
+is authoritative, so a body moving into the vacant target invalidates the token before matter
+egress. Pre-generation authored traversal graphs retain their existing collision semantics.
+If a player in a pre-generation graph attempts to drop material inside embodied full-cell
+obstruction, the surface owner reports a typed placement rejection without spending inventory.
 
 The gameplay-audit fixture may materialize a planned member from exact conserved inventory traces after
 validating geometry-derived mass, consolidated form, composition, source capacity, and self-weight. This is

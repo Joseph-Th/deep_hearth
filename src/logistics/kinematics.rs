@@ -12,7 +12,7 @@ use crate::core::state::AppState;
 use crate::core::time::CONTROL_TICK_DURATION;
 use crate::registry::Registries;
 use crate::spatial::{
-    HorizontalVelocity, NANOMETERS_PER_VOXEL, VerticalVelocity, VoxelCoord, WorldPoint,
+    HorizontalVelocity, NANOMETERS_PER_VOXEL, VerticalVelocity, VoxelBounds, VoxelCoord, WorldPoint,
 };
 use crate::survival::{LocomotionDefinition, SurvivalExertion, Vitality};
 use crate::world::{
@@ -235,6 +235,21 @@ pub(crate) fn first_player_body_collision_in_chunk(
             && (!(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
                 || block_is_solid(registry, chunk.block_at(voxel)))
     })
+}
+
+/// Physical intersection of a proposed full-cell member and the continuous player body.
+/// Pre-generation authored traversal graphs have no voxel collision authority.
+pub(crate) fn first_player_body_overlap_with_bounds(
+    registries: &Registries,
+    state: &AppState,
+    bounds: VoxelBounds,
+) -> Option<VoxelCoord> {
+    if state.world().generation_profile().is_none() {
+        return None;
+    }
+    let body = state.logistics().player()?.body();
+    let locomotion = registries.survival().physiology().locomotion();
+    first_player_body_collision_where(body, locomotion, |voxel| bounds.has_voxel(voxel))
 }
 
 pub(crate) fn player_body_occupies_voxel(

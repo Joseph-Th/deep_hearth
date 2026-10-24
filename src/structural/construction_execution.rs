@@ -38,6 +38,7 @@ pub(crate) struct ValidatedStructuralConstruction {
     element: StructuralElementId,
     expected_world_revision: u64,
     expected_surface_revision: u64,
+    expected_logistics_revision: Option<u64>,
     expected_structure_revision: u64,
     next_structure_revision: u64,
     material: Vec<ConsumedMaterialTrace>,
@@ -68,6 +69,15 @@ impl ValidatedStructuralConstruction {
                 expected: self.expected_surface_revision,
                 actual: state.surface().revision(),
             });
+        }
+        if let Some(expected) = self.expected_logistics_revision {
+            let actual = state.logistics().revision();
+            if actual != expected {
+                return Err(StructuralConstructionCommitError::StaleLogisticsRevision {
+                    expected,
+                    actual,
+                });
+            }
         }
         let actual_structure_revision = state.structures().revision();
         if actual_structure_revision != self.expected_structure_revision {
@@ -129,6 +139,15 @@ impl ValidatedStructuralConstruction {
                 expected: self.expected_surface_revision,
                 actual: state.surface().revision(),
             });
+        }
+        if let Some(expected) = self.expected_logistics_revision {
+            let actual = state.logistics().revision();
+            if actual != expected {
+                return Err(StructuralConstructionCommitError::StaleLogisticsRevision {
+                    expected,
+                    actual,
+                });
+            }
         }
         let actual_projected_revision = state.structures().revision().checked_add(1).ok_or(
             StructuralConstructionCommitError::StaleStructureRevision {
@@ -278,6 +297,9 @@ pub(crate) fn validate_structural_construction_for_planned_member(
         element,
         expected_world_revision: state.world().revision(),
         expected_surface_revision: state.surface().revision(),
+        expected_logistics_revision: (record.geometry().covers_horizontal_footprint()
+            && state.world().generation_profile().is_some())
+        .then(|| state.logistics().revision()),
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),
@@ -311,6 +333,16 @@ fn validate_structural_construction_world(
         });
     }
     if record.geometry().covers_horizontal_footprint() {
+        if let Some(voxel) = crate::logistics::first_player_body_overlap_with_bounds(
+            registries,
+            state,
+            record.bounds(),
+        ) {
+            return Err(StructuralConstructionError::ActorOccupied {
+                element: record.id(),
+                voxel,
+            });
+        }
         if let Some(voxel) = state
             .surface()
             .available_resources_in_bounds(record.bounds())
@@ -504,6 +536,9 @@ pub(crate) fn validate_structural_construction(
         element,
         expected_world_revision: state.world().revision(),
         expected_surface_revision: state.surface().revision(),
+        expected_logistics_revision: (record.geometry().covers_horizontal_footprint()
+            && state.world().generation_profile().is_some())
+        .then(|| state.logistics().revision()),
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),

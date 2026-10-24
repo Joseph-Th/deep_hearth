@@ -144,6 +144,72 @@ fn surface_creation_respects_built_wall_but_permits_narrow_support() {
 }
 
 #[test]
+fn player_material_drop_reports_full_cell_obstruction_without_spending_inventory() {
+    for full_cell in [true, false] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        let player_position = VoxelCoord::new(0, 0, 0);
+        materialize_test_wall(&registries, &mut state, player_position, full_cell);
+        validate_admit_player(&registries, &state, player_position)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        let carried = state.logistics().player().unwrap().carried_stockpile();
+        let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            Mass::from_milligrams(50_000),
+            TEMPERATURE,
+        )
+        .unwrap();
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let before = state.clone();
+        let total = calculate_matter_accounting(&state).unwrap().total();
+        if full_cell {
+            assert_eq!(
+                validate_drop_player_material(&registries, &state, commodity).err(),
+                Some(PlayerMaterialDropError::SurfacePlacement(
+                    SurfaceResourceValidationError::EmbeddedInSolidStructure {
+                        resource: SurfaceResourceId::new(state.surface().next_resource_id()),
+                        voxel: player_position,
+                    }
+                ))
+            );
+            assert_eq!(state, before);
+        } else {
+            let drop = validate_drop_player_material(&registries, &state, commodity)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+            assert_eq!(drop.position(), player_position);
+            assert_eq!(
+                state
+                    .inventory()
+                    .get_stockpile(carried)
+                    .unwrap()
+                    .get_mass(commodity),
+                Mass::ZERO
+            );
+            assert_eq!(
+                state
+                    .surface()
+                    .available_resources_at(Some(player_position))
+                    .count(),
+                1
+            );
+        }
+        assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let decoded: LoadedSaveEnvelope = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(decoded.into_state(&registries).unwrap(), state);
+    }
+}
+
+#[test]
 fn surface_creation_token_and_scavenged_drop_cannot_cross_a_new_wall() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -18,8 +18,8 @@ use crate::spatial::VoxelCoord;
 
 use super::{
     SurfaceResourceCreationCommitError, SurfaceResourceCreationError, SurfaceResourceId,
-    SurfaceResourceKind, SurfaceResourceSpec, ValidatedSurfaceResourceCreation,
-    validate_create_surface_resources,
+    SurfaceResourceKind, SurfaceResourceSpec, SurfaceResourceValidationError,
+    ValidatedSurfaceResourceCreation, validate_create_surface_resources,
 };
 
 /// Two seconds at the authoritative 20 Hz control rate, preventing immediate self-pickup.
@@ -36,6 +36,7 @@ pub enum PlayerMaterialDropError {
     SurfaceResourceIdExhausted,
     MaterialMassOverflow,
     PickupScheduleOverflow,
+    SurfacePlacement(SurfaceResourceValidationError),
 }
 
 impl Display for PlayerMaterialDropError {
@@ -67,13 +68,22 @@ impl Display for PlayerMaterialDropError {
             Self::PickupScheduleOverflow => {
                 formatter.write_str("material-drop pickup delay exceeds authoritative control time")
             }
+            Self::SurfacePlacement(error) => {
+                write!(
+                    formatter,
+                    "material-drop surface position is invalid: {error}"
+                )
+            }
         }
     }
 }
 
 impl Error for PlayerMaterialDropError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
+        match self {
+            Self::SurfacePlacement(error) => Some(error),
+            _ => None,
+        }
     }
 }
 
@@ -392,8 +402,10 @@ pub fn validate_drop_player_material(
                 SurfaceResourceCreationError::RevisionExhausted => {
                     PlayerMaterialDropError::SurfaceRevisionExhausted
                 }
-                SurfaceResourceCreationError::Empty
-                | SurfaceResourceCreationError::InvalidResource(_) => {
+                SurfaceResourceCreationError::InvalidResource(error) => {
+                    PlayerMaterialDropError::SurfacePlacement(error)
+                }
+                SurfaceResourceCreationError::Empty => {
                     unreachable!("trusted nonempty carried material produces valid surface custody")
                 }
             },

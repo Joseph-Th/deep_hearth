@@ -279,6 +279,7 @@ impl Error for StructuralConstructionError {
 pub enum StructuralConstructionCommitError {
     StaleWorldRevision { expected: u64, actual: u64 },
     StaleSurfaceRevision { expected: u64, actual: u64 },
+    StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleStructureRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StateChanged { element: StructuralElementId },
@@ -295,6 +296,10 @@ impl Display for StructuralConstructionCommitError {
             Self::StaleSurfaceRevision { expected, actual } => write!(
                 formatter,
                 "validated construction expected surface revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "validated construction expected logistics revision {expected} but current revision is {actual}"
             ),
             Self::StaleStructureRevision { expected, actual } => write!(
                 formatter,
@@ -323,6 +328,10 @@ impl Error for StructuralConstructionCommitError {
             Self::Structure(error) => Some(error),
             Self::StaleWorldRevision { .. } => None,
             Self::StaleSurfaceRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleLogisticsRevision {
                 expected: _expected,
                 actual: _actual,
             }

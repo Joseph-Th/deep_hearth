@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::content::{
-    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, FORM_CRUSHED, FORM_INGOT,
-    FORM_LOG, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, BLOCK_STATE_STONE,
+    FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Force, Length};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -14,17 +14,23 @@ use crate::inventory::{
     deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
     validate_mount_stockpile,
 };
+use crate::logistics::relocate_player_for_test;
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec,
     ParticleSizeDistribution, ParticleSizeRange, ParticleSizeStateError,
 };
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralElementGeometry, StructureValidationError, add_structural_element,
     materialize_structural_element_for_test, validate_activate_structural_element,
+};
+use crate::world::{
+    BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+    validate_generate_chunk,
 };
 
 fn wood_length_for_mass(mass: Mass) -> Length {
@@ -340,6 +346,187 @@ fn full_footprint_member_cannot_embody_a_second_occupied_voxel() {
     .unwrap();
     materialize_structural_element_for_test(&registries, &mut state, slender, FORM_LOG);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+fn generated_chunk_construction_player() -> (Registries, AppState, VoxelCoord) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let spawn = VoxelCoord::new(8, -10, 8);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x504C_4159_4552_4841),
+        ChunkCoord::containing(spawn),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    for x in spawn.x()..=spawn.x() + 1 {
+        for y in spawn.y()..=spawn.y() + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(x, y, spawn.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    (registries, state, spawn)
+}
+
+#[test]
+fn generated_player_body_blocks_full_footprint_materialization_but_not_slender_framing() {
+    for full_footprint in [true, false] {
+        let (registries, mut state, spawn) = generated_chunk_construction_player();
+        let bounds = VoxelBounds::new(
+            spawn,
+            VoxelCoord::new(spawn.x() + 1, spawn.y() + 1, spawn.z() + 1),
+        )
+        .unwrap();
+        let geometry = StructuralElementGeometry::new(
+            bounds,
+            if full_footprint {
+                BASIC_TIMBER_COVER_PANEL_THICKNESS
+            } else {
+                Length::from_micrometers(1_000_000)
+            },
+            if full_footprint {
+                BASIC_TIMBER_COVER_PANEL_AREA
+            } else {
+                Area::from_square_millimeters(5_000)
+            },
+        )
+        .unwrap();
+        assert_eq!(geometry.covers_horizontal_footprint(), full_footprint);
+        let element = add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+            true,
+        )
+        .unwrap();
+        let required = resolve_structural_material_requirement(&registries, &state, element)
+            .unwrap()
+            .required_mass();
+        let source = add_solid_stockpile_for_test(&mut state, required).unwrap();
+        let lot = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            required,
+            crate::core::quantity::Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+        let resolution = bind_structural_construction_selection(
+            &state,
+            element,
+            source,
+            &[MaterialLotSelection::new(lot, required)],
+        )
+        .unwrap();
+        let before = state.clone();
+        let matter_before = calculate_matter_accounting(&state).unwrap().total();
+        if full_footprint {
+            assert_eq!(
+                validate_structural_construction(&registries, &state, resolution).err(),
+                Some(StructuralConstructionError::ActorOccupied {
+                    element,
+                    voxel: spawn,
+                })
+            );
+            assert_eq!(state, before);
+        } else {
+            validate_structural_construction(&registries, &state, resolution)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+        }
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            matter_before
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.into_state(&registries).unwrap(), state);
+    }
+}
+
+#[test]
+fn full_footprint_construction_token_expires_if_player_moves_into_target() {
+    let (registries, mut state, spawn) = generated_chunk_construction_player();
+    let destination = VoxelCoord::new(spawn.x() + 1, spawn.y(), spawn.z());
+    let bounds = VoxelBounds::new(
+        destination,
+        VoxelCoord::new(
+            destination.x() + 1,
+            destination.y() + 1,
+            destination.z() + 1,
+        ),
+    )
+    .unwrap();
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap();
+    let element = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    let required = resolve_structural_material_requirement(&registries, &state, element)
+        .unwrap()
+        .required_mass();
+    let source = add_solid_stockpile_for_test(&mut state, required).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        required,
+        crate::core::quantity::Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let resolution = bind_structural_construction_selection(
+        &state,
+        element,
+        source,
+        &[MaterialLotSelection::new(lot, required)],
+    )
+    .unwrap();
+    let prepared = validate_structural_construction(&registries, &state, resolution).unwrap();
+    let expected = state.logistics().revision();
+    relocate_player_for_test(&mut state, destination);
+    let actual = state.logistics().revision();
+    let before = state.clone();
+    let total_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        prepared.commit(&mut state),
+        Err(StructuralConstructionCommitError::StaleLogisticsRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        total_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded.into_state(&registries).unwrap(), state);
 }
 
 #[test]
