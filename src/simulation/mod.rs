@@ -592,6 +592,8 @@ fn advance_simulation_tick(
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
     if player_dead_after_tick {
+        // Raised weapons cannot survive a fatal survival transition or grant a charged respawn hit.
+        state.combat_state_mut().clear_preparation_on_death();
         // Buffered actions are only valid for a living player. Clear them inside the slow
         // transaction, before its invariant check and any subsequent save can observe death.
         let _ = crate::logistics::take_player_pending_primary_break(state);

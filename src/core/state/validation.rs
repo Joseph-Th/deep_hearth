@@ -102,6 +102,7 @@ pub fn validate_loaded_state(
     )
     .map_err(StateValidationError::Inventory)?;
     validate_loaded_logistics(registries, state).map_err(StateValidationError::Logistics)?;
+    crate::combat::validate_loaded_preparation(state).map_err(StateValidationError::Combat)?;
 
     // Validate trace-backed enclosure matter before cross-owner structural accounting derives its
     // mass. This keeps malformed decoded trace sums on the validation-error path rather than the

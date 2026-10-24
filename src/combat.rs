@@ -17,6 +17,14 @@ use crate::spatial::{ViewDirection, VoxelCoord};
 use crate::world::PlayerBlockTargetError;
 use serde::{Deserialize, Serialize};
 
+mod preparation;
+pub(crate) use preparation::validate_loaded_preparation;
+pub use preparation::{
+    PrimitivePreparationOutcome, ValidatedPrimitivePreparation,
+    validate_cancel_primitive_preparation, validate_prepare_primitive_strike,
+    validate_release_prepared_strike,
+};
+
 const SHOVE_RECOVERY_TICKS: u32 = 16;
 const SHOVE_REACH_MILLIMETERS: u32 = 1_600;
 const SHOVE_BALANCE_IMPULSE_PPM: u32 = 80_000;
@@ -28,6 +36,7 @@ pub(crate) struct CombatState {
     revision: u64,
     last_attack_at: Option<ControlTick>,
     recovery_control_ticks: u32,
+    prepared: Option<preparation::PreparedStrike>,
 }
 impl CombatState {
     pub(crate) const fn new() -> Self {
@@ -35,6 +44,7 @@ impl CombatState {
             revision: 0,
             last_attack_at: None,
             recovery_control_ticks: 0,
+            prepared: None,
         }
     }
     pub(crate) const fn revision(&self) -> u64 {
@@ -46,11 +56,33 @@ impl CombatState {
     }
     pub(crate) fn validate(&self, now: ControlTick) -> Result<(), &'static str> {
         if self.last_attack_at.is_some_and(|at| at > now)
-            || (self.revision == 0) != self.last_attack_at.is_none()
+            || (self.revision == 0 && (self.last_attack_at.is_some() || self.prepared.is_some()))
             || (self.last_attack_at.is_none() && self.recovery_control_ticks != 0)
+            // Before the first attack, preparation/cancellation is the only revision path.
+            || (self.last_attack_at.is_none()
+                && (self.revision % 2 == 1) != self.prepared.is_some())
             || (self.last_attack_at.is_some() && !(8..=60).contains(&self.recovery_control_ticks))
         {
             return Err("combat recovery record conflicts with control history");
+        }
+        if let Some(prepared) = self.prepared {
+            if prepared.started_at > now
+                || self.revision == 0
+                || ViewDirection::new(prepared.aim[0], prepared.aim[1], prepared.aim[2]).is_err()
+                || prepared
+                    .started_at
+                    .checked_add_steps(preparation::PREPARATION_TICKS)
+                    .is_none()
+                || self.last_attack_at.is_some_and(|at| {
+                    prepared.started_at <= at
+                        || prepared
+                            .started_at
+                            .checked_steps_since(at)
+                            .is_none_or(|elapsed| elapsed < u64::from(self.recovery_control_ticks))
+                })
+            {
+                return Err("prepared combat stance contradicts actor clock or facing");
+            }
         }
         Ok(())
     }
@@ -60,11 +92,22 @@ impl CombatState {
                 .is_some_and(|elapsed| elapsed >= u64::from(self.recovery_control_ticks))
         })
     }
+    /// A fatal survival transition drops a raised weapon without registering an attack.
+    pub(crate) fn clear_preparation_on_death(&mut self) {
+        if self.prepared.take().is_some() {
+            self.revision = self
+                .revision
+                .checked_add(1)
+                .expect("preparation reserved a cancellation revision");
+        }
+    }
+
     fn apply_attack(&mut self, revision: u64, at: ControlTick, recovery_control_ticks: u32) {
         assert_eq!(self.revision, revision);
         self.revision = revision.checked_add(1).expect("reserved combat revision");
         self.last_attack_at = Some(at);
         self.recovery_control_ticks = recovery_control_ticks;
+        self.prepared = None;
     }
 }
 
@@ -79,6 +122,11 @@ pub enum PrimitiveAttackError {
     UnsupportedWeapon,
     BrokenWeapon,
     WeaponBusy,
+    AlreadyPreparing,
+    NotPreparing,
+    PreparationNotReady { ready_at: ControlTick },
+    PreparationWeaponChanged,
+    PreparationAimChanged,
     EquipmentRevisionExhausted,
     Recovering { last_at: ControlTick },
     RevisionExhausted,
@@ -107,9 +155,12 @@ pub enum PrimitiveAttackCommitError {
     StaleControlTick,
     StaleCombatRevision,
     StaleLogisticsRevision,
+    StaleWorldRevision,
+    StaleStructureRevision,
     StaleEquipmentRevision,
     WeaponChanged,
     StaleSurvivalRevision,
+    StalePlayerWorkRevision,
     TargetMoved,
     StaleResidentBalance,
 }
@@ -120,11 +171,15 @@ pub struct ValidatedPrimitiveAttack {
     at: ControlTick,
     expected_combat_revision: u64,
     expected_logistics_revision: u64,
+    expected_player_work_revision: u64,
+    expected_world_revision: u64,
+    expected_structure_revision: u64,
     outcome: PrimitiveAttackOutcome,
     recovery_control_ticks: u32,
     weapon_wear: Option<(EquipmentId, Condition, Condition, u64)>,
     balance_impulse_ppm: u32,
     expected_resident_balance: Option<u32>,
+    expected_preparation: Option<preparation::PreparedStrike>,
 }
 impl ValidatedPrimitiveAttack {
     pub fn commit(
@@ -139,6 +194,18 @@ impl ValidatedPrimitiveAttack {
         }
         if state.logistics().revision() != self.expected_logistics_revision {
             return Err(PrimitiveAttackCommitError::StaleLogisticsRevision);
+        }
+        if state.player_work().revision() != self.expected_player_work_revision {
+            return Err(PrimitiveAttackCommitError::StalePlayerWorkRevision);
+        }
+        if state.world().revision() != self.expected_world_revision {
+            return Err(PrimitiveAttackCommitError::StaleWorldRevision);
+        }
+        if state.structures().revision() != self.expected_structure_revision {
+            return Err(PrimitiveAttackCommitError::StaleStructureRevision);
+        }
+        if state.combat().prepared != self.expected_preparation {
+            return Err(PrimitiveAttackCommitError::StaleCombatRevision);
         }
         self.player_action
             .precheck(state)
@@ -197,12 +264,53 @@ impl ValidatedPrimitiveAttack {
     }
 }
 
+fn validate_attack_timing(
+    state: &AppState,
+    weapon: Option<EquipmentId>,
+    powered: bool,
+) -> Result<(), PrimitiveAttackError> {
+    let at = state.control_tick();
+    if powered {
+        let prepared = state
+            .combat()
+            .prepared
+            .ok_or(PrimitiveAttackError::NotPreparing)?;
+        if weapon != Some(prepared.weapon) {
+            return Err(PrimitiveAttackError::PreparationWeaponChanged);
+        }
+        let ready_at = prepared
+            .started_at
+            .checked_add_steps(preparation::PREPARATION_TICKS)
+            .ok_or(PrimitiveAttackError::RevisionExhausted)?;
+        if at < ready_at {
+            return Err(PrimitiveAttackError::PreparationNotReady { ready_at });
+        }
+    } else if state.combat().prepared.is_some() {
+        return Err(PrimitiveAttackError::AlreadyPreparing);
+    }
+    if !state.combat().ready(at) {
+        return Err(PrimitiveAttackError::Recovering {
+            last_at: state
+                .combat()
+                .last_attack_at
+                .expect("recovery follows an attack"),
+        });
+    }
+    state
+        .combat()
+        .revision()
+        .checked_add(1)
+        .ok_or(PrimitiveAttackError::RevisionExhausted)?;
+    Ok(())
+}
+
 /// Both primitive modes share physical observation, recovery and reaction.
 fn validate_attack(
     registries: &Registries,
     state: &AppState,
     direction: ViewDirection,
     weapon_required: bool,
+    powered: bool,
 ) -> Result<ValidatedPrimitiveAttack, PrimitiveAttackError> {
     let player_action = validate_player_action(state).map_err(|error| match error {
         PlayerActionValidationError::PlayerNotAdmitted => PrimitiveAttackError::PlayerNotAdmitted,
@@ -210,6 +318,14 @@ fn validate_attack(
     })?;
     if state.player_work().active().is_some() {
         return Err(PrimitiveAttackError::PlayerBusy);
+    }
+    if powered
+        && state.combat().prepared.is_some_and(|prepared| {
+            state.logistics().active_selection()
+                != Some(PlayerActiveSelection::Equipment(prepared.weapon))
+        })
+    {
+        return Err(PrimitiveAttackError::PreparationWeaponChanged);
     }
     let weapon = if weapon_required {
         let Some(PlayerActiveSelection::Equipment(equipment)) =
@@ -242,12 +358,9 @@ fn validate_attack(
             .checked_add(1)
             .ok_or(PrimitiveAttackError::EquipmentRevisionExhausted)?;
         let before = record.condition();
-        let after = Condition::new(
-            before
-                .parts_per_million()
-                .saturating_sub(profile.wear_ppm_per_swing()),
-        )
-        .expect("saturating equipment wear fits condition");
+        let wear = profile.wear_ppm_per_swing() * if powered { 2 } else { 1 };
+        let after = Condition::new(before.parts_per_million().saturating_sub(wear))
+            .expect("saturating equipment wear fits condition");
         Some((profile, (equipment, before, after, revision)))
     } else {
         if state.logistics().active_selection().is_some() {
@@ -256,19 +369,7 @@ fn validate_attack(
         None
     };
     let at = state.control_tick();
-    if !state.combat().ready(at) {
-        return Err(PrimitiveAttackError::Recovering {
-            last_at: state
-                .combat()
-                .last_attack_at
-                .expect("recovery follows an attack"),
-        });
-    }
-    state
-        .combat()
-        .revision()
-        .checked_add(1)
-        .ok_or(PrimitiveAttackError::RevisionExhausted)?;
+    validate_attack_timing(state, weapon.map(|(_, (id, _, _, _))| id), powered)?;
     let reach = weapon.map_or(SHOVE_REACH_MILLIMETERS, |(profile, _)| {
         profile.reach_millimeters()
     });
@@ -280,6 +381,7 @@ fn validate_attack(
             let scaled = u64::from(profile.balance_impulse_ppm())
                 * u64::from(before.parts_per_million())
                 / 1_000_000;
+            let scaled = if powered { scaled * 3 / 2 } else { scaled };
             u32::try_from(scaled.max(1)).expect("bounded authored impact")
         });
     let expected_resident_balance = match outcome {
@@ -302,13 +404,17 @@ fn validate_attack(
         at,
         expected_combat_revision: state.combat().revision(),
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
+        expected_world_revision: state.world().revision(),
+        expected_structure_revision: state.structures().revision(),
         outcome,
         recovery_control_ticks: weapon.map_or(SHOVE_RECOVERY_TICKS, |(profile, _)| {
-            profile.recovery_control_ticks()
+            profile.recovery_control_ticks() + if powered { 12 } else { 0 }
         }),
         weapon_wear: weapon.map(|(_, wear)| wear),
         balance_impulse_ppm,
         expected_resident_balance,
+        expected_preparation: state.combat().prepared,
     })
 }
 
@@ -322,6 +428,7 @@ pub struct PlayerMeleeAssessment {
     recovery_control_ticks: u32,
     remaining_recovery_ticks: u32,
     condition: Option<Condition>,
+    preparation_remaining_ticks: Option<u32>,
 }
 impl PlayerMeleeAssessment {
     pub const fn weapon(self) -> Option<EquipmentId> {
@@ -339,8 +446,11 @@ impl PlayerMeleeAssessment {
     pub const fn condition(self) -> Option<Condition> {
         self.condition
     }
+    pub const fn preparation_remaining_ticks(self) -> Option<u32> {
+        self.preparation_remaining_ticks
+    }
     pub const fn ready(self) -> bool {
-        self.remaining_recovery_ticks == 0
+        self.remaining_recovery_ticks == 0 && self.preparation_remaining_ticks.is_none()
     }
 }
 
@@ -406,6 +516,14 @@ pub fn assess_player_melee(
         ),
         remaining_recovery_ticks,
         condition,
+        preparation_remaining_ticks: state.combat().prepared.map(|prepared| {
+            let elapsed = state
+                .control_tick()
+                .checked_steps_since(prepared.started_at)
+                .expect("trusted preparation cannot be in the future");
+            u32::try_from(preparation::PREPARATION_TICKS.saturating_sub(elapsed))
+                .expect("authored windup fits u32")
+        }),
     })
 }
 
@@ -415,7 +533,7 @@ pub fn validate_primitive_shove(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<ValidatedPrimitiveAttack, PrimitiveAttackError> {
-    validate_attack(registries, state, direction, false)
+    validate_attack(registries, state, direction, false, false)
 }
 
 /// A selected, physically carried weapon with an authored melee profile may
@@ -425,7 +543,7 @@ pub fn validate_primitive_strike(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<ValidatedPrimitiveAttack, PrimitiveAttackError> {
-    validate_attack(registries, state, direction, true)
+    validate_attack(registries, state, direction, true, false)
 }
 
 fn resolve_contact(

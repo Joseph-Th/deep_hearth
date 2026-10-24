@@ -6,7 +6,10 @@ mod secondary;
 use placement::{attempt_storage_placement, attempt_structural_dismantling_now};
 use secondary::{attempt_empty_hand_secondary_action, attempt_selected_secondary_action};
 
-use crate::combat::{validate_primitive_shove, validate_primitive_strike};
+use crate::combat::{
+    validate_cancel_primitive_preparation, validate_prepare_primitive_strike,
+    validate_primitive_shove, validate_primitive_strike, validate_release_prepared_strike,
+};
 use crate::core::state::AppState;
 use crate::logistics::{
     PlayerActiveSelection, take_player_pending_primary_break, take_player_pending_secondary_use,
@@ -125,6 +128,36 @@ fn attempt_primary_action(
                 Err(error) => PrimaryActionOutcome::StrikeRejected(error),
             },
         ),
+        PrimaryControlIntent::PrepareStrike { direction } => Some(
+            match validate_prepare_primitive_strike(registries, state, direction) {
+                Ok(validated) => {
+                    PrimaryActionOutcome::Preparation(validated.commit(state).unwrap_or_else(
+                        |error| panic!("synchronous strike preparation became stale: {error:?}"),
+                    ))
+                }
+                Err(error) => PrimaryActionOutcome::PreparationRejected(error),
+            },
+        ),
+        PrimaryControlIntent::ReleaseStrike { direction } => Some(
+            match validate_release_prepared_strike(registries, state, direction) {
+                Ok(validated) => {
+                    PrimaryActionOutcome::PreparedStrike(validated.commit(state).unwrap_or_else(
+                        |error| panic!("synchronous prepared strike became stale: {error:?}"),
+                    ))
+                }
+                Err(error) => PrimaryActionOutcome::PreparedStrikeRejected(error),
+            },
+        ),
+        PrimaryControlIntent::CancelStrike => {
+            Some(match validate_cancel_primitive_preparation(state) {
+                Ok(validated) => PrimaryActionOutcome::Preparation(
+                    validated.commit(state).unwrap_or_else(|error| {
+                        panic!("synchronous preparation cancellation became stale: {error:?}")
+                    }),
+                ),
+                Err(error) => PrimaryActionOutcome::PreparationRejected(error),
+            })
+        }
         PrimaryControlIntent::BreakTarget { direction } => {
             Some(attempt_primary_break(registries, state, direction))
         }

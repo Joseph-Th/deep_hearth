@@ -18,6 +18,16 @@ pub enum PrimaryControlIntent {
     Strike {
         direction: ViewDirection,
     },
+    /// Lock the current weapon and facing for a ten-tick prepared blow.
+    PrepareStrike {
+        direction: ViewDirection,
+    },
+    /// Resolve live contact after the telegraphed preparation interval.
+    ReleaseStrike {
+        direction: ViewDirection,
+    },
+    /// Lower a prepared weapon without making contact.
+    CancelStrike,
 }
 
 /// Held contextual-use intent sampled alongside one 20 Hz locomotion input.
@@ -53,6 +63,21 @@ impl PrimaryControlIntent {
     #[must_use]
     pub const fn strike(direction: ViewDirection) -> Self {
         Self::Strike { direction }
+    }
+
+    #[must_use]
+    pub const fn prepare_strike(direction: ViewDirection) -> Self {
+        Self::PrepareStrike { direction }
+    }
+
+    #[must_use]
+    pub const fn release_strike(direction: ViewDirection) -> Self {
+        Self::ReleaseStrike { direction }
+    }
+
+    #[must_use]
+    pub const fn cancel_strike() -> Self {
+        Self::CancelStrike
     }
 
     #[must_use]
