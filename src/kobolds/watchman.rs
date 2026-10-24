@@ -154,6 +154,7 @@ pub(super) fn apply_watchman_tick(
         .is_some_and(|record| record.vitality() != Vitality::ZERO)
         && player.is_some_and(|position| scout_visible_from(registries, state, guard, position));
     let pressured = player_nearby
+        || colony.recently_shoved(super::KoboldRole::Watchman, state.control_tick())
         || assess_local_illumination(registries, state, guard).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL;
     // A resident with an intruder in direct sight protects the den instead

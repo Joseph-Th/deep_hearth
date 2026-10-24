@@ -240,6 +240,9 @@ the furnace's electrical service retains copper. Metals differ in density, melti
 threshold, heat storage and structural behavior. This is a partial material
 chain, not a claim of complete smelting, alloying or GregTech-scale automation.
 
+The combat timing, weapon-era, physical damage and voluntary kobold cooperation design is specified in
+[`COMBAT_DESIGN.md`](COMBAT_DESIGN.md). It does not imply lethal combat or contracts are already implemented.
+
 ### Living-world adversaries
 
 Enemies are residents of the same world as the player, not combat encounters materialized for convenience.

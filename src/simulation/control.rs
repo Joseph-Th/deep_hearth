@@ -7,7 +7,13 @@ use crate::spatial::ViewDirection;
 /// Held primary-control intent sampled alongside one 20 Hz locomotion input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimaryControlIntent {
-    BreakTarget { direction: ViewDirection },
+    BreakTarget {
+        direction: ViewDirection,
+    },
+    /// Unarmed close-contact action, distinct from terrain excavation.
+    Shove {
+        direction: ViewDirection,
+    },
 }
 
 /// Held contextual-use intent sampled alongside one 20 Hz locomotion input.
@@ -40,6 +46,11 @@ impl SecondaryControlIntent {
 }
 
 impl PrimaryControlIntent {
+    #[must_use]
+    pub const fn shove(direction: ViewDirection) -> Self {
+        Self::Shove { direction }
+    }
+
     #[must_use]
     pub const fn break_target(direction: ViewDirection) -> Self {
         Self::BreakTarget { direction }

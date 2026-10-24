@@ -14,6 +14,7 @@ pub mod content;
 pub mod registry;
 
 // Durable runtime-owner domains represented under AppState::SystemState.
+pub mod combat;
 pub mod energy;
 pub mod equipment;
 pub mod fluid;

@@ -1,5 +1,6 @@
 //! Public observable result of one canonical simulation tick.
 
+use crate::combat::{PrimitiveShoveError, PrimitiveShoveOutcome};
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick, SimulationTick};
 use crate::energy::{
     CombustionError, EnergyStoreAssemblyError, EnergyStoreDefinitionId, EnergyStoreId,
@@ -42,6 +43,8 @@ use crate::world::{
 pub enum PrimaryActionOutcome {
     PlayerNotAdmitted,
     PlayerDead,
+    Shove(PrimitiveShoveOutcome),
+    ShoveRejected(PrimitiveShoveError),
     BlockExcavationStarted(BlockExcavationStartOutcome),
     BlockExcavationRejected(BlockExcavationError),
     StructuralDismantlingStarted(StructuralDismantlingStartOutcome),

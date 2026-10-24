@@ -4,6 +4,7 @@ use std::fmt::{Debug, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::combat::CombatState;
 use crate::energy::{EnergyState, EnergyStoreRecord};
 use crate::equipment::{EquipmentRecord, EquipmentState};
 use crate::fluid::{FluidState, FluidStoreRecord};
@@ -116,6 +117,7 @@ struct SystemState {
     #[serde(serialize_with = "crate::surface::serialize_surface_resource_state")]
     surface: SurfaceResourceState,
     kobolds: KoboldState,
+    combat: CombatState,
     geology: GeologyState,
     geological_knowledge: GeologicalKnowledgeState,
     inventory: InventoryState,
@@ -154,6 +156,7 @@ impl AppState {
                 world: self.systems.world.clone(),
                 surface: self.systems.surface.snapshot_for_control_transaction(),
                 kobolds: self.systems.kobolds.clone(),
+                combat: self.systems.combat.clone(),
                 geology: self.systems.geology.clone(),
                 geological_knowledge: self.systems.geological_knowledge.clone(),
                 inventory: self.systems.inventory.clone(),
@@ -182,6 +185,7 @@ impl AppState {
                 world: WorldState::new(),
                 surface: SurfaceResourceState::new(),
                 kobolds: KoboldState::new(),
+                combat: CombatState::new(),
                 geology: GeologyState::new(),
                 geological_knowledge: GeologicalKnowledgeState::new(),
                 inventory: InventoryState::new(),
@@ -355,6 +359,14 @@ impl AppState {
 
     pub(crate) fn kobold_state_mut(&mut self) -> &mut KoboldState {
         &mut self.systems.kobolds
+    }
+
+    pub(crate) const fn combat(&self) -> &CombatState {
+        &self.systems.combat
+    }
+
+    pub(crate) fn combat_state_mut(&mut self) -> &mut CombatState {
+        &mut self.systems.combat
     }
 
     /// Returns authoritative geological truth to owning core systems only.

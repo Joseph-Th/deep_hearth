@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::material::{CommodityKey, MaterialId};
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -312,6 +312,18 @@ struct KoboldColony {
     /// Caution survives saves and expires on the same five-tick scout clock.
     #[serde(deserialize_with = "required_optional_wary_tick")]
     wary_until: Option<SimulationTick>,
+    /// A real close-contact blow causes temporary caution, not imaginary HP loss.
+    #[serde(deserialize_with = "required_optional_control_tick")]
+    scout_shoved_at: Option<ControlTick>,
+    #[serde(deserialize_with = "required_optional_control_tick")]
+    watch_shoved_at: Option<ControlTick>,
+}
+
+fn required_optional_control_tick<'de, D>(deserializer: D) -> Result<Option<ControlTick>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<ControlTick>::deserialize(deserializer)
 }
 
 fn required_optional_detour<'de, D>(deserializer: D) -> Result<Option<VoxelCoord>, D::Error>
@@ -443,6 +455,18 @@ impl KoboldColony {
         Ok(())
     }
 
+    fn recently_shoved(&self, role: KoboldRole, now: ControlTick) -> bool {
+        let at = match role {
+            KoboldRole::Scout => self.scout_shoved_at,
+            KoboldRole::Watchman => self.watch_shoved_at,
+            _ => None,
+        };
+        at.is_some_and(|at| {
+            now.checked_steps_since(at)
+                .is_some_and(|elapsed| elapsed < 1_800)
+        })
+    }
+
     fn is_visible_from(
         &self,
         registries: &Registries,
@@ -539,6 +563,8 @@ impl KoboldState {
             tracks: Vec::new(),
             watch_tracks: Vec::new(),
             wary_until: None,
+            scout_shoved_at: None,
+            watch_shoved_at: None,
         });
     }
 
@@ -555,7 +581,8 @@ impl KoboldState {
                 role: KoboldRole::Scout,
                 position: colony.scout_position(),
                 has_noticed_player_drop: colony.noticed_player_drop,
-                is_wary: colony.wary_until.is_some_and(|until| until > state.tick()),
+                is_wary: colony.wary_until.is_some_and(|until| until > state.tick())
+                    || colony.recently_shoved(KoboldRole::Scout, state.control_tick()),
                 is_defending: false,
                 mobilized: colony.mobilized_at.is_some(),
                 scavenged_material: colony
@@ -570,7 +597,8 @@ impl KoboldState {
                     role: KoboldRole::Watchman,
                     position: guard,
                     has_noticed_player_drop: false,
-                    is_wary: colony.watch_alarm_pending,
+                    is_wary: colony.watch_alarm_pending
+                        || colony.recently_shoved(KoboldRole::Watchman, state.control_tick()),
                     is_defending: false,
                     mobilized: colony.mobilized_at.is_some(),
                     scavenged_material: None,
@@ -643,6 +671,47 @@ pub fn available_nearby_kobold_scouts<'a>(
             .kobold_state()
             .sightings_at(registries, state, position)
     })
+}
+
+/// Selects only the physical opening residents occupying an actual ray cell.
+/// Co-located scout and watchman at the den are deliberately ambiguous.
+pub(crate) fn close_contact_at(
+    state: &AppState,
+    voxel: VoxelCoord,
+) -> Result<Option<KoboldRole>, ()> {
+    let Some(colony) = state.kobold_state().colony.as_ref() else {
+        return Ok(None);
+    };
+    let occupies = |anchor: VoxelCoord| {
+        voxel.x() == anchor.x()
+            && voxel.z() == anchor.z()
+            && (voxel.y() == anchor.y() || anchor.y().checked_add(1) == Some(voxel.y()))
+    };
+    match (
+        occupies(colony.scout_position()),
+        occupies(colony.watch_position()),
+    ) {
+        (true, true) => Err(()),
+        (true, false) => Ok(Some(KoboldRole::Scout)),
+        (false, true) => Ok(Some(KoboldRole::Watchman)),
+        (false, false) => Ok(None),
+    }
+}
+
+/// Contact changes the struck resident's own caution through kobold custody.
+/// The combat owner has already validated the target and player recovery.
+pub(crate) fn record_close_contact(state: &mut AppState, role: KoboldRole) {
+    let at = state.control_tick();
+    let colony = state
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .expect("validated opening resident");
+    match role {
+        KoboldRole::Scout => colony.scout_shoved_at = Some(at),
+        KoboldRole::Watchman => colony.watch_shoved_at = Some(at),
+        _ => unreachable!("primitive contact targets only opening residents"),
+    }
 }
 
 /// Physical occupancy of the two small opening residents, independently of
@@ -821,6 +890,20 @@ fn validate_consumed_matter(
     Ok(())
 }
 
+fn validate_contact_history(
+    colony: &KoboldColony,
+    current: ControlTick,
+) -> Result<(), &'static str> {
+    if [colony.scout_shoved_at, colony.watch_shoved_at]
+        .into_iter()
+        .flatten()
+        .any(|at| at > current)
+    {
+        return Err("kobold contact record originates in the future");
+    }
+    Ok(())
+}
+
 /// Full save-admission validation of persistent colony topology and patrol continuation.
 pub(crate) fn validate_loaded_kobolds(
     registries: &Registries,
@@ -839,6 +922,7 @@ pub(crate) fn validate_loaded_kobolds(
             .ok_or("uninhabited kobold state contains consumed matter");
     };
     validate_opening_resident_infrastructure(state, colony)?;
+    validate_contact_history(colony, state.control_tick())?;
     if colony.scout_step > 3
         || (colony.scout_step == 3 && (colony.returning || colony.detour_goal.is_none()))
         || !colony.route[0].is_face_adjacent_to(colony.route[1])

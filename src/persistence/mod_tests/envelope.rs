@@ -271,89 +271,14 @@ fn trusted_load_rejects_tampered_admitted_player_carried_custody_shape() {
 
 #[test]
 fn unsupported_schema_is_rejected_before_runtime_use() {
-    let encoded = br#"{
-            "schema_version": 999,
-            "registry_schema_version": 5,
-            "state": {
-                "clock": {"simulation_tick": 0, "control_tick": 0},
-                "systems": {
-                    "energy": {"revision": 0, "next_store_id": 1, "records": {}, "combusted_matter": {}},
-                "fluid": {
-                    "revision": 0,
-                    "next_store_id": 1,
-                    "records": {}
-                },
-                "equipment": {
-                    "revision": 0,
-                    "support_revision": 0,
-                    "next_equipment_id": 1,
-                    "records": {}
-                },
-                "structures": {
-                    "revision": 0,
-                    "next_element_id": 1,
-                    "elements": {},
-                    "supports_by_element": {}
-                },
-                "world": {"revision": 0, "chunks": []},
-                "surface": {"revision": 0, "next_resource_id": 1, "resources": {}},
-                "kobolds": {"colony": null, "temple_wardens": [], "temple_archivists": [], "consumed_matter": {}},
-                "geology": {"revision": 0, "next_deposit_id": 1, "deposits": {}},
-                "geological_knowledge": {
-                    "revision": 0,
-                    "next_observation_id": 1,
-                    "observations": {}
-                },
-                "inventory": {
-                    "revision": 0,
-                    "support_revision": 0,
-                    "next_stockpile_id": 1,
-                    "next_lot_id": 1,
-                    "stockpiles": {},
-                    "lots": {}
-                },
-                "logistics": {
-                    "revision": 0,
-                    "player": null,
-                    "traversable_edges": [],
-                    "carried_equipment": [],
-                    "quick_access_slots": [null, null, null, null, null, null, null, null, null],
-                    "active_quick_access_slot": 0,
-                    "stockpile_locations": {},
-                    "equipment_locations": {},
-                    "energy_store_locations": {},
-                    "fluid_store_locations": {}
-                },
-                "production": {
-                    "revision": 0,
-                    "next_job_id": 1,
-                    "jobs": {}
-                },
-                "mining": {
-                    "revision": 0,
-                    "next_job_id": 1,
-                    "jobs": {}
-                },
-                "player_work": {
-                    "revision": 0,
-                    "active": null
-                },
-                "survival": {
-                    "revision": 0,
-                    "player": null,
-                    "direct_consumption": {"pending": null},
-                    "consumed_matter": {},
-                    "consumed_fluids": {}
-                }
-                }
-            }
-        }"#;
     let registries = build_registries();
-    let decoded: LoadedSaveEnvelope = match serde_json::from_slice(encoded) {
-        Ok(decoded) => decoded,
-        Err(error) => panic!("fixture save failed to decode: {error}"),
-    };
-
+    // Start with the current complete schema; only the version is unsupported.
+    // Hand-writing a parallel root JSON fixture would become stale whenever an
+    // authoritative owner is added.
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &AppState::new())).unwrap();
+    encoded["schema_version"] = serde_json::json!(999);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap();
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::UnsupportedSchemaVersion {

@@ -487,7 +487,10 @@ pub(crate) fn apply_kobold_scout_tick(
     // Neither player-held torches nor hidden ambient/skylight are invented here.
     let pressured_by_light =
         assess_local_illumination(registries, state, from).level() >= SCOUT_DETERRENT_LIGHT_LEVEL;
-    let pressured = pressured_by_player || pressured_by_light;
+    let recently_hit = state.kobold_state().colony.as_ref().is_some_and(|colony| {
+        colony.recently_shoved(super::KoboldRole::Scout, state.control_tick())
+    });
+    let pressured = pressured_by_player || pressured_by_light || recently_hit;
     // Meals use the existing sparse scout schedule, never a per-control-tick AI update.
     // Den resources remain physically recoverable until they are actually eaten.
     let (consumed_food, discarded_food, cleared_cache) =

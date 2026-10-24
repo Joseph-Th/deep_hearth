@@ -18,12 +18,12 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Graded tin/iron/lead ores; cassiterite, hematite and galena dressing with mechanical tailings recovery. Copper casting and PbS+Fe lead smelting; no general reduction. |
-| Opening wilderness acquisition | Scouts raid, forage and track; light and guards deter them. Recovered ingots or sizeable iron scraps improve conserved tools; clappers repair two-hop alarms. Hearing respects air paths and concealment; no combat. |
+| Opening wilderness acquisition | Scouts raid, forage and track; light and guards deter them. Recovered scrap improves tools; clappers relay alarms. Hearing respects obstruction; unarmed contact startles local kobolds, without damage. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
 
-Current graph boundaries, not priorities:
+Missing ordinary edges:
 
 | Implemented side | Missing ordinary edge |
 | --- | --- |
@@ -79,7 +79,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, chemical blending/contamination, and pressure-dependent behavior. |
-| Ecology and society | Agriculture, ecology, creature collision/combat/pursuit, broader temple-caste duties and physiology, active relic restoration, settlements, trade, economy, migration, and raids beyond the opening patrol. |
+| Ecology and society | Agriculture, ecology, lethal combat, armed creature attacks/pursuit, broader temple-caste duties and physiology, active relic restoration, recruitment, settlements, trade, economy, migration, and raids beyond the opening patrol. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
 

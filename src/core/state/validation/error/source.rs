@@ -16,7 +16,7 @@ impl Error for StateValidationError {
             Self::StructureEmbeddedInSolidTerrain { .. } => None,
             Self::World(error) => Some(error),
             Self::Surface(error) => Some(error),
-            Self::Kobolds(_) => None,
+            Self::Kobolds(_) | Self::Combat(_) => None,
             Self::StructureAnalysis(error) => Some(error),
             Self::Geology(error) => Some(error),
             Self::GeologicalKnowledge(error) => Some(error),

@@ -40,6 +40,7 @@ impl Display for StateValidationError {
             Self::World(error) => write!(formatter, "invalid block-world state: {error}"),
             Self::Surface(error) => write!(formatter, "invalid surface-resource state: {error}"),
             Self::Kobolds(error) => write!(formatter, "invalid kobold colony state: {error}"),
+            Self::Combat(error) => write!(formatter, "invalid combat history: {error}"),
             Self::StructureAnalysis(error) => {
                 write!(formatter, "structural state cannot be analyzed: {error}")
             }

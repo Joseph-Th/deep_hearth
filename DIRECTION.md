@@ -29,6 +29,11 @@ Prefer a smaller connected graph over a larger disconnected catalog. A feature t
 no new owner interaction, decision surface, or recovery path has low priority unless it is required to close a
 specific vertical slice.
 
+Combat's connected integration sequence is defined in [Combat and Kobold Cooperation](COMBAT_DESIGN.md):
+first real nonlethal contact, then material-backed melee and defense, physical injury, ranged
+ammunition and supply, and only then voluntary allied roles and industrial formations.
+Recruitment must not be a virtual army-unlock detached from den food and existing residents.
+
 ## Block-world parity gate
 
 The immediate integration frontier is the missing block-survival substrate identified in
