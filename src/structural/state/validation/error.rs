@@ -3,6 +3,7 @@
 use crate::core::quantity::{Force, Mass};
 use crate::core::time::SimulationTick;
 use crate::material::{FormId, MaterialId, MaterialPhaseStateError, ParticleSizeStateError};
+use crate::spatial::VoxelCoord;
 
 use super::super::super::definitions::StructuralProfileId;
 use super::super::super::geometry::StructuralGeometryError;
@@ -50,6 +51,11 @@ pub enum StructureValidationError {
         element: StructuralElementId,
         embodied: Mass,
         required: Mass,
+    },
+    OverlappingEmbodiedMembers {
+        element: StructuralElementId,
+        existing: StructuralElementId,
+        voxel: VoxelCoord,
     },
     UnmaterializedLoadBearingElement {
         element: StructuralElementId,

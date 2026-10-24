@@ -12,7 +12,7 @@ use crate::inventory::{
     MaterialStorageHistory,
 };
 use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SurfaceResourceId(u32);
@@ -299,6 +299,27 @@ impl SurfaceResourceState {
             .map(|id| {
                 self.resources.get(id).unwrap_or_else(|| {
                     unreachable!("surface location index references missing resource")
+                })
+            })
+    }
+
+    /// Reads live surface custody within physical bounds using the local position index.
+    /// Restricting the B-tree range by X avoids a scan over remote and depleted resources;
+    /// Y and Z are checked against the full half-open bounds before resolving each identity.
+    pub(crate) fn available_resources_in_bounds(
+        &self,
+        bounds: VoxelBounds,
+    ) -> impl Iterator<Item = &SurfaceResourceRecord> {
+        let start = VoxelCoord::new(bounds.min().x(), i64::MIN, i64::MIN);
+        let end = VoxelCoord::new(bounds.max_exclusive().x(), i64::MIN, i64::MIN);
+        self.available_by_position
+            .range(start..end)
+            .filter(move |(position, _)| bounds.has_voxel(**position))
+            .flat_map(|(_, ids)| {
+                ids.iter().map(|id| {
+                    self.resources.get(id).unwrap_or_else(|| {
+                        unreachable!("surface location index references missing resource")
+                    })
                 })
             })
     }

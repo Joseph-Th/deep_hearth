@@ -214,6 +214,70 @@ fn surface_creation_token_and_scavenged_drop_cannot_cross_a_new_wall() {
 }
 
 #[test]
+fn indexed_surface_bounds_exclude_remote_and_depleted_custody() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let positions = [
+        VoxelCoord::new(0, 4, 0),
+        VoxelCoord::new(i64::MAX - 1, 0, 0),
+        VoxelCoord::new(-2, 0, 0),
+        VoxelCoord::new(1, 0, 1),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(0, 0, 4),
+        VoxelCoord::new(-3, 0, 0),
+        VoxelCoord::new(2, 0, 0),
+    ];
+    let specs = positions.map(|position| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(100_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    });
+    let allocation = validate_create_surface_resources(&registries, &state, specs).unwrap();
+    let ids = allocation.resource_ids().collect::<Vec<_>>();
+    allocation.commit(&mut state).unwrap();
+    let bounds = VoxelBounds::new(VoxelCoord::new(-2, -1, -1), VoxelCoord::new(2, 2, 2)).unwrap();
+    let observed = |state: &AppState| {
+        state
+            .surface()
+            .available_resources_in_bounds(bounds)
+            .map(|record| record.id())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(observed(&state), vec![ids[2], ids[4], ids[3]]);
+
+    let next_revision = state.surface().revision() + 1;
+    let at = state.tick();
+    state.surface_state_mut().apply_gathering(
+        ids[4],
+        Mass::from_milligrams(100_000),
+        at,
+        next_revision,
+    );
+    assert_eq!(observed(&state), vec![ids[2], ids[3]]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let extreme = VoxelBounds::new(
+        VoxelCoord::new(i64::MAX - 1, -1, -1),
+        VoxelCoord::new(i64::MAX, 1, 1),
+    )
+    .unwrap();
+    assert_eq!(
+        state
+            .surface()
+            .available_resources_in_bounds(extreme)
+            .map(|record| record.id())
+            .collect::<Vec<_>>(),
+        vec![ids[1]]
+    );
+}
+
+#[test]
 fn local_surface_index_tracks_creation_partial_use_relocation_and_depletion_across_load() {
     let registries = build_registries();
     let mut state = AppState::new();

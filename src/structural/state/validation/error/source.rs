@@ -18,6 +18,7 @@ impl Error for StructureValidationError {
             | Self::ZeroCrossSection { .. }
             | Self::ZeroLength { .. }
             | Self::EmbodiedMassGeometryMismatch { .. }
+            | Self::OverlappingEmbodiedMembers { .. }
             | Self::UnmaterializedLoadBearingElement { .. }
             | Self::EmbodiedMassOverflow { .. }
             | Self::ZeroEmbodiedTrace { .. }

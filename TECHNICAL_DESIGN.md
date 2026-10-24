@@ -1261,6 +1261,10 @@ Conversely, surface creation and trusted-load promotion reject loose matter insi
 full-cell structural member, while narrow supports remain traversable. Surface-creation tokens
 bind the structural revision, and physical scavenging cannot move parcels through a built full-cell
 obstruction.
+Materialization and trusted-load promotion also reject two embodied full-footprint members
+claiming the same voxel. Distinct inert plans and slender structural framing retain their
+separate permitted overlap rules. Construction vacancy queries use the surface position index,
+not a scan of remote and depleted resources.
 
 The gameplay-audit fixture may materialize a planned member from exact conserved inventory traces after
 validating geometry-derived mass, consolidated form, composition, source capacity, and self-weight. This is

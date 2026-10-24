@@ -2,8 +2,9 @@
 
 use super::*;
 use crate::content::{
-    FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, FORM_CRUSHED, FORM_INGOT,
+    FORM_LOG, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Force, Length};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -22,8 +23,8 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructureValidationError, add_structural_element, materialize_structural_element_for_test,
-    validate_activate_structural_element,
+    StructuralElementGeometry, StructureValidationError, add_structural_element,
+    materialize_structural_element_for_test, validate_activate_structural_element,
 };
 
 fn wood_length_for_mass(mass: Mass) -> Length {
@@ -234,6 +235,111 @@ fn unmaterialized_construction_fixture() -> (
     )
     .unwrap_or_else(|error| panic!("construction exhaustion material failed: {error}"));
     (registries, state, element, source, lot)
+}
+
+#[test]
+fn full_footprint_member_cannot_embody_a_second_occupied_voxel() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let voxel = VoxelCoord::new(1, 0, 0);
+    let bounds = VoxelBounds::new(voxel, VoxelCoord::new(2, 1, 1)).unwrap();
+    let full_geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap();
+    let first = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        full_geometry,
+        true,
+    )
+    .unwrap();
+    let second = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        full_geometry,
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, first, FORM_LOG);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let required = resolve_structural_material_requirement(&registries, &state, second)
+        .unwrap()
+        .required_mass();
+    let stockpile = add_solid_stockpile_for_test(&mut state, required).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        required,
+        crate::core::quantity::Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let resolution = bind_structural_construction_selection(
+        &state,
+        second,
+        stockpile,
+        &[MaterialLotSelection::new(lot, required)],
+    )
+    .unwrap();
+    let before = state.clone();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        validate_structural_construction(&registries, &state, resolution).err(),
+        Some(StructuralConstructionError::OverlappingEmbodiedMember {
+            element: second,
+            existing: first,
+            voxel,
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let first_record =
+        forged["state"]["systems"]["structures"]["elements"][first.value().to_string()].clone();
+    let second_record =
+        &mut forged["state"]["systems"]["structures"]["elements"][second.value().to_string()];
+    second_record["embodied_material"] = first_record["embodied_material"].clone();
+    second_record["loads"] = first_record["loads"].clone();
+    let invalid: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert_eq!(
+        invalid.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Structure(
+            StructureValidationError::OverlappingEmbodiedMembers {
+                element: second,
+                existing: first,
+                voxel,
+            }
+        )))
+    );
+
+    let slender = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            bounds,
+            Length::from_micrometers(2_000_000),
+            Area::from_square_millimeters(5_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, slender, FORM_LOG);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

@@ -74,6 +74,36 @@ impl StructureState {
         })
     }
 
+    /// Identifies another embodied full-footprint member occupying the same voxel.
+    /// Narrow framing and inert plans can overlap a panel under the authored joint model.
+    pub(crate) fn overlapping_embodied_full_footprint(
+        &self,
+        candidate: &StructuralElementRecord,
+    ) -> Option<(StructuralElementId, VoxelCoord)> {
+        if !candidate.geometry().covers_horizontal_footprint() {
+            return None;
+        }
+        self.elements.values().find_map(|member| {
+            if member.id() == candidate.id()
+                || member.embodied_material().is_empty()
+                || !member.geometry().covers_horizontal_footprint()
+                || !candidate.bounds().has_intersection(member.bounds())
+            {
+                return None;
+            }
+            let left = candidate.bounds().min();
+            let right = member.bounds().min();
+            Some((
+                member.id(),
+                VoxelCoord::new(
+                    left.x().max(right.x()),
+                    left.y().max(right.y()),
+                    left.z().max(right.z()),
+                ),
+            ))
+        })
+    }
+
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut dependents_by_support = self
             .elements

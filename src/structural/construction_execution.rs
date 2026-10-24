@@ -300,15 +300,22 @@ fn validate_structural_construction_world(
             voxel,
         });
     }
+    if let Some((existing, voxel)) = state
+        .structures()
+        .overlapping_embodied_full_footprint(record)
+    {
+        return Err(StructuralConstructionError::OverlappingEmbodiedMember {
+            element: record.id(),
+            existing,
+            voxel,
+        });
+    }
     if record.geometry().covers_horizontal_footprint() {
         if let Some(voxel) = state
             .surface()
-            .resources()
-            .filter(|resource| {
-                resource.lifecycle() == crate::surface::SurfaceResourceLifecycle::Available
-            })
+            .available_resources_in_bounds(record.bounds())
             .map(|resource| resource.position())
-            .find(|&voxel| record.bounds().has_voxel(voxel))
+            .next()
         {
             return Err(StructuralConstructionError::ExposedSurfaceMatter {
                 element: record.id(),

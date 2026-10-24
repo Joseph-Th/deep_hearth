@@ -43,6 +43,19 @@ impl Display for StructureValidationError {
                 embodied.milligrams(),
                 required.milligrams()
             ),
+            Self::OverlappingEmbodiedMembers {
+                element,
+                existing,
+                voxel,
+            } => write!(
+                formatter,
+                "structural elements {} and {} both embody full-cell matter at ({},{},{})",
+                element.value(),
+                existing.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::ElementKeyMismatch { key, record } => write!(
                 formatter,
                 "structural element map key {} disagrees with record id {}",

@@ -5,7 +5,7 @@ use crate::core::time::SimulationTick;
 use crate::material::MaterialRegistry;
 
 use super::super::definitions::StructuralRegistry;
-use super::StructureState;
+use super::{StructuralElementRecord, StructureState};
 
 mod element;
 mod error;
@@ -37,10 +37,50 @@ pub(crate) fn validate_loaded_structure(
             gravity,
         )?;
     }
+    validate_embodied_footprint_overlap(state)?;
     validate_support_index_coverage(state)?;
     validate_support_edges(state)?;
     validate_reverse_support_edges(state)?;
     validate_active_supports(state)
+}
+
+/// Sweep only embodied full-footprint X intervals, avoiding an all-pairs search
+/// across nonoverlapping settlement structures during trusted-load promotion.
+fn validate_embodied_footprint_overlap(
+    state: &StructureState,
+) -> Result<(), StructureValidationError> {
+    let mut full_members = state
+        .elements
+        .values()
+        .filter(|record| {
+            !record.embodied_material().is_empty()
+                && record.geometry().covers_horizontal_footprint()
+        })
+        .collect::<Vec<_>>();
+    full_members.sort_by_key(|record| (record.bounds().min().x(), record.id()));
+    let mut active: Vec<&StructuralElementRecord> = Vec::new();
+    for record in full_members {
+        let bounds = record.bounds();
+        active.retain(|member| member.bounds().max_exclusive().x() > bounds.min().x());
+        if let Some(existing) = active
+            .iter()
+            .find(|member| bounds.has_intersection(member.bounds()))
+        {
+            let min = bounds.min();
+            let occupied = existing.bounds().min();
+            return Err(StructureValidationError::OverlappingEmbodiedMembers {
+                element: record.id(),
+                existing: existing.id(),
+                voxel: crate::spatial::VoxelCoord::new(
+                    min.x().max(occupied.x()),
+                    min.y().max(occupied.y()),
+                    min.z().max(occupied.z()),
+                ),
+            });
+        }
+        active.push(record);
+    }
+    Ok(())
 }
 
 fn validate_structure_cursor(state: &StructureState) -> Result<(), StructureValidationError> {

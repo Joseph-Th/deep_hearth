@@ -38,6 +38,11 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         voxel: VoxelCoord,
     },
+    OverlappingEmbodiedMember {
+        element: StructuralElementId,
+        existing: StructuralElementId,
+        voxel: VoxelCoord,
+    },
     ActorOccupied {
         element: StructuralElementId,
         voxel: VoxelCoord,
@@ -146,6 +151,19 @@ impl Display for StructuralConstructionError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::OverlappingEmbodiedMember {
+                element,
+                existing,
+                voxel,
+            } => write!(
+                formatter,
+                "structural element {} cannot occupy full-cell matter already owned by member {} at ({},{},{})",
+                element.value(),
+                existing.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::ActorOccupied { element, voxel } => write!(
                 formatter,
                 "structural element {} cannot receive matter inside a resident at ({},{},{})",
@@ -208,6 +226,9 @@ impl Error for StructuralConstructionError {
                 element: _element, ..
             }
             | Self::ExposedSurfaceMatter {
+                element: _element, ..
+            }
+            | Self::OverlappingEmbodiedMember {
                 element: _element, ..
             }
             | Self::ActorOccupied {
