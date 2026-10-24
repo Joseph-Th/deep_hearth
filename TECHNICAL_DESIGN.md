@@ -951,6 +951,13 @@ finite energy and equipment condition, and persisted in-flight cleanup
 continues deterministically. Unlike magnetite's magnetic concentration, this
 is dry physical gravity/density dressing and never forms elemental iron,
 offgas, wastewater or smelting slag.
+One continuous world-backed execution proves those transitions together:
+ordinary graded-block excavation follows an actual copper-pick upgrade,
+coarse breaking/picking yields finite local residues, and locally assembled
+quern, rocking separator, hand crank and stone flywheel run the downstream
+jobs. Timed manual work charges the flywheel before mechanical processing;
+neither machines nor work energy are preinstalled or injected. The same
+world-origin mineral lots are routed through cleanup and save/load replay.
 The electromagnetic separator is assembled from cast iron, formed copper winding and timber,
 and wears its replaceable conductor component. Its separate capability requirements prevent
 a mechanically powered rock separator from executing magnetic recovery. Neither process
@@ -1165,8 +1172,13 @@ filled vessels at the player's current voxel and potential receiving vessels
 there or directly below, never remote contents. Every row uses the canonical
 validator to expose either the exact remaining source contents and equilibrium
 destination contents or a typed blocker (heat divisibility, capacity, terrain,
-support, fluid incompatibility). This is read-only assessment, not reservation;
-acting on a row must revalidate the selected transfer against current revisions.
+support, fluid incompatibility). The player-facing selected-option boundary
+reruns the canonical route-specific transfer validation. A blocked observation
+is ineligible for execution even if the current state would allow the transfer;
+changes to predicted source/destination quantities or temperatures likewise
+require the caller to refresh the observation. The resulting revision-bound
+token commits through the same atomic transfer path. Observations are
+read-only assessments, not reservations.
 Logistics derives a nonpersisted voxel-to-fluid-store index from authoritative
 store locations on every placement, generated opening, and trusted load.
 Both exact-player-local fluid observation and transfer-candidate lookup use

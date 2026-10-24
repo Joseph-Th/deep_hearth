@@ -12,8 +12,8 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::{
-    FluidContents, FluidStoreId, FluidTransferError, validate_gravity_feed_fluid_to_lower_store,
-    validate_transfer_fluid_between_local_stores,
+    FluidContents, FluidStoreId, FluidTransferError, ValidatedFluidTransfer,
+    validate_gravity_feed_fluid_to_lower_store, validate_transfer_fluid_between_local_stores,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,8 +82,8 @@ impl PlayerFluidTransferOption {
 ///
 /// An option's ready status is not a promise that smaller or larger volumes
 /// can transfer: exact-temperature arithmetic can admit one amount and reject
-/// a neighboring amount. The executing caller must revalidate with the route's
-/// canonical validator, especially after world, logistics or fluid changes.
+/// a neighboring amount. The executing caller must revalidate the selected row,
+/// especially after world, logistics or fluid changes.
 pub fn player_fluid_transfer_options(
     registries: &Registries,
     state: &AppState,
@@ -166,4 +166,44 @@ pub fn player_fluid_transfer_options(
         }
     }
     Ok(options)
+}
+
+/// Turns one observed choice into a current revision-bound transfer token.
+///
+/// Revalidation must not silently execute a resulting volume or temperature
+/// different from the one shown to the player. A previously blocked choice
+/// also requires a fresh observation before it can be executed after the
+/// blocker disappears. Every physical rule remains in the canonical transfer
+/// validators; this is only a consistency check on their predicted outcome.
+pub fn validate_player_fluid_transfer_option(
+    registries: &Registries,
+    state: &AppState,
+    option: &PlayerFluidTransferOption,
+) -> Result<ValidatedFluidTransfer, FluidTransferError> {
+    let validated = match option.route {
+        PlayerFluidTransferRoute::SameVoxel => validate_transfer_fluid_between_local_stores(
+            registries,
+            state,
+            option.source,
+            option.destination,
+            option.requested,
+        ),
+        PlayerFluidTransferRoute::OneVoxelDown => validate_gravity_feed_fluid_to_lower_store(
+            registries,
+            state,
+            option.source,
+            option.destination,
+            option.requested,
+        ),
+    }?;
+    if option.blocker.is_some()
+        || option.source_after != validated.after_source
+        || option.destination_after != Some(validated.after_destination)
+    {
+        return Err(FluidTransferError::ObservedOutcomeChanged {
+            source: option.source,
+            destination: option.destination,
+        });
+    }
+    Ok(validated)
 }

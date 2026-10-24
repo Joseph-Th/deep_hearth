@@ -3,8 +3,7 @@
 use super::*;
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::fluid::{
-    PlayerFluidTransferRoute, player_fluid_transfer_options,
-    validate_gravity_feed_fluid_to_lower_store,
+    PlayerFluidTransferRoute, player_fluid_transfer_options, validate_player_fluid_transfer_option,
 };
 
 const BELOW: VoxelCoord = VoxelCoord::new(0, -1, 0);
@@ -96,16 +95,10 @@ fn local_and_downhill_options_are_discoverable_and_executable_without_remote_lea
         .unwrap()
         .total()
         .unwrap();
-    let _ = validate_gravity_feed_fluid_to_lower_store(
-        &fixture.registries,
-        &fixture.state,
-        choices[0].source(),
-        choices[0].destination(),
-        choices[0].requested(),
-    )
-    .unwrap()
-    .commit(&mut fixture.state)
-    .unwrap();
+    let _ = validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, &choices[0])
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
     assert_eq!(
         calculate_fluid_volume_accounting(&fixture.state).unwrap(),
         before_water
@@ -134,6 +127,36 @@ fn local_and_downhill_options_are_discoverable_and_executable_without_remote_lea
             .volume()
             .microliters(),
         400_000
+    );
+    let after = fixture.state.clone();
+    assert_eq!(
+        validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, &choices[0])
+            .err(),
+        Some(FluidTransferError::ObservedOutcomeChanged {
+            source: fixture.source,
+            destination: fixture.destination,
+        }),
+        "a stale choice cannot silently transfer water to a new predicted outcome"
+    );
+    assert_eq!(fixture.state, after);
+    let _ =
+        validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, &refreshed[1])
+            .unwrap()
+            .commit(&mut fixture.state)
+            .unwrap();
+    assert_eq!(
+        fixture
+            .state
+            .fluid()
+            .get_store(local)
+            .unwrap()
+            .stored_volume()
+            .microliters(),
+        200_000
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&fixture.state).unwrap(),
+        before_water
     );
     validate_loaded_state(&fixture.registries, &fixture.state).unwrap();
 }
@@ -164,6 +187,12 @@ fn catalog_reports_exact_amount_specific_temperature_and_capacity_blockers() {
         })
     );
     assert_eq!(one[0].destination_after(), None);
+    let blocked_state = fixture.state.clone();
+    assert_eq!(
+        validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, &one[0]).err(),
+        one[0].blocker().cloned(),
+    );
+    assert_eq!(fixture.state, blocked_state);
     let ten = player_fluid_transfer_options(
         &fixture.registries,
         &fixture.state,
@@ -174,6 +203,21 @@ fn catalog_reports_exact_amount_specific_temperature_and_capacity_blockers() {
     assert_eq!(
         ten[0].destination_after().unwrap().temperature(),
         Temperature::from_millikelvin(298_150)
+    );
+    let _ = validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, &ten[0])
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+    assert_eq!(
+        fixture
+            .state
+            .fluid()
+            .get_store(fixture.destination)
+            .unwrap()
+            .contents()
+            .unwrap()
+            .temperature(),
+        Temperature::from_millikelvin(298_150),
     );
 
     // The planner does not guess an available amount when the vessel is full.
@@ -204,6 +248,78 @@ fn catalog_reports_exact_amount_specific_temperature_and_capacity_blockers() {
             requested: Volume::from_microliters(10),
         })
     );
+}
+
+#[test]
+fn blocked_observation_requires_refresh_after_capacity_is_freed() {
+    let mut fixture = fixture_at(None, POSITION);
+    let full = add_fluid_store_with_contents_for_fixture(
+        &fixture.registries,
+        &mut fixture.state,
+        Volume::from_microliters(100),
+        FLUID_WATER,
+        Volume::from_microliters(100),
+        ROOM_TEMPERATURE,
+    )
+    .unwrap();
+    validate_place_fluid_store(&fixture.state, full, POSITION)
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+    let amount = Volume::from_microliters(20);
+    let before =
+        player_fluid_transfer_options(&fixture.registries, &fixture.state, amount).unwrap();
+    let blocked = before
+        .iter()
+        .find(|choice| choice.source() == fixture.source && choice.destination() == full)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        blocked.blocker(),
+        Some(&FluidTransferError::InsufficientCapacity {
+            available: Volume::ZERO,
+            requested: amount,
+        }),
+    );
+    let drained = before
+        .iter()
+        .find(|choice| choice.source() == full && choice.destination() == fixture.destination)
+        .unwrap();
+    let _ = validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, drained)
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+    let after = fixture.state.clone();
+    assert_eq!(
+        validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, &blocked).err(),
+        Some(FluidTransferError::ObservedOutcomeChanged {
+            source: fixture.source,
+            destination: full,
+        }),
+    );
+    assert_eq!(fixture.state, after);
+    let refreshed =
+        player_fluid_transfer_options(&fixture.registries, &fixture.state, amount).unwrap();
+    let newly_ready = refreshed
+        .iter()
+        .find(|choice| choice.source() == fixture.source && choice.destination() == full)
+        .unwrap();
+    assert!(newly_ready.is_ready());
+    let _ = validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, newly_ready)
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+    assert_eq!(
+        fixture
+            .state
+            .fluid()
+            .get_store(full)
+            .unwrap()
+            .stored_volume()
+            .microliters(),
+        100,
+    );
+    validate_loaded_state(&fixture.registries, &fixture.state).unwrap();
 }
 
 #[test]

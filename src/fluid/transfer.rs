@@ -40,6 +40,11 @@ pub enum FluidTransferError {
     UnknownGravityTerrain {
         destination_position: VoxelCoord,
     },
+    /// A previously selected choice now has different resulting contents.
+    ObservedOutcomeChanged {
+        source: FluidStoreId,
+        destination: FluidStoreId,
+    },
     UnknownStore {
         store: FluidStoreId,
     },
@@ -100,6 +105,7 @@ mod catalog;
 
 pub use catalog::{
     PlayerFluidTransferOption, PlayerFluidTransferRoute, player_fluid_transfer_options,
+    validate_player_fluid_transfer_option,
 };
 
 /// Computes same-fluid equilibrium without any external heat source or sink.

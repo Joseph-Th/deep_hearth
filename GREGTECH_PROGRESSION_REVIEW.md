@@ -38,6 +38,11 @@ Four GregTech-inspired branches use existing authoritative process owners:
    A 100 g mined batch yields 39 g hand-picked Fe2O3 and 19.136 g additional
    pure Fe2O3, leaving 41.864 g of exhausted solid residue. All four timed
    operations conserve the oxide and stone, with finite equipment and energy.
+   The world-origin continuation also assembles the mechanical equipment,
+   hand crank and stone flywheel from actual component lots and charges the
+   flywheel with timed manual labor before running the same tailings through
+   all three powered stages. Saved in-flight cleanup replays without creating
+   extra mass. This does not require fictional steam or an electric grid.
    No blast furnace, oxygen removal, iron metal or steel is implied.
 4. Galena (PbS) is mined from rich or 80%-sulfide stone lenses and hand-sorted as coarse
    crystalline fragments at 65% sulfide recovery, leaving real stone and unrecovered PbS

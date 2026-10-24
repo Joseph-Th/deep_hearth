@@ -23,7 +23,8 @@ pub use structural_integration::{
 pub use transfer::{
     FluidTransferCommitError, FluidTransferError, FluidTransferOutcome, PlayerFluidTransferOption,
     PlayerFluidTransferRoute, ValidatedFluidTransfer, player_fluid_transfer_options,
-    validate_gravity_feed_fluid_to_lower_store, validate_transfer_fluid_between_local_stores,
+    validate_gravity_feed_fluid_to_lower_store, validate_player_fluid_transfer_option,
+    validate_transfer_fluid_between_local_stores,
 };
 
 pub(crate) use egress::{
