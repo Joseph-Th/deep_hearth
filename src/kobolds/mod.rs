@@ -678,7 +678,7 @@ pub fn available_nearby_kobold_scouts<'a>(
 pub(crate) fn close_contact_at(
     state: &AppState,
     voxel: VoxelCoord,
-) -> Result<Option<KoboldRole>, ()> {
+) -> Result<Option<(KoboldRole, VoxelCoord)>, ()> {
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return Ok(None);
     };
@@ -692,8 +692,8 @@ pub(crate) fn close_contact_at(
         occupies(colony.watch_position()),
     ) {
         (true, true) => Err(()),
-        (true, false) => Ok(Some(KoboldRole::Scout)),
-        (false, true) => Ok(Some(KoboldRole::Watchman)),
+        (true, false) => Ok(Some((KoboldRole::Scout, colony.scout_position()))),
+        (false, true) => Ok(Some((KoboldRole::Watchman, colony.watch_position()))),
         (false, false) => Ok(None),
     }
 }

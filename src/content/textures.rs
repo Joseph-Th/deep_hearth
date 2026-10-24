@@ -199,6 +199,8 @@ pub const OBJECT_MOLTEN_LEAD: ObjectAppearanceId = ObjectAppearanceId::new(116);
 pub const OBJECT_LEAD_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(117);
 pub const OBJECT_IRON_SULFIDE_MATTE: ObjectAppearanceId = ObjectAppearanceId::new(118);
 pub const OBJECT_COPPER_WOUND_MAGNETIC_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(119);
+pub const OBJECT_WOODEN_CLUB: ObjectAppearanceId = ObjectAppearanceId::new(120);
+pub const OBJECT_STONE_SPEAR: ObjectAppearanceId = ObjectAppearanceId::new(121);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

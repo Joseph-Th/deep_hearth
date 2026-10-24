@@ -6,7 +6,7 @@ mod secondary;
 use placement::{attempt_storage_placement, attempt_structural_dismantling_now};
 use secondary::{attempt_empty_hand_secondary_action, attempt_selected_secondary_action};
 
-use crate::combat::validate_primitive_shove;
+use crate::combat::{validate_primitive_shove, validate_primitive_strike};
 use crate::core::state::AppState;
 use crate::logistics::{
     PlayerActiveSelection, take_player_pending_primary_break, take_player_pending_secondary_use,
@@ -113,6 +113,16 @@ fn attempt_primary_action(
                     }))
                 }
                 Err(error) => PrimaryActionOutcome::ShoveRejected(error),
+            },
+        ),
+        PrimaryControlIntent::Strike { direction } => Some(
+            match validate_primitive_strike(registries, state, direction) {
+                Ok(validated) => {
+                    PrimaryActionOutcome::Strike(validated.commit(state).unwrap_or_else(|error| {
+                        panic!("synchronous primitive weapon contact became stale: {error:?}")
+                    }))
+                }
+                Err(error) => PrimaryActionOutcome::StrikeRejected(error),
             },
         ),
         PrimaryControlIntent::BreakTarget { direction } => {

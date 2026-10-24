@@ -119,9 +119,22 @@ pub(crate) fn raycast_player_air_voxel<T>(
     registries: &Registries,
     state: &AppState,
     direction: ViewDirection,
+    select: impl FnMut(VoxelCoord, CubeFace) -> Option<T>,
+) -> Result<Option<T>, PlayerBlockTargetError> {
+    raycast_player_air_voxel_with_reach(registries, state, direction, u32::MAX, select)
+}
+
+/// Uses the same opaque-world ray with a shorter, authored weapon reach.
+/// Missing chunks beyond that reach must never affect a close-range miss.
+pub(crate) fn raycast_player_air_voxel_with_reach<T>(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+    reach_millimeters: u32,
     mut select: impl FnMut(VoxelCoord, CubeFace) -> Option<T>,
 ) -> Result<Option<T>, PlayerBlockTargetError> {
-    let (origin, reach_nanometers) = player_view_origin_and_reach(registries, state)?;
+    let (origin, interaction_reach) = player_view_origin_and_reach(registries, state)?;
+    let reach_nanometers = interaction_reach.min(i64::from(reach_millimeters) * 1_000_000);
     trace_generated_voxels(
         registries,
         state,

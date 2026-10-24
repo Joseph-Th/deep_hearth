@@ -85,6 +85,9 @@ pub const EQUIPMENT_STONE_MORTAR_AND_PESTLE: EquipmentDefinitionId = EquipmentDe
 pub const EQUIPMENT_IRON_PICK: EquipmentDefinitionId = EquipmentDefinitionId::new(54);
 pub const EQUIPMENT_COPPER_WOUND_MAGNETIC_SEPARATOR: EquipmentDefinitionId =
     EquipmentDefinitionId::new(55);
+/// First material-backed combat tools, assembled through normal equipment custody.
+pub const EQUIPMENT_WOODEN_CLUB: EquipmentDefinitionId = EquipmentDefinitionId::new(56);
+pub const EQUIPMENT_STONE_SPEAR: EquipmentDefinitionId = EquipmentDefinitionId::new(57);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

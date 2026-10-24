@@ -14,6 +14,10 @@ pub enum PrimaryControlIntent {
     Shove {
         direction: ViewDirection,
     },
+    /// Strike using an authored, carried, selected melee weapon.
+    Strike {
+        direction: ViewDirection,
+    },
 }
 
 /// Held contextual-use intent sampled alongside one 20 Hz locomotion input.
@@ -46,6 +50,11 @@ impl SecondaryControlIntent {
 }
 
 impl PrimaryControlIntent {
+    #[must_use]
+    pub const fn strike(direction: ViewDirection) -> Self {
+        Self::Strike { direction }
+    }
+
     #[must_use]
     pub const fn shove(direction: ViewDirection) -> Self {
         Self::Shove { direction }

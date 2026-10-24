@@ -24,7 +24,7 @@ pub use construction_execution::{
 };
 pub use definitions::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
-    EquipmentMaintenanceProfile, EquipmentRegistry, EquipmentUpgradeProfile,
+    EquipmentMaintenanceProfile, EquipmentRegistry, EquipmentUpgradeProfile, MeleeWeaponProfile,
 };
 pub use disassembly_execution::{
     EquipmentDisassemblyCommitError, EquipmentDisassemblyError, EquipmentDisassemblyOutcome,

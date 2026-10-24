@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Graded tin/iron/lead ores; cassiterite, hematite and galena dressing with mechanical tailings recovery. Copper casting and PbS+Fe lead smelting; no general reduction. |
-| Opening wilderness acquisition | Scouts raid, forage and track; light and guards deter them. Recovered scrap improves tools; clappers relay alarms. Hearing respects obstruction; unarmed contact startles local kobolds, without damage. |
+| Opening wilderness acquisition | Scouts raid, forage and track; light and guards deter them. Recovered scrap improves tools; clappers relay alarms. Occlusion-aware unarmed, club and spear attacks startle local kobolds, without injury. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier

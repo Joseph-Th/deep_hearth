@@ -6,6 +6,7 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use crate::content::crafted_parts::COPPER_REINFORCEMENT_MASS;
 use crate::content::materials::{FORM_REINFORCEMENT, MATERIAL_COPPER};
 
+mod combat;
 mod dressing;
 mod fieldwork;
 mod foundry;
@@ -19,6 +20,8 @@ mod woodworking;
 
 pub(super) fn definitions() -> Vec<EquipmentDefinition> {
     vec![
+        combat::wooden_club(),
+        combat::stone_spear(),
         dressing::stone_cobbing_hammer(),
         dressing::stone_mortar_and_pestle(),
         dressing::timber_dressing_bench(),

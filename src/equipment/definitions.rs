@@ -15,6 +15,41 @@ mod maintenance;
 pub use condition::{CapabilityConditionCurve, CapabilityConditionPoint};
 pub use maintenance::EquipmentMaintenanceProfile;
 
+/// Authored combat handling on a real equipment definition; not a global tier multiplier.
+/// This first nonlethal slice prices contact and missed swings with the same tool wear.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MeleeWeaponProfile {
+    reach_millimeters: u32,
+    recovery_control_ticks: u32,
+    wear_ppm_per_swing: u32,
+}
+impl MeleeWeaponProfile {
+    #[must_use]
+    pub const fn new(
+        reach_millimeters: u32,
+        recovery_control_ticks: u32,
+        wear_ppm_per_swing: u32,
+    ) -> Self {
+        assert!(reach_millimeters >= 800 && reach_millimeters <= 3_500);
+        assert!(recovery_control_ticks >= 8 && recovery_control_ticks <= 60);
+        assert!(wear_ppm_per_swing >= 1 && wear_ppm_per_swing <= 20_000);
+        Self {
+            reach_millimeters,
+            recovery_control_ticks,
+            wear_ppm_per_swing,
+        }
+    }
+    pub const fn reach_millimeters(self) -> u32 {
+        self.reach_millimeters
+    }
+    pub const fn recovery_control_ticks(self) -> u32 {
+        self.recovery_control_ticks
+    }
+    pub const fn wear_ppm_per_swing(self) -> u32 {
+        self.wear_ppm_per_swing
+    }
+}
+
 /// Stable authored identifier for one equipment definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EquipmentDefinitionId(u32);
@@ -49,6 +84,7 @@ pub struct EquipmentDefinition {
     maintenance_profile: Option<EquipmentMaintenanceProfile>,
     assembly_profile: Option<MaterialAssemblyProfile>,
     upgrade_profile: Option<EquipmentUpgradeProfile>,
+    melee_profile: Option<MeleeWeaponProfile>,
 }
 
 /// Authored additive conversion from one existing equipment class into this definition.
@@ -150,7 +186,20 @@ impl EquipmentDefinition {
             maintenance_profile: None,
             assembly_profile: None,
             upgrade_profile: None,
+            melee_profile: None,
         }
+    }
+
+    /// Registers an explicit primitive melee role on a material-backed tool.
+    #[must_use]
+    pub const fn with_melee_profile(mut self, profile: MeleeWeaponProfile) -> Self {
+        self.melee_profile = Some(profile);
+        self
+    }
+
+    #[must_use]
+    pub const fn melee_profile(&self) -> Option<MeleeWeaponProfile> {
+        self.melee_profile
     }
 
     /// Requires an active structural support assignment before this equipment can authorize work.
