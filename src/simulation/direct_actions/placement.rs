@@ -49,6 +49,11 @@ fn validate_direct_placement_position(
         || crate::kobolds::opening_kobold_occupies_voxel(state, position)
         || state.logistics().has_stationary_occupant_at(position)
         || state
+            .surface()
+            .available_resources_at(Some(position))
+            .next()
+            .is_some()
+        || state
             .structures()
             .elements()
             .any(|record| record.bounds().has_voxel(position))

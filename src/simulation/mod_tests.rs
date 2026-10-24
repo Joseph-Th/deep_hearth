@@ -34,6 +34,8 @@ use crate::world::{
     set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 
+#[path = "mod_tests/structural_placement.rs"]
+mod structural_placement;
 #[path = "mod_tests/structural_targeting.rs"]
 mod structural_targeting;
 
