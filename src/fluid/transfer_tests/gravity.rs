@@ -1,10 +1,86 @@
 //! Short, downward, player-local transfer between real neighboring world voxels.
 
 use super::*;
+use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+use crate::core::quantity::{Area, Length};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::fluid::validate_gravity_feed_fluid_to_lower_store;
+use crate::spatial::VoxelBounds;
+use crate::structural::{
+    StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+};
 
 const LOWER: VoxelCoord = VoxelCoord::new(0, -1, 0);
+
+fn add_downhill_wall(fixture: &mut Fixture, materialized: bool) {
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(LOWER, VoxelCoord::new(1, 0, 1)).unwrap(),
+        Length::from_micrometers(1_000_000),
+        Area::from_square_millimeters(1_000_000),
+    )
+    .unwrap();
+    let wall = add_structural_element(
+        &fixture.registries,
+        &mut fixture.state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    if materialized {
+        materialize_structural_element_for_test(
+            &fixture.registries,
+            &mut fixture.state,
+            wall,
+            FORM_LOG,
+        );
+    }
+}
+
+#[test]
+fn downhill_feed_rejects_an_embodied_wall_without_losing_water() {
+    let mut fixture = fixture_at(None, LOWER);
+    add_downhill_wall(&mut fixture, true);
+    assert!(fixture.state.structures().blocks_full_cell(LOWER));
+    let before = fixture.state.clone();
+    assert_eq!(
+        validate_gravity_feed_fluid_to_lower_store(
+            &fixture.registries,
+            &fixture.state,
+            fixture.source,
+            fixture.destination,
+            Volume::from_microliters(100_000),
+        )
+        .err(),
+        Some(FluidTransferError::BlockedGravityDestination {
+            destination_position: LOWER,
+        }),
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn downhill_feed_token_is_invalidated_by_a_new_structural_revision() {
+    let mut fixture = fixture_at(None, LOWER);
+    let token = validate_gravity_feed_fluid_to_lower_store(
+        &fixture.registries,
+        &fixture.state,
+        fixture.source,
+        fixture.destination,
+        Volume::from_microliters(100_000),
+    )
+    .unwrap();
+    let expected = fixture.state.structures().revision();
+    add_downhill_wall(&mut fixture, false);
+    let actual = fixture.state.structures().revision();
+    let before = fixture.state.clone();
+    assert_eq!(
+        token.commit(&mut fixture.state),
+        Err(FluidTransferCommitError::StaleStructureRevision { expected, actual }),
+    );
+    assert_eq!(fixture.state, before);
+}
 
 #[test]
 fn one_voxel_gravity_feed_preserves_water_thermal_energy_and_save_continuation() {

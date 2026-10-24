@@ -88,6 +88,7 @@ impl Error for FluidTransferError {}
 pub enum FluidTransferCommitError {
     StaleFluidRevision { expected: u64, actual: u64 },
     StaleWorldRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
     ContentsChanged { store: FluidStoreId },
@@ -151,6 +152,7 @@ pub struct ValidatedFluidTransfer {
     volume: Volume,
     expected_fluid_revision: u64,
     expected_world_revision: Option<u64>,
+    expected_structure_revision: Option<u64>,
     expected_logistics_revision: u64,
     player_action: PlayerActionGuard,
     structural: Option<ValidatedFluidStructuralLoad>,
@@ -206,6 +208,12 @@ impl ValidatedFluidTransfer {
             let actual = state.world().revision();
             if actual != expected {
                 return Err(FluidTransferCommitError::StaleWorldRevision { expected, actual });
+            }
+        }
+        if let Some(expected) = self.expected_structure_revision {
+            let actual = state.structures().revision();
+            if actual != expected {
+                return Err(FluidTransferCommitError::StaleStructureRevision { expected, actual });
             }
         }
         for (store, expected) in [
@@ -322,6 +330,11 @@ fn validate_transfer_geometry(
             {
                 return Err(FluidTransferError::InvalidGravityRoute {
                     source_position,
+                    destination_position,
+                });
+            }
+            if state.structures().blocks_full_cell(destination_position) {
+                return Err(FluidTransferError::BlockedGravityDestination {
                     destination_position,
                 });
             }
@@ -461,6 +474,8 @@ fn validate_transfer_fluid(
         expected_fluid_revision: fluid.revision(),
         expected_world_revision: matches!(geometry, TransferGeometry::Gravity)
             .then_some(state.world().revision()),
+        expected_structure_revision: matches!(geometry, TransferGeometry::Gravity)
+            .then_some(state.structures().revision()),
         expected_logistics_revision: state.logistics().revision(),
         player_action,
         structural,

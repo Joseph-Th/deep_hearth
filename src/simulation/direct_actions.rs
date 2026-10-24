@@ -246,13 +246,26 @@ fn resolve_direct_structural_face_target(
     direction: ViewDirection,
 ) -> Result<Option<DirectStructuralFaceTarget>, DirectStructuralTargetError> {
     let target = raycast_player_air_voxel(registries, state, direction, |voxel, face| {
-        let mut elements = state
+        // Physical matter takes precedence over inert plans occupying the same
+        // cell. Both may coexist, but only materialized members can physically
+        // occlude a plan. Preserve ambiguity among multiple real members.
+        let mut embodied = (None, 0_usize);
+        let mut planned = (None, 0_usize);
+        for record in state
             .structures()
             .elements()
             .filter(|record| record.bounds().has_voxel(voxel))
-            .map(|record| record.id());
-        let first = elements.next()?;
-        let count = 1 + elements.count();
+        {
+            let group = if record.embodied_material().is_empty() {
+                &mut planned
+            } else {
+                &mut embodied
+            };
+            group.0.get_or_insert(record.id());
+            group.1 += 1;
+        }
+        let (first, count) = if embodied.1 != 0 { embodied } else { planned };
+        let first = first?;
         Some(if count == 1 {
             Ok(DirectStructuralFaceTarget {
                 element: first,
