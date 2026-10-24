@@ -546,6 +546,12 @@ responses require a nearby living player and physical observation; intervening
 stone conceals the archivist's signal. Warden sightings mark this as wary,
 while defensive posture still requires seeing a living intruder directly.
 After the player leaves, wardens retreat through real neighboring cells.
+The installed 8.96 kg archive and 17.92 kg drive are both reachable via the
+normal player eye ray, carried iron-pick primary action, authorized finite
+excavation batches, and exact carried copper-scrap custody. Partial removal
+keeps the device present; only full timed extraction exposes an empty cell.
+The resulting archivist vigil and warden watch use those same world cells,
+without test-only breach mutations or a second machine-state authority.
 The patrol's outward and return positions share geometry but keep distinct
 persisted cursors. The round
 cannot begin from a remote site or merely because a player is far above the

@@ -5,7 +5,7 @@ use crate::content::{
     MATERIAL_WOOD, MINING_METHOD_HAND_PICK, build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
-use crate::core::state::{AppState, StateValidationError};
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
@@ -234,6 +234,350 @@ fn assemble_stone_pick_at(
         .unwrap_or_else(|error| panic!("block excavation pick commit failed: {error}"));
     place_equipment_for_fixture(state, pick, position);
     pick
+}
+
+/// Reuse the real equipment assembly/carry path for hard temple copper.
+fn assemble_iron_pick_at(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+) -> EquipmentId {
+    let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000)).unwrap();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(crate::content::MATERIAL_IRON, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let pick = validate_assemble_equipment(
+        registries,
+        state,
+        crate::content::EQUIPMENT_IRON_PICK,
+        source,
+    )
+    .unwrap()
+    .commit(state)
+    .unwrap();
+    place_equipment_for_fixture(state, pick, position);
+    pick
+}
+
+fn mine_entire_temple_device_with_direct_control(
+    registries: &Registries,
+    state: &mut AppState,
+    target: VoxelCoord,
+    aim: ViewDirection,
+) -> (Mass, u32) {
+    let authored_state = state.world().block_at(target).unwrap();
+    let original = state
+        .world()
+        .represented_mass_at(registries.world(), target)
+        .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let initial_total = calculate_matter_accounting(state).unwrap().total();
+    let mut recovered = 0_u64;
+    let mut batches = 0_u32;
+    // Every batch is a real player primary action and a complete work tick
+    // sequence. No direct world mutation is allowed to create a breach.
+    while state.world().block_at(target) == Some(authored_state) {
+        assert!(batches < 64, "the finite temple device must be excavatable");
+        let control = advance_control_tick_with_direct_input(
+            registries,
+            state,
+            PlayerDirectControlInput::NEUTRAL.with_primary(PrimaryControlIntent::break_target(aim)),
+        )
+        .unwrap();
+        let started = match control.primary_action() {
+            Some(PrimaryActionOutcome::BlockExcavationStarted(started)) => *started,
+            other => panic!("temple device must authorize carried iron-tool excavation: {other:?}"),
+        };
+        assert_eq!(started.target(), target);
+        assert_eq!(state.world().block_at(target), Some(authored_state));
+        if batches == 0 {
+            let encoded = serde_json::to_vec(&SaveEnvelope::new(registries, state)).unwrap();
+            let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+                .unwrap()
+                .into_state(registries)
+                .unwrap();
+            assert_eq!(
+                loaded, *state,
+                "in-progress player work must replay losslessly"
+            );
+        }
+        let mut completed = None;
+        while state.control_tick() < started.completes_at() {
+            let outcome = advance_control_tick(registries, state).unwrap();
+            if let Some(receipt) = outcome.block_excavation() {
+                assert!(completed.replace(receipt).is_none());
+            }
+        }
+        let receipt = completed.expect("timed temple-device mining must finish");
+        assert_eq!(receipt.target(), target);
+        let lot = match receipt.output() {
+            BlockExcavationOutputReceipt::Carried { lot } => lot,
+            BlockExcavationOutputReceipt::Surface { resource } => {
+                panic!("enough carried storage existed; unexpected world drop {resource:?}")
+            }
+        };
+        let fragment = state.inventory().get_lot(lot).unwrap();
+        assert_eq!(fragment.stockpile(), carried);
+        assert_eq!(
+            fragment.commodity(),
+            CommodityKey::new(crate::content::MATERIAL_COPPER, crate::content::FORM_SCRAP),
+            "the mined machine must yield actual recoverable copper, not generic mass"
+        );
+        recovered += receipt.excavated_mass().milligrams();
+        batches += 1;
+        assert_eq!(
+            recovered
+                + state
+                    .world()
+                    .represented_mass_at(registries.world(), target)
+                    .unwrap()
+                    .milligrams(),
+            original.milligrams(),
+        );
+        assert_eq!(
+            calculate_matter_accounting(state).unwrap().total(),
+            initial_total
+        );
+        if batches == 1 {
+            assert_eq!(
+                state.world().block_at(target),
+                Some(authored_state),
+                "partial mining must not falsely signal a missing device"
+            );
+        }
+    }
+    assert!(
+        batches > 1,
+        "a large installed machine needs multiple tool actions"
+    );
+    assert_eq!(recovered, original.milligrams());
+    assert_eq!(state.world().block_at(target), Some(BlockStateId::AIR));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        original
+    );
+    assert_eq!(validate_loaded_state(registries, state), Ok(()));
+    (original, batches)
+}
+
+#[test]
+fn direct_player_excavation_of_a_real_temple_drive_triggers_the_guard_watch() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    let sample = VoxelCoord::new(8, -19, 8);
+    let route = temple_warden_route_at(&registries, &state, sample).unwrap();
+    let center = route[2];
+    let drive = VoxelCoord::new(center.x() + 5, center.y(), center.z());
+    let player = VoxelCoord::new(center.x() + 2, center.y(), center.z());
+    assert_eq!(
+        state.world().block_at(drive),
+        Some(crate::content::BLOCK_STATE_TEMPLE_DRIVE)
+    );
+    let original = state
+        .world()
+        .represented_mass_at(registries.world(), drive)
+        .unwrap();
+    assert_eq!(original, Mass::from_milligrams(17_920_000));
+    assert_eq!(state.world().block_at(player), Some(BlockStateId::AIR));
+
+    let pick = assemble_iron_pick_at(&registries, &mut state, player);
+    validate_admit_player(&registries, &state, player)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_pickup_equipment(&registries, &state, pick)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(pick)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    // The eye is above the floor-level drive. Aim down a physically clear
+    // generated passage rather than moving the authored machine into a fixture.
+    let aim = ViewDirection::new(928_477, -371_391, 0).unwrap();
+    assert_eq!(
+        raycast_player_block(&registries, &state, aim)
+            .unwrap()
+            .map(PlayerBlockTarget::voxel),
+        Some(drive),
+    );
+
+    let initial_total = calculate_matter_accounting(&state).unwrap().total();
+    let (mined, _) =
+        mine_entire_temple_device_with_direct_control(&registries, &mut state, drive, aim);
+    assert_eq!(mined, original);
+
+    // Let the actual resident notice the excavated housing on its next third
+    // engine round. Nothing teleports to the machine on the completion tick.
+    crate::logistics::relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(center.x() - 4, center.y(), center.z()),
+    );
+    let round = ((state.tick().value() / 360) + 1) * 360;
+    while state.tick().value() < round + 30 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let by_drive = VoxelCoord::new(center.x() + 4, center.y(), center.z());
+    crate::logistics::relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(by_drive.x(), by_drive.y(), by_drive.z() + 1),
+    );
+    let seen = crate::kobolds::available_nearby_kobold_scouts(&registries, &state)
+        .find(|sighting| sighting.role() == crate::kobolds::KoboldRole::TempleWarden)
+        .expect("local player can observe the inspector beside the removed drive");
+    assert_eq!(seen.position(), by_drive);
+    assert!(
+        seen.is_wary(),
+        "copper removed by a player gives the same actual machine watch"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial_total
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn direct_player_excavation_of_the_generated_archive_causes_a_real_caste_vigil() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let route = temple_warden_route_at(&registries, &state, VoxelCoord::new(8, -19, 8)).unwrap();
+    let center = route[2];
+    let archive = VoxelCoord::new(center.x() - 5, center.y(), center.z());
+    let player = VoxelCoord::new(center.x() - 2, center.y(), center.z());
+    let original = state
+        .world()
+        .represented_mass_at(registries.world(), archive)
+        .unwrap();
+    assert_eq!(
+        state.world().block_at(archive),
+        Some(crate::content::BLOCK_STATE_TEMPLE_ARCHIVE)
+    );
+    assert_eq!(original, Mass::from_milligrams(8_960_000));
+    assert_eq!(state.world().block_at(player), Some(BlockStateId::AIR));
+
+    let pick = assemble_iron_pick_at(&registries, &mut state, player);
+    validate_admit_player(&registries, &state, player)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_pickup_equipment(&registries, &state, pick)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(pick)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    let aim = ViewDirection::new(-928_477, -371_391, 0).unwrap();
+    assert_eq!(
+        raycast_player_block(&registries, &state, aim)
+            .unwrap()
+            .map(PlayerBlockTarget::voxel),
+        Some(archive),
+        "the original copper archive must be targetable from the actual chamber"
+    );
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let (mined, _) =
+        mine_entire_temple_device_with_direct_control(&registries, &mut state, archive, aim);
+    assert_eq!(mined, original);
+
+    // After the work, the player stays at the actual open maintenance throat.
+    // The archivist must walk the full route before discovering the missing shell.
+    crate::logistics::relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(center.x() - 4, center.y(), center.z()),
+    );
+    let start = ((state.tick().value() / 240) + 1) * 240;
+    while state.tick().value() < start + 40 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.world().block_at(archive), Some(BlockStateId::AIR));
+    let archive_seen = crate::kobolds::available_nearby_kobold_scouts(&registries, &state)
+        .find(|seen| seen.role() == crate::kobolds::KoboldRole::TempleArchivist)
+        .expect("the attending archivist is visible beside the missing shell");
+    assert!(archive_seen.is_defending());
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+
+    let next_round = ((state.tick().value() / 120) + 1) * 120;
+    while state.tick().value() < next_round + 10 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    // The observing player is still within the archivist's locally simulated
+    // sanctuary. Its watcher communicates only through the actual line of sight.
+    crate::logistics::relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(center.x() + 1, center.y(), center.z() + 1),
+    );
+    let guard = crate::kobolds::available_nearby_kobold_scouts(&registries, &state)
+        .find(|seen| seen.role() == crate::kobolds::KoboldRole::TempleWarden)
+        .expect("the central-hall warden is locally observable");
+    assert_eq!(guard.position(), center);
+    assert!(
+        guard.is_wary(),
+        "excavating the real archive warns the actual warden"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn generated_excavation_fixture() -> (
