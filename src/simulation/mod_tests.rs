@@ -1167,6 +1167,59 @@ fn opaque_overhead_cover_reduces_thermal_exposure_without_warming() {
     assert!(covered_after > open_after);
 }
 
+#[test]
+fn overhead_cover_can_be_above_standing_headroom_without_an_immediate_ceiling() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let raised_roof = VoxelCoord::new(0, floor_y + 4, 0);
+    let neighboring_roof = VoxelCoord::new(1, floor_y + 4, 0);
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open)
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        neighboring_roof,
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open),
+        "a neighboring canopy cannot protect the player's actual body footprint"
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        raised_roof,
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Covered),
+        "a raised solid roof still blocks vertical exposure to the sky"
+    );
+    let before = state.survival().player().unwrap().thermal_comfort_ppm();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        before - state.survival().player().unwrap().thermal_comfort_ppm(),
+        registries
+            .survival()
+            .physiology()
+            .thermal_comfort()
+            .overhead_cover_loss_ppm_per_tick()
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        raised_roof,
+        BlockStateId::AIR,
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open)
+    );
+}
+
 fn generated_airborne_player(clearance_voxels: i64) -> (Registries, AppState, i64) {
     let registries = build_registries();
     let mut state = AppState::new();
