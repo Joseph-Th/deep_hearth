@@ -74,7 +74,9 @@ impl CombatState {
             // Before the first attack, preparation/cancellation is the only revision path.
             || (self.last_attack_at.is_none()
                 && (self.revision % 2 == 1) != self.prepared.is_some())
-            || (self.last_attack_at.is_some() && !(8..=60).contains(&self.recovery_control_ticks))
+            || (self.last_attack_at.is_some()
+                && !(8..=60 + preparation::PREPARED_RECOVERY_BONUS_TICKS)
+                    .contains(&self.recovery_control_ticks))
         {
             return Err("combat recovery record conflicts with control history");
         }
@@ -143,6 +145,7 @@ pub enum PrimitiveAttackError {
     EquipmentRevisionExhausted,
     InsufficientMetabolicEnergy,
     InsufficientHydration,
+    ExertionOverflow,
     SurvivalRevisionExhausted,
     Recovering { last_at: ControlTick },
     RevisionExhausted,
@@ -404,10 +407,7 @@ fn validate_attack(
         });
     let cost = weapon.map_or(SHOVE_EXERTION, |(profile, _)| profile.exertion_per_swing());
     let cost = if powered {
-        SurvivalExertion::new(
-            Energy::from_nanojoules(cost.energy_cost_per_tick().nanojoules() * 2),
-            Volume::from_microliters(cost.hydration_loss_per_tick().microliters() * 2),
-        )
+        prepared_attack_exertion(cost)?
     } else {
         cost
     };
@@ -448,7 +448,12 @@ fn validate_attack(
         expected_structure_revision: state.structures().revision(),
         outcome,
         recovery_control_ticks: weapon.map_or(SHOVE_RECOVERY_TICKS, |(profile, _)| {
-            profile.recovery_control_ticks() + if powered { 12 } else { 0 }
+            profile.recovery_control_ticks()
+                + if powered {
+                    preparation::PREPARED_RECOVERY_BONUS_TICKS
+                } else {
+                    0
+                }
         }),
         weapon_wear: weapon.map(|(_, wear)| wear),
         balance_impulse_ppm,
@@ -456,6 +461,25 @@ fn validate_attack(
         expected_preparation: state.combat().prepared,
         exertion_plan,
     })
+}
+
+fn prepared_attack_exertion(
+    cost: SurvivalExertion,
+) -> Result<SurvivalExertion, PrimitiveAttackError> {
+    Ok(SurvivalExertion::new(
+        Energy::from_nanojoules(
+            cost.energy_cost_per_tick()
+                .nanojoules()
+                .checked_mul(2)
+                .ok_or(PrimitiveAttackError::ExertionOverflow)?,
+        ),
+        Volume::from_microliters(
+            cost.hydration_loss_per_tick()
+                .microliters()
+                .checked_mul(2)
+                .ok_or(PrimitiveAttackError::ExertionOverflow)?,
+        ),
+    ))
 }
 
 /// Player-local, renderer-neutral attack readiness for an input adapter or HUD.
@@ -542,18 +566,31 @@ pub fn assess_player_melee(
             .checked_steps_since(last)
             .expect("trusted combat history cannot be in the future");
         let remaining = u64::from(state.combat().recovery_control_ticks).saturating_sub(elapsed);
-        u32::try_from(remaining).expect("combat recovery maximum is 60 ticks")
+        u32::try_from(remaining).expect("combat recovery is bounded by authored strike timing")
     });
+    let selected_recovery = profile.map_or(
+        SHOVE_RECOVERY_TICKS,
+        MeleeWeaponProfile::recovery_control_ticks,
+    );
+    let recovery_control_ticks = if remaining_recovery_ticks > 0 {
+        // Switching equipment does not shorten an already committed attack.
+        state.combat().recovery_control_ticks
+    } else if state
+        .combat()
+        .prepared
+        .is_some_and(|prepared| Some(prepared.weapon) == weapon)
+    {
+        selected_recovery + preparation::PREPARED_RECOVERY_BONUS_TICKS
+    } else {
+        selected_recovery
+    };
     Ok(PlayerMeleeAssessment {
         weapon,
         reach_millimeters: profile.map_or(
             SHOVE_REACH_MILLIMETERS,
             MeleeWeaponProfile::reach_millimeters,
         ),
-        recovery_control_ticks: profile.map_or(
-            SHOVE_RECOVERY_TICKS,
-            MeleeWeaponProfile::recovery_control_ticks,
-        ),
+        recovery_control_ticks,
         remaining_recovery_ticks,
         condition,
         preparation_remaining_ticks: state.combat().prepared.map(|prepared| {

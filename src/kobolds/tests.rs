@@ -16,6 +16,108 @@ use crate::world_generation::validate_generate_initial_wilderness;
 
 use super::{KoboldColony, available_nearby_kobold_scouts, validate_loaded_kobolds};
 
+#[test]
+fn fatal_survival_tick_does_not_make_a_dead_player_guard_the_scout() {
+    use crate::core::quantity::Energy;
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(1, 0, 0);
+    let observer = VoxelCoord::new(-1, 0, 1);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    validate_admit_player(&registries, &state, observer)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    while state.tick().value() < 179 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let survival = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            Energy::ZERO,
+            survival.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                registries
+                    .survival()
+                    .physiology()
+                    .starvation_vitality_loss_ppm_per_tick(),
+            ),
+            survival.nutrition(),
+            survival.vitality_recovery_remainder(),
+            survival.thermal_comfort_ppm(),
+        ),
+    );
+    assert!(super::patrol::living_player_deters_scout(
+        &registries,
+        &state,
+        den
+    ));
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+
+    let mut surviving = state.clone();
+    let before = *surviving.survival().player().unwrap();
+    let revision = surviving.survival().revision();
+    surviving.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            registries
+                .survival()
+                .physiology()
+                .maximum_metabolic_energy(),
+            before.hydration(),
+            Vitality::MAXIMUM,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    let _ = advance_tick(&registries, &mut surviving).unwrap();
+    assert_eq!(
+        colony(&surviving).scout_position(),
+        den,
+        "a living nearby player actually keeps the scout from leaving the den"
+    );
+
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(state.tick(), SimulationTick::new(180));
+    assert_eq!(
+        state.survival().player().unwrap().vitality(),
+        Vitality::ZERO
+    );
+    assert_eq!(
+        colony(&state).scout_position(),
+        junction,
+        "an actor dying this tick cannot preemptively frighten a scout after death"
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, loaded);
+}
+
 fn colony(state: &AppState) -> &KoboldColony {
     state
         .kobold_state()

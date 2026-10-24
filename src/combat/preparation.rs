@@ -3,6 +3,7 @@
 use super::*;
 
 pub(super) const PREPARATION_TICKS: u64 = 10;
+pub(super) const PREPARED_RECOVERY_BONUS_TICKS: u32 = 12;
 const MIN_FACING_DOT: i64 = 800_000_000_000;
 
 /// Saved control-rate preparation. A new strike still traces live world truth on release.

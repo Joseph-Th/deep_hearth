@@ -309,6 +309,12 @@ fn primitive_club_and_spear_have_real_material_reach_wear_and_recovery() {
             validate_primitive_shove(&registries, &game, west),
             Err(PrimitiveAttackError::Recovering { .. })
         ));
+        let switched_assessment = assess_player_melee(&registries, &game).unwrap();
+        assert_eq!(
+            switched_assessment.recovery_control_ticks(),
+            assessment.recovery_control_ticks(),
+        );
+        assert!(switched_assessment.remaining_recovery_ticks() > 0);
         let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(
             &serde_json::to_vec(&SaveEnvelope::new(&registries, &game)).unwrap(),
         )
@@ -681,6 +687,7 @@ fn prepared_club_strike_waits_for_windup_commits_live_contact_and_replays() {
     let assessment = assess_player_melee(&registries, &state).unwrap();
     assert!(!assessment.ready());
     assert_eq!(assessment.preparation_remaining_ticks(), Some(10));
+    assert_eq!(assessment.recovery_control_ticks(), 34);
     let quick = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
@@ -769,9 +776,72 @@ fn prepared_club_strike_waits_for_windup_commits_live_contact_and_replays() {
                 .remaining_recovery_ticks(),
             34
         );
+        assert_eq!(
+            assess_player_melee(&registries, game)
+                .unwrap()
+                .recovery_control_ticks(),
+            34
+        );
         assert_eq!(validate_loaded_state(&registries, game), Ok(()));
     }
     assert_eq!(state, loaded);
+}
+
+#[test]
+fn trusted_combat_recovery_accepts_the_authored_prepared_maximum_only() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    state.combat_state_mut().apply_attack(
+        0,
+        ControlTick::ZERO,
+        60 + preparation::PREPARED_RECOVERY_BONUS_TICKS,
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+
+    state.combat_state_mut().recovery_control_ticks += 1;
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(crate::core::state::StateValidationError::Combat(
+            "combat recovery record conflicts with control history"
+        ))
+    );
+}
+
+#[test]
+fn prepared_attack_exertion_rejects_unrepresentable_costs() {
+    let energy = SurvivalExertion::new(
+        Energy::from_nanojoules(u128::MAX),
+        Volume::from_microliters(1),
+    );
+    let hydration = SurvivalExertion::new(
+        Energy::from_nanojoules(1),
+        Volume::from_microliters(u64::MAX),
+    );
+    assert_eq!(
+        prepared_attack_exertion(energy),
+        Err(PrimitiveAttackError::ExertionOverflow)
+    );
+    assert_eq!(
+        prepared_attack_exertion(hydration),
+        Err(PrimitiveAttackError::ExertionOverflow)
+    );
+    assert_eq!(
+        prepared_attack_exertion(SHOVE_EXERTION),
+        Ok(SurvivalExertion::new(
+            Energy::from_nanojoules(180_000_000_000),
+            Volume::from_microliters(12),
+        ))
+    );
 }
 
 #[test]
@@ -1181,8 +1251,11 @@ fn prepared_weapon_cannot_be_disassembled_into_unloadable_state() {
 fn forged_weapon_recovery_duration_fails_trusted_load() {
     let registries = build_registries();
     let mut game = AppState::new();
-    game.combat_state_mut()
-        .apply_attack(0, ControlTick::ZERO, 61);
+    game.combat_state_mut().apply_attack(
+        0,
+        ControlTick::ZERO,
+        61 + preparation::PREPARED_RECOVERY_BONUS_TICKS,
+    );
     assert_eq!(
         validate_loaded_state(&registries, &game),
         Err(crate::core::state::StateValidationError::Combat(

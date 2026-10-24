@@ -588,9 +588,12 @@ fn advance_simulation_tick(
         apply_storage_enclosure_dismantling_tick(state, storage_enclosure_dismantling_plan);
     apply_player_death_effects(state, player_death_effects);
     apply_player_work_tick(state, player_work_plan);
-    let (kobold_scout, kobold_alarm_pulses) = apply_kobold_scout_tick(registries, state, next_tick);
+    // The slow-tick survival decision is already finalized. Install fatality
+    // before residents assess a player's actual living threat: a death on this
+    // very tick must not make a corpse deter or challenge a neighboring scout.
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
+    let (kobold_scout, kobold_alarm_pulses) = apply_kobold_scout_tick(registries, state, next_tick);
     if player_dead_after_tick {
         // Raised weapons cannot survive a fatal survival transition or grant a charged respawn hit.
         state.combat_state_mut().clear_preparation_on_death();
