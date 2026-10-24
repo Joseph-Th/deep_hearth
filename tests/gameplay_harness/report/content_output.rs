@@ -15,6 +15,7 @@ fn process_resolver_label(resolver: ProcessResolverKind) -> &'static str {
         ProcessResolverKind::Comminution => "comminution",
         ProcessResolverKind::Screening => "screening",
         ProcessResolverKind::ConstituentSeparation => "constituent-separation",
+        ProcessResolverKind::Precipitation => "precipitation",
         ProcessResolverKind::SensibleHeating => "sensible-heating",
         ProcessResolverKind::Melting => "melting",
         ProcessResolverKind::Casting => "casting",
