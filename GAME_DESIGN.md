@@ -347,8 +347,13 @@ its connected cells; no inspection operates, repairs or restores dormant machine
 Their visible defensive posture and position survive save/load, and displaced
 wardens complete their physical retreat even when the player
 leaves the temple chunk. Heavy wardens now obstruct the player's continuous walking footprint,
-while massive archivists occupy a real two-by-two-by-three-cell chamber volume at their
-inherited machines. Neither can be bypassed by walking through a sighted or concealed body;
+while massive archivists occupy a real two-by-two-by-three-cell volume.
+Archivists make slow, physical excursions toward the archive shell using a
+wide carved passage and return to their ancestral posts. Only at the approach
+can one notice that the actual copper shell has been removed through an open
+maintenance throat. It keeps a local vigil over a damaged site while a living
+intruder remains nearby, without generating replacement metal or interpreting
+unknown records. Neither caste can be bypassed through a sighted or concealed body;
 player admission, trusted loads and respawn must also respect occupied space. Combat,
 caste-specific physiology, negotiation, general subterranean movement and relic restoration
 remain future systems, not hidden exceptions to the present simulation.

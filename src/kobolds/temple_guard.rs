@@ -423,6 +423,14 @@ fn validate_structural_clearance_at_temple(
             return Err("structural member intersects an occupied temple caste cell");
         }
     }
+    let Some(archivist) = super::temple_archivist::archivist_position(
+        archivist,
+        state
+            .kobold_state()
+            .temple_archivist_step(ChunkCoord::containing(post)),
+    ) else {
+        return Err("temple archivist has an invalid physical excursion");
+    };
     for dx in 0..=1 {
         for dy in 0..=2 {
             for dz in 0..=1 {
@@ -485,6 +493,12 @@ pub(super) fn first_temple_member_overlap(
                 return Some(cell);
             }
         }
+        let archivist = super::temple_archivist::archivist_position(
+            archivist,
+            state
+                .kobold_state()
+                .temple_archivist_step(ChunkCoord::containing(post)),
+        )?;
         for dx in 0..=1 {
             for dy in 0..=2 {
                 for dz in 0..=1 {

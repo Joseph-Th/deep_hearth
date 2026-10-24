@@ -297,7 +297,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                 },
                 "world": {"revision": 0, "chunks": []},
                 "surface": {"revision": 0, "next_resource_id": 1, "resources": {}},
-                "kobolds": {"colony": null, "temple_wardens": [], "consumed_matter": {}},
+                "kobolds": {"colony": null, "temple_wardens": [], "temple_archivists": [], "consumed_matter": {}},
                 "geology": {"revision": 0, "next_deposit_id": 1, "deposits": {}},
                 "geological_knowledge": {
                     "revision": 0,

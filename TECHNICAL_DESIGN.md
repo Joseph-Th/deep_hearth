@@ -515,8 +515,25 @@ invisible resident inside an ungenerated player location.
 Both generation plans retain the structural revision that authorized this
 check; materialization or other structural mutation before commit invalidates
 the pending plan rather than bypassing prospective occupancy admission.
-Archivists remain at their old posts with a solid two-by-two-cell floor footprint and
-three-cell body height; wardens occupy one-by-one-by-two cells. A warden follows a fixed
+Archivists occupy a solid two-by-two-cell floor footprint and three-cell body
+height; wardens occupy one-by-one-by-two cells. A nearby living player can
+observe an archivist's ten-tick-per-step attendance of its dormant archive
+on a 240-simulation-tick cycle. Its route uses actual face-adjacent cells,
+shifting the full twelve-cell body west through the carved chamber and then
+north to view the copper archive shell through a one-cell maintenance throat.
+The archivist checks that physical block only when standing at the approach.
+A missing shell, with the throat open, keeps it guarding the approach while a
+living player remains local; concealment by stone or full-cube construction
+prevents it learning about the breach. Its sighting shows a defensive posture
+only when it can see that living intruder. It cannot reconstruct the shell,
+operate machinery or obtain remote intelligence. On an interrupted excursion,
+it retreats one actual cell per step, including after the player leaves the
+sanctuary. The full body requires twelve clear occupancy cells and four
+supported floor cells, and cannot overlap the player, stationary custody or
+embodied structures. Saved sorted per-sanctuary excursion cursors are absent
+at home; trusted loads reject nonexistent temples, early or invalid steps,
+blocked bodies and duplicate entries. The new required cursor field advances
+the semantic save schema, without migrating older saves. A warden follows a fixed
 three-cell, face-adjacent defensive route on the existing five-tick kobold clock.
 During quiet local presence it makes a 120-slow-tick inner-gallery inspection.
 Every third inspection continues through the actual supported engine passage,
@@ -540,7 +557,7 @@ retreat through a newly occupied ancestral post.
 Loss of contact causes one-cell-at-a-time withdrawal, including an
 interrupted engine inspection; nobody teleports from a side passage home. Local sightings distinguish a physically moving sentry from a
 warden actively challenging a visible, living intruder on its guarded side.
-The kobold owner persists only displaced wardens in strictly sorted per-temple
+The kobold owner persists only moving castes in strictly sorted per-temple
 records. Trusted load rejects duplicates, nonexistent sites,
 blocked/absent occupancy, invalid route cursors and constructed stationary objects
 or embodied structural members intersecting generated resident bodies. A resident stranded by later

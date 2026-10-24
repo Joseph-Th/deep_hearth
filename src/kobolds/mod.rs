@@ -23,6 +23,7 @@ mod mobilization;
 mod patrol;
 mod scavenging;
 mod scrap_tools;
+mod temple_archivist;
 mod temple_guard;
 mod tracks;
 mod visibility;
@@ -133,8 +134,8 @@ impl KoboldSighting {
         self.is_wary
     }
 
-    /// A temple guardian is physically challenging an intruder in its hall.
-    /// This is a visible defensive posture, not an implicit attack or health bonus.
+    /// A temple warden challenges an intruder, or an archivist visibly guards
+    /// a breached archive. No implicit attack or health bonus is granted.
     #[must_use]
     pub const fn is_defending(self) -> bool {
         self.is_defending
@@ -459,6 +460,8 @@ pub(crate) struct KoboldState {
     /// Only off-post wardens need persistent cursors. Absence means the
     /// resident remains at its original authored hall cell.
     temple_wardens: Vec<temple_guard::TempleWardenRecord>,
+    /// Only archivists physically attending the archive shell need a cursor.
+    temple_archivists: Vec<temple_archivist::TempleArchivistRecord>,
     /// Terminal consumed-food custody retained by original material, not deleted matter.
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     consumed_matter: BTreeMap<MaterialId, AggregateMass>,
@@ -470,13 +473,17 @@ impl KoboldState {
         Self {
             colony: None,
             temple_wardens: Vec::new(),
+            temple_archivists: Vec::new(),
             consumed_matter: BTreeMap::new(),
         }
     }
 
     #[must_use]
     pub(crate) fn is_pristine(&self) -> bool {
-        self.colony.is_none() && self.temple_wardens.is_empty() && self.consumed_matter.is_empty()
+        self.colony.is_none()
+            && self.temple_wardens.is_empty()
+            && self.temple_archivists.is_empty()
+            && self.consumed_matter.is_empty()
     }
 
     pub(crate) fn consumed_matter(&self) -> impl Iterator<Item = (MaterialId, AggregateMass)> + '_ {
@@ -488,6 +495,13 @@ impl KoboldState {
             .binary_search_by_key(&chunk, |resident| resident.chunk)
             .ok()
             .map_or(0, |index| self.temple_wardens[index].step)
+    }
+
+    fn temple_archivist_step(&self, chunk: crate::world::ChunkCoord) -> u8 {
+        self.temple_archivists
+            .binary_search_by_key(&chunk, |resident| resident.chunk)
+            .ok()
+            .map_or(0, |index| self.temple_archivists[index].step)
     }
 
     fn apply_meal(&mut self, material: MaterialId, total: AggregateMass) {
@@ -571,6 +585,11 @@ impl KoboldState {
                             .expect("generated temple residents retain a real warden route");
                         let warden = temple_guard::warden_position(route, step)
                             .expect("trusted temple cursor names a real cell");
+                        let archivist_step =
+                            self.temple_archivist_step(crate::world::ChunkCoord::containing(post));
+                        let archivist_actual =
+                            temple_archivist::archivist_position(archivist, archivist_step)
+                                .expect("trusted archive cursor names a physical cell");
                         [
                             (
                                 warden,
@@ -580,11 +599,24 @@ impl KoboldState {
                                         registries, state, post, warden, position,
                                     ),
                             ),
-                            (archivist, KoboldRole::TempleArchivist, false),
+                            (
+                                archivist_actual,
+                                KoboldRole::TempleArchivist,
+                                temple_archivist::archivist_is_guarding_breach(
+                                    registries,
+                                    state,
+                                    archivist,
+                                    archivist_step,
+                                    position,
+                                ),
+                            ),
                         ]
                     })
-                    .filter(move |(resident, _, _)| {
-                        scout_visible_from(registries, state, *resident, position)
+                    .filter(move |(resident, role, _)| match role {
+                        KoboldRole::TempleArchivist => temple_archivist::archivist_visible_from(
+                            registries, state, *resident, position,
+                        ),
+                        _ => scout_visible_from(registries, state, *resident, position),
                     })
                     .map(|(position, role, is_defending)| KoboldSighting {
                         role,
@@ -675,7 +707,15 @@ pub(crate) fn temple_caste_occupies_voxel(
     let Some(warden) = temple_guard::warden_position(route, step) else {
         return false;
     };
-    initial_temple_caste_occupies_voxel(voxel, warden, archivist)
+    let Some(archivist_actual) = temple_archivist::archivist_position(
+        archivist,
+        state
+            .kobold_state()
+            .temple_archivist_step(crate::world::ChunkCoord::containing(post)),
+    ) else {
+        return false;
+    };
+    initial_temple_caste_occupies_voxel(voxel, warden, archivist_actual)
 }
 
 /// Pure body geometry shared by existing castes and the not-yet-instantiated
@@ -787,6 +827,7 @@ pub(crate) fn validate_loaded_kobolds(
 ) -> Result<(), &'static str> {
     validate_consumed_matter(registries, state.kobold_state())?;
     temple_guard::validate_temple_wardens(registries, state)?;
+    temple_archivist::validate_archivists(registries, state)?;
     temple_guard::validate_temple_infrastructure(registries, state)?;
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return state

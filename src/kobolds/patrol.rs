@@ -458,6 +458,7 @@ pub(crate) fn apply_kobold_scout_tick(
     next_tick: SimulationTick,
 ) -> (Option<KoboldScoutEvent>, Vec<KoboldAlarmPulse>) {
     super::temple_guard::apply_temple_warden_tick(registries, state, next_tick);
+    super::temple_archivist::apply_temple_archivist_tick(registries, state, next_tick);
     if state
         .kobold_state()
         .colony
