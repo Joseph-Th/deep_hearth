@@ -50,10 +50,12 @@ pub(crate) use lifecycle::initialize_player_survival;
 #[cfg(feature = "test-gameplay")]
 pub(crate) use lifecycle::validate_player_survival_initialization_with_reserves;
 pub(crate) use lifecycle::{
-    InitializeSurvivalError, PlayerSurvivalInitializationCommitError, RespawnSurvivalError,
-    SurvivalTickError, ValidatedPlayerSurvivalInitialization, ValidatedPlayerSurvivalRespawn,
-    apply_survival_tick, decide_control_exertion_settlement, decide_survival_tick_with_local_heat,
-    validate_player_survival_initialization, validate_player_survival_respawn,
+    InitializeSurvivalError, MeleeExertionError, PlayerSurvivalInitializationCommitError,
+    RespawnSurvivalError, SurvivalTickError, SurvivalTickPlan,
+    ValidatedPlayerSurvivalInitialization, ValidatedPlayerSurvivalRespawn, apply_survival_tick,
+    decide_control_exertion_settlement, decide_melee_exertion,
+    decide_survival_tick_with_local_heat, validate_player_survival_initialization,
+    validate_player_survival_respawn,
 };
 #[cfg(feature = "test-gameplay")]
 pub(crate) use lifecycle::{

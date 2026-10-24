@@ -36,6 +36,9 @@ pub enum EquipmentDisassemblyError {
     EquipmentCarried {
         equipment: EquipmentId,
     },
+    EquipmentPreparedForCombat {
+        equipment: EquipmentId,
+    },
     EquipmentBusyProduction {
         equipment: EquipmentId,
         job: ProductionJobId,
@@ -116,6 +119,11 @@ impl Display for EquipmentDisassemblyError {
                 "equipment {} is mounted on structural element {} and must be unmounted before disassembly",
                 equipment.value(),
                 element.value()
+            ),
+            Self::EquipmentPreparedForCombat { equipment } => write!(
+                formatter,
+                "equipment {} is committed to a prepared melee strike",
+                equipment.value()
             ),
             Self::EquipmentCarried { equipment } => write!(
                 formatter,
@@ -235,6 +243,7 @@ impl Error for EquipmentDisassemblyError {
             | Self::WornComponentRecoveryUnavailable { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentCarried { .. }
+            | Self::EquipmentPreparedForCombat { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
@@ -275,6 +284,9 @@ pub enum EquipmentDisassemblyCommitError {
         equipment: EquipmentId,
     },
     EquipmentChanged {
+        equipment: EquipmentId,
+    },
+    EquipmentPreparedForCombat {
         equipment: EquipmentId,
     },
     EquipmentMounted {
@@ -329,6 +341,11 @@ impl Display for EquipmentDisassemblyCommitError {
             Self::UnknownEquipment { equipment } => write!(
                 formatter,
                 "equipment {} disappeared before disassembly commit",
+                equipment.value()
+            ),
+            Self::EquipmentPreparedForCombat { equipment } => write!(
+                formatter,
+                "equipment {} became committed to a prepared melee strike",
                 equipment.value()
             ),
             Self::EquipmentChanged { equipment } => write!(
@@ -403,6 +420,7 @@ impl Error for EquipmentDisassemblyCommitError {
             | Self::StaleEquipment { .. }
             | Self::UnknownEquipment { .. }
             | Self::EquipmentChanged { .. }
+            | Self::EquipmentPreparedForCombat { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }

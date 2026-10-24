@@ -125,6 +125,13 @@ impl ValidatedEquipmentDisassembly {
                 equipment: self.equipment,
             });
         }
+        if state.combat().preparing_weapon(self.equipment) {
+            return Err(
+                EquipmentDisassemblyCommitError::EquipmentPreparedForCombat {
+                    equipment: self.equipment,
+                },
+            );
+        }
         let occupancy = equipment_occupancy(state, self.equipment);
         if let Some(element) = record.supported_by() {
             return Err(EquipmentDisassemblyCommitError::EquipmentMounted {

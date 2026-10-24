@@ -174,6 +174,9 @@ pub fn validate_disassemble_equipment(
     if let Some(element) = record.supported_by() {
         return Err(EquipmentDisassemblyError::EquipmentMounted { equipment, element });
     }
+    if state.combat().preparing_weapon(equipment) {
+        return Err(EquipmentDisassemblyError::EquipmentPreparedForCombat { equipment });
+    }
     if state.logistics().is_equipment_carried(equipment) {
         return Err(EquipmentDisassemblyError::EquipmentCarried { equipment });
     }

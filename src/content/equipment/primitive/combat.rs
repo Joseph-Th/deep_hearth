@@ -1,8 +1,9 @@
 //! Material-backed primitive self-defense weapons with distinct reach and handling.
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Energy, Mass, Volume};
 use crate::equipment::{EquipmentDefinition, MeleeWeaponProfile};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
+use crate::survival::SurvivalExertion;
 
 use super::super::authoring::{
     EquipmentDefinitionAuthoringExt, assembled_definition, profile, thresholds,
@@ -23,7 +24,16 @@ pub(super) fn wooden_club() -> EquipmentDefinition {
         profile([]),
         thresholds(),
     )
-    .with_melee_profile(MeleeWeaponProfile::new(1_500, 22, 3_000, 280_000))
+    .with_melee_profile(MeleeWeaponProfile::new(
+        1_500,
+        22,
+        3_000,
+        280_000,
+        SurvivalExertion::new(
+            Energy::from_nanojoules(180_000_000_000),
+            Volume::from_microliters(12),
+        ),
+    ))
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
 }
 
@@ -46,6 +56,15 @@ pub(super) fn stone_spear() -> EquipmentDefinition {
         profile([]),
         thresholds(),
     )
-    .with_melee_profile(MeleeWeaponProfile::new(2_750, 28, 4_500, 150_000))
+    .with_melee_profile(MeleeWeaponProfile::new(
+        2_750,
+        28,
+        4_500,
+        150_000,
+        SurvivalExertion::new(
+            Energy::from_nanojoules(240_000_000_000),
+            Volume::from_microliters(16),
+        ),
+    ))
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
 }

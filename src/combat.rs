@@ -1,6 +1,7 @@
 //! Nonlethal first-person melee contact on the canonical 20 Hz player clock.
 //! Kobolds own their reactions; combat owns the player's recovery history.
 
+use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::ControlTick;
 use crate::equipment::{
@@ -14,6 +15,10 @@ use crate::maintenance::Condition;
 use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::{ViewDirection, VoxelCoord};
+use crate::survival::{
+    MeleeExertionError, SurvivalExertion, SurvivalTickPlan, apply_survival_tick,
+    decide_melee_exertion,
+};
 use crate::world::PlayerBlockTargetError;
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +33,10 @@ pub use preparation::{
 const SHOVE_RECOVERY_TICKS: u32 = 16;
 const SHOVE_REACH_MILLIMETERS: u32 = 1_600;
 const SHOVE_BALANCE_IMPULSE_PPM: u32 = 80_000;
+const SHOVE_EXERTION: SurvivalExertion = SurvivalExertion::new(
+    Energy::from_nanojoules(90_000_000_000),
+    Volume::from_microliters(6),
+);
 
 /// The actor's durable attack tempo; no client-controlled timer or virtual damage.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +58,10 @@ impl CombatState {
     }
     pub(crate) const fn revision(&self) -> u64 {
         self.revision
+    }
+    pub(crate) fn preparing_weapon(&self, equipment: EquipmentId) -> bool {
+        self.prepared
+            .is_some_and(|strike| strike.weapon == equipment)
     }
     /// A resident cannot remember a blow later than the last player attack.
     pub(crate) fn admits_contact_at(&self, at: ControlTick) -> bool {
@@ -128,6 +141,9 @@ pub enum PrimitiveAttackError {
     PreparationWeaponChanged,
     PreparationAimChanged,
     EquipmentRevisionExhausted,
+    InsufficientMetabolicEnergy,
+    InsufficientHydration,
+    SurvivalRevisionExhausted,
     Recovering { last_at: ControlTick },
     RevisionExhausted,
     Target(PlayerBlockTargetError),
@@ -180,6 +196,7 @@ pub struct ValidatedPrimitiveAttack {
     balance_impulse_ppm: u32,
     expected_resident_balance: Option<u32>,
     expected_preparation: Option<preparation::PreparedStrike>,
+    exertion_plan: SurvivalTickPlan,
 }
 impl ValidatedPrimitiveAttack {
     pub fn commit(
@@ -260,6 +277,7 @@ impl ValidatedPrimitiveAttack {
         if let Some((resident, _)) = victim {
             record_close_contact(state, resident, self.balance_impulse_ppm);
         }
+        let _ = apply_survival_tick(state, Some(self.exertion_plan));
         Ok(self.outcome)
     }
 }
@@ -384,6 +402,27 @@ fn validate_attack(
             let scaled = if powered { scaled * 3 / 2 } else { scaled };
             u32::try_from(scaled.max(1)).expect("bounded authored impact")
         });
+    let cost = weapon.map_or(SHOVE_EXERTION, |(profile, _)| profile.exertion_per_swing());
+    let cost = if powered {
+        SurvivalExertion::new(
+            Energy::from_nanojoules(cost.energy_cost_per_tick().nanojoules() * 2),
+            Volume::from_microliters(cost.hydration_loss_per_tick().microliters() * 2),
+        )
+    } else {
+        cost
+    };
+    let exertion_plan =
+        decide_melee_exertion(registries, state, cost).map_err(|error| match error {
+            MeleeExertionError::InsufficientMetabolicEnergy => {
+                PrimitiveAttackError::InsufficientMetabolicEnergy
+            }
+            MeleeExertionError::InsufficientHydration => {
+                PrimitiveAttackError::InsufficientHydration
+            }
+            MeleeExertionError::RevisionExhausted => {
+                PrimitiveAttackError::SurvivalRevisionExhausted
+            }
+        })?;
     let expected_resident_balance = match outcome {
         PrimitiveAttackOutcome::Startled { resident, position } => {
             let before = opening_balance(state, resident);
@@ -415,6 +454,7 @@ fn validate_attack(
         balance_impulse_ppm,
         expected_resident_balance,
         expected_preparation: state.combat().prepared,
+        exertion_plan,
     })
 }
 

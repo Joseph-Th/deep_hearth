@@ -156,6 +156,46 @@ pub(crate) fn decide_control_exertion_settlement(
     build_tick_plan(registries, state, after, false).map(Some)
 }
 
+/// An immediate, budgeted exertion event. Unlike accumulated scheduled work,
+/// an attack rejects exhausted reserves instead of letting the control pipeline
+/// panic or silently borrow from future meals. No basal tick is applied here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MeleeExertionError {
+    InsufficientMetabolicEnergy,
+    InsufficientHydration,
+    RevisionExhausted,
+}
+
+pub(crate) fn decide_melee_exertion(
+    registries: &Registries,
+    state: &AppState,
+    exertion: SurvivalExertion,
+) -> Result<SurvivalTickPlan, MeleeExertionError> {
+    let player = state
+        .survival()
+        .player()
+        .filter(|player| player.vitality() != Vitality::ZERO)
+        .expect("living admitted melee actor has survival ownership");
+    let metabolic_energy = player
+        .metabolic_energy()
+        .checked_sub(exertion.energy_cost_per_tick())
+        .ok_or(MeleeExertionError::InsufficientMetabolicEnergy)?;
+    let hydration = player
+        .hydration()
+        .checked_sub(exertion.hydration_loss_per_tick())
+        .ok_or(MeleeExertionError::InsufficientHydration)?;
+    let after = player_record_with_thermal_comfort(
+        metabolic_energy,
+        hydration,
+        player.vitality(),
+        player.nutrition(),
+        player.vitality_recovery_remainder(),
+        player.thermal_comfort_ppm(),
+    );
+    build_tick_plan(registries, state, after, false)
+        .map_err(|_| MeleeExertionError::RevisionExhausted)
+}
+
 pub(crate) fn apply_survival_tick(
     state: &mut AppState,
     plan: Option<SurvivalTickPlan>,

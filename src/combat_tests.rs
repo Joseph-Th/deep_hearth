@@ -995,6 +995,189 @@ fn forged_unmatched_preparation_revision_is_rejected_before_any_attack() {
 }
 
 #[test]
+fn primitive_attacks_pay_survival_exertion_on_misses_and_prepared_release() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::core::quantity::{Energy, Volume};
+    use crate::matter::calculate_matter_accounting;
+    use crate::simulation::advance_control_tick;
+    let (registries, mut state, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let baseline = *state.survival().player().unwrap();
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+
+    // Eastward miss consumes the same exact swing exertion and wear as contact.
+    assert_eq!(
+        validate_primitive_strike(&registries, &state, east())
+            .unwrap()
+            .commit(&mut state),
+        Ok(PrimitiveAttackOutcome::Miss)
+    );
+    assert_eq!(
+        baseline
+            .metabolic_energy()
+            .checked_sub(state.survival().player().unwrap().metabolic_energy()),
+        Some(Energy::from_nanojoules(180_000_000_000))
+    );
+    assert_eq!(
+        baseline
+            .hydration()
+            .checked_sub(state.survival().player().unwrap().hydration()),
+        Some(Volume::from_microliters(12))
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(club)
+            .unwrap()
+            .condition()
+            .parts_per_million(),
+        997_000
+    );
+    for _ in 0..22 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let before_prepare = *state.survival().player().unwrap();
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(*state.survival().player().unwrap(), before_prepare);
+    for _ in 0..10 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let release = validate_release_prepared_strike(&registries, &state, east()).unwrap();
+    assert_eq!(release.commit(&mut state), Ok(PrimitiveAttackOutcome::Miss));
+    let after = state.survival().player().unwrap();
+    assert_eq!(
+        before_prepare
+            .metabolic_energy()
+            .checked_sub(after.metabolic_energy()),
+        Some(Energy::from_nanojoules(360_000_000_000))
+    );
+    assert_eq!(
+        before_prepare.hydration().checked_sub(after.hydration()),
+        Some(Volume::from_microliters(24))
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(club)
+            .unwrap()
+            .condition()
+            .parts_per_million(),
+        991_000
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
+fn insufficient_melee_reserves_reject_without_wear_balance_or_cooldown() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::core::quantity::{Energy, Volume};
+    use crate::survival::player_record;
+    let (registries, mut base, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &base, tip)
+        .unwrap()
+        .commit(&mut base)
+        .unwrap();
+    let club = arm_player(&registries, &mut base, EQUIPMENT_WOODEN_CLUB);
+    let old = *base.survival().player().unwrap();
+    for (energy, hydration, error) in [
+        (
+            Energy::from_nanojoules(179_999_999_999),
+            old.hydration(),
+            PrimitiveAttackError::InsufficientMetabolicEnergy,
+        ),
+        (
+            old.metabolic_energy(),
+            Volume::from_microliters(11),
+            PrimitiveAttackError::InsufficientHydration,
+        ),
+    ] {
+        let mut state = base.clone();
+        let revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            revision,
+            revision + 1,
+            player_record(
+                energy,
+                hydration,
+                old.vitality(),
+                old.nutrition(),
+                old.vitality_recovery_remainder(),
+            ),
+        );
+        let unchanged = state.clone();
+        assert_eq!(
+            validate_primitive_strike(&registries, &state, east()).err(),
+            Some(error)
+        );
+        assert_eq!(state, unchanged);
+        assert_eq!(state.combat().revision(), 0);
+        assert_eq!(
+            state.equipment().get_equipment(club).unwrap().condition(),
+            Condition::PRISTINE
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
+fn prepared_weapon_cannot_be_disassembled_into_unloadable_state() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::equipment::{EquipmentDisassemblyError, validate_disassemble_equipment};
+    use crate::logistics::validate_drop_equipment;
+    let (registries, mut state, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let stockpile = state.logistics().player().unwrap().carried_stockpile();
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_drop_equipment(&registries, &state, club)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        validate_disassemble_equipment(&registries, &state, club, stockpile).err(),
+        Some(EquipmentDisassemblyError::EquipmentPreparedForCombat { equipment: club })
+    );
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    assert_eq!(loaded, state);
+    let _ = validate_cancel_primitive_preparation(&state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_disassemble_equipment(&registries, &state, club, stockpile)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.equipment().get_equipment(club).is_none());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn forged_weapon_recovery_duration_fails_trusted_load() {
     let registries = build_registries();
     let mut game = AppState::new();

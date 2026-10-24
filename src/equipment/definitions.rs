@@ -8,6 +8,7 @@ use crate::capability::{CapabilityId, CapabilityProfile};
 use crate::core::quantity::Mass;
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::MaterialAssemblyProfile;
+use crate::survival::SurvivalExertion;
 
 mod condition;
 mod maintenance;
@@ -24,6 +25,7 @@ pub struct MeleeWeaponProfile {
     wear_ppm_per_swing: u32,
     /// Maximum modelled loss of footing from a full-condition blow, not a wound.
     balance_impulse_ppm: u32,
+    exertion_per_swing: SurvivalExertion,
 }
 impl MeleeWeaponProfile {
     #[must_use]
@@ -32,16 +34,19 @@ impl MeleeWeaponProfile {
         recovery_control_ticks: u32,
         wear_ppm_per_swing: u32,
         balance_impulse_ppm: u32,
+        exertion_per_swing: SurvivalExertion,
     ) -> Self {
         assert!(reach_millimeters >= 800 && reach_millimeters <= 3_500);
         assert!(recovery_control_ticks >= 8 && recovery_control_ticks <= 60);
         assert!(wear_ppm_per_swing >= 1 && wear_ppm_per_swing <= 20_000);
         assert!(balance_impulse_ppm >= 1 && balance_impulse_ppm <= 500_000);
+        exertion_per_swing.assert_active_player_work();
         Self {
             reach_millimeters,
             recovery_control_ticks,
             wear_ppm_per_swing,
             balance_impulse_ppm,
+            exertion_per_swing,
         }
     }
     pub const fn reach_millimeters(self) -> u32 {
@@ -55,6 +60,9 @@ impl MeleeWeaponProfile {
     }
     pub const fn balance_impulse_ppm(self) -> u32 {
         self.balance_impulse_ppm
+    }
+    pub const fn exertion_per_swing(self) -> SurvivalExertion {
+        self.exertion_per_swing
     }
 }
 
