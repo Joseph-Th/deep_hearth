@@ -23,6 +23,12 @@ impl ProductionIndexes {
         id: ProductionJobId,
         due: SimulationTick,
     ) {
+        assert_eq!(
+            self.due_tick_by_job.get(&id).copied(),
+            Some(due),
+            "runtime invariant broken: production inverse due index disagrees with job {}",
+            id.value()
+        );
         assert!(
             self.due_jobs
                 .get(&due)
@@ -34,7 +40,7 @@ impl ProductionIndexes {
 
     pub(in crate::production::state) fn assert_due_job_absent(&self, id: ProductionJobId) {
         assert!(
-            self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
+            !self.due_tick_by_job.contains_key(&id),
             "runtime invariant broken: production due index already contains job {}",
             id.value()
         );
@@ -49,6 +55,12 @@ impl ProductionIndexes {
         assert!(
             self.due_jobs.entry(due).or_default().insert(id),
             "runtime invariant broken: production due index already contains job {}",
+            id.value()
+        );
+        assert_eq!(
+            self.due_tick_by_job.insert(id, due),
+            None,
+            "runtime invariant broken: production inverse due index replaced job {}",
             id.value()
         );
     }
@@ -76,5 +88,11 @@ impl ProductionIndexes {
         if remove_bucket {
             self.due_jobs.remove(&due);
         }
+        assert_eq!(
+            self.due_tick_by_job.remove(&id),
+            Some(due),
+            "runtime invariant broken: production inverse due index failed to remove job {}",
+            id.value()
+        );
     }
 }

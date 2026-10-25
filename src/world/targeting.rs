@@ -125,20 +125,50 @@ pub(crate) fn raycast_player_air_voxel<T>(
     direction: ViewDirection,
     mut select: impl FnMut(VoxelCoord, CubeFace) -> Option<T>,
 ) -> Result<Option<T>, PlayerBlockTargetError> {
-    raycast_player_air_voxel_with_reach(registries, state, direction, u32::MAX, |voxel, face| {
-        face.and_then(|face| select(voxel, face))
-    })
+    trace_player_air_voxels(
+        registries,
+        state,
+        direction,
+        u32::MAX,
+        AirRayMode::StructuralTarget,
+        |voxel, face| face.and_then(|face| select(voxel, face)),
+    )
 }
 
 /// Uses the same opaque-world ray with a shorter, authored weapon reach.
 /// The originating eye cell is inspected with no entry face, allowing contact
 /// with an actor already sharing that cell. Missing chunks beyond the reach
-/// must never affect a close-range miss.
+/// must never affect a close-range miss. An embodied full-cell structure blocks
+/// contact even if an actor occupies the structure's cell.
 pub(crate) fn raycast_player_air_voxel_with_reach<T>(
     registries: &Registries,
     state: &AppState,
     direction: ViewDirection,
     reach_millimeters: u32,
+    select: impl FnMut(VoxelCoord, Option<CubeFace>) -> Option<T>,
+) -> Result<Option<T>, PlayerBlockTargetError> {
+    trace_player_air_voxels(
+        registries,
+        state,
+        direction,
+        reach_millimeters,
+        AirRayMode::UnobstructedContact,
+        select,
+    )
+}
+
+/// Structural pointing may select the front panel; contact requires empty physical space.
+enum AirRayMode {
+    StructuralTarget,
+    UnobstructedContact,
+}
+
+fn trace_player_air_voxels<T>(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+    reach_millimeters: u32,
+    mode: AirRayMode,
     mut select: impl FnMut(VoxelCoord, Option<CubeFace>) -> Option<T>,
 ) -> Result<Option<T>, PlayerBlockTargetError> {
     let (origin, interaction_reach) = player_view_origin_and_reach(registries, state)?;
@@ -150,13 +180,16 @@ pub(crate) fn raycast_player_air_voxel_with_reach<T>(
         direction,
         reach_nanometers,
         |voxel, block_state, face| {
-            if targetable_full_cube(registries, block_state) {
+            let structure_blocks = state.structures().blocks_full_cell(voxel);
+            if targetable_full_cube(registries, block_state)
+                || (structure_blocks && matches!(mode, AirRayMode::UnobstructedContact))
+            {
                 return VoxelTraceStep::Blocked;
             }
             if let Some(target) = select(voxel, face) {
                 return VoxelTraceStep::Hit(target);
             }
-            if state.structures().blocks_full_cell(voxel) {
+            if structure_blocks {
                 VoxelTraceStep::Blocked
             } else {
                 VoxelTraceStep::Continue

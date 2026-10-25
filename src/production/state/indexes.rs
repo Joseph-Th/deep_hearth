@@ -88,6 +88,8 @@ mod tests;
 #[derive(Clone, Debug, Default)]
 pub(super) struct ProductionIndexes {
     pub(super) due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
+    /// Inverse membership avoids scanning every due bucket during insertion and index rebuild.
+    due_tick_by_job: BTreeMap<ProductionJobId, SimulationTick>,
     energy_occupancy: BTreeMap<EnergyStoreId, ProductionJobId>,
     equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
     output_stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
@@ -101,6 +103,7 @@ pub(super) struct ProductionIndexes {
 impl PartialEq for ProductionIndexes {
     fn eq(&self, other: &Self) -> bool {
         self.due_jobs == other.due_jobs
+            && self.due_tick_by_job == other.due_tick_by_job
             && self.energy_occupancy == other.energy_occupancy
             && self.equipment_occupancy == other.equipment_occupancy
             && self.output_stockpile_occupancy == other.output_stockpile_occupancy
@@ -117,6 +120,7 @@ impl ProductionIndexes {
     pub(super) const fn new() -> Self {
         Self {
             due_jobs: BTreeMap::new(),
+            due_tick_by_job: BTreeMap::new(),
             energy_occupancy: BTreeMap::new(),
             equipment_occupancy: BTreeMap::new(),
             output_stockpile_occupancy: BTreeMap::new(),

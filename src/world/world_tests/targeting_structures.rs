@@ -54,6 +54,18 @@ fn built_panel_occludes_terrain_and_distant_structural_air_targets() {
         Ok(Some(beyond))
     );
 
+    assert_eq!(
+        raycast_player_air_voxel_with_reach(
+            &registries,
+            &state,
+            positive_x_view(),
+            3_000,
+            |voxel, _face| (voxel == barrier).then_some(voxel),
+        ),
+        Ok(Some(barrier)),
+        "an unbuilt plan does not obstruct close contact"
+    );
+
     materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
     assert_eq!(
         raycast_player_block(&registries, &state, positive_x_view()),
@@ -71,6 +83,17 @@ fn built_panel_occludes_terrain_and_distant_structural_air_targets() {
         }),
         Ok(Some(member)),
         "the panel itself remains a valid pointed structural target"
+    );
+    assert_eq!(
+        raycast_player_air_voxel_with_reach(
+            &registries,
+            &state,
+            positive_x_view(),
+            3_000,
+            |voxel, _face| (voxel == barrier).then_some(voxel),
+        ),
+        Ok(None),
+        "melee cannot contact a resident inside a materialized full-cell panel"
     );
     let _ = validate_activate_structural_element(&registries, &state, member)
         .unwrap()

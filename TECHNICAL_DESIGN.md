@@ -113,6 +113,10 @@ errors.
 This is a routing index, not a duplicate behavior specification. Use it to find the correct abstraction level,
 then read the owning section/source for exact semantics and errors.
 
+Generated-world targeting distinguishes structural interaction from physical contact: a materialized
+full-cell panel remains selectable for its own dismantling, but blocks melee contact into or beyond
+its occupied cell. Unembodied plans do not obstruct either ray.
+
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |
 | Root simulation and time | core definitions, typed quantities/time | `AppState::control_tick()`, `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_control_tick` is the canonical 20 Hz step and owns active body physics; at a slow boundary it settles prior locomotion exertion into the slow transaction, then decides current body motion from the post-transaction state before direct interactions observe that committed body state; a fatal slow tick clears any buffered direct intent inside the slow transaction before state validation, and the corresponding control step reports the canceled intent as `PlayerDead`; `advance_tick` atomically advances one slow boundary only when no generated-world body requires those intervening control steps; direct clock/owner applies stay crate-private |

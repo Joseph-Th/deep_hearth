@@ -3,6 +3,52 @@
 use super::*;
 
 #[test]
+fn due_schedule_indexes_remain_synchronized_across_bucket_mutations() {
+    let mut indexes = ProductionIndexes::new();
+    let early = SimulationTick::new(10);
+    let late = SimulationTick::new(20);
+    let first = ProductionJobId::new(1);
+    let second = ProductionJobId::new(2);
+    let third = ProductionJobId::new(3);
+
+    indexes.insert_due_job(first, late);
+    indexes.insert_due_job(second, early);
+    indexes.insert_due_job(third, late);
+    assert_eq!(indexes.earliest_due_tick(), Some(early));
+    assert_eq!(indexes.jobs_due_at(late), BTreeSet::from([first, third]));
+    for (id, due) in [(first, late), (second, early), (third, late)] {
+        indexes.assert_due_job_present(id, due);
+    }
+
+    indexes.remove_due_job(second, early);
+    indexes.assert_due_job_absent(second);
+    assert_eq!(indexes.earliest_due_tick(), Some(late));
+    indexes.remove_due_job(first, late);
+    indexes.remove_due_job(third, late);
+    assert_eq!(indexes.earliest_due_tick(), None);
+    assert!(indexes.jobs_due_at(late).is_empty());
+    for id in [first, second, third] {
+        indexes.assert_due_job_absent(id);
+    }
+}
+
+#[test]
+fn a_job_cannot_enter_two_different_due_buckets() {
+    let mut indexes = ProductionIndexes::new();
+    let id = ProductionJobId::new(1);
+    let original = SimulationTick::new(10);
+    indexes.insert_due_job(id, original);
+    let before = indexes.clone();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            indexes.insert_due_job(id, SimulationTick::new(20));
+        }))
+        .is_err()
+    );
+    assert_eq!(indexes, before);
+}
+
+#[test]
 fn future_material_lot_identity_demand_tracks_job_insert_and_remove() {
     let job = ProductionJobId::new(1);
     let projection = ProductionJobIndexProjection {
