@@ -1,6 +1,7 @@
 //! Deterministic control-rate player-body integration against authoritative block cells.
 
 mod cover;
+mod exertion;
 mod horizontal;
 mod walk_projection;
 
@@ -25,6 +26,7 @@ use super::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerBodyState, PlayerControlInput,
     PlayerLogisticsRecord, PlayerStance, assess_player_carrying,
 };
+use exertion::resolve_control_exertion;
 use horizontal::{player_voxel_change_allowed, resolve_horizontal_motion};
 
 const MICROSECONDS_PER_SECOND: i128 = 1_000_000;
@@ -636,69 +638,6 @@ fn jump_or_existing_vertical_velocity(
     ))
 }
 
-fn resolve_control_exertion(
-    state: &AppState,
-    before: PlayerBodyState,
-    after: PlayerBodyState,
-    locomotion: LocomotionDefinition,
-    availability: PlayerControlAvailability,
-    input: PlayerControlInput,
-    settle_pending_exertion: bool,
-) -> Result<(LocomotionExertionAccumulator, SurvivalExertion), PlayerBodyMotionError> {
-    let player = state
-        .logistics()
-        .player()
-        .copied()
-        .unwrap_or_else(|| unreachable!("generated body motion requires admitted player"));
-    let before_accumulator = player.locomotion_exertion();
-    let settled = if settle_pending_exertion {
-        before_accumulator.pending()
-    } else {
-        SurvivalExertion::REST
-    };
-    let mut accumulator = if settle_pending_exertion {
-        before_accumulator.settled()
-    } else {
-        before_accumulator
-    };
-    if !availability.accepts_ground_control() {
-        return Ok((accumulator, settled));
-    }
-    let carrying = assess_player_carrying(state)
-        .unwrap_or_else(|| unreachable!("generated body motion requires admitted carrying"));
-    let horizontal_exertion = if input.horizontal().is_neutral()
-        || !horizontal_position_changed(before.foot_position(), after.foot_position())
-    {
-        None
-    } else {
-        let realized_velocity =
-            realized_horizontal_velocity(before.foot_position(), after.foot_position())?;
-        let speed = horizontal_speed(realized_velocity)?;
-        Some(
-            locomotion
-                .exertion_for_horizontal_speed(carrying.stored(), carrying.capacity(), speed)
-                .ok_or(PlayerBodyMotionError::ExertionOverflow)?,
-        )
-    };
-    if let Some(horizontal_exertion) = horizontal_exertion {
-        accumulator = accumulator
-            .checked_accrue(horizontal_exertion)
-            .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    }
-    if input.jump() {
-        let jump_exertion =
-            locomotion.jump_exertion_for_load(carrying.stored(), carrying.capacity());
-        accumulator = accumulator
-            .checked_accrue_impulse(jump_exertion)
-            .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    }
-    Ok((accumulator, settled))
-}
-
-fn horizontal_position_changed(before: WorldPoint, after: WorldPoint) -> bool {
-    before.x_nanometers() != after.x_nanometers() || before.z_nanometers() != after.z_nanometers()
-}
-
 pub(crate) fn apply_player_body_motion(
     state: &mut AppState,
     plan: Option<PlayerBodyMotionPlan>,
@@ -732,39 +671,6 @@ fn integrate_velocity(velocity_nanometers_per_second: i64) -> Result<i64, Player
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
         / MICROSECONDS_PER_SECOND;
     i64::try_from(displacement).map_err(|_| PlayerBodyMotionError::CoordinateOverflow)
-}
-
-fn realized_horizontal_velocity(
-    before: WorldPoint,
-    after: WorldPoint,
-) -> Result<HorizontalVelocity, PlayerBodyMotionError> {
-    let component = |before: i64, after: i64| {
-        i128::from(after)
-            .checked_sub(i128::from(before))
-            .and_then(|displacement| displacement.checked_mul(MICROSECONDS_PER_SECOND))
-            .and_then(|numerator| {
-                numerator.checked_div(i128::from(CONTROL_TICK_DURATION.microseconds()))
-            })
-            .and_then(|velocity| i64::try_from(velocity).ok())
-            .ok_or(PlayerBodyMotionError::VelocityOverflow)
-    };
-    Ok(HorizontalVelocity::new(
-        component(before.x_nanometers(), after.x_nanometers())?,
-        component(before.z_nanometers(), after.z_nanometers())?,
-    ))
-}
-
-fn horizontal_speed(velocity: HorizontalVelocity) -> Result<u128, PlayerBodyMotionError> {
-    let x = u128::from(velocity.x_nanometers_per_second().unsigned_abs());
-    let z = u128::from(velocity.z_nanometers_per_second().unsigned_abs());
-    let speed_squared = x
-        .checked_mul(x)
-        .and_then(|x_squared| {
-            z.checked_mul(z)
-                .and_then(|z_squared| x_squared.checked_add(z_squared))
-        })
-        .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    Ok(integer_sqrt(speed_squared))
 }
 
 fn desired_horizontal_velocity(

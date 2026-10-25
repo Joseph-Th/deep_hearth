@@ -14,12 +14,12 @@ use crate::survival::{
     project_survival_resource_budget,
 };
 
+use super::exertion::walking_exertion;
 use super::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, LocomotionExertionAccumulator,
     PlayerBodyMotionError, PlayerBodyState, PlayerControlAvailability, PlayerControlInput,
     PlayerLogisticsRecord, PlayerStance, assess_player_carrying, horizontal_chunks_generated,
-    horizontal_position_changed, horizontal_speed, horizontal_voxel_bounds,
-    player_body_is_grounded, realized_horizontal_velocity, resolve_horizontal_control,
+    horizontal_voxel_bounds, player_body_is_grounded, resolve_horizontal_control,
     resolve_vertical_control, supporting_floor_y,
 };
 
@@ -366,22 +366,17 @@ fn accrue_projected_walk_exertion(
     capacity: Mass,
     accumulator: &mut LocomotionExertionAccumulator,
 ) -> Result<(), PlayerWalkProjectionError> {
-    if !horizontal_position_changed(before.foot_position(), after.foot_position()) {
+    let Some(exertion) = walking_exertion(
+        registries.survival().physiology().locomotion(),
+        before.foot_position(),
+        after.foot_position(),
+        carried,
+        capacity,
+    )
+    .map_err(PlayerWalkProjectionError::BodyMotion)?
+    else {
         return Ok(());
-    }
-    let realized_velocity =
-        realized_horizontal_velocity(before.foot_position(), after.foot_position())
-            .map_err(PlayerWalkProjectionError::BodyMotion)?;
-    let speed =
-        horizontal_speed(realized_velocity).map_err(PlayerWalkProjectionError::BodyMotion)?;
-    let exertion = registries
-        .survival()
-        .physiology()
-        .locomotion()
-        .exertion_for_horizontal_speed(carried, capacity, speed)
-        .ok_or(PlayerWalkProjectionError::BodyMotion(
-            PlayerBodyMotionError::ExertionOverflow,
-        ))?;
+    };
     *accumulator =
         accumulator
             .checked_accrue(exertion)
