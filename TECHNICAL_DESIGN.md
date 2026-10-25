@@ -326,6 +326,13 @@ against embodied full-footprint members before placing the den and watchman.
 Wilderness creation binds the structure revision at admission and rejects commit
 if construction changes the clearance decision; slender supports and unbuilt
 plans do not claim full-cell collision.
+Exact stationary-occupancy checks use logistics-owned reverse position indexes
+for ground stockpiles, equipment, energy stores, and fluid stores, rather than
+scanning all distant asset locations during local resident movement. Ground
+placements and player death-cache creation update the stockpile index alongside
+their authoritative location custody. These indexes are never persisted:
+trusted loading rebuilds them from the canonical locations and validation
+rejects any live divergence. Multiple assets may still share one voxel.
 Pointed construction rejects the scout and watchman's actual two-cell bodies even
 when concealed from sight. Trusted load also rejects completed enclosures and
 full-footprint embodied members intersecting either persisted opening resident;

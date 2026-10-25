@@ -344,6 +344,9 @@ pub struct LogisticsState {
     pending_primary_break: Option<PlayerPendingPrimaryBreak>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
+    /// Rebuilt from ground custody; the player-carried pack is not stationary.
+    #[serde(skip)]
+    stockpiles_by_position: BTreeMap<VoxelCoord, BTreeSet<StockpileId>>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     equipment_locations: BTreeMap<EquipmentId, VoxelCoord>,
     /// Rebuildable stationary-equipment spatial index; carried equipment is not indexed here.
@@ -375,6 +378,7 @@ impl LogisticsState {
             pending_secondary_use: None,
             pending_primary_break: None,
             stockpile_locations: BTreeMap::new(),
+            stockpiles_by_position: BTreeMap::new(),
             equipment_locations: BTreeMap::new(),
             equipment_by_position: BTreeMap::new(),
             energy_store_locations: BTreeMap::new(),
@@ -430,103 +434,6 @@ impl LogisticsState {
             .get(&position)
             .into_iter()
             .flat_map(|stores| stores.iter().copied())
-    }
-
-    /// Only stores inside the maximum mathematically possible finite-light range.
-    /// Source order remains stable by ID for deterministic equal-brightness ties.
-    pub(crate) fn energy_store_locations_near(
-        &self,
-        position: VoxelCoord,
-        radius: u8,
-    ) -> Vec<(EnergyStoreId, VoxelCoord)> {
-        let reach = i64::from(radius);
-        let low = VoxelCoord::new(position.x().saturating_sub(reach), i64::MIN, i64::MIN);
-        let high = VoxelCoord::new(position.x().saturating_add(reach), i64::MAX, i64::MAX);
-        let mut nearby = self
-            .energy_stores_by_position
-            .range(low..=high)
-            .filter(|(at, _)| {
-                at.y().abs_diff(position.y()) <= u64::from(radius)
-                    && at.z().abs_diff(position.z()) <= u64::from(radius)
-            })
-            .flat_map(|(at, stores)| stores.iter().map(move |store| (*store, *at)))
-            .collect::<Vec<_>>();
-        nearby.sort_unstable_by_key(|(store, _)| *store);
-        nearby
-    }
-
-    pub(crate) fn rebuild_derived_indexes(&mut self) {
-        self.traversal_neighbors.clear();
-        for edge in &self.traversable_edges {
-            Self::index_traversal_edge(&mut self.traversal_neighbors, *edge);
-        }
-        self.equipment_by_position.clear();
-        for (equipment, position) in &self.equipment_locations {
-            self.equipment_by_position
-                .entry(*position)
-                .or_default()
-                .insert(*equipment);
-        }
-        self.energy_stores_by_position.clear();
-        for (store, position) in &self.energy_store_locations {
-            self.energy_stores_by_position
-                .entry(*position)
-                .or_default()
-                .insert(*store);
-        }
-        self.fluid_stores_by_position.clear();
-        for (store, position) in &self.fluid_store_locations {
-            self.fluid_stores_by_position
-                .entry(*position)
-                .or_default()
-                .insert(*store);
-        }
-    }
-
-    pub(crate) fn has_valid_fluid_position_index(&self) -> bool {
-        let mut expected = BTreeMap::<VoxelCoord, BTreeSet<FluidStoreId>>::new();
-        for (store, position) in &self.fluid_store_locations {
-            expected.entry(*position).or_default().insert(*store);
-        }
-        self.fluid_stores_by_position == expected
-    }
-
-    pub(crate) fn has_valid_energy_position_index(&self) -> bool {
-        let mut expected = BTreeMap::<VoxelCoord, BTreeSet<EnergyStoreId>>::new();
-        for (store, position) in &self.energy_store_locations {
-            expected.entry(*position).or_default().insert(*store);
-        }
-        self.energy_stores_by_position == expected
-    }
-
-    pub(crate) fn has_valid_equipment_position_index(&self) -> bool {
-        let mut expected = BTreeMap::<VoxelCoord, BTreeSet<EquipmentId>>::new();
-        for (equipment, position) in &self.equipment_locations {
-            expected.entry(*position).or_default().insert(*equipment);
-        }
-        self.equipment_by_position == expected
-    }
-
-    /// Bounded spatial observation of stationary equipment, stable by equipment identity.
-    pub(crate) fn equipment_locations_near(
-        &self,
-        position: VoxelCoord,
-        radius: u8,
-    ) -> Vec<(EquipmentId, VoxelCoord)> {
-        let reach = i64::from(radius);
-        let low = VoxelCoord::new(position.x().saturating_sub(reach), i64::MIN, i64::MIN);
-        let high = VoxelCoord::new(position.x().saturating_add(reach), i64::MAX, i64::MAX);
-        let mut nearby = self
-            .equipment_by_position
-            .range(low..=high)
-            .filter(|(at, _)| {
-                at.y().abs_diff(position.y()) <= u64::from(radius)
-                    && at.z().abs_diff(position.z()) <= u64::from(radius)
-            })
-            .flat_map(|(at, equipment)| equipment.iter().map(move |id| (*id, *at)))
-            .collect::<Vec<_>>();
-        nearby.sort_unstable_by_key(|(equipment, _)| *equipment);
-        nearby
     }
 
     /// Returns the world voxel of one equipment instance managed by logistics.
@@ -730,25 +637,6 @@ impl LogisticsState {
             .map(|(stockpile, position)| (*stockpile, *position))
     }
 
-    #[must_use]
-    pub(crate) fn has_stationary_occupant_at(&self, position: VoxelCoord) -> bool {
-        self.stockpile_locations
-            .values()
-            .any(|value| *value == position)
-            || self
-                .equipment_locations
-                .values()
-                .any(|value| *value == position)
-            || self
-                .energy_store_locations
-                .values()
-                .any(|value| *value == position)
-            || self
-                .fluid_store_locations
-                .values()
-                .any(|value| *value == position)
-    }
-
     pub(super) fn apply_initialization(
         &mut self,
         expected_revision: u64,
@@ -804,6 +692,12 @@ impl LogisticsState {
             .stockpile_locations
             .insert(expected_player.carried_stockpile(), death_position);
         assert!(previous.is_none());
+        assert!(
+            self.stockpiles_by_position
+                .entry(death_position)
+                .or_default()
+                .insert(expected_player.carried_stockpile())
+        );
         for equipment in dropped_equipment {
             assert!(
                 !self.equipment_locations.contains_key(equipment),
@@ -967,6 +861,12 @@ impl LogisticsState {
         );
         let previous = self.stockpile_locations.insert(stockpile, position);
         assert!(previous.is_none());
+        assert!(
+            self.stockpiles_by_position
+                .entry(position)
+                .or_default()
+                .insert(stockpile)
+        );
         self.revision = next_revision;
     }
 
@@ -1366,6 +1266,12 @@ pub fn assess_player_carrying(state: &AppState) -> Option<PlayerCarryingAssessme
     })
 }
 
+mod spatial_indexes;
+
 #[cfg(test)]
 #[path = "traversal_index_tests.rs"]
 mod traversal_index_tests;
+
+#[cfg(test)]
+#[path = "stationary_index_tests.rs"]
+mod stationary_index_tests;

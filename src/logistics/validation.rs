@@ -40,6 +40,7 @@ pub enum LogisticsValidationError {
     UnknownLocatedStockpile {
         stockpile: StockpileId,
     },
+    StockpilePositionIndexInconsistent,
     LocatedStockpileAlsoCarried {
         stockpile: StockpileId,
     },
@@ -308,6 +309,9 @@ impl Display for LogisticsValidationError {
                 "stockpile location references missing stockpile {}",
                 stockpile.value()
             ),
+            Self::StockpilePositionIndexInconsistent => {
+                formatter.write_str("stockpile spatial lookup disagrees with location custody")
+            }
             Self::LocatedStockpileAlsoCarried { stockpile } => write!(
                 formatter,
                 "stockpile {} is both player-carried and separately located",
@@ -720,6 +724,9 @@ fn validate_stockpile_locations(
     inventory: &InventoryState,
     structures: &StructureState,
 ) -> Result<(), LogisticsValidationError> {
+    if !state.has_valid_stockpile_position_index() {
+        return Err(LogisticsValidationError::StockpilePositionIndexInconsistent);
+    }
     for (stockpile, position) in state.stockpile_locations() {
         if state
             .player()
