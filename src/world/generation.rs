@@ -835,9 +835,28 @@ pub(crate) fn first_buried_stationary_enclosure_in_world(
     registries: &Registries,
     state: &AppState,
 ) -> Option<VoxelCoord> {
-    state.world().chunks().find_map(|chunk| {
-        first_stationary_enclosure_collision_in_generated_chunk(registries.world(), state, chunk)
-    })
+    // This validation runs on every trusted load, including worlds with many
+    // generated columns and no enclosures. Query each located enclosure against
+    // the indexed block world once instead of scanning every generated column.
+    // Preserve chunk-first, then stockpile-ID-first diagnostic ordering.
+    state
+        .logistics()
+        .stockpile_locations()
+        .filter(|&(stockpile, _)| {
+            state
+                .inventory()
+                .get_stockpile(stockpile)
+                .is_some_and(|record| record.enclosure().is_some())
+        })
+        .filter(|&(_, voxel)| {
+            state
+                .world()
+                .block_at(voxel)
+                .and_then(|block| registries.world().block_for_state(block))
+                .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        })
+        .min_by_key(|(stockpile, voxel)| (ChunkCoord::containing(*voxel), *stockpile))
+        .map(|(_, voxel)| voxel)
 }
 
 fn temple_site_for_chunk(

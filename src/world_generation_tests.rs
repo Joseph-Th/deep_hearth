@@ -303,6 +303,74 @@ fn trusted_load_rejects_stationary_enclosure_embedded_in_generated_stone() {
 }
 
 #[test]
+fn trusted_load_enclosure_overlap_chooses_chunk_first_then_identity_after_reconstruction() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let mut state = AppState::new();
+    let later_chunk = VoxelCoord::new(33, WORLD_MIN_Y, 0);
+    let early_chunk_late_id = VoxelCoord::new(1, WORLD_MIN_Y, 0);
+    let early_chunk_last_id = VoxelCoord::new(2, WORLD_MIN_Y, 0);
+    for chunk in [ChunkCoord::new(0, 0), ChunkCoord::new(2, 0)] {
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    validate_admit_player(&registries, &state, VoxelCoord::new(5, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        crate::world::first_buried_stationary_enclosure_in_world(&registries, &state),
+        None,
+        "generated terrain without located enclosures cannot contain burial"
+    );
+    for position in [later_chunk, early_chunk_late_id, early_chunk_last_id] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+        place_completed_field_box_at(&registries, &mut state, position);
+    }
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    for position in [later_chunk, early_chunk_late_id, early_chunk_last_id] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BLOCK_STATE_STONE);
+    }
+    assert_eq!(
+        crate::world::first_buried_stationary_enclosure_in_world(&registries, &state),
+        Some(early_chunk_late_id),
+        "earliest generated chunk wins over an older identity in a later chunk"
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Logistics(
+            LogisticsValidationError::StationaryEnclosureIntersectsSolidTerrain {
+                voxel: early_chunk_late_id
+            }
+        ))
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+            .unwrap()
+            .into_state(&registries)
+            .is_err(),
+        "trusted load must reject the same physically buried enclosure"
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        early_chunk_late_id,
+        BlockStateId::AIR,
+    );
+    assert_eq!(
+        crate::world::first_buried_stationary_enclosure_in_world(&registries, &state),
+        Some(early_chunk_last_id),
+        "a cleared younger conflict reveals the next enclosure"
+    );
+}
+
+#[test]
 fn terrain_generation_cannot_embed_existing_full_footprint_structural_matter() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);

@@ -341,6 +341,10 @@ available surface parcels and located stockpile enclosures instead of scanning
 remote or depleted custody for every new column. If several objects conflict,
 the earliest resource or stockpile identity still determines the reported cell.
 Chunk-column lookup remains valid at the extreme representable voxel boundary.
+Trusted-load enclosure burial checks instead visit located enclosure custody
+once and query generated block truth at each location, without iterating
+all world chunks. Diagnostics still select the earliest generated chunk,
+then the lowest enclosed stockpile identity within that chunk.
 Pointed construction rejects the scout and watchman's actual two-cell bodies even
 when concealed from sight. Trusted load also rejects completed enclosures and
 full-footprint embodied members intersecting either persisted opening resident;
