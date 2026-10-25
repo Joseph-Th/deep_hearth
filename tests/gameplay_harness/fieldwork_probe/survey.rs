@@ -117,6 +117,28 @@ pub(super) fn search_target(
     channel_start_x: i64,
     strategy: FieldworkSurveyStrategy,
 ) -> Option<FieldworkLocalization> {
+    search_target_with_instrument(
+        registries,
+        state,
+        channel_voxels,
+        channel_start_x,
+        strategy,
+        |_| hammer,
+    )
+}
+
+/// Hand-observed exposures come before spending labor on a specialized instrument. Once the
+/// actor sees a promising point, the caller can physically prepare the tool just in time.
+/// Barren point inspections never invoke the tool acquisition callback. Indexed-channel
+/// searches instead prepare the instrument before taking their channel-wide sample.
+pub(super) fn search_target_with_instrument(
+    registries: &Registries,
+    state: &mut AppState,
+    channel_voxels: i64,
+    channel_start_x: i64,
+    strategy: FieldworkSurveyStrategy,
+    mut prepare_instrument: impl FnMut(&mut AppState) -> EquipmentId,
+) -> Option<FieldworkLocalization> {
     let mut selected_channel = None::<(i64, u32, u32)>;
     let mut transects = 0_u64;
     for channel_index in 0..CHANNEL_COUNT {
@@ -160,12 +182,13 @@ pub(super) fn search_target(
 
     if strategy == FieldworkSurveyStrategy::IndexedChannel {
         let channel = horizontal_region(selected_channel_start, channel_voxels);
+        let instrument = prepare_instrument(state);
         let indexed = run_survey(
             registries,
             state,
             GeologicalEvidenceKind::ExcavationSample,
             channel,
-            Some(hammer),
+            Some(instrument),
             "indexed channel survey",
         );
         for observation in indexed.observations() {
@@ -224,12 +247,13 @@ pub(super) fn search_target(
         if inspection_finding.lower_ppm() == 0 {
             continue;
         }
+        let instrument = prepare_instrument(state);
         let detailed = run_survey(
             registries,
             state,
             GeologicalEvidenceKind::ExcavationSample,
             point,
-            Some(hammer),
+            Some(instrument),
             "targeted detailed survey",
         );
         detailed_surveys += 1;
@@ -270,25 +294,4 @@ pub(super) fn search_target(
         });
     }
     None
-}
-
-pub(super) fn localize_target(
-    registries: &Registries,
-    state: &mut AppState,
-    hammer: EquipmentId,
-    channel_voxels: i64,
-    channel_start_x: i64,
-    strategy: FieldworkSurveyStrategy,
-) -> FieldworkLocalization {
-    search_target(
-        registries,
-        state,
-        hammer,
-        channel_voxels,
-        channel_start_x,
-        strategy,
-    )
-    .unwrap_or_else(|| {
-        panic!("fieldwork expected a known geological opportunity but search found none")
-    })
 }

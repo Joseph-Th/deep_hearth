@@ -59,12 +59,23 @@ def _shared_portfolio_evidence(lines: list[str]) -> str:
         r"shared-bank-concurrency=([^ ]+) families=(\d+) batches-per-family=(\d+) "
         r"productive-batches=(\d+) charge-events=(\d+) charge-attention=(\d+)t "
         r"parallel-maintenance=\[component:stone-drill-bit attention:(\d+)t overlap:(\d+)t completed:(true|false)\] "
+        r"next-machine=\[[^\]]+\] "
         r"service-option=\[choice:defer-spare matched-bit-used:(true|false) spindle-condition:(\d+)->(\d+)ppm matched-service:(\d+)t pending-batches:(\d+)\] "
         r"delegated=(\d+)t max-packed=(\d+) elapsed=(\d+)t .*?provider-condition=(\d+)ppm",
         experiences[0],
     )
     if portfolio is None:
         raise AssertionError("settlement portfolio experience lost its lived telemetry")
+    next_machine = re.search(
+        r"next-machine=\[component:drawplate attention:(\d+)t overlap:(\d+)t built:(true|false) used-for:wire-drawbench\]",
+        experiences[0],
+    )
+    if next_machine is None:
+        raise AssertionError("settlement did not disclose physically fabricated next-machine infrastructure")
+    next_attention = int(next_machine.group(1))
+    next_overlap = int(next_machine.group(2))
+    if next_machine.group(3) != "true" or next_attention <= 0 or next_overlap != next_attention:
+        raise AssertionError("next-machine drawplate was not actually built during delegation")
     maintenance_attention = int(portfolio.group(9))
     maintenance_overlap = int(portfolio.group(10))
     if portfolio.group(11) != "true" or maintenance_attention <= 0:
@@ -78,7 +89,9 @@ def _shared_portfolio_evidence(lines: list[str]) -> str:
     service_attention = int(portfolio.group(15))
     if service_attention <= 0:
         raise AssertionError("matched service alternative consumed no physical player attention")
-    active_attention = int(portfolio.group(8)) + maintenance_attention
+    if maintenance_overlap + next_overlap > int(portfolio.group(17)):
+        raise AssertionError("parallel machine projects claimed more attention than delegated time")
+    active_attention = int(portfolio.group(8)) + maintenance_attention + next_attention
     return (
         " shared-portfolio=[scope:single-state "
         f"provider:{portfolio.group(1)} bank:{portfolio.group(2)} "
@@ -86,6 +99,7 @@ def _shared_portfolio_evidence(lines: list[str]) -> str:
         f"productive-batches:{portfolio.group(6)} charges:{portfolio.group(7)} "
         f"active:{active_attention}t charge:{portfolio.group(8)}t "
         f"parallel-maintenance=[attention:{maintenance_attention}t overlap:{maintenance_overlap}t] "
+        f"new-machine=[drawplate:{next_attention}t productive-overlap:{next_overlap}t drawbench-built:1] "
         f"service-choice=[defer-spare:1 matched-restored:{portfolio.group(13)}->{portfolio.group(14)}ppm alternative-cost:{service_attention}t no-pending-work:1] "
         f"delegated:{portfolio.group(17)}t max-packed:{portfolio.group(18)} "
         f"elapsed:{portfolio.group(19)}t condition:{portfolio.group(20)}ppm]"

@@ -20,6 +20,36 @@ fn replay(seed: u64) -> FocusedProbeCase {
 }
 
 #[test]
+fn barren_field_inspections_never_fabricate_an_unneeded_sampling_hammer() {
+    let registries = deep_hearth::content::build_registries();
+    let seed = 3;
+    let requested = fieldwork_mining_limits(&registries).base_quarry_batch;
+    let (mut world, _) = super::world::build_fieldwork_world_with_diagnostics(
+        &registries,
+        seed,
+        requested,
+        fieldwork_supply(&registries, seed),
+        false,
+    );
+    let equipment_revision = world.state.equipment().revision();
+    let baseline_matter = calculate_matter_accounting(&world.state).unwrap().total();
+    let surveyed = super::survey::search_target_with_instrument(
+        &registries,
+        &mut world.state,
+        world.channel_voxels,
+        10_000,
+        FieldworkSurveyStrategy::PointSearch,
+        |_| panic!("barren hand surveys must not purchase a sampling instrument"),
+    );
+    assert!(surveyed.is_none());
+    assert_eq!(world.state.equipment().revision(), equipment_revision);
+    assert_eq!(
+        calculate_matter_accounting(&world.state).unwrap().total(),
+        baseline_matter
+    );
+}
+
+#[test]
 fn four_case_organic_fieldwork_sample_spans_every_demand_horizon() {
     use super::super::focused_seeds::{
         FIELDWORK_PROBE_SALT, FocusedProbeSeedPlan, focused_probe_cases_from,

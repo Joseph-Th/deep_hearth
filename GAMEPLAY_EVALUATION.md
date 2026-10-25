@@ -57,6 +57,16 @@ continued search, not a panic or a hidden guarantee that the next area is produc
 opportunities may remain deliberate starting conditions, but unexplored follow-up space does not owe the player a
 resource merely because an order remains unfinished.
 
+In primary fieldwork episodes the actor performs hand transects and point inspections
+before fabricating a sampling hammer; a wholly barren search does not purchase the instrument.
+Fabrication time is accounted separately from survey work even when preparation occurs between
+observations.
+
+The settlement worksite portfolio earns its later wire drawbench rather than inheriting every
+machine from setup. During an active delegated production job the actor crafts the required stone
+drawplate from actual raw material, then consumes it in canonical drawbench assembly. Both
+productive overlap and remaining delegated time are checked against executed ticks.
+
 Choice-rich organic probes keep physical-world and actor-policy roots independent. Maintained witnesses use a
 stable deterministic policy attached to the maintained case; coverage witnesses may intentionally exercise a
 different bounded preference when the actor-choice boundary is part of the contract. Organic/replay cases derive

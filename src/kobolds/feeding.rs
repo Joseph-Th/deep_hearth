@@ -1,5 +1,7 @@
 //! Sparse resident feeding from recoverable den custody into terminal matter accounting.
 
+use std::cmp::Reverse;
+
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
@@ -410,7 +412,7 @@ pub(super) fn consume_den_meal(
     let (source, material, mass, consumed_after) = state
         .surface()
         .available_resources_at(Some(den))
-        .find_map(|resource| {
+        .filter_map(|resource| {
             if resource.kind() != SurfaceResourceKind::Drop {
                 return None;
             }
@@ -433,7 +435,11 @@ pub(super) fn consume_den_meal(
                 .unwrap_or(AggregateMass::ZERO)
                 .checked_add(AggregateMass::from_mass(mass))?;
             Some((resource.id(), material, mass, consumed_after))
-        })?;
+        })
+        // A single complete ration already wins in the caller. Otherwise take
+        // the largest usable portion, not whichever fragment got the lowest ID.
+        // Stable identity breaks ties without affecting conserved custody.
+        .max_by_key(|(id, _, mass, _)| (*mass, Reverse(*id)))?;
     let next_revision = state
         .surface()
         .revision()

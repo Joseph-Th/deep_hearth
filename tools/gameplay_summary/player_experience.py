@@ -227,6 +227,17 @@ def settlement_portfolio_player_experience(lines: list[str]) -> str | None:
         or int(overlap) > int(delegated.removesuffix("t"))
     ):
         raise ValueError("settlement portfolio claims unexecuted parallel player work")
+    part, machine_attention, machine_overlap, built, successor = _capture(
+        _required(record, "next-machine"),
+        r"component:([\w-]+) attention:(\d+)t overlap:(\d+)t built:(true|false) used-for:([\w-]+)",
+        "delegated-time preparation for the next machine",
+    )
+    if (part != "drawplate" or successor != "wire-drawbench"
+            or built != "true" or int(machine_attention) <= 0
+            or int(machine_overlap) != int(machine_attention)):
+        raise ValueError("settlement portfolio failed to build its next machine from real parallel preparation")
+    if int(overlap) + int(machine_overlap) > int(delegated.removesuffix("t")):
+        raise ValueError("settlement portfolio counted more overlap than available delegated time")
     used, before, after, service_attention, followup_batches = _capture(
         _required(record, "service-option"),
         r"choice:defer-spare matched-bit-used:(true|false) spindle-condition:(\d+)->(\d+)ppm matched-service:(\d+)t pending-batches:(\d+)",
@@ -236,14 +247,15 @@ def settlement_portfolio_player_experience(lines: list[str]) -> str | None:
         raise ValueError("settlement portfolio did not validate the matched spare service option")
     if int(followup_batches) != 0:
         raise ValueError("settlement portfolio deferred service with active follow-up demand")
-    unobserved = int(delegated.removesuffix("t")) - int(overlap)
+    unobserved = int(delegated.removesuffix("t")) - int(overlap) - int(machine_overlap)
     return (
         "PLAYER EXPERIENCE settlement-workshop continuity=single-executed-worksite"
         + " investment=[shared-bank families:" + families + "]"
         + " operation=[batches:" + batches + " charge-cycles:" + charges
         + " charge-labor:" + charge_attention + " delegated:" + delegated
         + " elapsed:" + elapsed + "]"
-        + " proved-parallel-work=[" + component + ":" + overlap + "t]"
+        + " proved-parallel-work=[" + component + ":" + overlap
+        + "t drawplate:" + machine_overlap + "t next-machine:" + successor + "]"
         + " rational-defer=[spare-kept:true pending-batches:" + followup_batches
         + " matched-service:" + before + "->" + after
         + "ppm cost-not-spent:" + service_attention + "t]"

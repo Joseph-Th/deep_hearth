@@ -18,7 +18,7 @@ use super::retooling::{
     prepare_fieldwork_tool_for_site, projected_current_material_attention,
 };
 use super::survey::{
-    CHANNEL_START_X, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
+    CHANNEL_START_X, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, search_target,
 };
 use super::world::{FieldworkWorld, build_fieldwork_world};
 
@@ -205,14 +205,15 @@ fn equally_fast_owned_tools_prefer_better_condition_over_internal_identity() {
     );
     assert!(worn.value() < fresh.value());
 
-    let localized = localize_target(
+    let localized = search_target(
         &registries,
         &mut world.state,
         hammer,
         world.channel_voxels,
         CHANNEL_START_X,
         FieldworkSurveyStrategy::PointSearch,
-    );
+    )
+    .expect("seeded fieldwork site must be localizable from acquired evidence");
     let tiny_order = Mass::from_milligrams(1);
     let extraction = execute_fieldwork_extraction(
         &registries,
@@ -389,14 +390,15 @@ fn owned_ore_specialization_can_pay_back_before_the_current_tool_is_blocked() {
             target: EQUIPMENT_COPPER_REINFORCED_PICK,
         },
     );
-    let primary = localize_target(
+    let primary = search_target(
         &registries,
         &mut world.state,
         hammer,
         world.channel_voxels,
         CHANNEL_START_X,
         FieldworkSurveyStrategy::PointSearch,
-    );
+    )
+    .expect("seeded fieldwork site must be localizable from acquired evidence");
     let seed_extraction_mass = Mass::from_milligrams(300_000);
     let extraction = execute_fieldwork_extraction(
         &registries,
@@ -512,14 +514,15 @@ fn owned_ore_can_fund_a_harder_site_tool_after_relocation() {
     );
     let (hammer, _) =
         assemble_sampling_hammer(&registries, &mut world.state, world.raw, world.parts);
-    let primary = localize_target(
+    let primary = search_target(
         &registries,
         &mut world.state,
         hammer,
         world.channel_voxels,
         CHANNEL_START_X,
         FieldworkSurveyStrategy::PointSearch,
-    );
+    )
+    .expect("seeded fieldwork site must be localizable from acquired evidence");
     let planned_primary = requested.min(primary.resource_mass.upper());
     let estimate = super::planning::choose_fieldwork_tool_with_market_phase(
         &registries,
@@ -551,14 +554,15 @@ fn owned_ore_can_fund_a_harder_site_tool_after_relocation() {
     );
     assert_eq!(extraction.extracted, requested);
 
-    let secondary = localize_target(
+    let secondary = search_target(
         &registries,
         &mut world.state,
         hammer,
         world.channel_voxels,
         SECONDARY_CHANNEL_START_X,
         FieldworkSurveyStrategy::PointSearch,
-    );
+    )
+    .expect("seeded fieldwork site must be localizable from acquired evidence");
     let secondary_order = requested.min(secondary.resource_mass.upper());
     let matter_before = calculate_matter_accounting(&world.state)
         .unwrap_or_else(|error| panic!("retooling matter setup failed: {error}"))

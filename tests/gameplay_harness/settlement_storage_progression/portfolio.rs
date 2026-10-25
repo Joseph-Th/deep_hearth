@@ -5,7 +5,8 @@ use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH,
     EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
     EQUIPMENT_TIMBER_HELVE_HAMMER, EQUIPMENT_TIMBER_SPINDLE_DRILL, EQUIPMENT_TIMBER_TREADLE_DRIVE,
-    FORM_DRILL_BIT, MANUAL_POWER_FOOT_TREADLE, MATERIAL_STONE, PROCESS_DRESS_STONE_CHIP_DRILL_BIT,
+    FORM_DRAWPLATE, FORM_DRILL_BIT, MANUAL_POWER_FOOT_TREADLE, MATERIAL_STONE,
+    PROCESS_DRESS_STONE_CHIP_DRILL_BIT, PROCESS_SHAPE_STONE_DRAWPLATE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -36,18 +37,31 @@ use crate::powered_craft_planning::{authored_batch, project_powered_craft_sequen
 use crate::production_timing::finish_uninterrupted_production_job;
 use crate::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
+mod parallel;
+use parallel::{
+    execute_parallel_drill_bit_maintenance, prepare_next_machine_during_delegation,
+    service_spindle_from_parallel_bit,
+};
+
 #[derive(Clone, Copy)]
 struct PortfolioFamilyRuntime {
     family: PoweredFamily,
     source: StockpileId,
     destination: StockpileId,
-    machine: EquipmentId,
+    machine: Option<EquipmentId>,
 }
 
 #[derive(Clone, Copy)]
 struct ParallelMaintenanceProject {
     source: StockpileId,
     destination: StockpileId,
+    completed: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ParallelMachineProject {
+    source: StockpileId,
+    components: StockpileId,
     completed: bool,
 }
 
@@ -64,6 +78,9 @@ struct LivedPortfolioOutcome {
     charge_attention_ticks: u64,
     parallel_maintenance_attention_ticks: u64,
     parallel_maintenance_overlap_ticks: u64,
+    parallel_machine_attention_ticks: u64,
+    parallel_machine_overlap_ticks: u64,
+    built_next_machine: bool,
     service_attention_ticks: u64,
     serviced_spindle_condition_before_ppm: u32,
     serviced_spindle_condition_after_ppm: u32,
@@ -90,12 +107,12 @@ fn seed_portfolio_world(
     StockpileId,
     Vec<PendingPortfolioFamily>,
     ParallelMaintenanceProject,
+    ParallelMachineProject,
 ) {
     let mut state = AppState::new();
     let equipment_definitions = [
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
         EQUIPMENT_TIMBER_SPINDLE_DRILL,
-        EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH,
         EQUIPMENT_TIMBER_HELVE_HAMMER,
         EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
         EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH,
@@ -173,6 +190,62 @@ fn seed_portfolio_world(
     );
     family_stockpiles.extend([maintenance_source, maintenance_destination]);
 
+    // The next production machine must be earned while the first one works, not included in an
+    // already-complete starting workshop. Supply its other physical parts but leave its stone die
+    // as raw feedstock requiring real craft attention and conserved process waste.
+    let drawplate = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_STONE_DRAWPLATE)
+        .unwrap_or_else(|| panic!("workshop drawplate fabrication definition disappeared"));
+    let drawbench = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH)
+        .unwrap_or_else(|| panic!("workshop next-machine definition disappeared"));
+    let assembly = drawbench
+        .assembly_profile()
+        .unwrap_or_else(|| panic!("workshop next machine lost its material assembly"));
+    let drawplate_commodity = CommodityKey::new(MATERIAL_STONE, FORM_DRAWPLATE);
+    let assembled_mass = assembly
+        .inputs()
+        .iter()
+        .map(|input| input.mass())
+        .try_fold(Mass::ZERO, Mass::checked_add)
+        .unwrap_or_else(|| panic!("workshop next-machine material capacity overflowed"));
+    let machine_parts = seed_stockpile(
+        &mut state,
+        assembled_mass
+            .checked_add(drawplate.input_mass())
+            .unwrap_or_else(|| panic!("workshop part stockpile capacity overflowed")),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    for input in assembly.inputs() {
+        if input.commodity() == drawplate_commodity {
+            continue;
+        }
+        let _ = seed_lot(
+            registries,
+            &mut state,
+            machine_parts,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let machine_raw = seed_stockpile(
+        &mut state,
+        drawplate.input_mass(),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let _ = seed_lot(
+        registries,
+        &mut state,
+        machine_raw,
+        drawplate.input(),
+        drawplate.input_mass(),
+        ROOM_TEMPERATURE,
+    );
+    family_stockpiles.extend([machine_parts, machine_raw]);
+
     let mut admitted_stockpiles = Vec::with_capacity(1 + family_stockpiles.len());
     admitted_stockpiles.push(component_package);
     admitted_stockpiles.extend(family_stockpiles);
@@ -190,6 +263,11 @@ fn seed_portfolio_world(
         ParallelMaintenanceProject {
             source: maintenance_source,
             destination: maintenance_destination,
+            completed: false,
+        },
+        ParallelMachineProject {
+            source: machine_raw,
+            components: machine_parts,
             completed: false,
         },
     )
@@ -223,7 +301,7 @@ fn assemble_portfolio_infrastructure(
     let mut families = Vec::with_capacity(POWERED_FAMILIES.len());
     for pending in pending_families {
         let family = pending.family;
-        let machine =
+        let machine = (family.equipment != EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH).then(|| {
             validate_assemble_equipment(registries, &state, family.equipment, component_package)
                 .unwrap_or_else(|error| {
                     panic!(
@@ -237,7 +315,8 @@ fn assemble_portfolio_infrastructure(
                         "settlement portfolio {} commit failed: {error}",
                         family.label
                     )
-                });
+                })
+        });
         families.push(PortfolioFamilyRuntime {
             family,
             source: pending.source,
@@ -254,206 +333,6 @@ fn assemble_portfolio_infrastructure(
         "settlement lived portfolio must embody its complete disclosed infrastructure package"
     );
     (provider, drive, families)
-}
-
-fn execute_parallel_drill_bit_maintenance(
-    registries: &Registries,
-    state: &mut AppState,
-    powered_job: deep_hearth::production::ProductionJobId,
-    delegated_ticks: u64,
-    project: &mut ParallelMaintenanceProject,
-) -> u64 {
-    let request = select_manual_craft_request(
-        registries,
-        state,
-        PROCESS_DRESS_STONE_CHIP_DRILL_BIT,
-        project.source,
-        1,
-        "settlement parallel drill-bit maintenance",
-    );
-    let resolution = resolve_manual_craft(registries, state, &request).unwrap_or_else(|error| {
-        panic!("settlement parallel maintenance resolution failed: {error}")
-    });
-    let attention_ticks = resolution.duration().value();
-    assert!(
-        attention_ticks < delegated_ticks,
-        "settlement delegated spindle-drill leg no longer leaves room for useful parallel maintenance"
-    );
-    let powered_completion = state
-        .production()
-        .get_job(powered_job)
-        .map(|record| record.completes_at().value())
-        .unwrap_or_else(|| panic!("settlement delegated spindle-drill job disappeared"));
-    let maintenance_job = validate_start_manual_craft(
-        registries,
-        state,
-        ManualCraftStartRequest::new(request, project.destination),
-    )
-    .unwrap_or_else(|error| panic!("settlement parallel maintenance start failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("settlement parallel maintenance commit failed: {error}"));
-
-    let mut completed = false;
-    for elapsed in 1..=attention_ticks {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("settlement parallel maintenance tick failed: {error}"));
-        assert_tick_events_within(
-            &outcome,
-            TickEventAllowance {
-                production_jobs: &[powered_job, maintenance_job],
-                ..TickEventAllowance::default()
-            },
-            "settlement parallel maintenance",
-        );
-        assert!(
-            outcome
-                .production_completions()
-                .iter()
-                .all(|completion| completion.job() != powered_job),
-            "settlement delegated spindle-drill leg ended before the parallel maintenance task"
-        );
-        if outcome
-            .production_completions()
-            .iter()
-            .any(|completion| completion.job() == maintenance_job)
-        {
-            assert_eq!(
-                elapsed, attention_ticks,
-                "settlement parallel maintenance completed before its canonical schedule"
-            );
-            completed = true;
-        }
-    }
-    assert!(completed, "settlement parallel maintenance never completed");
-    assert!(
-        state.production().get_job(powered_job).is_some(),
-        "settlement delegated spindle-drill job did not remain active through maintenance prep"
-    );
-    let remaining = powered_completion
-        .checked_sub(state.tick().value())
-        .unwrap_or_else(|| panic!("settlement powered job completion moved behind current time"));
-    assert_eq!(
-        remaining,
-        delegated_ticks - attention_ticks,
-        "settlement autonomous work did not advance while the player prepared maintenance stock"
-    );
-    assert_eq!(state.player_work().active(), None);
-    let drill_bit = CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT);
-    let expected_drill_bit_mass = resolution
-        .single_output_stream()
-        .unwrap_or_else(|| panic!("settlement parallel maintenance lost its single output stream"))
-        .outputs()
-        .iter()
-        .filter(|output| output.commodity() == drill_bit)
-        .map(|output| output.mass())
-        .try_fold(Mass::ZERO, Mass::checked_add)
-        .unwrap_or_else(|| panic!("settlement parallel maintenance output mass overflowed"));
-    assert!(!expected_drill_bit_mass.is_zero());
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(project.destination)
-            .map(|stockpile| stockpile.get_mass(drill_bit)),
-        Some(expected_drill_bit_mass),
-        "settlement parallel maintenance did not produce its usable service component"
-    );
-    project.completed = true;
-    attention_ticks
-}
-
-/// Execute a matched service alternative, using the bit prepared while the machine ran.
-/// The actual player can keep the bit for future demand instead of servicing a healthy idle
-/// machine. This branch uses the ordinary pickup, service catalog, and timed service owner.
-fn service_spindle_from_parallel_bit(
-    registries: &Registries,
-    state: &mut AppState,
-    spindle: EquipmentId,
-    project: &ParallelMaintenanceProject,
-    outcome: &mut LivedPortfolioOutcome,
-) {
-    assert!(
-        project.completed,
-        "spindle service requires the parallel-prepared replacement"
-    );
-    let drill_bit = CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT);
-    let stock = project_material_stacks(registries, state, project.destination)
-        .unwrap_or_else(|error| panic!("parallel service bit catalog failed: {error}"));
-    let bit = stock
-        .iter()
-        .find(|stack| stack.commodity() == drill_bit)
-        .unwrap_or_else(|| panic!("parallel-prepared bit cannot be picked up"));
-    let bit_mass = bit.mass();
-    validate_pickup_stack_from_ground(registries, state, project.destination, bit, bit_mass)
-        .unwrap_or_else(|error| panic!("parallel bit pickup failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("parallel bit pickup commit failed: {error}"));
-    let service_option = player_equipment_maintenance_options(registries, state)
-        .unwrap_or_else(|error| panic!("parallel service catalog failed: {error}"))
-        .into_iter()
-        .find(|option| option.equipment() == spindle)
-        .unwrap_or_else(|| {
-            panic!("spindle wear did not produce a player-visible service opportunity")
-        });
-    assert!(
-        service_option.replacement_ready(),
-        "parallel-prepared drill bit must fund actual spindle service"
-    );
-    assert_eq!(service_option.replacement(), drill_bit);
-    assert!(service_option.required_replacement_mass() <= bit_mass);
-    let service = validate_start_player_equipment_maintenance(registries, state, spindle)
-        .unwrap_or_else(|error| panic!("parallel-funded spindle service rejected: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("parallel-funded spindle service commit failed: {error}"));
-    assert_eq!(
-        service.condition_before(),
-        service_option.condition_before()
-    );
-    assert_eq!(
-        service.target_condition(),
-        service_option.target_condition()
-    );
-    let started = state.tick().value();
-    let mut completion = None;
-    while state.tick() < service.completes_at() {
-        let tick = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("parallel-funded service tick failed: {error}"));
-        assert_tick_events_within(
-            &tick,
-            TickEventAllowance {
-                equipment_maintenance: true,
-                ..TickEventAllowance::default()
-            },
-            "parallel-funded spindle service",
-        );
-        if let Some(done) = tick.equipment_maintenance() {
-            assert!(
-                completion.replace(done).is_none(),
-                "spindle service completed repeatedly"
-            );
-        }
-    }
-    let completion =
-        completion.unwrap_or_else(|| panic!("parallel-funded spindle service never completed"));
-    assert_eq!(completion.equipment(), spindle);
-    assert_eq!(
-        completion.condition_after(),
-        service_option.target_condition()
-    );
-    assert_eq!(
-        state
-            .equipment()
-            .get_equipment(spindle)
-            .map(|record| record.condition()),
-        Some(service_option.target_condition())
-    );
-    let restored = state.tick().value() - started;
-    assert_eq!(restored, service_option.duration().value());
-    outcome.service_attention_ticks = restored;
-    outcome.serviced_spindle_condition_before_ppm =
-        service_option.condition_before().parts_per_million();
-    outcome.serviced_spindle_condition_after_ppm =
-        service_option.target_condition().parts_per_million();
-    outcome.service_used_parallel_bit = true;
 }
 
 fn prove_shared_bank_serialization(
@@ -493,8 +372,12 @@ fn execute_family(
     drive: EnergyStoreId,
     runtime: PortfolioFamilyRuntime,
     parallel_maintenance: &mut ParallelMaintenanceProject,
+    parallel_machine: &mut ParallelMachineProject,
     outcome: &mut LivedPortfolioOutcome,
 ) {
+    let machine = runtime
+        .machine
+        .unwrap_or_else(|| panic!("production equipment must be built before its family starts"));
     let batch = authored_batch(registries, runtime.family.process, runtime.family.label);
     let mut completed_batches = 0_u64;
     while completed_batches < PORTFOLIO_BATCHES_PER_FAMILY {
@@ -505,7 +388,7 @@ fn execute_family(
         );
         let machine_condition = state
             .equipment()
-            .get_equipment(runtime.machine)
+            .get_equipment(machine)
             .map(|record| record.condition())
             .unwrap_or_else(|| panic!("{} machine disappeared", runtime.family.label));
         let remaining = PORTFOLIO_BATCHES_PER_FAMILY
@@ -568,7 +451,7 @@ fn execute_family(
                 runtime.family.process,
                 runtime.source,
                 selections,
-                runtime.machine,
+                machine,
                 drive,
             ),
             runtime.destination,
@@ -612,12 +495,16 @@ fn execute_family(
             );
             outcome.parallel_maintenance_attention_ticks = overlap;
             outcome.parallel_maintenance_overlap_ticks = overlap;
+            let next_machine_attention =
+                prepare_next_machine_during_delegation(registries, state, job, parallel_machine);
+            outcome.parallel_machine_attention_ticks = next_machine_attention;
+            outcome.parallel_machine_overlap_ticks = next_machine_attention;
         }
         finish_uninterrupted_production_job(registries, state, job, runtime.family.label);
         assert_eq!(
             state
                 .equipment()
-                .get_equipment(runtime.machine)
+                .get_equipment(machine)
                 .map(|record| record.condition()),
             Some(leg.condition_after),
             "{} wear diverged from the live packed-leg projection",
@@ -647,7 +534,7 @@ fn execute_family(
             service_spindle_from_parallel_bit(
                 registries,
                 &mut matched,
-                runtime.machine,
+                machine,
                 parallel_maintenance,
                 outcome,
             );
@@ -677,7 +564,7 @@ fn report_lived_portfolio(
         .map(|record| record.condition().parts_per_million())
         .unwrap_or_else(|| panic!("settlement lived portfolio treadle disappeared"));
     reviewln!(
-        "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle shared-bank=timber-frame-flywheel shared-bank-concurrency=serialized-by-store-occupancy families={} batches-per-family={} productive-batches={} charge-events={} charge-attention={}t parallel-maintenance=[component:stone-drill-bit attention:{}t overlap:{}t completed:{}] service-option=[choice:defer-spare matched-bit-used:{} spindle-condition:{}->{}ppm matched-service:{}t pending-batches:{}] delegated={}t max-packed={} elapsed={}t survival=[energy:{}nJ hydration:{}uL] provider-condition={}ppm matter=conserved",
+        "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle shared-bank=timber-frame-flywheel shared-bank-concurrency=serialized-by-store-occupancy families={} batches-per-family={} productive-batches={} charge-events={} charge-attention={}t parallel-maintenance=[component:stone-drill-bit attention:{}t overlap:{}t completed:{}] next-machine=[component:drawplate attention:{}t overlap:{}t built:{} used-for:wire-drawbench] service-option=[choice:defer-spare matched-bit-used:{} spindle-condition:{}->{}ppm matched-service:{}t pending-batches:{}] delegated={}t max-packed={} elapsed={}t survival=[energy:{}nJ hydration:{}uL] provider-condition={}ppm matter=conserved",
         POWERED_FAMILIES.len(),
         PORTFOLIO_BATCHES_PER_FAMILY,
         PORTFOLIO_BATCHES_PER_FAMILY * POWERED_FAMILIES.len() as u64,
@@ -686,6 +573,9 @@ fn report_lived_portfolio(
         outcome.parallel_maintenance_attention_ticks,
         outcome.parallel_maintenance_overlap_ticks,
         outcome.parallel_maintenance_attention_ticks > 0,
+        outcome.parallel_machine_attention_ticks,
+        outcome.parallel_machine_overlap_ticks,
+        outcome.built_next_machine,
         outcome.service_used_parallel_bit,
         outcome.serviced_spindle_condition_before_ppm,
         outcome.serviced_spindle_condition_after_ppm,
@@ -713,8 +603,13 @@ fn report_lived_portfolio(
 }
 
 pub(super) fn execute_lived_portfolio(registries: &Registries) -> u64 {
-    let (mut state, component_package, pending_families, mut parallel_maintenance) =
-        seed_portfolio_world(registries);
+    let (
+        mut state,
+        component_package,
+        pending_families,
+        mut parallel_maintenance,
+        mut parallel_machine,
+    ) = seed_portfolio_world(registries);
     let (provider, drive, families) = assemble_portfolio_infrastructure(
         registries,
         &mut state,
@@ -728,7 +623,38 @@ pub(super) fn execute_lived_portfolio(registries: &Registries) -> u64 {
         .unwrap_or_else(|| panic!("settlement lived portfolio lost player survival before work"));
     let started_at = state.tick().value();
     let mut outcome = LivedPortfolioOutcome::default();
-    for runtime in families {
+    for mut runtime in families {
+        if runtime.family.equipment == EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH {
+            assert!(
+                parallel_machine.completed,
+                "the second powered machine must await the player's parallel-prepared drawplate"
+            );
+            assert!(
+                runtime.machine.is_none(),
+                "unprepared future machinery must not be inherited as ready-to-run"
+            );
+            let machine = validate_assemble_equipment(
+                registries,
+                &state,
+                EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH,
+                parallel_machine.components,
+            )
+            .unwrap_or_else(|error| {
+                panic!("parallel-prepared drawbench assembly rejected: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("parallel-prepared drawbench assembly failed: {error}"));
+            runtime.machine = Some(machine);
+            outcome.built_next_machine = true;
+            assert_eq!(
+                state
+                    .inventory()
+                    .get_stockpile(parallel_machine.components)
+                    .map(|pile| pile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_DRAWPLATE))),
+                Some(Mass::ZERO),
+                "new drawbench must consume the parallel-prepared stone die, not leave a duplicate part",
+            );
+        }
         execute_family(
             registries,
             &mut state,
@@ -736,12 +662,16 @@ pub(super) fn execute_lived_portfolio(registries: &Registries) -> u64 {
             drive,
             runtime,
             &mut parallel_maintenance,
+            &mut parallel_machine,
             &mut outcome,
         );
     }
 
     assert!(
-        parallel_maintenance.completed && outcome.service_used_parallel_bit,
+        parallel_maintenance.completed
+            && outcome.service_used_parallel_bit
+            && parallel_machine.completed
+            && outcome.built_next_machine,
         "settlement lived portfolio must prove the material-backed service alternative without executing premature repair"
     );
 

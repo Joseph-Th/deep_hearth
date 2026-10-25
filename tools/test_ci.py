@@ -3406,18 +3406,23 @@ class GameplayReportContractTests(unittest.TestCase):
             "shared-bank=timber-frame-flywheel families=5 productive-batches=160 "
             "charge-events=10 charge-attention=112t "
             "parallel-maintenance=[component:stone-drill-bit attention:12t overlap:12t completed:true] "
+            "next-machine=[component:drawplate attention:70t overlap:70t built:true used-for:wire-drawbench] "
             "service-option=[choice:defer-spare matched-bit-used:true spindle-condition:980000->1000000ppm matched-service:8t pending-batches:0] "
             "delegated=935t elapsed=1047t matter=conserved"
         )
         summary = gameplay_report_summary.settlement_portfolio_player_experience([portfolio])
         assert summary is not None
         self.assertIn("charge-labor:112t delegated:935t", summary)
-        self.assertIn("proved-parallel-work=[stone-drill-bit:12t]", summary)
+        self.assertIn("proved-parallel-work=[stone-drill-bit:12t drawplate:70t next-machine:wire-drawbench]", summary)
         self.assertIn("rational-defer=[spare-kept:true pending-batches:0 matched-service:980000->1000000ppm cost-not-spent:8t]", summary)
-        self.assertIn("unobserved-freed-time=923t", summary)
+        self.assertIn("unobserved-freed-time=853t", summary)
         with self.assertRaisesRegex(ValueError, "unexecuted parallel player work"):
             gameplay_report_summary.settlement_portfolio_player_experience([
                 portfolio.replace("overlap:12t", "overlap:20t"),
+            ])
+        with self.assertRaisesRegex(ValueError, "failed to build its next machine"):
+            gameplay_report_summary.settlement_portfolio_player_experience([
+                portfolio.replace("built:true", "built:false"),
             ])
         with self.assertRaisesRegex(ValueError, "matched spare service option"):
             gameplay_report_summary.settlement_portfolio_player_experience([

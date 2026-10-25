@@ -90,7 +90,7 @@ include_fieldwork_contract_tests!();
 mod survey;
 use survey::{
     CHANNEL_START_X, FOLLOWUP_CHANNEL_STARTS, FieldworkLocalization, FieldworkSurveyStrategy,
-    localize_target,
+    search_target_with_instrument,
 };
 
 #[path = "fieldwork_probe/world.rs"]
@@ -473,9 +473,9 @@ fn run_fieldwork_with_supply(
         .survival()
         .player()
         .unwrap_or_else(|| panic!("fieldwork initial survival record disappeared"));
-    let (hammer, sampling_setup_ticks) =
-        assemble_sampling_hammer(registries, &mut state, raw, parts);
     let search_started_at = state.tick();
+    let mut hammer = None;
+    let mut sampling_setup_ticks = 0_u64;
     let FieldworkLocalization {
         target,
         hardness: observed_hardness,
@@ -484,17 +484,33 @@ fn run_fieldwork_with_supply(
         field_inspections,
         detailed_surveys,
         indexed_surveys,
-    } = localize_target(
+    } = search_target_with_instrument(
         registries,
         &mut state,
-        hammer,
         channel_voxels,
         CHANNEL_START_X,
         FieldworkSurveyStrategy::PointSearch,
-    );
+        |state| {
+            *hammer.get_or_insert_with(|| {
+                let (instrument, setup_ticks) =
+                    assemble_sampling_hammer(registries, state, raw, parts);
+                sampling_setup_ticks = setup_ticks;
+                instrument
+            })
+        },
+    )
+    .unwrap_or_else(|| {
+        panic!("fieldwork expected a known geological opportunity but search found none")
+    });
+    let hammer = hammer.expect("positive sampled target requires its physically prepared hammer");
     assert_eq!(indexed_surveys, 0);
     let target_region = target.region();
-    let search_ticks = state.tick().value() - search_started_at.value();
+    let search_ticks = state
+        .tick()
+        .value()
+        .checked_sub(search_started_at.value())
+        .and_then(|elapsed| elapsed.checked_sub(sampling_setup_ticks))
+        .expect("fieldwork observation time includes instrument preparation");
     let planned_local_mass = requested_mine_mass.min(observed_resource_mass.upper());
     assert!(
         !planned_local_mass.is_zero(),

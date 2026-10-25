@@ -154,6 +154,62 @@ fn partly_fed_den_preserves_scrap_when_existing_space_fits_the_remaining_ration(
 }
 
 #[test]
+fn hungry_resident_takes_largest_available_partial_ration_before_smaller_scraps() {
+    let (registries, mut world, [den, _, _, _]) = setup();
+    let fragment = |milligrams| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let plan =
+        validate_create_surface_resources(&registries, &world, [fragment(1_000), fragment(14_000)])
+            .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut world).unwrap();
+    let conserved = calculate_matter_accounting(&world).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &world)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    assert_eq!(
+        advance_tick(&registries, &mut world).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(world, replay);
+    assert_eq!(
+        world.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        world.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    let colony = world.kobold_state().colony.as_ref().unwrap();
+    assert!(colony.hungry);
+    assert_eq!(colony.partial_meal, Mass::from_milligrams(14_000));
+    assert_eq!(
+        calculate_matter_accounting(&world)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        14_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&world).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
+}
+
+#[test]
 fn three_real_food_fragments_complete_one_ration_across_home_visits() {
     let (registries, mut world, [den, _, _, _]) = setup();
     let fragment = |amount| {
