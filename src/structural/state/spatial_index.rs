@@ -131,6 +131,30 @@ impl ElementSpatialIndex {
                     .map(|(&id, _)| id),
             )
     }
+    /// Stable IDs intersecting a bounded horizontal rectangle, with broad
+    /// prisms considered by exact bounds and without spatial enumeration.
+    pub(super) fn candidates_in_columns(
+        &self,
+        min_x: i64,
+        max_x: i64,
+        min_z: i64,
+        max_z: i64,
+    ) -> impl Iterator<Item = StructuralElementId> {
+        let mut found = BTreeSet::new();
+        for ((_, z), ids) in self.by_column.range((min_x, i64::MIN)..=(max_x, i64::MAX)) {
+            if (min_z..=max_z).contains(z) {
+                found.extend(ids.iter().copied());
+            }
+        }
+        for (&id, bounds) in &self.broad_elements {
+            let min = bounds.min();
+            let max = bounds.max_exclusive();
+            if min.x() <= max_x && max.x() > min_x && min.z() <= max_z && max.z() > min_z {
+                found.insert(id);
+            }
+        }
+        found.into_iter()
+    }
 }
 
 fn occupied_columns(bounds: VoxelBounds) -> impl Iterator<Item = (i64, i64)> {

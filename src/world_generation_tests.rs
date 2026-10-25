@@ -520,6 +520,54 @@ fn terrain_generation_cannot_embed_existing_full_footprint_structural_matter() {
 }
 
 #[test]
+fn chunk_terrain_collision_checks_only_local_structures_in_stable_id_order() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let mut state = AppState::new();
+    let remote = VoxelCoord::new(33, WORLD_MIN_Y, 1);
+    let local_first = VoxelCoord::new(2, WORLD_MIN_Y, 1);
+    let local_second = VoxelCoord::new(1, WORLD_MIN_Y, 1);
+    materialize_full_panel_at(&registries, &mut state, remote);
+    materialize_full_panel_at(&registries, &mut state, local_first);
+    materialize_full_panel_at(&registries, &mut state, local_second);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let snapshot = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::StructureBuriedByTerrain { voxel: local_first }),
+        "the earliest local member ID wins; an older remote member cannot interfere"
+    );
+    assert_eq!(state, snapshot);
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(2, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::StructureBuriedByTerrain { voxel: remote }),
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
 fn trusted_load_rejects_embodied_timber_inside_existing_generated_stone() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);

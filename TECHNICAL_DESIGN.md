@@ -1314,7 +1314,9 @@ Structural geometry has nonpersisted voxel and horizontal-column indexes for blo
 inert plans. Control-rate body collision, direct target selection, and small resident-footprint checks inspect
 only local members rather than the complete settlement; overhead-cover assessment inspects members projected
 onto the player's local sky-exposure columns without rescanning every settlement structure on each survival
-tick. Both indexes are maintained on element insertion and removal and rebuilt from persisted element geometry
+tick. New terrain chunk admission and trusted-load terrain-intersection checks also query only member bounds
+crossing the generated chunk's finite horizontal columns, preserving lowest-element-ID conflict precedence.
+Both indexes are maintained on element insertion and removal and rebuilt from persisted element geometry
 on trusted load; embodiment and activation change the same indexed member without introducing another owner.
 Unusually large valid bounds use exact geometric fallbacks rather than allocating unbounded per-voxel or
 per-column entries. The index does not change collision rules:

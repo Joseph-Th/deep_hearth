@@ -113,6 +113,24 @@ impl StructureState {
         })
     }
 
+    /// All members horizontally crossing a bounded world-chunk rectangle in
+    /// stable structural ID order. The world owner then checks vertical solidity.
+    pub(crate) fn elements_intersecting_horizontal_columns(
+        &self,
+        min_x: i64,
+        max_x: i64,
+        min_z: i64,
+        max_z: i64,
+    ) -> impl Iterator<Item = &StructuralElementRecord> {
+        self.spatial_index
+            .candidates_in_columns(min_x, max_x, min_z, max_z)
+            .map(|id| {
+                self.elements
+                    .get(&id)
+                    .expect("structural horizontal index references absent element")
+            })
+    }
+
     /// A materialized, full-footprint member occupies this voxel even before activation.
     /// Planned members have no physical obstruction.
     #[must_use]

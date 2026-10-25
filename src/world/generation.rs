@@ -783,9 +783,13 @@ fn first_structure_collision_in_generated_chunk(
     state: &AppState,
     chunk: &WorldChunk,
 ) -> Option<VoxelCoord> {
+    let min_x = chunk.coord().world_min_x()?;
+    let min_z = chunk.coord().world_min_z()?;
+    let max_x = min_x + (CHUNK_SIDE - 1) as i64;
+    let max_z = min_z + (CHUNK_SIDE - 1) as i64;
     state
         .structures()
-        .elements()
+        .elements_intersecting_horizontal_columns(min_x, max_x, min_z, max_z)
         .filter(|element| !element.embodied_material().is_empty())
         .find_map(|element| {
             first_solid_block_intersecting_bounds(registry, chunk, element.bounds())
