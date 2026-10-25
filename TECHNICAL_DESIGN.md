@@ -333,6 +333,9 @@ placements and player death-cache creation update the stockpile index alongside
 their authoritative location custody. These indexes are never persisted:
 trusted loading rebuilds them from the canonical locations and validation
 rejects any live divergence. Multiple assets may still share one voxel.
+The stockpile position index also serves exact-local player ground-inventory
+presentation and opening-scout clearance; only stockpiles with a finished
+enclosure obstruct the small scout's body.
 Pointed construction rejects the scout and watchman's actual two-cell bodies even
 when concealed from sight. Trusted load also rejects completed enclosures and
 full-footprint embodied members intersecting either persisted opening resident;

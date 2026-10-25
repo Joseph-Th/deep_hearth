@@ -409,11 +409,10 @@ impl AppState {
             .logistics
             .player()
             .map(|player| player.position());
-        self.systems
-            .logistics
-            .stockpile_locations()
-            .filter(move |(_, position)| Some(*position) == player_position)
-            .map(|(stockpile, _)| {
+        player_position
+            .into_iter()
+            .flat_map(|position| self.systems.logistics.stockpiles_at(position))
+            .map(|stockpile| {
                 self.systems
                     .inventory
                     .get_stockpile(stockpile)

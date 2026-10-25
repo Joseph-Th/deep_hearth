@@ -38,6 +38,33 @@ fn stationary_occupancy_uses_exact_positions_and_survives_reconstruction() {
     );
     assert!(!state.logistics().has_stationary_occupant_at(empty));
     assert!(!state.logistics().has_stationary_occupant_at(far));
+    let local_ids = state.logistics().stockpiles_at(shared).collect::<Vec<_>>();
+    assert_eq!(local_ids.len(), 2);
+    assert!(local_ids[0] < local_ids[1]);
+    assert_eq!(state.logistics().stockpiles_at(empty).count(), 0);
+    assert_eq!(
+        state
+            .logistics()
+            .stockpiles_at(VoxelCoord::new(far.x() + 127, 2, 3))
+            .count(),
+        1
+    );
+    assert!(
+        state.available_local_ground_stockpiles().next().is_none(),
+        "unadmitted actors cannot browse globally indexed ground custody"
+    );
+    validate_admit_player(&registries, &state, shared)
+        .expect("admit player into unenclosed ground custody")
+        .commit(&mut state)
+        .expect("admission commit");
+    assert_eq!(
+        state
+            .available_local_ground_stockpiles()
+            .map(|stockpile| stockpile.id())
+            .collect::<Vec<_>>(),
+        local_ids,
+        "local ground projection must preserve ID order and exclude distant stockpiles"
+    );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 
     let bytes =
@@ -50,6 +77,14 @@ fn stationary_occupancy_uses_exact_positions_and_survives_reconstruction() {
     assert_eq!(state, restored);
     assert!(restored.logistics().has_stationary_occupant_at(shared));
     assert!(!restored.logistics().has_stationary_occupant_at(empty));
+    assert_eq!(
+        restored
+            .available_local_ground_stockpiles()
+            .map(|stockpile| stockpile.id())
+            .collect::<Vec<_>>(),
+        local_ids,
+        "trusted load reconstructs exact-local stockpile lookup"
+    );
 }
 
 #[test]

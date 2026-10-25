@@ -901,12 +901,11 @@ fn validate_opening_resident_infrastructure(
             resident,
             VoxelCoord::new(resident.x(), head_y, resident.z()),
         ] {
-            let enclosed = state.logistics().stockpile_locations().any(|(id, at)| {
-                at == cell
-                    && state
-                        .inventory()
-                        .get_stockpile(id)
-                        .is_some_and(|stockpile| stockpile.enclosure().is_some())
+            let enclosed = state.logistics().stockpiles_at(cell).any(|id| {
+                state
+                    .inventory()
+                    .get_stockpile(id)
+                    .is_some_and(|stockpile| stockpile.enclosure().is_some())
             });
             let structure = state.structures().elements().any(|element| {
                 !element.embodied_material().is_empty()

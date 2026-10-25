@@ -11,6 +11,18 @@ use crate::spatial::VoxelCoord;
 use super::LogisticsState;
 
 impl LogisticsState {
+    /// Stationary stockpile identities at one exact voxel, sorted by stable
+    /// stockpile ID. The carried pack is not stationary ground custody.
+    pub(crate) fn stockpiles_at(
+        &self,
+        position: VoxelCoord,
+    ) -> impl Iterator<Item = StockpileId> + '_ {
+        self.stockpiles_by_position
+            .get(&position)
+            .into_iter()
+            .flat_map(|ids| ids.iter().copied())
+    }
+
     /// Only stores inside the maximum mathematically possible finite-light range.
     /// Source order remains stable by ID for deterministic equal-brightness ties.
     pub(crate) fn energy_store_locations_near(

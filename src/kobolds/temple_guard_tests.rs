@@ -12,11 +12,12 @@ use crate::content::{
 use crate::core::quantity::Temperature;
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::inventory::{
-    MaterialLotSelection, deposit_lot_for_test, validate_place_player_storage_at,
+    MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
+    validate_place_player_storage_at,
 };
 use crate::logistics::{
     HorizontalControlInput, LogisticsValidationError, PlayerControlInput,
-    add_traversable_edge_for_test, relocate_player_for_test,
+    add_traversable_edge_for_test, relocate_player_for_test, validate_place_ground_stockpile,
 };
 use crate::logistics::{PlayerWalkProjectionError, project_player_adjacent_walk};
 use crate::material::CommodityKey;
@@ -1113,6 +1114,26 @@ fn generated_world_scout_clearance_respects_constructed_enclosures_and_temple_ca
         crate::kobolds::patrol::scout_can_enter(&registries, &state, position, distant_player),
         "the empty hall cell must be genuinely traversable"
     );
+    let mut loose_state = state.clone();
+    let loose = add_solid_stockpile_for_test(
+        &mut loose_state,
+        crate::core::quantity::Mass::from_milligrams(100_000),
+    )
+    .unwrap();
+    validate_place_ground_stockpile(&loose_state, loose, position)
+        .unwrap()
+        .commit(&mut loose_state)
+        .unwrap();
+    assert!(
+        crate::kobolds::patrol::scout_can_enter(
+            &registries,
+            &loose_state,
+            position,
+            distant_player
+        ),
+        "unenclosed ground stockpiles are locality, not impassable walls"
+    );
+    assert_eq!(validate_loaded_state(&registries, &loose_state), Ok(()));
     let mut airborne = state.clone();
     let above = VoxelCoord::new(position.x(), position.y() + 1, position.z());
     set_generated_block_for_test(

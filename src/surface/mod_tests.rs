@@ -26,7 +26,8 @@ use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerControlInput,
     PlayerOverheadCoverAssessment, PlayerQuickAccessSlot, add_traversable_edge_for_test,
-    assess_player_overhead_cover, validate_place_fluid_store, validate_set_active_selection,
+    assess_player_overhead_cover, relocate_player_for_test, validate_place_fluid_store,
+    validate_set_active_selection,
 };
 use crate::material::{CommodityKey, MaterialComposition, MaterialPhase};
 use crate::matter::calculate_matter_accounting;
@@ -837,6 +838,68 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
     assert_eq!(drops[0].ambient_storage_age_parts(), 0);
     assert_eq!(drops[0].automatic_pickup_available_at(), None);
     assert!(drops[0].automatic_pickup_ready());
+}
+
+#[test]
+fn player_world_drop_projection_exposes_only_exact_local_custody_after_admission_and_load() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let home = VoxelCoord::new(0, 0, 0);
+    let adjacent = VoxelCoord::new(1, 0, 0);
+    let remote = VoxelCoord::new(100, 0, -50);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mut drops = Vec::new();
+    for (kind, position) in [
+        (SurfaceResourceKind::Drop, home),
+        (SurfaceResourceKind::Drop, adjacent),
+        (SurfaceResourceKind::Drop, remote),
+        (SurfaceResourceKind::Opportunity, home),
+    ] {
+        let spec = SurfaceResourceSpec::new(
+            kind,
+            position,
+            commodity,
+            Mass::from_milligrams(25_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap();
+        drops.push(insert_surface_resource_for_test(&registries, &mut state, spec).unwrap());
+    }
+    assert!(
+        available_player_world_drops(&state).next().is_none(),
+        "unadmitted callers must not enumerate remote or local surface custody"
+    );
+    let _carried = admit_player(&registries, &mut state, home);
+    assert_eq!(
+        available_player_world_drops(&state)
+            .map(|drop| drop.resource())
+            .collect::<Vec<_>>(),
+        vec![drops[0]],
+        "adjacent and remote parcels must not appear in a local drop presentation"
+    );
+    relocate_player_for_test(&mut state, adjacent);
+    assert_eq!(
+        available_player_world_drops(&state)
+            .map(|drop| drop.resource())
+            .collect::<Vec<_>>(),
+        vec![drops[1]]
+    );
+    relocate_player_for_test(&mut state, remote);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, restored);
+    assert_eq!(
+        available_player_world_drops(&restored)
+            .map(|drop| drop.resource())
+            .collect::<Vec<_>>(),
+        vec![drops[2]],
+        "the local position index must be rebuilt from saved custody"
+    );
 }
 
 #[test]
