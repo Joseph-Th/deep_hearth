@@ -173,6 +173,7 @@ pub enum ChunkGenerationCommitError {
     StaleWorldRevision { expected: u64, actual: u64 },
     StaleSurfaceRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
+    StaleInventoryRevision { expected: u64, actual: u64 },
     StaleStructureRevision { expected: u64, actual: u64 },
     StalePlayerWorkRevision { expected: u64, actual: u64 },
     ChunkAppeared { chunk: ChunkCoord },
@@ -192,6 +193,10 @@ impl Display for ChunkGenerationCommitError {
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "logistics revision changed from {expected} to {actual} before terrain generation commit"
+            ),
+            Self::StaleInventoryRevision { expected, actual } => write!(
+                formatter,
+                "inventory revision changed from {expected} to {actual} before terrain generation commit"
             ),
             Self::StaleStructureRevision { expected, actual } => write!(
                 formatter,
@@ -219,6 +224,7 @@ pub struct ValidatedChunkGeneration {
     expected_revision: u64,
     expected_surface_revision: u64,
     expected_logistics_revision: u64,
+    expected_inventory_revision: u64,
     expected_structure_revision: u64,
     expected_player_work_revision: u64,
     next_revision: u64,
@@ -268,6 +274,13 @@ impl ValidatedChunkGeneration {
                 actual: actual_player_work_revision,
             });
         }
+        let actual_inventory_revision = state.inventory().revision();
+        if actual_inventory_revision != self.expected_inventory_revision {
+            return Err(ChunkGenerationCommitError::StaleInventoryRevision {
+                expected: self.expected_inventory_revision,
+                actual: actual_inventory_revision,
+            });
+        }
         let coord = self.chunk.coord();
         if state.world().get_chunk(coord).is_some() {
             return Err(ChunkGenerationCommitError::ChunkAppeared { chunk: coord });
@@ -289,6 +302,7 @@ pub struct ValidatedPlayerChunkDemand {
     expected_revision: u64,
     expected_surface_revision: u64,
     expected_logistics_revision: u64,
+    expected_inventory_revision: u64,
     expected_structure_revision: u64,
     expected_player_work_revision: u64,
     next_revision: u64,
@@ -338,6 +352,13 @@ impl ValidatedPlayerChunkDemand {
             return Err(ChunkGenerationCommitError::StalePlayerWorkRevision {
                 expected: self.expected_player_work_revision,
                 actual: actual_player_work_revision,
+            });
+        }
+        let actual_inventory_revision = state.inventory().revision();
+        if actual_inventory_revision != self.expected_inventory_revision {
+            return Err(ChunkGenerationCommitError::StaleInventoryRevision {
+                expected: self.expected_inventory_revision,
+                actual: actual_inventory_revision,
             });
         }
         for chunk in &self.chunks {
@@ -392,6 +413,7 @@ pub fn validate_generate_chunk(
         expected_revision,
         expected_surface_revision: state.surface().revision(),
         expected_logistics_revision: state.logistics().revision(),
+        expected_inventory_revision: state.inventory().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_player_work_revision: state.player_work().revision(),
         next_revision,
@@ -458,6 +480,7 @@ pub fn validate_generate_player_neighborhood(
         expected_revision,
         expected_surface_revision: state.surface().revision(),
         expected_logistics_revision: state.logistics().revision(),
+        expected_inventory_revision: state.inventory().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_player_work_revision: state.player_work().revision(),
         next_revision,

@@ -53,6 +53,9 @@ pub enum StorageEnclosureConstructionError {
         source: StockpileId,
         source_position: VoxelCoord,
     },
+    GeneratedSolidTerrain {
+        position: VoxelCoord,
+    },
     TargetBusyStorageDismantling {
         stockpile: StockpileId,
     },
@@ -94,6 +97,9 @@ pub enum PlayerStoragePlacementError {
     PlayerBusy,
     Allocation(PlayerGroundStockpileAllocationError),
     Construction(StorageEnclosureConstructionError),
+    GeneratedSolidTerrain {
+        position: VoxelCoord,
+    },
     LooseResidueFooting {
         position: VoxelCoord,
         compact_depth_um: u128,
@@ -112,6 +118,13 @@ impl Display for PlayerStoragePlacementError {
             Self::Construction(error) => {
                 write!(formatter, "storage placement construction failed: {error}")
             }
+            Self::GeneratedSolidTerrain { position } => write!(
+                formatter,
+                "storage placement at ({},{},{}) intersects solid terrain",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::LooseResidueFooting {
                 position,
                 compact_depth_um,
@@ -134,7 +147,7 @@ impl Error for PlayerStoragePlacementError {
             Self::PlayerBusy => None,
             Self::Allocation(error) => Some(error),
             Self::Construction(error) => Some(error),
-            Self::LooseResidueFooting { .. } => None,
+            Self::LooseResidueFooting { .. } | Self::GeneratedSolidTerrain { .. } => None,
         }
     }
 }
@@ -145,6 +158,7 @@ pub enum PlayerStoragePlacementCommitError {
     PlayerBecameBusy,
     Allocation(GroundStockpileAllocationCommitError),
     SurfaceRevisionChanged { expected: u64, actual: u64 },
+    WorldRevisionChanged { expected: u64, actual: u64 },
 }
 
 impl Display for PlayerStoragePlacementCommitError {
@@ -160,6 +174,10 @@ impl Display for PlayerStoragePlacementCommitError {
                 formatter,
                 "storage footing changed from surface revision {expected} to {actual} before placement",
             ),
+            Self::WorldRevisionChanged { expected, actual } => write!(
+                formatter,
+                "storage placement world revision changed from {expected} to {actual} before placement",
+            ),
         }
     }
 }
@@ -167,7 +185,7 @@ impl Display for PlayerStoragePlacementCommitError {
 impl Error for PlayerStoragePlacementCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerBecameBusy => None,
+            Self::PlayerBecameBusy | Self::WorldRevisionChanged { .. } => None,
             Self::Allocation(error) => Some(error),
             Self::SurfaceRevisionChanged { .. } => None,
         }
@@ -250,6 +268,13 @@ impl Display for StorageEnclosureConstructionError {
                 source_position.y(),
                 source_position.z()
             ),
+            Self::GeneratedSolidTerrain { position } => write!(
+                formatter,
+                "storage enclosure at ({},{},{}) intersects solid generated terrain",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::TargetBusyStorageDismantling { stockpile } => write!(
                 formatter,
                 "stockpile {} participates in active storage-enclosure dismantling and cannot change enclosure",
@@ -329,6 +354,7 @@ impl Error for StorageEnclosureConstructionError {
             | Self::PlayerCarriedTarget { .. }
             | Self::LocatedTargetSourceUnlocated { .. }
             | Self::LocatedTargetSourceRemote { .. }
+            | Self::GeneratedSolidTerrain { .. }
             | Self::TargetBusyStorageDismantling { .. }
             | Self::TargetCapacityTooLarge { .. }
             | Self::TargetStorageProfileMismatch { .. }
@@ -346,6 +372,7 @@ pub enum StorageEnclosureCommitError {
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
+    StaleWorldRevision { expected: u64, actual: u64 },
     UnknownTarget { stockpile: StockpileId },
     TargetProfileChanged { stockpile: StockpileId },
     TargetEnclosureChanged { stockpile: StockpileId },
@@ -366,6 +393,10 @@ impl Display for StorageEnclosureCommitError {
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "storage construction expected logistics revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "storage construction expected world revision {expected} but current revision is {actual}"
             ),
             Self::UnknownTarget { stockpile } => write!(
                 formatter,
@@ -397,6 +428,7 @@ impl Error for StorageEnclosureCommitError {
             Self::StaleSurvivalRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleLogisticsRevision { .. }
+            | Self::StaleWorldRevision { .. }
             | Self::UnknownTarget { .. }
             | Self::TargetProfileChanged { .. }
             | Self::TargetEnclosureChanged { .. } => None,

@@ -36,6 +36,7 @@ pub struct ValidatedStorageEnclosureConstruction {
     target: StockpileId,
     expected_inventory_revision: u64,
     expected_logistics_revision: u64,
+    expected_world_revision: u64,
     next_inventory_revision: u64,
     expected_profile: StockpileStorageProfile,
     next_profile: StockpileStorageProfile,
@@ -52,6 +53,7 @@ pub struct ValidatedStorageEnclosureConstruction {
 #[must_use]
 pub struct ValidatedPlayerStoragePlacement {
     expected_surface_revision: u64,
+    expected_world_revision: u64,
     allocation: ValidatedGroundStockpileAllocation,
     next_inventory_revision: u64,
     next_profile: StockpileStorageProfile,
@@ -85,6 +87,12 @@ impl ValidatedPlayerStoragePlacement {
             return Err(PlayerStoragePlacementCommitError::SurfaceRevisionChanged {
                 expected: self.expected_surface_revision,
                 actual: state.surface().revision(),
+            });
+        }
+        if state.world().revision() != self.expected_world_revision {
+            return Err(PlayerStoragePlacementCommitError::WorldRevisionChanged {
+                expected: self.expected_world_revision,
+                actual: state.world().revision(),
             });
         }
         let target = self
@@ -137,6 +145,9 @@ pub(crate) fn validate_place_player_storage_at(
     validate_player_stockpile_access(state, source)
         .map_err(StorageEnclosureConstructionError::SourceAccess)
         .map_err(PlayerStoragePlacementError::Construction)?;
+    if enclosure_position_is_solid(registries, state, position) {
+        return Err(PlayerStoragePlacementError::GeneratedSolidTerrain { position });
+    }
     let residue_depth = exposed_residue_compact_depth_um(registries, state, position);
     if residue_depth >= OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM {
         return Err(PlayerStoragePlacementError::LooseResidueFooting {
@@ -181,6 +192,7 @@ pub(crate) fn validate_place_player_storage_at(
         .unwrap_or_else(|| unreachable!("placement headroom includes all inventory mutations"));
     Ok(ValidatedPlayerStoragePlacement {
         expected_surface_revision: state.surface().revision(),
+        expected_world_revision: state.world().revision(),
         allocation,
         next_inventory_revision,
         next_profile: definition_record.storage_profile(),
@@ -235,6 +247,13 @@ impl ValidatedStorageEnclosureConstruction {
             return Err(StorageEnclosureCommitError::StaleLogisticsRevision {
                 expected: self.expected_logistics_revision,
                 actual: actual_logistics_revision,
+            });
+        }
+        let actual_world_revision = state.world().revision();
+        if actual_world_revision != self.expected_world_revision {
+            return Err(StorageEnclosureCommitError::StaleWorldRevision {
+                expected: self.expected_world_revision,
+                actual: actual_world_revision,
             });
         }
         let target = state.inventory().get_stockpile(self.target).ok_or(
@@ -316,7 +335,7 @@ pub fn validate_build_storage_enclosure(
     }
     let required_profile = StockpileStorageProfile::unbounded_solid_only();
     validate_enclosure_target(definition_record, target_record, target, required_profile)?;
-    validate_world_location(state, target, source)?;
+    validate_world_location(registries, state, target, source)?;
     let selection = select_enclosure_material(state, definition_record, source)?;
     let next_profile = definition_record.storage_profile();
     validate_enclosure_contents(
@@ -346,6 +365,7 @@ pub fn validate_build_storage_enclosure(
         target,
         expected_inventory_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_world_revision: state.world().revision(),
         next_inventory_revision,
         expected_profile: required_profile,
         next_profile,
@@ -360,6 +380,7 @@ pub fn validate_build_storage_enclosure(
 }
 
 fn validate_world_location(
+    registries: &Registries,
     state: &AppState,
     target: StockpileId,
     source: StockpileId,
@@ -386,7 +407,24 @@ fn validate_world_location(
             },
         );
     }
+    if enclosure_position_is_solid(registries, state, target_position) {
+        return Err(StorageEnclosureConstructionError::GeneratedSolidTerrain {
+            position: target_position,
+        });
+    }
     Ok(())
+}
+
+fn enclosure_position_is_solid(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    state
+        .world()
+        .block_at(position)
+        .and_then(|block| registries.world().block_for_state(block))
+        .is_some_and(|block| block.collision() == crate::world::BlockCollisionShape::FullCube)
 }
 
 fn validate_enclosure_target(

@@ -375,6 +375,15 @@ Prospective terrain generation also protects the occupied voxel of each
 completed stationary storage enclosure from newly created full-cube rock.
 Ordinary unenclosed ground stockpiles remain locality/custody rather than
 terrain obstacles; fully built boxes above generated terrain remain valid.
+Both single-chunk and atomic neighborhood generation tokens bind inventory
+revisions as well as logistics, surface, structure and player-work revisions:
+enclosing an existing ground stockpile without moving it invalidates earlier
+terrain admission before it could bury the newly embodied storage.
+Conversely, building an enclosure around a located ambient stockpile and
+placing a finished player storage body reject generated full-cube terrain
+at the target voxel. Their construction tokens also bind world revision, so
+newly generated or excavated terrain invalidates stale placement before any
+inventory, structure or logistics mutation.
 Trusted save admission uses the same generated-chunk test to reject any
 completed stationary enclosure already buried in solid terrain, returning
 the precise obstructed voxel; encoded tampering cannot bypass the boundary.

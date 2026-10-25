@@ -10,9 +10,13 @@ use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
-use crate::inventory::{deposit_lot_for_test, validate_place_player_storage_at};
+use crate::inventory::{
+    add_solid_stockpile_for_test, deposit_lot_for_test, validate_build_storage_enclosure,
+    validate_place_player_storage_at,
+};
 use crate::logistics::{
     LogisticsValidationError, add_traversable_edge_for_test, validate_allocate_ground_stockpile,
+    validate_place_ground_stockpile,
 };
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -27,8 +31,9 @@ use crate::surface::{
 };
 use crate::survival::{available_adjacent_drink_sources, available_local_drink_sources};
 use crate::world::{
-    BlockStateId, ChunkCoord, ChunkGenerationError, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
-    set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
+    BlockStateId, ChunkCoord, ChunkGenerationCommitError, ChunkGenerationError,
+    WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, set_generated_block_for_test, validate_generate_chunk,
+    validate_generate_player_neighborhood,
 };
 
 use super::*;
@@ -135,6 +140,123 @@ fn terrain_generation_cannot_bury_a_completed_stationary_storage_enclosure() {
         .err(),
         Some(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel: at }),
         "generated solid rock cannot occupy the voxel of material-backed stationary storage"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn pending_chunk_generation_rejects_inventory_only_enclosure_construction() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let mut state = AppState::new();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let target =
+        add_solid_stockpile_for_test(&mut state, definition.maximum_stockpile_capacity()).unwrap();
+    validate_place_ground_stockpile(&state, target, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        definition.assembly_profile().input_mass(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let planned = validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    let inventory_before = state.inventory().revision();
+    let logistics_before = state.logistics().revision();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        target,
+        target,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.logistics().revision(), logistics_before);
+    let before = state.clone();
+    assert_eq!(
+        planned.commit(&mut state),
+        Err(ChunkGenerationCommitError::StaleInventoryRevision {
+            expected: inventory_before,
+            actual: state.inventory().revision(),
+        }),
+        "material-backed enclosure construction cannot slip past an older generation plan"
+    );
+    assert_eq!(state, before, "rejected generation must be atomic");
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::containing(at),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel: at })
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn player_chunk_demand_rejects_changed_inventory_before_publishing_any_chunk() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(3, 3),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_admit_player(&registries, &state, VoxelCoord::new(5, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let planned = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap()
+        .unwrap();
+    let expected = state.inventory().revision();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(10_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        planned.commit(&mut state),
+        Err(ChunkGenerationCommitError::StaleInventoryRevision {
+            expected,
+            actual: state.inventory().revision(),
+        })
     );
     assert_eq!(state, before);
 }

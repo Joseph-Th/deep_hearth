@@ -43,9 +43,173 @@ use crate::structural::{
 };
 use crate::surface::{exposed_residue_compact_depth_um, validate_drop_player_material};
 use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_survival};
+use crate::world::{
+    BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+    validate_generate_chunk,
+};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
+
+#[test]
+fn located_enclosure_construction_rejects_generated_rock_and_stale_world_truth() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(5, crate::world::WORLD_MIN_Y, 5);
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let target =
+        add_solid_stockpile_for_test(&mut state, definition.maximum_stockpile_capacity()).unwrap();
+    validate_place_ground_stockpile(&state, target, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        definition.assembly_profile().input_mass(),
+        TEMPERATURE,
+    )
+    .unwrap();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(78),
+        ChunkCoord::containing(position),
+        crate::content::BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            target,
+            target
+        )
+        .err(),
+        Some(StorageEnclosureConstructionError::GeneratedSolidTerrain { position })
+    );
+    assert_eq!(state, before);
+
+    set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    let prepared = validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        target,
+        target,
+    )
+    .unwrap();
+    let expected = state.world().revision();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        position,
+        crate::content::BLOCK_STATE_STONE,
+    );
+    let unchanged = state.clone();
+    assert_eq!(
+        prepared.commit(&mut state),
+        Err(StorageEnclosureCommitError::StaleWorldRevision {
+            expected,
+            actual: state.world().revision()
+        })
+    );
+    assert_eq!(state, unchanged);
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .unwrap()
+            .enclosure()
+            .is_none()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn player_storage_placement_rejects_generated_rock_and_stale_world_truth() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap();
+    let carried = validate_initialize_player_logistics(
+        &state,
+        VoxelCoord::new(5, 100, 5),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap()
+    .carried_stockpile();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        definition.assembly_profile().input_mass(),
+        TEMPERATURE,
+    )
+    .unwrap();
+    let position = VoxelCoord::new(6, crate::world::WORLD_MIN_Y, 5);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(79),
+        ChunkCoord::containing(position),
+        crate::content::BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        validate_place_player_storage_at(
+            &registries,
+            &state,
+            STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            position
+        )
+        .err(),
+        Some(PlayerStoragePlacementError::GeneratedSolidTerrain { position })
+    );
+
+    set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    let prepared = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        position,
+    )
+    .unwrap();
+    let expected = state.world().revision();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        position,
+        crate::content::BLOCK_STATE_STONE,
+    );
+    let before = state.clone();
+    assert_eq!(
+        prepared.commit(&mut state),
+        Err(PlayerStoragePlacementCommitError::WorldRevisionChanged {
+            expected,
+            actual: state.world().revision()
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
 
 #[test]
 fn carried_storage_placement_cannot_bypass_exclusive_work() {
