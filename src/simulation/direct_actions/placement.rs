@@ -50,8 +50,9 @@ fn validate_direct_placement_position(
         || state.logistics().has_stationary_occupant_at(position)
         || state
             .structures()
-            .elements()
-            .any(|record| record.bounds().has_voxel(position))
+            .elements_covering(position)
+            .next()
+            .is_some()
     {
         return Err(DirectPlacementTargetError::LocationOccupied { position });
     }

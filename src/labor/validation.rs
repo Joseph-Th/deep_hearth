@@ -249,17 +249,7 @@ fn validate_structural_dismantling_work(
     if !bounds_are_within_player_reach(registries, state, record.bounds()) {
         return Err(PlayerWorkValidationError::StructuralDismantlingElementNotLocal);
     }
-    if state.structures().elements().any(|candidate| {
-        candidate.id() != work.element()
-            && state
-                .structures()
-                .supports(candidate.id())
-                .is_some_and(|supports| {
-                    supports
-                        .into_iter()
-                        .any(|support| support == work.element())
-                })
-    }) {
+    if state.structures().has_dependents(work.element()) {
         return Err(PlayerWorkValidationError::StructuralDismantlingElementHasDependents);
     }
     if record.loads().any(|(kind, load)| {

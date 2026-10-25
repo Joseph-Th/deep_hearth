@@ -206,13 +206,7 @@ fn target_record<'a>(
     if record.embodied_mass().is_zero() {
         return Err(PlayerStructuralDismantlingError::ElementNotRecoverable { element });
     }
-    if state.structures().elements().any(|candidate| {
-        candidate.id() != element
-            && state
-                .structures()
-                .supports(candidate.id())
-                .is_some_and(|supports| supports.into_iter().any(|support| support == element))
-    }) {
+    if state.structures().has_dependents(element) {
         return Err(PlayerStructuralDismantlingError::ElementHasDependents { element });
     }
     if record

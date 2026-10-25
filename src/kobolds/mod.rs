@@ -907,12 +907,7 @@ fn validate_opening_resident_infrastructure(
                     .get_stockpile(id)
                     .is_some_and(|stockpile| stockpile.enclosure().is_some())
             });
-            let structure = state.structures().elements().any(|element| {
-                !element.embodied_material().is_empty()
-                    && element.geometry().covers_horizontal_footprint()
-                    && element.bounds().has_voxel(cell)
-            });
-            if enclosed || structure {
+            if enclosed || state.structures().blocks_full_cell(cell) {
                 return Err("constructed infrastructure intersects an opening kobold resident");
             }
         }

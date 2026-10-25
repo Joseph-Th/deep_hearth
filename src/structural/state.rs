@@ -187,6 +187,13 @@ impl StructureState {
             .map(|entries| entries.iter().copied())
     }
 
+    /// Whether a member bears any direct dependents, through the synchronized reverse index.
+    pub(crate) fn has_dependents(&self, element: StructuralElementId) -> bool {
+        self.dependents_by_support
+            .get(&element)
+            .is_some_and(|dependents| !dependents.is_empty())
+    }
+
     pub(super) fn element_ids(&self) -> impl Iterator<Item = StructuralElementId> + '_ {
         self.elements.keys().copied()
     }

@@ -68,6 +68,9 @@ pub fn assess_player_overhead_cover(
                     && record.bounds().max_exclusive().x() > x
                     && record.bounds().min().z() <= z
                     && record.bounds().max_exclusive().z() > z
+                    // Roofs entirely above generated world space cannot intercept
+                    // exposure along the body's in-world column.
+                    && record.bounds().min().y() < WORLD_MAX_Y_EXCLUSIVE
                     && record.bounds().max_exclusive().y() > cover_y
             });
             let terrain_cover = !structural_cover

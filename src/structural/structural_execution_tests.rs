@@ -294,8 +294,13 @@ fn load_distribution_preserves_force_and_uses_stable_support_order() {
     let deck = make_test_element(&registries, &mut state, 1, 0, false);
     activate_test_element(&registries, &mut state, left);
     activate_test_element(&registries, &mut state, right);
+    assert!(!state.structures().has_dependents(left));
+    assert!(!state.structures().has_dependents(right));
     link_test_support(&registries, &mut state, deck, left);
     link_test_support(&registries, &mut state, deck, right);
+    assert!(state.structures().has_dependents(left));
+    assert!(state.structures().has_dependents(right));
+    assert!(!state.structures().has_dependents(deck));
     activate_test_element(&registries, &mut state, deck);
 
     let token = match validate_set_structural_load(
