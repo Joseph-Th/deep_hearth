@@ -305,11 +305,7 @@ fn resolve_direct_structural_face_target(
         // occlude a plan. Preserve ambiguity among multiple real members.
         let mut embodied = (None, 0_usize);
         let mut planned = (None, 0_usize);
-        for record in state
-            .structures()
-            .elements()
-            .filter(|record| record.bounds().has_voxel(voxel))
-        {
+        for record in state.structures().elements_covering(voxel) {
             let group = if record.embodied_material().is_empty() {
                 &mut planned
             } else {

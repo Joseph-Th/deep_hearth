@@ -1,4 +1,4 @@
-//! Owns persistent structural members, support indexes, and local state validation.
+//! Owns structural members, topology, derived local geometry indexes, and validation.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,6 +9,11 @@ use crate::inventory::ConsumedMaterialTrace;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
 mod records;
+mod spatial_index;
+
+use spatial_index::{ElementSpatialIndex, occupied_voxels};
+
+const MAX_INDEXED_INTERSECTION_VOXELS: u128 = 64;
 
 pub(super) use records::StructuralElementConfiguration;
 pub use records::{
@@ -16,7 +21,7 @@ pub use records::{
     StructuralLoadKind,
 };
 
-/// Authoritative structural records plus synchronized forward and reverse support indexes.
+/// Authoritative members, persisted support topology, and rebuilt local geometry indexes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StructureState {
@@ -30,6 +35,8 @@ pub struct StructureState {
     supports_by_element: BTreeMap<StructuralElementId, BTreeSet<StructuralElementId>>,
     #[serde(skip)]
     dependents_by_support: BTreeMap<StructuralElementId, BTreeSet<StructuralElementId>>,
+    #[serde(skip)]
+    spatial_index: ElementSpatialIndex,
 }
 
 impl StructureState {
@@ -41,6 +48,7 @@ impl StructureState {
             elements: BTreeMap::new(),
             supports_by_element: BTreeMap::new(),
             dependents_by_support: BTreeMap::new(),
+            spatial_index: ElementSpatialIndex::new(),
         }
     }
 
@@ -63,22 +71,49 @@ impl StructureState {
         self.elements.values()
     }
 
+    /// Inspect only structural members whose bounds cover this voxel.
+    ///
+    /// This derived index is rebuilt from authoritative records after trusted load.
+    /// Broad geometries use a bounded-memory fallback with an exact bounds test.
+    pub(crate) fn elements_covering(
+        &self,
+        voxel: VoxelCoord,
+    ) -> impl Iterator<Item = &StructuralElementRecord> {
+        self.spatial_index
+            .candidates(voxel)
+            .map(|id| {
+                self.elements
+                    .get(&id)
+                    .expect("structural spatial index references absent element")
+            })
+            .filter(move |element| element.bounds().has_voxel(voxel))
+    }
+
     /// A materialized, full-footprint member occupies this voxel even before activation.
     /// Planned members have no physical obstruction.
     #[must_use]
     pub(crate) fn blocks_full_cell(&self, voxel: VoxelCoord) -> bool {
-        self.elements.values().any(|element| {
+        self.elements_covering(voxel).any(|element| {
             !element.embodied_material().is_empty()
                 && element.geometry().covers_horizontal_footprint()
-                && element.bounds().has_voxel(voxel)
         })
     }
 
     /// Any actual built member, including a narrow post, obstructs a heavy
-    /// resident's occupied body volume. Query the whole footprint once rather
-    /// than rescanning every member for each voxel of a multi-cell body.
+    /// resident's occupied body volume. For small footprints, use local indexed
+    /// occupancy; for unusually large bounds, scan each member just once rather
+    /// than expanding an unbounded number of voxel lookups.
     #[must_use]
     pub(crate) fn has_embodied_member_intersecting(&self, bounds: VoxelBounds) -> bool {
+        if bounds
+            .voxel_count()
+            .is_some_and(|count| count <= MAX_INDEXED_INTERSECTION_VOXELS)
+        {
+            return occupied_voxels(bounds).any(|voxel| {
+                self.elements_covering(voxel)
+                    .any(|element| !element.embodied_material().is_empty())
+            });
+        }
         self.elements.values().any(|element| {
             !element.embodied_material().is_empty() && element.bounds().has_intersection(bounds)
         })
@@ -130,6 +165,11 @@ impl StructureState {
             }
         }
         self.dependents_by_support = dependents_by_support;
+        let mut spatial_index = ElementSpatialIndex::new();
+        for (&id, record) in &self.elements {
+            spatial_index.insert(id, record.bounds());
+        }
+        self.spatial_index = spatial_index;
     }
 
     pub(super) const fn element_map(
@@ -189,6 +229,7 @@ impl StructureState {
             Some(next_revision),
             "structural allocation must advance the owner revision exactly once"
         );
+        self.spatial_index.insert(id, record.bounds());
         let previous_record = self.elements.insert(id, record);
         let previous_supports = self.supports_by_element.insert(id, BTreeSet::new());
         let previous_dependents = self.dependents_by_support.insert(id, BTreeSet::new());
@@ -274,7 +315,11 @@ impl StructureState {
         }
         assert!(self.supports_by_element.remove(&element).is_some());
         assert!(self.dependents_by_support.remove(&element).is_some());
-        assert!(self.elements.remove(&element).is_some());
+        let removed = self
+            .elements
+            .remove(&element)
+            .expect("prevalidated structural element disappeared");
+        self.spatial_index.remove(element, removed.bounds());
     }
 
     pub(super) fn activate_element(&mut self, element: StructuralElementId) {

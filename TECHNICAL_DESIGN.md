@@ -1310,6 +1310,15 @@ demolition/recovery operation must explicitly model authorization, labor/tools/t
 Stockpile, equipment, and fluid owners each maintain their own structural load channel. Multi-owner load
 changes are planned against final aggregate load so results do not depend on mutation order.
 
+Structural geometry has a nonpersisted local occupancy index for block-scale members, including inert plans,
+so control-rate body collision, direct target selection, and small resident-footprint checks inspect only local
+members rather than the complete settlement. The index is maintained on element insertion and removal and
+rebuilt from persisted element geometry on trusted load; embodiment and activation change the same indexed
+member without introducing another owner. Unusually large valid bounds use an exact geometric fallback
+rather than allocating an unbounded number of per-voxel entries. The index does not change collision rules:
+only embodied members with a complete horizontal footprint block the player's body, whereas any embodied
+member can obstruct a heavy resident.
+
 ## Spatial and presentation boundaries
 
 Persistent spatial references use checked 64-bit voxel coordinates and half-open bounds. `WorldState` partitions
