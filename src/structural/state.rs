@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Force;
 use crate::inventory::ConsumedMaterialTrace;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
 mod records;
 
@@ -71,6 +71,16 @@ impl StructureState {
             !element.embodied_material().is_empty()
                 && element.geometry().covers_horizontal_footprint()
                 && element.bounds().has_voxel(voxel)
+        })
+    }
+
+    /// Any actual built member, including a narrow post, obstructs a heavy
+    /// resident's occupied body volume. Query the whole footprint once rather
+    /// than rescanning every member for each voxel of a multi-cell body.
+    #[must_use]
+    pub(crate) fn has_embodied_member_intersecting(&self, bounds: VoxelBounds) -> bool {
+        self.elements.values().any(|element| {
+            !element.embodied_material().is_empty() && element.bounds().has_intersection(bounds)
         })
     }
 

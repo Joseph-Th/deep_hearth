@@ -1,13 +1,21 @@
 //! Archivists attend their real copper archive; breach vigils are caused by missing world matter.
 
 use super::*;
-use crate::content::{BLOCK_STATE_STONE, BLOCK_STATE_TEMPLE_ARCHIVE, build_registries};
+use crate::content::{
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE,
+    BLOCK_STATE_TEMPLE_ARCHIVE, FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    build_registries,
+};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::logistics::relocate_player_for_test;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
+use crate::spatial::VoxelBounds;
+use crate::structural::{
+    StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+};
 use crate::world::{WorldGenerationSeed, set_generated_block_for_test, validate_generate_chunk};
 
 fn occupied_archive() -> (Registries, AppState, VoxelCoord) {
@@ -49,6 +57,80 @@ fn visible_archivist(registries: &Registries, state: &AppState) -> Option<(Voxel
 
 fn archive_cell(home: VoxelCoord) -> VoxelCoord {
     VoxelCoord::new(home.x() - 5, home.y(), home.z() + 2)
+}
+
+#[test]
+fn narrow_upper_corner_post_blocks_the_massive_archivist_but_an_empty_plan_does_not() {
+    let (registries, mut planned, home) = occupied_archive();
+    let next = archivist_position(home, 1).unwrap();
+    // The next body's far upper corner lies outside its current home body.
+    // Checking only the anchor, or treating narrow posts as non-obstacles,
+    // would let the massive resident walk through this materialized timber.
+    let post_at = VoxelCoord::new(next.x(), next.y() + 2, next.z() - 1);
+    assert_eq!(planned.world().block_at(post_at), Some(BlockStateId::AIR));
+    assert!(!crate::kobolds::temple_caste_occupies_voxel(
+        &registries,
+        &planned,
+        post_at
+    ));
+    let bounds = VoxelBounds::new(
+        post_at,
+        VoxelCoord::new(post_at.x() + 1, post_at.y() + 1, post_at.z() + 1),
+    )
+    .unwrap();
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_POST_LENGTH,
+        BASIC_TIMBER_POST_CROSS_SECTION,
+    )
+    .unwrap();
+    assert!(!geometry.covers_horizontal_footprint());
+    let post = add_structural_element(
+        &registries,
+        &mut planned,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &planned), Ok(()));
+    let mut built = planned.clone();
+    materialize_structural_element_for_test(&registries, &mut built, post, FORM_LOG);
+    assert_eq!(validate_loaded_state(&registries, &built), Ok(()));
+    assert!(built.structures().has_embodied_member_intersecting(bounds));
+    let just_outside = VoxelBounds::new(
+        VoxelCoord::new(post_at.x() + 1, post_at.y(), post_at.z()),
+        VoxelCoord::new(post_at.x() + 2, post_at.y() + 1, post_at.z() + 1),
+    )
+    .unwrap();
+    assert!(
+        !built
+            .structures()
+            .has_embodied_member_intersecting(just_outside),
+        "touching the edge of a half-open footprint is not an intersection"
+    );
+    assert!(
+        !planned
+            .structures()
+            .has_embodied_member_intersecting(bounds)
+    );
+
+    advance_to(&registries, &mut planned, 240);
+    advance_to(&registries, &mut built, 240);
+    let chunk = ChunkCoord::containing(home);
+    assert_eq!(planned.kobold_state().temple_archivist_step(chunk), 1);
+    assert_eq!(built.kobold_state().temple_archivist_step(chunk), 0);
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &built)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut built, 250);
+    advance_to(&registries, &mut replay, 250);
+    assert_eq!(built, replay);
+    assert_eq!(built.kobold_state().temple_archivist_step(chunk), 0);
+    assert_eq!(validate_loaded_state(&registries, &built), Ok(()));
 }
 
 #[test]

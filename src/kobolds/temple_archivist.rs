@@ -80,13 +80,28 @@ fn has_supporting_floor(registries: &Registries, state: &AppState, anchor: Voxel
 }
 
 fn supported_and_clear(registries: &Registries, state: &AppState, anchor: VoxelCoord) -> bool {
+    let Some(min_z) = anchor.z().checked_sub(1) else {
+        return false;
+    };
+    let (Some(max_x), Some(max_y), Some(max_z)) = (
+        anchor.x().checked_add(2),
+        anchor.y().checked_add(3),
+        anchor.z().checked_add(1),
+    ) else {
+        return false;
+    };
+    let body_bounds = crate::spatial::VoxelBounds::new(
+        VoxelCoord::new(anchor.x(), anchor.y(), min_z),
+        VoxelCoord::new(max_x, max_y, max_z),
+    )
+    .expect("positive archivist footprint");
     has_supporting_floor(registries, state, anchor)
         && clear_body_cells(state, anchor)
+        && !state
+            .structures()
+            .has_embodied_member_intersecting(body_bounds)
         && resident_body_cells(anchor).all(|voxel| {
             !state.logistics().has_stationary_occupant_at(voxel)
-                && !state.structures().elements().any(|member| {
-                    !member.embodied_material().is_empty() && member.bounds().has_voxel(voxel)
-                })
                 && !crate::logistics::player_body_occupies_voxel(registries, state, voxel)
         })
 }

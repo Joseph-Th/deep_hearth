@@ -84,22 +84,26 @@ fn clear_body_cell(state: &AppState, position: VoxelCoord) -> bool {
 }
 
 fn clear_standing_cell(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
+    let Some(top_y) = position.y().checked_add(2) else {
+        return false;
+    };
+    let Some(max_x) = position.x().checked_add(1) else {
+        return false;
+    };
+    let Some(max_z) = position.z().checked_add(1) else {
+        return false;
+    };
+    let body_bounds =
+        crate::spatial::VoxelBounds::new(position, VoxelCoord::new(max_x, top_y, max_z))
+            .expect("positive one-cell warden footprint");
     position.y() > WORLD_MIN_Y
         && clear_body_cell(state, position)
+        && !state.structures().has_embodied_member_intersecting(body_bounds)
         // World air alone does not mean free space: built infrastructure has
         // separate durable custody and blocks both occupied warden cells.
         && [position, VoxelCoord::new(position.x(), position.y() + 1, position.z())]
             .into_iter()
-            .all(|cell| {
-                !state.logistics().has_stationary_occupant_at(cell)
-                    && !state
-                        .structures()
-                        .elements()
-                        .any(|element| {
-                            !element.embodied_material().is_empty()
-                                && element.bounds().has_voxel(cell)
-                        })
-            })
+            .all(|cell| !state.logistics().has_stationary_occupant_at(cell))
         && state
             .world()
             .block_at(VoxelCoord::new(
