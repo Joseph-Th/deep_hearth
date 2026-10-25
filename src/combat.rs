@@ -629,11 +629,6 @@ fn resolve_contact(
     direction: ViewDirection,
     reach_millimeters: u32,
 ) -> Result<PrimitiveAttackOutcome, PrimitiveAttackError> {
-    let player_at = state
-        .logistics()
-        .player()
-        .expect("admitted logistics")
-        .position();
     let target = crate::world::raycast_player_air_voxel_with_reach(
         registries,
         state,
@@ -647,7 +642,7 @@ fn resolve_contact(
     )
     .map_err(PrimitiveAttackError::Target)?;
     match target {
-        Some(Ok((resident, position))) if player_at != position => {
+        Some(Ok((resident, position))) => {
             Ok(PrimitiveAttackOutcome::Startled { resident, position })
         }
         Some(Err(voxel)) => Err(PrimitiveAttackError::AmbiguousContact { voxel }),

@@ -95,6 +95,10 @@ pub fn raycast_player_block(
         direction,
         reach_nanometers,
         |voxel, block_state, face| {
+            let Some(face) = face else {
+                // The eye's own air cell has no entered face and cannot be a block hit.
+                return VoxelTraceStep::Continue;
+            };
             if state.structures().blocks_full_cell(voxel) {
                 VoxelTraceStep::Blocked
             } else if targetable_full_cube(registries, block_state) {
@@ -119,19 +123,23 @@ pub(crate) fn raycast_player_air_voxel<T>(
     registries: &Registries,
     state: &AppState,
     direction: ViewDirection,
-    select: impl FnMut(VoxelCoord, CubeFace) -> Option<T>,
+    mut select: impl FnMut(VoxelCoord, CubeFace) -> Option<T>,
 ) -> Result<Option<T>, PlayerBlockTargetError> {
-    raycast_player_air_voxel_with_reach(registries, state, direction, u32::MAX, select)
+    raycast_player_air_voxel_with_reach(registries, state, direction, u32::MAX, |voxel, face| {
+        face.and_then(|face| select(voxel, face))
+    })
 }
 
 /// Uses the same opaque-world ray with a shorter, authored weapon reach.
-/// Missing chunks beyond that reach must never affect a close-range miss.
+/// The originating eye cell is inspected with no entry face, allowing contact
+/// with an actor already sharing that cell. Missing chunks beyond the reach
+/// must never affect a close-range miss.
 pub(crate) fn raycast_player_air_voxel_with_reach<T>(
     registries: &Registries,
     state: &AppState,
     direction: ViewDirection,
     reach_millimeters: u32,
-    mut select: impl FnMut(VoxelCoord, CubeFace) -> Option<T>,
+    mut select: impl FnMut(VoxelCoord, Option<CubeFace>) -> Option<T>,
 ) -> Result<Option<T>, PlayerBlockTargetError> {
     let (origin, interaction_reach) = player_view_origin_and_reach(registries, state)?;
     let reach_nanometers = interaction_reach.min(i64::from(reach_millimeters) * 1_000_000);
@@ -218,7 +226,7 @@ fn trace_generated_voxels<T>(
     origin: WorldPoint,
     direction: ViewDirection,
     reach_nanometers: i64,
-    mut inspect: impl FnMut(VoxelCoord, BlockStateId, CubeFace) -> VoxelTraceStep<T>,
+    mut inspect: impl FnMut(VoxelCoord, BlockStateId, Option<CubeFace>) -> VoxelTraceStep<T>,
 ) -> Result<Option<T>, PlayerBlockTargetError> {
     let mut voxel = origin.containing_voxel();
     let start_state = state
@@ -227,6 +235,11 @@ fn trace_generated_voxels<T>(
         .ok_or(PlayerBlockTargetError::WorldAuthorityUnavailable { voxel })?;
     if targetable_full_cube(registries, start_state) {
         return Err(PlayerBlockTargetError::EyeInsideSolid { voxel });
+    }
+    match inspect(voxel, start_state, None) {
+        VoxelTraceStep::Continue => {}
+        VoxelTraceStep::Hit(target) => return Ok(Some(target)),
+        VoxelTraceStep::Blocked => return Ok(None),
     }
 
     let mut cursors = [
@@ -328,7 +341,7 @@ fn advance_ray_boundary<T>(
     voxel: &mut VoxelCoord,
     cursors: &mut [Option<AxisCursor>; 3],
     minimum: AxisCursor,
-    inspect: &mut impl FnMut(VoxelCoord, BlockStateId, CubeFace) -> VoxelTraceStep<T>,
+    inspect: &mut impl FnMut(VoxelCoord, BlockStateId, Option<CubeFace>) -> VoxelTraceStep<T>,
 ) -> Result<VoxelTraceStep<T>, PlayerBlockTargetError> {
     let (touched, count, tied) = boundary_cells(state, *voxel, cursors, minimum)?;
     // Physical occlusion takes precedence over air-space selection at tied intersections.
@@ -340,7 +353,7 @@ fn advance_ray_boundary<T>(
             {
                 continue;
             }
-            match inspect(candidate, block_state, face) {
+            match inspect(candidate, block_state, Some(face)) {
                 VoxelTraceStep::Continue => {}
                 outcome => return Ok(outcome),
             }

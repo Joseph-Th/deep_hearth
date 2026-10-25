@@ -303,8 +303,8 @@ struct KoboldColony {
     /// A meal was missed and the scout still needs recoverable food.
     /// This need survives save/load and clears only after an actual den meal.
     hungry: bool,
-    /// Food actually eaten toward this outstanding 20 g ration. A required
-    /// persisted quantity; older saves need an explicit schema migration.
+    /// Food actually eaten toward this outstanding 20 g ration. Required by
+    /// the current save schema; older shapes are rejected, never defaulted.
     partial_meal: Mass,
     /// A scout's first direct sighting of engineered machinery, still unreported until home.
     #[serde(deserialize_with = "required_optional_mobilization_tick")]

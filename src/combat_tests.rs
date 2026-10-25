@@ -57,6 +57,12 @@ fn recovery_has_a_real_deadline_and_survives_persistence() {
 }
 
 fn opening_contact_world() -> (Registries, AppState, VoxelCoord, VoxelCoord, VoxelCoord) {
+    opening_contact_world_after(180)
+}
+
+fn opening_contact_world_after(
+    slow_ticks: u64,
+) -> (Registries, AppState, VoxelCoord, VoxelCoord, VoxelCoord) {
     use crate::content::BLOCK_STATE_STONE;
     use crate::logistics::add_traversable_edge_for_test;
     use crate::simulation::advance_tick;
@@ -98,7 +104,7 @@ fn opening_contact_world() -> (Registries, AppState, VoxelCoord, VoxelCoord, Vox
     state
         .kobold_state_mut()
         .apply_opening_colony([den, junction, tip]);
-    for _ in 0..180 {
+    for _ in 0..slow_ticks {
         let _ = advance_tick(&registries, &mut state).unwrap();
     }
     (registries, state, den, junction, tip)
@@ -163,6 +169,69 @@ fn close_range_shove_startles_a_real_scout_and_retreat_replays_after_save() {
         Some(den),
         "the struck scout must withdraw through a real patrol edge"
     );
+}
+
+#[test]
+fn shared_player_cell_hits_the_local_scout_before_a_more_distant_watchman() {
+    let (registries, mut state, den, junction, _) = opening_contact_world();
+    assert_eq!(
+        close_contact_at(&state, junction),
+        Ok(Some((KoboldRole::Scout, junction)))
+    );
+    assert_eq!(
+        close_contact_at(&state, den),
+        Ok(Some((KoboldRole::Watchman, den)))
+    );
+    validate_admit_player(&registries, &state, junction)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let watchman_balance = opening_balance(&state, KoboldRole::Watchman);
+    let scout_balance = opening_balance(&state, KoboldRole::Scout);
+    let west_toward_watchman = ViewDirection::new(-1_000_000, 0, 0).unwrap();
+    let outcome = validate_primitive_shove(&registries, &state, west_toward_watchman)
+        .expect("an unambiguous resident sharing the eye cell is the nearest contact")
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        outcome,
+        PrimitiveAttackOutcome::Startled {
+            resident: KoboldRole::Scout,
+            position: junction
+        }
+    );
+    assert!(opening_balance(&state, KoboldRole::Scout) < scout_balance);
+    assert_eq!(
+        opening_balance(&state, KoboldRole::Watchman),
+        watchman_balance,
+        "the resident beyond the overlapping scout must not receive the shove"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn co_located_scout_and_watchman_reject_ambiguous_contact_without_spending_reserves() {
+    let (registries, mut state, den, _, _) = opening_contact_world_after(0);
+    assert_eq!(close_contact_at(&state, den), Err(()));
+    validate_admit_player(&registries, &state, den)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let prior_survival = state.survival().clone();
+    let eye_voxel = VoxelCoord::new(den.x(), den.y() + 1, den.z());
+    assert_eq!(
+        validate_primitive_shove(&registries, &state, east()).err(),
+        Some(PrimitiveAttackError::AmbiguousContact { voxel: eye_voxel })
+    );
+    assert_eq!(state.combat().revision(), 0);
+    assert_eq!(state.survival(), &prior_survival);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 /// Assemble the actual authored inputs, then carry and select one equipment instance.
