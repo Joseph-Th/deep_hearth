@@ -8,7 +8,7 @@ use crate::survival::{LocomotionDefinition, SurvivalExertion};
 
 use super::{
     LocomotionExertionAccumulator, MICROSECONDS_PER_SECOND, PlayerBodyMotionError, PlayerBodyState,
-    PlayerControlAvailability, PlayerControlInput, assess_player_carrying, integer_sqrt,
+    PlayerControlAvailability, PlayerControlInput, assess_player_carrying,
 };
 
 pub(super) fn resolve_control_exertion(
@@ -127,5 +127,5 @@ fn horizontal_speed(velocity: HorizontalVelocity) -> Result<u128, PlayerBodyMoti
                 .and_then(|z_squared| x_squared.checked_add(z_squared))
         })
         .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
-    Ok(integer_sqrt(speed_squared))
+    Ok(speed_squared.isqrt())
 }

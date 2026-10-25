@@ -751,9 +751,15 @@ fn accelerate_horizontal_velocity(
     if magnitude_squared <= maximum_squared {
         return Ok(desired);
     }
-    let magnitude = i128::try_from(integer_sqrt(
-        u128::try_from(magnitude_squared).map_err(|_| PlayerBodyMotionError::VelocityOverflow)?,
-    ))
+    let squared =
+        u128::try_from(magnitude_squared).map_err(|_| PlayerBodyMotionError::VelocityOverflow)?;
+    let floor = squared.isqrt();
+    // Rounding the norm down could exceed the authored Euclidean acceleration bound.
+    let magnitude = i128::try_from(if floor * floor == squared {
+        floor
+    } else {
+        floor + 1
+    })
     .map_err(|_| PlayerBodyMotionError::VelocityOverflow)?;
     if magnitude == 0 {
         return Ok(desired);
@@ -775,20 +781,6 @@ fn accelerate_horizontal_velocity(
         .and_then(|value| i64::try_from(value).ok())
         .ok_or(PlayerBodyMotionError::VelocityOverflow)?;
     Ok(HorizontalVelocity::new(x, z))
-}
-
-fn integer_sqrt(value: u128) -> u128 {
-    if value < 2 {
-        return value;
-    }
-    let mut estimate = 1_u128 << ((128 - value.leading_zeros() as usize).div_ceil(2));
-    loop {
-        let next = (estimate + value / estimate) / 2;
-        if next >= estimate {
-            return estimate;
-        }
-        estimate = next;
-    }
 }
 
 fn resolve_vertical_collision(
@@ -991,3 +983,7 @@ fn length_nanometers(length: crate::core::quantity::Length) -> Option<i64> {
     i64::try_from(u128::from(length.micrometers()).checked_mul(NANOMETERS_PER_MICROMETER as u128)?)
         .ok()
 }
+
+#[cfg(test)]
+#[path = "kinematics/acceleration_tests.rs"]
+mod acceleration_tests;
