@@ -35,11 +35,26 @@ fn small_overlapping_and_oversized_bounds_have_exact_local_candidates() {
         [StructuralElementId::new(3)]
     );
     assert!(index.candidates(VoxelCoord::new(5, 4, 6)).next().is_none());
+    assert_eq!(
+        index.column_candidates(0, 1).collect::<Vec<_>>(),
+        [1, 2, 3].map(StructuralElementId::new)
+    );
+    assert_eq!(
+        index.column_candidates(-2, 0).collect::<Vec<_>>(),
+        [StructuralElementId::new(1)]
+    );
+    assert_eq!(
+        index.column_candidates(i64::MAX - 1, 1).collect::<Vec<_>>(),
+        [StructuralElementId::new(3)],
+        "large prisms remain discoverable by column without expanding every voxel"
+    );
+    assert!(index.column_candidates(0, 5).next().is_none());
 
     index.remove(StructuralElementId::new(1), small);
     index.remove(StructuralElementId::new(2), overlapping);
     index.remove(StructuralElementId::new(3), broad);
     assert!(index.by_voxel.is_empty());
+    assert!(index.by_column.is_empty());
     assert!(index.broad_elements.is_empty());
 }
 
@@ -95,6 +110,13 @@ fn structural_creation_removal_and_trusted_load_keep_local_occupancy_in_sync() {
     assert_eq!(
         state
             .structures()
+            .has_active_overhead_cover(near.x(), near.z(), -1, 2),
+        false,
+        "an indexed plan without physical activation cannot shelter an actor"
+    );
+    assert_eq!(
+        state
+            .structures()
             .elements_covering(remote)
             .map(StructuralElementRecord::id)
             .collect::<Vec<_>>(),
@@ -114,6 +136,15 @@ fn structural_creation_removal_and_trusted_load_keep_local_occupancy_in_sync() {
         .commit(&mut state)
         .unwrap();
     assert!(state.structures().elements_covering(near).next().is_none());
+    assert!(
+        state
+            .structures()
+            .spatial_index
+            .column_candidates(near.x(), near.z())
+            .next()
+            .is_none(),
+        "removing an element must remove its horizontal projection"
+    );
     assert_eq!(
         state
             .structures()

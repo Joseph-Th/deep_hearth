@@ -1310,12 +1310,14 @@ demolition/recovery operation must explicitly model authorization, labor/tools/t
 Stockpile, equipment, and fluid owners each maintain their own structural load channel. Multi-owner load
 changes are planned against final aggregate load so results do not depend on mutation order.
 
-Structural geometry has a nonpersisted local occupancy index for block-scale members, including inert plans,
-so control-rate body collision, direct target selection, and small resident-footprint checks inspect only local
-members rather than the complete settlement. The index is maintained on element insertion and removal and
-rebuilt from persisted element geometry on trusted load; embodiment and activation change the same indexed
-member without introducing another owner. Unusually large valid bounds use an exact geometric fallback
-rather than allocating an unbounded number of per-voxel entries. The index does not change collision rules:
+Structural geometry has nonpersisted voxel and horizontal-column indexes for block-scale members, including
+inert plans. Control-rate body collision, direct target selection, and small resident-footprint checks inspect
+only local members rather than the complete settlement; overhead-cover assessment inspects members projected
+onto the player's local sky-exposure columns without rescanning every settlement structure on each survival
+tick. Both indexes are maintained on element insertion and removal and rebuilt from persisted element geometry
+on trusted load; embodiment and activation change the same indexed member without introducing another owner.
+Unusually large valid bounds use exact geometric fallbacks rather than allocating unbounded per-voxel or
+per-column entries. The index does not change collision rules:
 only embodied members with a complete horizontal footprint block the player's body, whereas any embodied
 member can obstruct a heavy resident. Player-directed placement and opening-resident admission use those
 canonical local-occupancy predicates; structural dismantling uses the existing reverse support index to reject

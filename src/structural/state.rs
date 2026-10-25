@@ -89,6 +89,30 @@ impl StructureState {
             .filter(move |element| element.bounds().has_voxel(voxel))
     }
 
+    /// Tests active, full-footprint shelter on one horizontal sky-exposure column.
+    ///
+    /// Derived horizontal projection avoids scanning every settlement member on
+    /// every slow survival tick. The caller supplies the generated sky limit.
+    #[must_use]
+    pub(crate) fn has_active_overhead_cover(
+        &self,
+        x: i64,
+        z: i64,
+        from_y: i64,
+        sky_exclusive: i64,
+    ) -> bool {
+        self.spatial_index.column_candidates(x, z).any(|id| {
+            let member = self
+                .elements
+                .get(&id)
+                .expect("structural column index references absent element");
+            member.lifecycle() == StructuralLifecycle::Active
+                && member.geometry().covers_horizontal_footprint()
+                && member.bounds().min().y() < sky_exclusive
+                && member.bounds().max_exclusive().y() > from_y
+        })
+    }
+
     /// A materialized, full-footprint member occupies this voxel even before activation.
     /// Planned members have no physical obstruction.
     #[must_use]

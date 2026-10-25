@@ -3,7 +3,6 @@
 use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::spatial::{NANOMETERS_PER_VOXEL, VoxelCoord};
-use crate::structural::StructuralLifecycle;
 use crate::world::WORLD_MAX_Y_EXCLUSIVE;
 
 use super::{body_height, horizontal_voxel_bounds, length_nanometers};
@@ -61,18 +60,10 @@ pub fn assess_player_overhead_cover(
                 unavailable = true;
                 continue;
             }
-            let structural_cover = state.structures().elements().any(|record| {
-                record.lifecycle() == StructuralLifecycle::Active
-                    && record.geometry().covers_horizontal_footprint()
-                    && record.bounds().min().x() <= x
-                    && record.bounds().max_exclusive().x() > x
-                    && record.bounds().min().z() <= z
-                    && record.bounds().max_exclusive().z() > z
-                    // Roofs entirely above generated world space cannot intercept
-                    // exposure along the body's in-world column.
-                    && record.bounds().min().y() < WORLD_MAX_Y_EXCLUSIVE
-                    && record.bounds().max_exclusive().y() > cover_y
-            });
+            let structural_cover =
+                state
+                    .structures()
+                    .has_active_overhead_cover(x, z, cover_y, WORLD_MAX_Y_EXCLUSIVE);
             let terrain_cover = !structural_cover
                 && (cover_y..WORLD_MAX_Y_EXCLUSIVE).any(|y| {
                     let block_state = state
