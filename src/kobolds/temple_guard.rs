@@ -16,7 +16,10 @@ use crate::world::{
     BlockCollisionShape, BlockStateId, ChunkCoord, WORLD_MIN_Y, temple_warden_route_at,
 };
 
-use super::{SCOUT_STEP_TICKS, visibility::scout_visible_from};
+use super::{
+    SCOUT_STEP_TICKS,
+    visibility::{scout_visible_from, within_manhattan_reach},
+};
 
 /// One inspection of the inner gallery every 2.4 simulated hours. Unvisited
 /// sanctuaries stay at their standing post and consume no offscreen AI work.
@@ -221,16 +224,15 @@ fn plan_warden_step(
     at: SimulationTick,
 ) -> u8 {
     let current = warden_position(route, step).expect("trusted patrol has a valid cursor");
-    let distance = player
-        .x()
-        .abs_diff(route[0].x())
-        .saturating_add(player.y().abs_diff(route[0].y()))
-        .saturating_add(player.z().abs_diff(route[0].z()));
     let alive = state
         .survival()
         .player()
         .is_some_and(|actor| actor.vitality() != Vitality::ZERO);
-    let nearby = alive && distance <= TEMPLE_INSPECTION_LOCAL_REACH;
+    // Home activates an implicit resident; once it travels, its actual body
+    // remains locally relevant even when the player leaves the home radius.
+    let nearby = alive
+        && (within_manhattan_reach(route[0], player, TEMPLE_INSPECTION_LOCAL_REACH)
+            || within_manhattan_reach(current, player, TEMPLE_INSPECTION_LOCAL_REACH));
     let seen = alive && warden_sees_intruder(registries, state, current, player);
     // The ancestral post determines the guarded boundary even if a side
     // intruder moves across the actual sentry's present position.

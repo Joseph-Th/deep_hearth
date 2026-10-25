@@ -204,6 +204,52 @@ fn breached_archive_causes_local_guarded_vigil_without_repairing_the_shell() {
 }
 
 #[test]
+fn attending_archivist_does_not_abandon_a_breached_archive_when_player_is_near_its_body() {
+    let (registries, mut state, home) = occupied_archive();
+    let chunk = ChunkCoord::containing(home);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        archive_cell(home),
+        BlockStateId::AIR,
+    );
+    advance_to(&registries, &mut state, 280);
+    assert_eq!(state.kobold_state().temple_archivist_step(chunk), 5);
+
+    // A side excavation leaves the player outside the original chamber's
+    // radius, but close to the archivist's displaced, massive body.
+    let observer = VoxelCoord::new(home.x() - 6, home.y(), home.z() + 3);
+    assert!(!within_manhattan_reach(
+        home,
+        observer,
+        ARCHIVIST_LOCAL_REACH
+    ));
+    assert!(
+        resident_body_cells(archivist_position(home, 5).unwrap())
+            .any(|cell| within_manhattan_reach(cell, observer, ARCHIVIST_LOCAL_REACH))
+    );
+    for position in [
+        observer,
+        VoxelCoord::new(observer.x(), observer.y() + 1, observer.z()),
+    ] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    }
+    relocate_player_for_test(&mut state, observer);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for at in [290, 300, 310] {
+        advance_to(&registries, &mut state, at);
+        advance_to(&registries, &mut replay, at);
+        assert_eq!(state, replay);
+        assert_eq!(state.kobold_state().temple_archivist_step(chunk), 5);
+    }
+}
+
+#[test]
 fn archive_inspection_cannot_sense_through_the_actual_blocked_throat() {
     let (registries, mut state, home) = occupied_archive();
     let shell = archive_cell(home);

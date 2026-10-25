@@ -4,6 +4,18 @@ use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
+/// Bounded local reach without overflow at the extremes of checked world coordinates.
+/// A body that has moved away from its home must still respond to nearby observers.
+pub(super) fn within_manhattan_reach(from: VoxelCoord, to: VoxelCoord, reach: u64) -> bool {
+    let Some(remaining) = reach.checked_sub(from.x().abs_diff(to.x())) else {
+        return false;
+    };
+    let Some(remaining) = remaining.checked_sub(from.y().abs_diff(to.y())) else {
+        return false;
+    };
+    remaining >= from.z().abs_diff(to.z())
+}
+
 /// Close-range scout sightings use authoritative terrain and built-member occlusion, not distance alone.
 /// At two voxels, all intermediate axis steps must be transparent; a diagonal
 /// corner is concealed by a blocking wall on either side. Missing generated

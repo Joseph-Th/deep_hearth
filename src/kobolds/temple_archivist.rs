@@ -16,7 +16,10 @@ use crate::world::{
     BlockCollisionShape, BlockStateId, ChunkCoord, WORLD_MIN_Y, temple_residents_at,
 };
 
-use super::{SCOUT_STEP_TICKS, visibility::scout_visible_from};
+use super::{
+    SCOUT_STEP_TICKS,
+    visibility::{scout_visible_from, within_manhattan_reach},
+};
 
 const ARCHIVIST_STEP_TICKS: u64 = SCOUT_STEP_TICKS * 2;
 const ARCHIVIST_INSPECTION_CYCLE_TICKS: u64 = 240;
@@ -88,17 +91,19 @@ fn supported_and_clear(registries: &Registries, state: &AppState, anchor: VoxelC
         })
 }
 
-fn locally_observed(state: &AppState, home: VoxelCoord, player: VoxelCoord) -> bool {
+fn locally_observed(
+    state: &AppState,
+    home: VoxelCoord,
+    current: VoxelCoord,
+    player: VoxelCoord,
+) -> bool {
     state
         .survival()
         .player()
         .is_some_and(|actor| actor.vitality() != Vitality::ZERO)
-        && home
-            .x()
-            .abs_diff(player.x())
-            .saturating_add(home.y().abs_diff(player.y()))
-            .saturating_add(home.z().abs_diff(player.z()))
-            <= ARCHIVIST_LOCAL_REACH
+        && (within_manhattan_reach(home, player, ARCHIVIST_LOCAL_REACH)
+            || resident_body_cells(current)
+                .any(|cell| within_manhattan_reach(cell, player, ARCHIVIST_LOCAL_REACH)))
 }
 
 /// Only the archivist at the end of its *physical* path can check the archive
@@ -247,7 +252,7 @@ pub(super) fn apply_temple_archivist_tick(
         if !resident_can_depart(registries, state, current) {
             continue;
         }
-        let nearby = locally_observed(state, home, player);
+        let nearby = locally_observed(state, home, current, player);
         let next = if archive_shell_breached(state, home, step) && nearby {
             step
         } else if nearby {

@@ -1827,6 +1827,56 @@ fn missing_copper_drive_prompts_a_local_warden_watch_without_free_machinery() {
 }
 
 #[test]
+fn displaced_warden_continues_to_watch_missing_drive_with_player_near_its_actual_post() {
+    let (registries, mut state, route) = occupied_temple();
+    let center = route[2];
+    let drive = VoxelCoord::new(center.x() + 5, center.y(), center.z());
+    let chunk = ChunkCoord::containing(center);
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(center.x() - 4, center.y(), center.z()),
+    );
+    set_generated_block_for_test(registries.world(), &mut state, drive, BlockStateId::AIR);
+    advance_to(&registries, &mut state, 385);
+    assert_eq!(state.kobold_state().temple_warden_step(chunk), 7);
+    let at_drive = warden_position(route, 7).unwrap();
+
+    // An excavated side passage may approach the displaced inspector from
+    // outside the radius of its ancestral standing post.
+    let observer = VoxelCoord::new(at_drive.x(), at_drive.y(), at_drive.z() - 4);
+    assert!(!within_manhattan_reach(
+        route[0],
+        observer,
+        TEMPLE_INSPECTION_LOCAL_REACH
+    ));
+    assert!(within_manhattan_reach(
+        at_drive,
+        observer,
+        TEMPLE_INSPECTION_LOCAL_REACH
+    ));
+    for position in [
+        observer,
+        VoxelCoord::new(observer.x(), observer.y() + 1, observer.z()),
+    ] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    }
+    relocate_player_for_test(&mut state, observer);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for at in [390, 395, 400] {
+        advance_to(&registries, &mut state, at);
+        advance_to(&registries, &mut replay, at);
+        assert_eq!(state, replay);
+        assert_eq!(state.kobold_state().temple_warden_step(chunk), 7);
+    }
+}
+
+#[test]
 fn intact_or_opaque_drive_housing_does_not_create_a_false_breach_watch() {
     let (registries, mut intact, route) = occupied_temple();
     let center = route[2];
