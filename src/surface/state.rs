@@ -324,6 +324,35 @@ impl SurfaceResourceState {
             })
     }
 
+    /// Live surface matter in a chunk column, even when its inclusive final
+    /// voxel is i64::MAX and no half-open VoxelBounds can enclose that edge.
+    pub(crate) fn available_resources_in_chunk(
+        &self,
+        chunk: crate::world::ChunkCoord,
+    ) -> impl Iterator<Item = &SurfaceResourceRecord> {
+        let x_span = chunk.world_min_x().map(|min| {
+            (
+                VoxelCoord::new(min, i64::MIN, i64::MIN),
+                VoxelCoord::new(
+                    min.saturating_add(crate::world::CHUNK_SIDE as i64 - 1),
+                    i64::MAX,
+                    i64::MAX,
+                ),
+            )
+        });
+        x_span
+            .into_iter()
+            .flat_map(move |(low, high)| self.available_by_position.range(low..=high))
+            .filter(move |(position, _)| crate::world::ChunkCoord::containing(**position) == chunk)
+            .flat_map(|(_, ids)| {
+                ids.iter().map(|id| {
+                    self.resources.get(id).unwrap_or_else(|| {
+                        unreachable!("surface location index references missing resource")
+                    })
+                })
+            })
+    }
+
     pub(crate) fn resources(&self) -> impl Iterator<Item = &SurfaceResourceRecord> {
         self.resources.values()
     }

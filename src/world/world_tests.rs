@@ -2334,6 +2334,79 @@ fn add_unloaded_surface_drop(registries: &Registries, state: &mut AppState, posi
 }
 
 #[test]
+fn chunk_generation_surface_collision_preserves_identity_order_and_excludes_remote_history() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let first = VoxelCoord::new(15, WORLD_MIN_Y, 15);
+    let second = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    for position in [
+        first,
+        second,
+        VoxelCoord::new(0, WORLD_MIN_Y, 32),
+        VoxelCoord::new(2, 100, 2),
+    ] {
+        add_unloaded_surface_drop(&registries, &mut state, position);
+    }
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE
+        )
+        .err(),
+        Some(ChunkGenerationError::SurfaceResourceCollision { voxel: first }),
+        "a spatial index must not change the oldest conflicting resource's diagnostic"
+    );
+    assert_eq!(state, before);
+    let first_id = state
+        .surface()
+        .available_resources_at(Some(first))
+        .next()
+        .unwrap()
+        .id();
+    let revision = state.surface().revision() + 1;
+    let tick = state.tick();
+    state.surface_state_mut().apply_gathering(
+        first_id,
+        Mass::from_milligrams(25_000),
+        tick,
+        revision,
+    );
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE
+        )
+        .err(),
+        Some(ChunkGenerationError::SurfaceResourceCollision { voxel: second }),
+        "depleted historical parcels must not block terrain or shadow later collision reports"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, restored);
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &restored,
+            SEED,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE
+        )
+        .err(),
+        Some(ChunkGenerationError::SurfaceResourceCollision { voxel: second })
+    );
+}
+
+#[test]
 fn terrain_generation_commit_rejects_surface_matter_added_after_preflight() {
     let registries = build_registries();
     let mut state = AppState::new();

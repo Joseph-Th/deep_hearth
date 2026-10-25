@@ -140,6 +140,59 @@ fn terrain_generation_cannot_bury_a_completed_stationary_storage_enclosure() {
 }
 
 #[test]
+fn terrain_generation_reports_oldest_local_enclosure_not_spatially_first_or_remote() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(5, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let first = VoxelCoord::new(15, WORLD_MIN_Y, 15);
+    let later = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    let outside = VoxelCoord::new(0, WORLD_MIN_Y, 32);
+    let first_id = place_completed_field_box_at(&registries, &mut state, first);
+    let later_id = place_completed_field_box_at(&registries, &mut state, later);
+    let _remote_id = place_completed_field_box_at(&registries, &mut state, outside);
+    assert!(first_id < later_id);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE
+        )
+        .err(),
+        Some(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel: first }),
+        "chunk-local indexing must keep the oldest obstructing enclosure's identity order"
+    );
+    assert_eq!(state, before);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, restored);
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &restored,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE
+        )
+        .err(),
+        Some(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel: first })
+    );
+}
+
+#[test]
 fn neighborhood_generation_rejects_burying_a_stationary_enclosure_atomically() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);

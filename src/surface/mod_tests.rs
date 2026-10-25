@@ -293,6 +293,7 @@ fn indexed_surface_bounds_exclude_remote_and_depleted_custody() {
         VoxelCoord::new(0, 0, 4),
         VoxelCoord::new(-3, 0, 0),
         VoxelCoord::new(2, 0, 0),
+        VoxelCoord::new(i64::MAX, 0, 0),
     ];
     let specs = positions.map(|position| {
         SurfaceResourceSpec::new(
@@ -341,6 +342,25 @@ fn indexed_surface_bounds_exclude_remote_and_depleted_custody() {
             .map(|record| record.id())
             .collect::<Vec<_>>(),
         vec![ids[1]]
+    );
+    let last_column = crate::world::ChunkCoord::containing(positions[8]);
+    assert_eq!(
+        state
+            .surface()
+            .available_resources_in_chunk(last_column)
+            .map(|record| record.id())
+            .collect::<Vec<_>>(),
+        vec![ids[1], ids[8]],
+        "the final representable voxel belongs to its chunk despite half-open bounds limits"
+    );
+    assert_eq!(
+        state
+            .surface()
+            .available_resources_in_chunk(crate::world::ChunkCoord::new(0, 0))
+            .map(|record| record.id())
+            .collect::<Vec<_>>(),
+        vec![ids[5], ids[0], ids[3], ids[7]],
+        "negative and remote columns and depleted records are excluded"
     );
 }
 

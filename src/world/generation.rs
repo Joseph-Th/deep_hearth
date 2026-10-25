@@ -714,15 +714,16 @@ fn first_surface_resource_collision(
 ) -> Option<VoxelCoord> {
     state
         .surface()
-        .resources()
-        .filter(|resource| !resource.remaining_mass().is_zero())
-        .map(|resource| resource.position())
-        .find(|&voxel| {
-            ChunkCoord::containing(voxel) == chunk.coord()
-                && registry
-                    .block_for_state(chunk.block_at(voxel))
-                    .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
+        .available_resources_in_chunk(chunk.coord())
+        .filter(|resource| {
+            registry
+                .block_for_state(chunk.block_at(resource.position()))
+                .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
         })
+        // The spatial index walks voxels; preserve the old ID-first result
+        // when more than one parcel conflicts with terrain admission.
+        .min_by_key(|resource| resource.id())
+        .map(|resource| resource.position())
 }
 
 /// Finished stationary enclosure bodies are physical custody, unlike loose
@@ -735,21 +736,19 @@ fn first_stationary_enclosure_collision_in_generated_chunk(
 ) -> Option<VoxelCoord> {
     state
         .logistics()
-        .stockpile_locations()
-        .filter(|&(id, _)| {
+        .stockpiles_in_chunk(chunk.coord())
+        .filter(|&(id, voxel)| {
             state
                 .inventory()
                 .get_stockpile(id)
                 .is_some_and(|stockpile| stockpile.enclosure().is_some())
-        })
-        .map(|(_, voxel)| voxel)
-        .find(|&voxel| {
-            ChunkCoord::containing(voxel) == chunk.coord()
                 && (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
                 && registry
                     .block_for_state(chunk.block_at(voxel))
                     .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
         })
+        .min_by_key(|(id, _)| *id)
+        .map(|(_, voxel)| voxel)
 }
 
 /// A built member has physical matter even when its narrow cross-section

@@ -41,6 +41,27 @@ fn stationary_occupancy_uses_exact_positions_and_survives_reconstruction() {
     let local_ids = state.logistics().stockpiles_at(shared).collect::<Vec<_>>();
     assert_eq!(local_ids.len(), 2);
     assert!(local_ids[0] < local_ids[1]);
+    assert_eq!(
+        state
+            .logistics()
+            .stockpiles_in_chunk(crate::world::ChunkCoord::containing(shared))
+            .collect::<Vec<_>>(),
+        local_ids.iter().map(|id| (*id, shared)).collect::<Vec<_>>()
+    );
+    let last = VoxelCoord::new(i64::MAX, 2, i64::MAX);
+    let edge_stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .expect("far-edge stockpile");
+    validate_place_ground_stockpile(&state, edge_stockpile, last)
+        .expect("far-edge ground placement")
+        .commit(&mut state)
+        .expect("far-edge ground commit");
+    assert_eq!(
+        state
+            .logistics()
+            .stockpiles_in_chunk(crate::world::ChunkCoord::containing(last))
+            .collect::<Vec<_>>(),
+        vec![(edge_stockpile, last)]
+    );
     assert_eq!(state.logistics().stockpiles_at(empty).count(), 0);
     assert_eq!(
         state

@@ -336,6 +336,11 @@ rejects any live divergence. Multiple assets may still share one voxel.
 The stockpile position index also serves exact-local player ground-inventory
 presentation and opening-scout clearance; only stockpiles with a finished
 enclosure obstruct the small scout's body.
+Prospective terrain generation checks the candidate chunk against indexed
+available surface parcels and located stockpile enclosures instead of scanning
+remote or depleted custody for every new column. If several objects conflict,
+the earliest resource or stockpile identity still determines the reported cell.
+Chunk-column lookup remains valid at the extreme representable voxel boundary.
 Pointed construction rejects the scout and watchman's actual two-cell bodies even
 when concealed from sight. Trusted load also rejects completed enclosures and
 full-footprint embodied members intersecting either persisted opening resident;

@@ -23,6 +23,29 @@ impl LogisticsState {
             .flat_map(|ids| ids.iter().copied())
     }
 
+    /// Located stockpiles in one chunk column. Retain identity beside the
+    /// position so callers can preserve deterministic ID-first collision order.
+    pub(crate) fn stockpiles_in_chunk(
+        &self,
+        chunk: crate::world::ChunkCoord,
+    ) -> impl Iterator<Item = (StockpileId, VoxelCoord)> + '_ {
+        let x_span = chunk.world_min_x().map(|min| {
+            (
+                VoxelCoord::new(min, i64::MIN, i64::MIN),
+                VoxelCoord::new(
+                    min.saturating_add(crate::world::CHUNK_SIDE as i64 - 1),
+                    i64::MAX,
+                    i64::MAX,
+                ),
+            )
+        });
+        x_span
+            .into_iter()
+            .flat_map(move |(low, high)| self.stockpiles_by_position.range(low..=high))
+            .filter(move |(position, _)| crate::world::ChunkCoord::containing(**position) == chunk)
+            .flat_map(|(position, ids)| ids.iter().map(move |id| (*id, *position)))
+    }
+
     /// Only stores inside the maximum mathematically possible finite-light range.
     /// Source order remains stable by ID for deterministic equal-brightness ties.
     pub(crate) fn energy_store_locations_near(
