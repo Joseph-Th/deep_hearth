@@ -255,36 +255,42 @@ fn local_warmth_aggregation_caps_before_energy_overflow() {
 #[test]
 fn walk_path_projection_prices_future_load_without_mutating_custody() {
     let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
-    let destination = VoxelCoord::new(1, floor_y, 0);
-    set_generated_block_for_test(
-        registries.world(),
-        &mut state,
-        VoxelCoord::new(1, floor_y - 1, 0),
-        BLOCK_STATE_STONE,
-    );
-    for y in floor_y..=floor_y + 1 {
+    let path = (1..=4)
+        .map(|x| VoxelCoord::new(x, floor_y, 0))
+        .collect::<Vec<_>>();
+    for destination in &path {
         set_generated_block_for_test(
             registries.world(),
             &mut state,
-            VoxelCoord::new(1, y, 0),
-            BlockStateId::AIR,
+            VoxelCoord::new(destination.x(), floor_y - 1, 0),
+            BLOCK_STATE_STONE,
         );
+        for y in floor_y..=floor_y + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(destination.x(), y, 0),
+                BlockStateId::AIR,
+            );
+        }
     }
     let carrying = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("future-haul projection lost carrying assessment"));
     assert_eq!(carrying.stored(), Mass::ZERO);
-    let unloaded = project_player_walk_path(&registries, &state, &[destination])
+    let unloaded = project_player_walk_path(&registries, &state, &path)
         .unwrap_or_else(|error| panic!("unloaded walk projection failed: {error}"));
-    let future_load = Mass::from_milligrams(12_500_000);
+    let future_load = carrying.capacity();
     let loaded = project_player_walk_path_for_load(
         &registries,
         &state,
-        &[destination],
+        &path,
         future_load,
         carrying.capacity(),
     )
     .unwrap_or_else(|error| panic!("future loaded walk projection failed: {error}"));
-    assert_eq!(unloaded.control_ticks(), loaded.control_ticks());
+    // Stop-and-go routes include neutral braking: the slower pack can sometimes stop in fewer
+    // control samples. Sustained travel is checked independently below.
+    assert!(unloaded.control_ticks() > 0 && loaded.control_ticks() > 0);
     assert!(
         loaded.resource_budget().metabolic_energy() > unloaded.resource_budget().metabolic_energy()
     );
@@ -304,7 +310,7 @@ fn walk_path_projection_prices_future_load_without_mutating_custody() {
         project_player_walk_path_for_load(
             &registries,
             &state,
-            &[destination],
+            &path,
             over_capacity,
             carrying.capacity(),
         ),
@@ -312,6 +318,76 @@ fn walk_path_projection_prices_future_load_without_mutating_custody() {
             carried: over_capacity,
             capacity: carrying.capacity(),
         })
+    );
+}
+
+#[test]
+fn sustained_haul_walk_takes_more_control_time_than_empty_handed_travel() {
+    let (registries, mut empty, floor_y) = generated_grounded_player_at(0, 0);
+    for x in 1..=7 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut empty,
+            VoxelCoord::new(x, floor_y - 1, 0),
+            BLOCK_STATE_STONE,
+        );
+        for y in floor_y..=floor_y + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut empty,
+                VoxelCoord::new(x, y, 0),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let mut loaded = empty.clone();
+    let carried = loaded
+        .logistics()
+        .player()
+        .unwrap_or_else(|| panic!("haul test lost admitted player"))
+        .carried_stockpile();
+    let capacity = assess_player_carrying(&loaded)
+        .unwrap_or_else(|| panic!("haul test lost carrying assessment"))
+        .capacity();
+    deposit_lot_for_test(
+        &registries,
+        &mut loaded,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        capacity,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("haul test pack filling failed: {error}"));
+    let movement = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("haul test control input invalid: {error}")),
+    );
+    let travel_ticks = |state: &mut AppState| {
+        let mut ticks = 0_u64;
+        while state
+            .logistics()
+            .player()
+            .is_some_and(|player| player.position().x() < 6)
+        {
+            let _ = advance_control_tick_with_input(&registries, state, movement)
+                .unwrap_or_else(|error| panic!("haul travel failed: {error}"));
+            ticks += 1;
+            assert!(
+                ticks < 70,
+                "haul test route did not finish before next slow tick"
+            );
+        }
+        ticks
+    };
+    let empty_ticks = travel_ticks(&mut empty);
+    let full_ticks = travel_ticks(&mut loaded);
+    assert!(
+        full_ticks > empty_ticks,
+        "carrying a full pack must visibly delay sustained travel: full {full_ticks} vs empty {empty_ticks}"
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &loaded),
+        Ok(())
     );
 }
 
@@ -737,9 +813,9 @@ fn continuous_walking_settles_higher_survival_cost_under_carried_load() {
         .copied()
         .unwrap_or_else(|| panic!("loaded walking body disappeared"))
         .body();
-    assert_eq!(
-        loaded_body, unloaded_body,
-        "ordinary walking trajectory should remain matched while carried mass changes exertion"
+    assert!(
+        loaded_body.foot_position().x_nanometers() < unloaded_body.foot_position().x_nanometers(),
+        "a pack should reduce actual travel distance under identical held walking input"
     );
     let after_unloaded = unloaded
         .survival()

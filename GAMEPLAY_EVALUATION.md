@@ -137,6 +137,17 @@ A known completion tick is an upper bound, not guaranteed completion. Helpers mu
 decision-relevant events or return intervening outcomes. Semantic fast-forward is outside the actor contract
 unless production owns and proves the equivalent authoritative transition.
 
+Hauling evidence distinguishes carried-mass-dependent sustained speed from control-time movement,
+neutral braking, and slow-boundary settlement. Adjacent-voxel stop/start timing can tie or reverse
+because a slower body also needs less braking; it is not a proxy for continuous travel speed.
+Actor-facing route projections must use proposed carried mass for both motion and survival,
+not merely a stamina surcharge on an unchanged body trajectory. For a straight, already chosen
+route, continuous held locomotion should cross intermediate voxels without artificial stopping;
+reports distinguish crossings, moving control ticks, braking, and slow-tick settlement.
+A matched repair alternative can prove usable maintenance without making an actor service a
+healthy idle machine when no productive demand remains. Count only executed parallel work as
+freed-time use; autonomous duration by itself is not an accomplished player goal.
+
 Passive elapsed time is temporal pressure, not player activity. A harness may advance ordinary ticks to expose
 food aging, reserve drawdown, or another time-dependent state, but reports must label that interval as passive
 exposure unless the actor actually took actions during it. Do not insert hidden maintenance, eating, drinking, or

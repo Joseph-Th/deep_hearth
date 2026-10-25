@@ -14,9 +14,13 @@ use deep_hearth::crafting::{
     validate_start_manual_craft, validate_start_powered_craft,
 };
 use deep_hearth::energy::{EnergySinkError, EnergyStoreId, validate_assemble_energy_store};
-use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
-use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
+use deep_hearth::equipment::{
+    EquipmentId, player_equipment_maintenance_options, validate_assemble_equipment,
+    validate_start_player_equipment_maintenance,
+};
+use deep_hearth::inventory::{StockpileId, StockpileStorageProfile, project_material_stacks};
 use deep_hearth::labor::{ManualPowerError, ManualPowerRequest, validate_start_manual_power};
+use deep_hearth::logistics::validate_pickup_stack_from_ground;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
@@ -60,6 +64,11 @@ struct LivedPortfolioOutcome {
     charge_attention_ticks: u64,
     parallel_maintenance_attention_ticks: u64,
     parallel_maintenance_overlap_ticks: u64,
+    service_attention_ticks: u64,
+    serviced_spindle_condition_before_ppm: u32,
+    serviced_spindle_condition_after_ppm: u32,
+    service_used_parallel_bit: bool,
+    spindle_batches_after_service: u64,
     delegated_ticks: u64,
     maximum_leg_batches: u64,
     shared_bank_serialization_proven: bool,
@@ -352,6 +361,101 @@ fn execute_parallel_drill_bit_maintenance(
     attention_ticks
 }
 
+/// Execute a matched service alternative, using the bit prepared while the machine ran.
+/// The actual player can keep the bit for future demand instead of servicing a healthy idle
+/// machine. This branch uses the ordinary pickup, service catalog, and timed service owner.
+fn service_spindle_from_parallel_bit(
+    registries: &Registries,
+    state: &mut AppState,
+    spindle: EquipmentId,
+    project: &ParallelMaintenanceProject,
+    outcome: &mut LivedPortfolioOutcome,
+) {
+    assert!(
+        project.completed,
+        "spindle service requires the parallel-prepared replacement"
+    );
+    let drill_bit = CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT);
+    let stock = project_material_stacks(registries, state, project.destination)
+        .unwrap_or_else(|error| panic!("parallel service bit catalog failed: {error}"));
+    let bit = stock
+        .iter()
+        .find(|stack| stack.commodity() == drill_bit)
+        .unwrap_or_else(|| panic!("parallel-prepared bit cannot be picked up"));
+    let bit_mass = bit.mass();
+    validate_pickup_stack_from_ground(registries, state, project.destination, bit, bit_mass)
+        .unwrap_or_else(|error| panic!("parallel bit pickup failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("parallel bit pickup commit failed: {error}"));
+    let service_option = player_equipment_maintenance_options(registries, state)
+        .unwrap_or_else(|error| panic!("parallel service catalog failed: {error}"))
+        .into_iter()
+        .find(|option| option.equipment() == spindle)
+        .unwrap_or_else(|| {
+            panic!("spindle wear did not produce a player-visible service opportunity")
+        });
+    assert!(
+        service_option.replacement_ready(),
+        "parallel-prepared drill bit must fund actual spindle service"
+    );
+    assert_eq!(service_option.replacement(), drill_bit);
+    assert!(service_option.required_replacement_mass() <= bit_mass);
+    let service = validate_start_player_equipment_maintenance(registries, state, spindle)
+        .unwrap_or_else(|error| panic!("parallel-funded spindle service rejected: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("parallel-funded spindle service commit failed: {error}"));
+    assert_eq!(
+        service.condition_before(),
+        service_option.condition_before()
+    );
+    assert_eq!(
+        service.target_condition(),
+        service_option.target_condition()
+    );
+    let started = state.tick().value();
+    let mut completion = None;
+    while state.tick() < service.completes_at() {
+        let tick = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("parallel-funded service tick failed: {error}"));
+        assert_tick_events_within(
+            &tick,
+            TickEventAllowance {
+                equipment_maintenance: true,
+                ..TickEventAllowance::default()
+            },
+            "parallel-funded spindle service",
+        );
+        if let Some(done) = tick.equipment_maintenance() {
+            assert!(
+                completion.replace(done).is_none(),
+                "spindle service completed repeatedly"
+            );
+        }
+    }
+    let completion =
+        completion.unwrap_or_else(|| panic!("parallel-funded spindle service never completed"));
+    assert_eq!(completion.equipment(), spindle);
+    assert_eq!(
+        completion.condition_after(),
+        service_option.target_condition()
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(spindle)
+            .map(|record| record.condition()),
+        Some(service_option.target_condition())
+    );
+    let restored = state.tick().value() - started;
+    assert_eq!(restored, service_option.duration().value());
+    outcome.service_attention_ticks = restored;
+    outcome.serviced_spindle_condition_before_ppm =
+        service_option.condition_before().parts_per_million();
+    outcome.serviced_spindle_condition_after_ppm =
+        service_option.target_condition().parts_per_million();
+    outcome.service_used_parallel_bit = true;
+}
+
 fn prove_shared_bank_serialization(
     registries: &Registries,
     state: &AppState,
@@ -528,6 +632,31 @@ fn execute_family(
         completed_batches = completed_batches
             .checked_add(leg.batches)
             .unwrap_or_else(|| panic!("settlement portfolio batch count overflowed"));
+        if runtime.family.equipment == EQUIPMENT_TIMBER_SPINDLE_DRILL
+            && parallel_maintenance.completed
+            && !outcome.service_used_parallel_bit
+        {
+            outcome.spindle_batches_after_service = PORTFOLIO_BATCHES_PER_FAMILY
+                .checked_sub(completed_batches)
+                .unwrap_or_else(|| unreachable!("completed spindle batches are bounded"));
+            // Only evaluate the premature repair after the last spindle batch: all useful
+            // production in this order is already finished. Retain the prepared spare in the
+            // actual actor state and test repair in a matched, fully material-backed branch.
+            assert_eq!(outcome.spindle_batches_after_service, 0);
+            let mut matched = state.clone();
+            service_spindle_from_parallel_bit(
+                registries,
+                &mut matched,
+                runtime.machine,
+                parallel_maintenance,
+                outcome,
+            );
+            assert_eq!(
+                calculate_matter_accounting(&matched).map(|total| total.total()),
+                calculate_matter_accounting(state).map(|total| total.total()),
+                "matched service must preserve matter and cannot modify original player state",
+            );
+        }
         outcome.maximum_leg_batches = outcome.maximum_leg_batches.max(leg.batches);
     }
 }
@@ -548,7 +677,7 @@ fn report_lived_portfolio(
         .map(|record| record.condition().parts_per_million())
         .unwrap_or_else(|| panic!("settlement lived portfolio treadle disappeared"));
     reviewln!(
-        "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle shared-bank=timber-frame-flywheel shared-bank-concurrency=serialized-by-store-occupancy families={} batches-per-family={} productive-batches={} charge-events={} charge-attention={}t parallel-maintenance=[component:stone-drill-bit attention:{}t overlap:{}t completed:{}] delegated={}t max-packed={} elapsed={}t survival=[energy:{}nJ hydration:{}uL] provider-condition={}ppm matter=conserved",
+        "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle shared-bank=timber-frame-flywheel shared-bank-concurrency=serialized-by-store-occupancy families={} batches-per-family={} productive-batches={} charge-events={} charge-attention={}t parallel-maintenance=[component:stone-drill-bit attention:{}t overlap:{}t completed:{}] service-option=[choice:defer-spare matched-bit-used:{} spindle-condition:{}->{}ppm matched-service:{}t pending-batches:{}] delegated={}t max-packed={} elapsed={}t survival=[energy:{}nJ hydration:{}uL] provider-condition={}ppm matter=conserved",
         POWERED_FAMILIES.len(),
         PORTFOLIO_BATCHES_PER_FAMILY,
         PORTFOLIO_BATCHES_PER_FAMILY * POWERED_FAMILIES.len() as u64,
@@ -557,6 +686,11 @@ fn report_lived_portfolio(
         outcome.parallel_maintenance_attention_ticks,
         outcome.parallel_maintenance_overlap_ticks,
         outcome.parallel_maintenance_attention_ticks > 0,
+        outcome.service_used_parallel_bit,
+        outcome.serviced_spindle_condition_before_ppm,
+        outcome.serviced_spindle_condition_after_ppm,
+        outcome.service_attention_ticks,
+        outcome.spindle_batches_after_service,
         outcome.delegated_ticks,
         outcome.maximum_leg_batches,
         state
@@ -607,8 +741,8 @@ pub(super) fn execute_lived_portfolio(registries: &Registries) -> u64 {
     }
 
     assert!(
-        parallel_maintenance.completed,
-        "settlement lived portfolio never converted delegated machine time into useful player work"
+        parallel_maintenance.completed && outcome.service_used_parallel_bit,
+        "settlement lived portfolio must prove the material-backed service alternative without executing premature repair"
     );
 
     assert_eq!(

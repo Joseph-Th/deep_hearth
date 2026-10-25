@@ -494,8 +494,17 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
             batch_limit: core_choice.batch,
         },
     );
-    assert_eq!(extraction.stop, FieldworkStop::ShortClaim);
-    assert_eq!(extraction.extracted, body_mass);
+    assert!(
+        matches!(
+            extraction.stop,
+            FieldworkStop::ShortClaim | FieldworkStop::TargetNoLongerResolved
+        ),
+        "a finite core-surveyed seam must stop when its actual reserve is consumed"
+    );
+    assert_eq!(
+        extraction.extracted, body_mass,
+        "the core-informed order must recover exactly the physical seam, regardless of whether the last claim is short or a later target refresh reports exhaustion"
+    );
     assert!(
         core_plan.checked_sub(body_mass).unwrap_or(Mass::ZERO)
             < hammer_plan.checked_sub(body_mass).unwrap_or(Mass::ZERO),

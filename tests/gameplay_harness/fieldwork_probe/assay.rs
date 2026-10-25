@@ -5,18 +5,23 @@
 //! newly available choice, not a prediction drawn from hidden geological truth.
 
 use deep_hearth::content::MATERIAL_COPPER;
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceKind, ResourceMassEstimate,
     player_prospecting_options, validate_start_field_prospecting,
 };
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelBounds;
 
 use super::super::prospecting_timing::complete_prospecting_work;
+use super::extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
+use super::preparation::assemble_fieldwork_tool;
 use super::survey::{FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, search_target};
+use super::{choose_fieldwork_tool_with_market_phase, fieldwork_tool_label};
 
 pub(super) fn observe_extended_hand_assay(
     registries: &Registries,
@@ -25,6 +30,10 @@ pub(super) fn observe_extended_hand_assay(
     site: VoxelBounds,
     coarse: ResourceMassEstimate,
     channel_voxels: i64,
+    raw: StockpileId,
+    parts: StockpileId,
+    destination: StockpileId,
+    requested: Mass,
     seed: u64,
 ) {
     let hammer_definition = state
@@ -117,17 +126,58 @@ pub(super) fn observe_extended_hand_assay(
             .tick()
             .checked_duration_since(started)
             .unwrap_or_else(|| panic!("assay followup search ended before it began"));
-        let site = localized.map_or_else(
+        let observed_site = localized.map_or_else(
             || "barren".to_owned(),
             |site| {
-                format!(
+                let reserve = format!(
                     "located:{}..{}mg",
                     site.resource_mass.lower().milligrams(),
                     site.resource_mass.upper().milligrams()
+                );
+                let planned = requested.min(site.resource_mass.upper());
+                if planned.is_zero() {
+                    return format!("{reserve}:no-promising-work");
+                }
+                let candidate = choose_fieldwork_tool_with_market_phase(
+                    registries,
+                    &branch,
+                    raw,
+                    parts,
+                    site.hardness.upper(),
+                    planned,
+                    "matched-assay-alternate-visible-reserve",
+                )
+                .unwrap_or_else(|| panic!("alternate surveyed seam has no available mining tool"));
+                let (tool, preparation_ticks) =
+                    assemble_fieldwork_tool(registries, &mut branch, raw, parts, candidate.tool);
+                assert_eq!(preparation_ticks, candidate.preparation_ticks);
+                let extraction = execute_fieldwork_extraction(
+                    registries,
+                    &mut branch,
+                    FieldworkExtractionOrder {
+                        target: site.target,
+                        destination,
+                        equipment: tool,
+                        requested,
+                        batch_limit: candidate.batch,
+                    },
+                );
+                let first_ore_since_assay = elapsed.value()
+                    + spent.value()
+                    + preparation_ticks
+                    + extraction.first_ore_ticks;
+                format!(
+                    "{reserve}:prepared:{}t:{}:first-ore-after-assay-decision:{}t:recovered:{}mg:extraction:{}t:stop:{}",
+                    preparation_ticks,
+                    fieldwork_tool_label(candidate.tool),
+                    first_ore_since_assay,
+                    extraction.extracted.milligrams(),
+                    extraction.ticks,
+                    extraction.stop.label(),
                 )
             },
         );
-        format!("searched:{}t:{site}", spent.value())
+        format!("searched:{}t:{observed_site}", spent.value())
     } else {
         "not-executed".to_owned()
     };
@@ -140,7 +190,7 @@ pub(super) fn observe_extended_hand_assay(
     validate_loaded_state(registries, &branch)
         .unwrap_or_else(|error| panic!("extended assay followup state invalid: {error}"));
     reviewln!(
-        "FIELDWORK OPTIONAL ASSAY seed=0x{seed:016X} basis=matched-actor-state evidence=executed-ordinary-system-spatial-proxy instrument=existing-stone-hammer choice=additional-hand-sampling extra-attention={}t visible-before={}..{}mg visible-after={}..{}mg selected-next-action={} followup={} tool-preparation=not-started matter=conserved original-expedition=unchanged",
+        "FIELDWORK OPTIONAL ASSAY seed=0x{seed:016X} basis=matched-actor-state evidence=executed-ordinary-system-spatial-proxy instrument=existing-stone-hammer choice=additional-hand-sampling extra-attention={}t visible-before={}..{}mg visible-after={}..{}mg selected-next-action={} followup={} followup-scope=one-surveyed-seam-with-executed-tool-and-extraction matter=conserved original-expedition=unchanged",
         elapsed.value(),
         coarse.lower().milligrams(),
         coarse.upper().milligrams(),

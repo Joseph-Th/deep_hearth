@@ -186,9 +186,18 @@ fn built_in_wilderness_stone_tools_support_staged_opening_before_copper() {
     let minute = 60_u128 * 1_000_000;
     let first_useful_tool =
         wilderness_tool_acquisition_microseconds(&registries, [EQUIPMENT_STONE_WOODWORKING_ADZE]);
+    let forage = registries
+        .labor()
+        .get_surface_gathering(SURFACE_GATHERING_HAND_FORAGE_BERRIES)
+        .unwrap_or_else(|| panic!("opening hand-foraging definition disappeared"));
+    let one_food_portion = forage
+        .duration_for_mass(Mass::from_milligrams(500_000))
+        .unwrap_or_else(|| panic!("ordinary half-kilogram forage is no longer feasible"));
+    let forage_microseconds = u128::from(one_food_portion.value())
+        * u128::from(registries.core().physical_tick_duration().microseconds());
     assert!(
-        (5 * minute..=15 * minute).contains(&first_useful_tool),
-        "one useful opening tool should take real work but still fit inside the first-quarter-hour camp loop"
+        first_useful_tool >= 2 * forage_microseconds && first_useful_tool <= 15 * minute,
+        "first stone tool should take more attention than immediate food while fitting inside a first-quarter-hour camp loop"
     );
 
     // Pick, adze, and shovel cover rock extraction, woodworking, and earthwork. The complete set
@@ -203,8 +212,8 @@ fn built_in_wilderness_stone_tools_support_staged_opening_before_copper() {
         ],
     );
     assert!(
-        (15 * minute..=45 * minute).contains(&full_toolkit),
-        "gathering and hand-fabricating the full pick/adze/shovel set should remain a substantial pre-copper investment that can be staged around immediate camp needs"
+        full_toolkit >= first_useful_tool * 2 && full_toolkit <= 45 * minute,
+        "a full pick/adze/shovel toolkit should require at least twice a single useful tool's acquisition attention, and still fit into a staged pre-copper investment"
     );
 }
 

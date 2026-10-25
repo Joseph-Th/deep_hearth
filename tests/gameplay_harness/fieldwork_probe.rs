@@ -529,6 +529,10 @@ fn run_fieldwork_with_supply(
             target_region,
             observed_resource_mass,
             channel_voxels,
+            raw,
+            parts,
+            destination,
+            requested_mine_mass,
             case.seed(),
         );
     }

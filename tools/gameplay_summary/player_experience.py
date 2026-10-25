@@ -176,8 +176,10 @@ def fieldwork_exact_local_player_experience(lines: list[str]) -> str | None:
         r"order:(\d+)mg batches:(\d+) ticks:(\d+) complete:(true|false)",
         "executed mining",
     )
-    capacity, = _capture(
-        _required(record, "haul"), r"capacity:(\d+)mg", "physical carrying capacity"
+    capacity, travel_ticks = _capture(
+        _required(record, "haul"),
+        r"capacity:(\d+)mg.*moving-control:(\d+)ct",
+        "physical carrying and executed movement time",
     )
     returned, = _capture(
         _required(record, "cache"), r"returned:(\d+)mg", "returned custody"
@@ -191,7 +193,8 @@ def fieldwork_exact_local_player_experience(lines: list[str]) -> str | None:
         + " reserve:" + _kg(lower) + ".." + _kg(upper) + "]"
         + " act=[walked-edges:" + edges
         + " mined-batches:" + batches + " work:" + ticks + "t"
-        + " haul-trips:" + trips + " capacity:" + _kg(capacity) + "]"
+        + " haul-trips:" + trips + " capacity:" + _kg(capacity)
+        + " moving-control:" + travel_ticks + "ct]"
         + " result=[recovered:" + _kg(returned) + " conserved:true]"
     )
 
@@ -224,6 +227,15 @@ def settlement_portfolio_player_experience(lines: list[str]) -> str | None:
         or int(overlap) > int(delegated.removesuffix("t"))
     ):
         raise ValueError("settlement portfolio claims unexecuted parallel player work")
+    used, before, after, service_attention, followup_batches = _capture(
+        _required(record, "service-option"),
+        r"choice:defer-spare matched-bit-used:(true|false) spindle-condition:(\d+)->(\d+)ppm matched-service:(\d+)t pending-batches:(\d+)",
+        "usable parallel-prepared replacement",
+    )
+    if used != "true" or int(after) <= int(before) or int(service_attention) <= 0:
+        raise ValueError("settlement portfolio did not validate the matched spare service option")
+    if int(followup_batches) != 0:
+        raise ValueError("settlement portfolio deferred service with active follow-up demand")
     unobserved = int(delegated.removesuffix("t")) - int(overlap)
     return (
         "PLAYER EXPERIENCE settlement-workshop continuity=single-executed-worksite"
@@ -232,6 +244,9 @@ def settlement_portfolio_player_experience(lines: list[str]) -> str | None:
         + " charge-labor:" + charge_attention + " delegated:" + delegated
         + " elapsed:" + elapsed + "]"
         + " proved-parallel-work=[" + component + ":" + overlap + "t]"
+        + " rational-defer=[spare-kept:true pending-batches:" + followup_batches
+        + " matched-service:" + before + "->" + after
+        + "ppm cost-not-spent:" + service_attention + "t]"
         + " unobserved-freed-time=" + str(unobserved) + "t"
     )
 
@@ -348,12 +363,36 @@ def fieldwork_player_experience(lines: list[str]) -> str | None:
         )
     assay = _one_seeded(lines, "FIELDWORK OPTIONAL ASSAY ", seed)
     if assay is not None:
-        parts.append(
-            "alternative=["
-            "matched-executed-hand-assay "
+        followup = _required(assay, "followup")
+        alternative = (
+            "alternative=[matched-executed-hand-assay "
             f"extra:{_required(assay, 'extra-attention')} "
             f"reserve:{_required(assay, 'visible-before')}->{_required(assay, 'visible-after')} "
             f"selected:{_required(assay, 'selected-next-action')} "
-            f"followup:{_required(assay, 'followup')}]"
         )
+        mined = re.fullmatch(
+            r"searched:(\d+)t:located:(\d+)\.\.(\d+)mg:prepared:(\d+)t:"
+            r"([^:]+):first-ore-after-assay-decision:(\d+)t:recovered:(\d+)mg:"
+            r"extraction:(\d+)t:stop:([a-z-]+)",
+            followup,
+        )
+        if mined is not None:
+            direct_first_ore = (
+                int(_required(pacing, "first-ore").split("t", 1)[0])
+                - int(_required(pacing, "search").split("t", 1)[0])
+                - int(_required(pacing, "sampling-tool").split("t", 1)[0])
+            )
+            alternative_first_ore = int(mined.group(6))
+            alternative += (
+                f"followup=[search:{mined.group(1)}t "
+                f"reserve:{_kg(mined.group(2))}..{_kg(mined.group(3))} "
+                f"tool:{mined.group(5)} preparation:{mined.group(4)}t "
+                f"extracted:{_kg(mined.group(7))} stop:{mined.group(9)}] "
+                f"first-ore-same-survey=[direct:{direct_first_ore}t "
+                f"survey-other-seam:{alternative_first_ore}t "
+                f"delta:{alternative_first_ore - direct_first_ore:+}t]"
+            )
+        else:
+            alternative += f"followup:{followup}"
+        parts.append(alternative + "]")
     return " ".join(parts)

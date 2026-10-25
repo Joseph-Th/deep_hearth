@@ -50,7 +50,10 @@ fn physiology_with_carry(
                 ),
                 LocomotionSpeedDefinition::new(
                     Speed::from_nanometers_per_second(1_300_000_000),
-                    Speed::from_nanometers_per_second(4_300_000_000),
+                    WalkingSpeedDefinition::new(
+                        Speed::from_nanometers_per_second(4_300_000_000),
+                        Speed::from_nanometers_per_second(3_000_000_000),
+                    ),
                     Speed::from_nanometers_per_second(5_600_000_000),
                     Speed::from_nanometers_per_second(5_000_000_000),
                     Speed::from_nanometers_per_second(4_600_000_000),
@@ -205,6 +208,24 @@ fn physiology_exposes_explicit_body_kinematics() {
     assert_eq!(
         locomotion.sprinting_speed(),
         Speed::from_nanometers_per_second(5_600_000_000)
+    );
+    let capacity = Mass::from_milligrams(10);
+    assert_eq!(
+        locomotion.walking_speed_for_load(Mass::ZERO, capacity),
+        locomotion.walking_speed(),
+    );
+    assert_eq!(
+        locomotion.walking_speed_for_load(Mass::from_milligrams(5), capacity),
+        Speed::from_nanometers_per_second(3_650_000_000),
+    );
+    assert_eq!(
+        locomotion.walking_speed_for_load(capacity, capacity),
+        Speed::from_nanometers_per_second(3_000_000_000),
+    );
+    assert!(
+        locomotion.sprinting_speed_for_load(capacity, capacity)
+            > locomotion.walking_speed_for_load(capacity, capacity),
+        "loaded sprinting should retain a speed-versus-exertion choice",
     );
     assert_eq!(
         locomotion.jump_speed_for_load(Mass::ZERO, Mass::from_milligrams(10)),

@@ -661,11 +661,11 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
         line,
     )
     haul = re.search(
-        r"\bhaul=\[outbound:(\d+)mg return:(\d+)\.\.(\d+)mg capacity:(\d+)mg utilization:(\d+)\.\.(\d+)ppm\]",
+        r"\bhaul=\[outbound:(\d+)mg return:(\d+)\.\.(\d+)mg capacity:(\d+)mg utilization:(\d+)\.\.(\d+)ppm distance:(\d+)voxels moving-control:(\d+)ct\]",
         line,
     )
     locomotion = re.search(
-        r"\blocomotion=\[outbound:(\d+)nJ/(\d+)uL loaded-max:(\d+)nJ/(\d+)uL\]",
+        r"\blocomotion=\[outbound:(\d+)ct/(\d+)nJ/(\d+)uL loaded-max:(\d+)ct/(\d+)nJ/(\d+)uL\]",
         line,
     )
     returned = re.search(r"\bcache=\[returned:(\d+)mg tool-dropped:true\]", line)
@@ -677,10 +677,10 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
     assert haul is not None
     assert locomotion is not None
     assert returned is not None
-    outbound_energy = int(locomotion.group(1))
-    outbound_hydration = int(locomotion.group(2))
-    return_energy = int(locomotion.group(3))
-    return_hydration = int(locomotion.group(4))
+    outbound_energy = int(locomotion.group(2))
+    outbound_hydration = int(locomotion.group(3))
+    return_energy = int(locomotion.group(5))
+    return_hydration = int(locomotion.group(6))
     energy_delta_pct = (
         (return_energy - outbound_energy) * 100 + outbound_energy // 2
     ) // outbound_energy
@@ -698,7 +698,9 @@ def _exact_local_expedition_summary(lines: list[str]) -> str | None:
         f"{_scaled_value(int(haul.group(3)), 1_000_000, 'kg')}"
         f"/{_scaled_value(int(haul.group(4)), 1_000_000, 'kg')} "
         f"utilization:{haul.group(5)}..{haul.group(6)}ppm "
-        f"move-cost:+{energy_delta_pct}%energy/+{hydration_delta_pct}%hydration "
+        f"travel:{haul.group(7)}voxels/{haul.group(8)}ct "
+        f"held-corridor:{locomotion.group(1)}/{locomotion.group(4)}ct "
+        f"move-cost:{energy_delta_pct:+}%energy/{hydration_delta_pct:+}%hydration "
         f"returned:{_scaled_value(int(returned.group(1)), 1_000_000, 'kg')} "
         "matter:conserved]"
     )

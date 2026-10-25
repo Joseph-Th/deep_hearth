@@ -33,7 +33,7 @@ pub use definitions::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
     FoodDefinition, HydrationDefinition, LocomotionDefinition, LocomotionSpeedDefinition,
     MetabolismDefinition, NutritionDefinition, PhysiologyDefinition, SurvivalRegistry,
-    SurvivalStressDefinition, ThermalComfortDefinition, ThermalExposure,
+    SurvivalStressDefinition, ThermalComfortDefinition, ThermalExposure, WalkingSpeedDefinition,
     calculate_food_hydration_offer,
 };
 pub use resource_cost::{

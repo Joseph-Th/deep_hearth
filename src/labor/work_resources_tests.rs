@@ -45,7 +45,10 @@ fn budget_includes_basal_and_incremental_work_costs() {
                 ),
                 crate::survival::LocomotionSpeedDefinition::new(
                     crate::core::quantity::Speed::from_nanometers_per_second(1_300_000_000),
-                    crate::core::quantity::Speed::from_nanometers_per_second(4_300_000_000),
+                    crate::survival::WalkingSpeedDefinition::new(
+                        crate::core::quantity::Speed::from_nanometers_per_second(4_300_000_000),
+                        crate::core::quantity::Speed::from_nanometers_per_second(3_000_000_000),
+                    ),
                     crate::core::quantity::Speed::from_nanometers_per_second(5_600_000_000),
                     crate::core::quantity::Speed::from_nanometers_per_second(5_000_000_000),
                     crate::core::quantity::Speed::from_nanometers_per_second(4_600_000_000),

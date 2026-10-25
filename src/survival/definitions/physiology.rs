@@ -102,11 +102,46 @@ impl BodyStanceDefinition {
     }
 }
 
+/// Walking speed is a load-dependent physical envelope, not one fixed travel rate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalkingSpeedDefinition {
+    unloaded: Speed,
+    fully_loaded: Speed,
+}
+
+impl WalkingSpeedDefinition {
+    #[must_use]
+    pub fn new(unloaded: Speed, fully_loaded: Speed) -> Self {
+        assert!(
+            !fully_loaded.is_zero(),
+            "fully loaded walking speed must be nonzero"
+        );
+        assert!(
+            fully_loaded <= unloaded,
+            "carried mass cannot increase walking speed"
+        );
+        Self {
+            unloaded,
+            fully_loaded,
+        }
+    }
+
+    #[must_use]
+    pub const fn unloaded(self) -> Speed {
+        self.unloaded
+    }
+
+    #[must_use]
+    pub const fn fully_loaded(self) -> Speed {
+        self.fully_loaded
+    }
+}
+
 /// Authored speed envelope for direct-control locomotion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocomotionSpeedDefinition {
     crouching_speed: Speed,
-    walking_speed: Speed,
+    walking: WalkingSpeedDefinition,
     sprinting_speed: Speed,
     unloaded_jump_speed: Speed,
     fully_loaded_jump_speed: Speed,
@@ -118,7 +153,7 @@ impl LocomotionSpeedDefinition {
     #[must_use]
     pub fn new(
         crouching_speed: Speed,
-        walking_speed: Speed,
+        walking: WalkingSpeedDefinition,
         sprinting_speed: Speed,
         unloaded_jump_speed: Speed,
         fully_loaded_jump_speed: Speed,
@@ -130,11 +165,15 @@ impl LocomotionSpeedDefinition {
             "player crouching speed must be nonzero"
         );
         assert!(
-            crouching_speed < walking_speed,
+            crouching_speed < walking.unloaded(),
             "player crouching speed must be below walking speed"
         );
         assert!(
-            walking_speed < sprinting_speed,
+            crouching_speed < walking.fully_loaded(),
+            "fully loaded walking must remain above crouching and no faster than unloaded walking"
+        );
+        assert!(
+            walking.unloaded() < sprinting_speed,
             "player sprinting speed must exceed walking speed"
         );
         assert!(
@@ -163,7 +202,7 @@ impl LocomotionSpeedDefinition {
         );
         Self {
             crouching_speed,
-            walking_speed,
+            walking,
             sprinting_speed,
             unloaded_jump_speed,
             fully_loaded_jump_speed,
@@ -179,7 +218,12 @@ impl LocomotionSpeedDefinition {
 
     #[must_use]
     pub const fn walking_speed(self) -> Speed {
-        self.walking_speed
+        self.walking.unloaded()
+    }
+
+    #[must_use]
+    pub const fn fully_loaded_walking_speed(self) -> Speed {
+        self.walking.fully_loaded()
     }
 
     #[must_use]
@@ -440,6 +484,36 @@ impl LocomotionDefinition {
             .and_then(|value| value.checked_div(span))
             .unwrap_or_else(|| unreachable!("bounded fall-impact injury arithmetic fits u128"));
         u32::try_from(loss).unwrap_or_else(|_| unreachable!("normalized fall injury fits u32"))
+    }
+
+    /// Carrying slows ordinary walking, not only sprinting or jumping. This makes
+    /// hauling distance compete with trip count rather than making a full pack free.
+    #[must_use]
+    pub fn walking_speed_for_load(self, carried: Mass, capacity: Mass) -> Speed {
+        assert!(
+            !capacity.is_zero(),
+            "locomotion carrying capacity must be nonzero"
+        );
+        assert!(
+            carried <= capacity,
+            "locomotion carried mass cannot exceed body capacity"
+        );
+        let unloaded = u128::from(self.walking_speed().nanometers_per_second());
+        let loaded = u128::from(
+            self.body_kinematics
+                .speeds
+                .fully_loaded_walking_speed()
+                .nanometers_per_second(),
+        );
+        let loss = unloaded - loaded;
+        let numerator = u128::from(carried.milligrams());
+        let denominator = u128::from(capacity.milligrams());
+        let scaled_loss =
+            loss / denominator * numerator + (loss % denominator) * numerator / denominator;
+        Speed::from_nanometers_per_second(
+            u64::try_from(unloaded - scaled_loss)
+                .unwrap_or_else(|_| unreachable!("authored walking speed fits u64")),
+        )
     }
 
     #[must_use]

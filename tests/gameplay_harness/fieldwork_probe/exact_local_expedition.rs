@@ -17,6 +17,7 @@ use deep_hearth::geology::{
 };
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile, project_material_stacks};
 use deep_hearth::logistics::{
+    CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
     assess_player_carrying, project_player_adjacent_walk, validate_drop_equipment,
     validate_drop_stack_to_ground, validate_pickup_equipment,
 };
@@ -27,7 +28,9 @@ use deep_hearth::mining::{
 };
 use deep_hearth::player::validate_admit_player;
 use deep_hearth::registry::Registries;
+use deep_hearth::simulation::{advance_control_tick, advance_control_tick_with_input};
 use deep_hearth::spatial::VoxelCoord;
+use deep_hearth::survival::assess_survival;
 use deep_hearth::world::{
     BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
     validate_generate_chunk,
@@ -160,6 +163,8 @@ fn generated_level_field_corridor(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct StepCost {
+    voxels: u64,
+    control_ticks: u64,
     load: Mass,
     energy: Energy,
     hydration: Volume,
@@ -211,44 +216,102 @@ fn assert_exact_local_field_state(registries: &Registries, state: &AppState, con
         .unwrap_or_else(|error| panic!("exact-local field {context} state invalid: {error}"));
 }
 
+fn traversed_voxels(costs: &[StepCost]) -> u64 {
+    costs.iter().map(|step| step.voxels).sum()
+}
+
 fn walk_linear_to(
     registries: &Registries,
     state: &mut AppState,
     destination: VoxelCoord,
 ) -> Vec<StepCost> {
-    let mut costs = Vec::new();
-    loop {
-        let current = state
-            .logistics()
-            .player()
-            .map(|player| player.position())
-            .unwrap_or_else(|| panic!("exact-local linear walk lost player position"));
-        if current == destination {
-            break;
-        }
-        assert_eq!(
-            (current.y(), current.z()),
-            (destination.y(), destination.z()),
-            "bounded exact-local field route is a horizontal authored corridor"
-        );
-        let next_x = if current.x() < destination.x() {
-            current
-                .x()
-                .checked_add(1)
-                .unwrap_or_else(|| panic!("exact-local corridor x-coordinate overflowed"))
-        } else {
-            current
-                .x()
-                .checked_sub(1)
-                .unwrap_or_else(|| panic!("exact-local corridor x-coordinate underflowed"))
-        };
-        costs.push(walk_step(
-            registries,
-            state,
-            VoxelCoord::new(next_x, current.y(), current.z()),
-        ));
+    let carrying = assess_player_carrying(state)
+        .unwrap_or_else(|| panic!("exact-local corridor travel lost carried custody"));
+    let origin = carrying.position();
+    if origin == destination {
+        return Vec::new();
     }
-    costs
+    assert_eq!(
+        (origin.y(), origin.z()),
+        (destination.y(), destination.z()),
+        "bounded field corridor is a level horizontal run"
+    );
+    let voxels = origin.x().abs_diff(destination.x());
+    let direction = if destination.x() > origin.x() {
+        CONTROL_INPUT_PARTS_PER_MILLION
+    } else {
+        -CONTROL_INPUT_PARTS_PER_MILLION
+    };
+    let movement = PlayerControlInput::new(
+        HorizontalControlInput::new(direction, 0)
+            .unwrap_or_else(|error| panic!("field corridor control invalid: {error}")),
+    );
+    let survival_before = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("exact-local corridor lost starting survival"));
+    let mut control_ticks = 0_u64;
+    let maximum_ticks = voxels
+        .checked_mul(40)
+        .and_then(|ticks| ticks.checked_add(100))
+        .unwrap_or_else(|| panic!("field corridor travel duration overflowed"));
+    while state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.position() != destination)
+    {
+        assert!(
+            control_ticks < maximum_ticks,
+            "field corridor movement did not reach its destination"
+        );
+        let _ = advance_control_tick_with_input(registries, state, movement)
+            .unwrap_or_else(|error| panic!("field corridor movement failed: {error}"));
+        control_ticks += 1;
+    }
+    while state.logistics().player().is_some_and(|player| {
+        player
+            .body()
+            .horizontal_velocity()
+            .x_nanometers_per_second()
+            != 0
+    }) {
+        assert!(
+            control_ticks < maximum_ticks,
+            "field corridor braking did not finish"
+        );
+        let _ = advance_control_tick(registries, state)
+            .unwrap_or_else(|error| panic!("field corridor braking failed: {error}"));
+        control_ticks += 1;
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(destination),
+            "player overshot the fieldwork destination while braking"
+        );
+    }
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(registries, state)
+            .unwrap_or_else(|error| panic!("field corridor settlement failed: {error}"));
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(destination),
+            "field corridor settlement must preserve exact-local arrival"
+        );
+    }
+    let survival_after = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("exact-local corridor lost finishing survival"));
+    let energy = survival_before
+        .metabolic_energy()
+        .checked_sub(survival_after.metabolic_energy())
+        .unwrap_or_else(|| panic!("field corridor movement raised metabolic reserves"));
+    let hydration = survival_before
+        .hydration()
+        .checked_sub(survival_after.hydration())
+        .unwrap_or_else(|| panic!("field corridor movement raised hydration"));
+    vec![StepCost {
+        voxels,
+        control_ticks,
+        load: carrying.stored(),
+        energy,
+        hydration,
+    }]
 }
 
 fn seed_field_kit(
@@ -314,13 +377,15 @@ fn walk_step(registries: &Registries, state: &mut AppState, destination: VoxelCo
         project_player_adjacent_walk(registries, state, destination).unwrap_or_else(|error| {
             panic!("exact-local continuous movement projection failed: {error}")
         });
-    let _ = walk_continuous_body_adjacent_and_settle(
+    let control_ticks = walk_continuous_body_adjacent_and_settle(
         registries,
         state,
         destination,
         "field expedition movement",
     );
     StepCost {
+        voxels: 1,
+        control_ticks,
         load: carrying.stored(),
         energy: projection.resource_budget().metabolic_energy(),
         hydration: projection.resource_budget().hydration(),
@@ -394,17 +459,11 @@ fn run_exact_local_point_search(
     for channel_index in 0..CHANNEL_COUNT {
         let channel_x = channel_start.x() + channel_index * channel_voxels;
         travel_steps = travel_steps
-            .checked_add(
-                u64::try_from(
-                    walk_linear_to(
-                        registries,
-                        state,
-                        VoxelCoord::new(channel_x, channel_start.y(), channel_start.z()),
-                    )
-                    .len(),
-                )
-                .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
-            )
+            .checked_add(traversed_voxels(&walk_linear_to(
+                registries,
+                state,
+                VoxelCoord::new(channel_x, channel_start.y(), channel_start.z()),
+            )))
             .unwrap_or_else(|| panic!("exact-local search travel count overflowed"));
         let started_at = state.tick().value();
         let outcome = run_survey(
@@ -436,17 +495,11 @@ fn run_exact_local_point_search(
     let (selected_channel_start, _, _) = selected_channel
         .unwrap_or_else(|| unreachable!("exact-local point search has candidate channels"));
     travel_steps = travel_steps
-        .checked_add(
-            u64::try_from(
-                walk_linear_to(
-                    registries,
-                    state,
-                    VoxelCoord::new(selected_channel_start, channel_start.y(), channel_start.z()),
-                )
-                .len(),
-            )
-            .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
-        )
+        .checked_add(traversed_voxels(&walk_linear_to(
+            registries,
+            state,
+            VoxelCoord::new(selected_channel_start, channel_start.y(), channel_start.z()),
+        )))
         .unwrap_or_else(|| panic!("exact-local search travel count overflowed"));
 
     for (inspection_index, offset) in (0..channel_voxels).enumerate() {
@@ -456,10 +509,9 @@ fn run_exact_local_point_search(
             channel_start.z(),
         );
         travel_steps = travel_steps
-            .checked_add(
-                u64::try_from(walk_linear_to(registries, state, position).len())
-                    .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
-            )
+            .checked_add(traversed_voxels(&walk_linear_to(
+                registries, state, position,
+            )))
             .unwrap_or_else(|| panic!("exact-local search travel count overflowed"));
         let point = horizontal_region_at(position.x(), 1, position.y(), position.z());
         let started_at = state.tick().value();
@@ -561,6 +613,7 @@ struct ExactLocalOrderResult {
     minimum_utilization_ppm: u128,
     maximum_utilization_ppm: u128,
     movement_steps: u64,
+    movement_control_ticks: u64,
 }
 
 fn execute_exact_local_order(
@@ -589,15 +642,19 @@ fn execute_exact_local_order(
     let mut minimum_utilization_ppm = u128::MAX;
     let mut maximum_utilization_ppm = 0_u128;
     let mut movement_steps = 0_u64;
+    let mut movement_control_ticks = 0_u64;
     let mut stop = FieldworkStop::OrderComplete;
 
     while !remaining_order.is_zero() {
         let outbound = walk_linear_to(registries, state, target_site);
+        movement_control_ticks = outbound
+            .iter()
+            .try_fold(movement_control_ticks, |total, step| {
+                total.checked_add(step.control_ticks)
+            })
+            .unwrap_or_else(|| panic!("exact-local outward travel time overflowed"));
         movement_steps = movement_steps
-            .checked_add(
-                u64::try_from(outbound.len())
-                    .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
-            )
+            .checked_add(traversed_voxels(&outbound))
             .unwrap_or_else(|| panic!("exact-local order travel count overflowed"));
         outbound_tool_step.get_or_insert_with(|| {
             *outbound
@@ -668,11 +725,14 @@ fn execute_exact_local_order(
         );
         assert_eq!(loaded.capacity(), body_capacity);
         let return_steps = walk_linear_to(registries, state, camp);
+        movement_control_ticks = return_steps
+            .iter()
+            .try_fold(movement_control_ticks, |total, step| {
+                total.checked_add(step.control_ticks)
+            })
+            .unwrap_or_else(|| panic!("exact-local return travel time overflowed"));
         movement_steps = movement_steps
-            .checked_add(
-                u64::try_from(return_steps.len())
-                    .unwrap_or_else(|_| unreachable!("bounded exact-local travel fits u64")),
-            )
+            .checked_add(traversed_voxels(&return_steps))
             .unwrap_or_else(|| panic!("exact-local order travel count overflowed"));
         let return_loaded_step = *return_steps
             .first()
@@ -725,6 +785,7 @@ fn execute_exact_local_order(
         minimum_utilization_ppm,
         maximum_utilization_ppm,
         movement_steps,
+        movement_control_ticks,
     }
 }
 
@@ -861,7 +922,7 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
     assert_exact_local_field_state(registries, &state, "completed expedition");
 
     reviewln!(
-        "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[body:continuous-generated-terrain edges:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:{}..{}mg] tools=[hammer:{}mg pick:{}mg custody:player-carried] extraction=[order:{}mg batches:{} ticks:{} complete:true] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm] locomotion=[outbound:{}nJ/{}uL loaded-max:{}nJ/{}uL] cache=[returned:{}mg tool-dropped:true] matter=conserved",
+        "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[body:continuous-generated-terrain edges:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:{}..{}mg] tools=[hammer:{}mg pick:{}mg custody:player-carried] extraction=[order:{}mg batches:{} ticks:{} complete:true] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm distance:{}voxels moving-control:{}ct] locomotion=[outbound:{}ct/{}nJ/{}uL loaded-max:{}ct/{}nJ/{}uL] cache=[returned:{}mg tool-dropped:true] matter=conserved",
         4 + order.movement_steps,
         order.trips,
         observed_mass.lower().milligrams(),
@@ -877,8 +938,12 @@ pub(super) fn run_exact_local_field_expedition(registries: &Registries) {
         body_capacity.milligrams(),
         order.minimum_utilization_ppm,
         order.maximum_utilization_ppm,
+        order.movement_steps,
+        order.movement_control_ticks,
+        order.outbound_tool_step.control_ticks,
         order.outbound_tool_step.energy.nanojoules(),
         order.outbound_tool_step.hydration.microliters(),
+        order.maximum_return_step.control_ticks,
         order.maximum_return_step.energy.nanojoules(),
         order.maximum_return_step.hydration.microliters(),
         requested.milligrams(),
@@ -1333,7 +1398,7 @@ pub(super) fn run_generated_exact_local_field_order(
     assert_exact_local_field_state(registries, &state, "completed generated order");
 
     reviewln!(
-        "FIELDWORK LOCAL ORDER seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=[demand:independent geology:independent supply:{}mg fixture:{}] route=[body:continuous-generated-terrain steps:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 observed-hardness:{}..{}Pa observed-mass:{}..{}mg] investment=[hammer:{}mg setup:{}t selected:{} tool:{}mg preparation:{}t planned-local:{}mg] extraction=[requested:{}mg returned:{}mg batches:{} ticks:{} stop:{}] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm] locomotion=[outbound:{}nJ/{}uL loaded-max:{}nJ/{}uL] cache=[returned:{}mg tools-dropped:true] matter=conserved",
+        "FIELDWORK LOCAL ORDER seed=0x{:016X} sample={} evidence=ordinary-exact-local generation=[demand:independent geology:independent supply:{}mg fixture:{}] route=[body:continuous-generated-terrain steps:{} barren-sites:1 target-distance:2 haul-trips:{}] survey=[inspections:2 detailed:1 observed-hardness:{}..{}Pa observed-mass:{}..{}mg] investment=[hammer:{}mg setup:{}t selected:{} tool:{}mg preparation:{}t planned-local:{}mg] extraction=[requested:{}mg returned:{}mg batches:{} ticks:{} stop:{}] haul=[outbound:{}mg return:{}..{}mg capacity:{}mg utilization:{}..{}ppm distance:{}voxels moving-control:{}ct] locomotion=[outbound:{}ct/{}nJ/{}uL loaded-max:{}ct/{}nJ/{}uL] cache=[returned:{}mg tools-dropped:true] matter=conserved",
         case.seed(),
         case.role().label(),
         fixture.deposit_mass.milligrams(),
@@ -1361,8 +1426,12 @@ pub(super) fn run_generated_exact_local_field_order(
         body_capacity.milligrams(),
         order.minimum_utilization_ppm,
         order.maximum_utilization_ppm,
+        order.movement_steps,
+        order.movement_control_ticks,
+        order.outbound_tool_step.control_ticks,
         order.outbound_tool_step.energy.nanojoules(),
         order.outbound_tool_step.hydration.microliters(),
+        order.maximum_return_step.control_ticks,
         order.maximum_return_step.energy.nanojoules(),
         order.maximum_return_step.hydration.microliters(),
         order.returned.milligrams(),

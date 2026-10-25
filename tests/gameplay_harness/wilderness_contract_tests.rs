@@ -1463,6 +1463,87 @@ fn extend_worksite_with_shelter(
         "long-stay shelter board work should wear the earned adze"
     );
 
+    // A player may occupy the junction voxel while still intersecting its neighboring post.
+    // Settle near the voxel center using live control, preserving exact-local campfire warmth
+    // during the long structural work instead of leaving the worksite to clear the post.
+    for (axis, coordinate) in [(0, junction.x()), (1, junction.z())] {
+        let center = coordinate
+            .checked_mul(deep_hearth::spatial::NANOMETERS_PER_VOXEL)
+            .and_then(|value| value.checked_add(deep_hearth::spatial::NANOMETERS_PER_VOXEL / 2))
+            .unwrap_or_else(|| panic!("shelter stance center coordinate overflowed"));
+        let player = state
+            .logistics()
+            .player()
+            .unwrap_or_else(|| panic!("shelter stance player disappeared"));
+        let current = if axis == 0 {
+            player.body().foot_position().x_nanometers()
+        } else {
+            player.body().foot_position().z_nanometers()
+        };
+        let distance = center.abs_diff(current);
+        let pulses = if distance <= 150_000_000 {
+            0
+        } else if distance <= 325_000_000 {
+            2
+        } else {
+            3
+        };
+        if pulses != 0 {
+            let direction = if center < current {
+                -1_000_000
+            } else {
+                1_000_000
+            };
+            let (x, z) = if axis == 0 {
+                (direction, 0)
+            } else {
+                (0, direction)
+            };
+            let adjustment = PlayerControlInput::new(
+                HorizontalControlInput::new(x, z)
+                    .unwrap_or_else(|error| panic!("shelter stance input invalid: {error}")),
+            );
+            for _ in 0..pulses {
+                let _ = advance_control_tick_with_input(registries, state, adjustment)
+                    .unwrap_or_else(|error| panic!("shelter stance correction failed: {error}"));
+            }
+            while state.logistics().player().is_some_and(|player| {
+                let velocity = player.body().horizontal_velocity();
+                if axis == 0 {
+                    velocity.x_nanometers_per_second() != 0
+                } else {
+                    velocity.z_nanometers_per_second() != 0
+                }
+            }) {
+                let _ = advance_control_tick(registries, state)
+                    .unwrap_or_else(|error| panic!("shelter stance braking failed: {error}"));
+            }
+        }
+        let final_body = state
+            .logistics()
+            .player()
+            .unwrap_or_else(|| panic!("shelter stance player disappeared after correction"))
+            .body();
+        let final_coord = if axis == 0 {
+            final_body.foot_position().x_nanometers()
+        } else {
+            final_body.foot_position().z_nanometers()
+        };
+        assert!(
+            final_coord.abs_diff(center) <= 150_000_000,
+            "shelter actor failed to center on axis {axis} for safe post and roof coverage"
+        );
+    }
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(registries, state)
+            .unwrap_or_else(|error| panic!("shelter stance settlement failed: {error}"));
+    }
+    assert_eq!(
+        state.logistics().player().map(|player| player.position()),
+        Some(junction),
+        "shelter work must retain the actor's exact-local warmth and materials"
+    );
+
     let shelter_base = VoxelCoord::new(
         junction
             .x()
@@ -1717,7 +1798,12 @@ fn extend_worksite_with_shelter(
     );
     assert_eq!(
         assess_player_overhead_cover(registries, state),
-        Some(PlayerOverheadCoverAssessment::Covered)
+        Some(PlayerOverheadCoverAssessment::Covered),
+        "completed roof did not cover continuous body at {:?}",
+        state
+            .logistics()
+            .player()
+            .map(|player| player.body().foot_position()),
     );
 
     // Isolate the roof's authored exposure consequence in an exact continuation of the completed

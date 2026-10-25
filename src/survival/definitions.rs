@@ -12,7 +12,7 @@ pub use physiology::{
     BodyKinematicsDefinition, BodyStanceDefinition, BodyViewDefinition,
     DirectConsumptionDefinition, HydrationDefinition, LocomotionDefinition,
     LocomotionSpeedDefinition, MetabolismDefinition, NutritionDefinition, PhysiologyDefinition,
-    SurvivalStressDefinition, ThermalComfortDefinition, ThermalExposure,
+    SurvivalStressDefinition, ThermalComfortDefinition, ThermalExposure, WalkingSpeedDefinition,
 };
 pub use registry::SurvivalRegistry;
 

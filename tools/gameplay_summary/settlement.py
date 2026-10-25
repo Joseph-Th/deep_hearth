@@ -59,6 +59,7 @@ def _shared_portfolio_evidence(lines: list[str]) -> str:
         r"shared-bank-concurrency=([^ ]+) families=(\d+) batches-per-family=(\d+) "
         r"productive-batches=(\d+) charge-events=(\d+) charge-attention=(\d+)t "
         r"parallel-maintenance=\[component:stone-drill-bit attention:(\d+)t overlap:(\d+)t completed:(true|false)\] "
+        r"service-option=\[choice:defer-spare matched-bit-used:(true|false) spindle-condition:(\d+)->(\d+)ppm matched-service:(\d+)t pending-batches:(\d+)\] "
         r"delegated=(\d+)t max-packed=(\d+) elapsed=(\d+)t .*?provider-condition=(\d+)ppm",
         experiences[0],
     )
@@ -70,6 +71,13 @@ def _shared_portfolio_evidence(lines: list[str]) -> str:
         raise AssertionError("settlement portfolio lost useful parallel maintenance work")
     if maintenance_overlap != maintenance_attention:
         raise AssertionError("settlement portfolio maintenance was not fully overlapped with automation")
+    if portfolio.group(12) != "true" or int(portfolio.group(14)) <= int(portfolio.group(13)):
+        raise AssertionError("matched service did not prove a usable spare replacement")
+    if int(portfolio.group(16)) != 0:
+        raise AssertionError("actor deferred service despite remaining planned production")
+    service_attention = int(portfolio.group(15))
+    if service_attention <= 0:
+        raise AssertionError("matched service alternative consumed no physical player attention")
     active_attention = int(portfolio.group(8)) + maintenance_attention
     return (
         " shared-portfolio=[scope:single-state "
@@ -78,8 +86,9 @@ def _shared_portfolio_evidence(lines: list[str]) -> str:
         f"productive-batches:{portfolio.group(6)} charges:{portfolio.group(7)} "
         f"active:{active_attention}t charge:{portfolio.group(8)}t "
         f"parallel-maintenance=[attention:{maintenance_attention}t overlap:{maintenance_overlap}t] "
-        f"delegated:{portfolio.group(12)}t max-packed:{portfolio.group(13)} "
-        f"elapsed:{portfolio.group(14)}t condition:{portfolio.group(15)}ppm]"
+        f"service-choice=[defer-spare:1 matched-restored:{portfolio.group(13)}->{portfolio.group(14)}ppm alternative-cost:{service_attention}t no-pending-work:1] "
+        f"delegated:{portfolio.group(17)}t max-packed:{portfolio.group(18)} "
+        f"elapsed:{portfolio.group(19)}t condition:{portfolio.group(20)}ppm]"
     )
 
 

@@ -3318,6 +3318,19 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("reserve:0..5000000mg->0..1000000mg", experience)
         self.assertIn("followup:searched:68t:barren", experience)
         self.assertNotIn("initial-reserve", experience)
+        mined_assay = lines[5].replace(
+            "followup=searched:68t:barren",
+            "followup=searched:68t:located:0..5000000mg:prepared:120t:copper-hard-pick:"
+            "first-ore-after-assay-decision:251t:recovered:886509mg:extraction:9t:stop:short-claim",
+        )
+        mined_experience = gameplay_report_summary.fieldwork_player_experience([
+            *lines[:5], mined_assay, lines[6],
+        ])
+        assert mined_experience is not None
+        self.assertIn("followup=[search:68t reserve:0.00kg..5.00kg", mined_experience)
+        self.assertIn("extracted:0.89kg stop:short-claim", mined_experience)
+        self.assertIn("first-ore-same-survey=[direct:123t survey-other-seam:251t delta:+128t]", mined_experience)
+        self.assertNotIn("initial-reserve", mined_experience)
         self.assertIsNone(
             gameplay_report_summary.fieldwork_player_experience(
                 [lines[0], lines[2]]
@@ -3367,7 +3380,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "route=[body:continuous-generated-terrain edges:12 barren-sites:1 target-distance:2 haul-trips:2] "
             "survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:40000000..45000000mg] "
             "extraction=[order:30000000mg batches:60 ticks:292 complete:true] "
-            "haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg] "
+            "haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg utilization:360000..1000000ppm distance:8voxels moving-control:54ct] "
             "cache=[returned:30000000mg tool-dropped:true] matter=conserved"
         )
         summary = gameplay_report_summary.fieldwork_exact_local_player_experience([
@@ -3377,6 +3390,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("continuity=separate-generated-world", summary)
         self.assertIn("barren-sites:1", summary)
         self.assertIn("walked-edges:12 mined-batches:60 work:292t haul-trips:2", summary)
+        self.assertIn("moving-control:54ct", summary)
         self.assertIn("recovered:30.00kg", summary)
         self.assertNotIn("initial-reserve", summary)
         with self.assertRaisesRegex(ValueError, "complete recovered delivery"):
@@ -3392,16 +3406,26 @@ class GameplayReportContractTests(unittest.TestCase):
             "shared-bank=timber-frame-flywheel families=5 productive-batches=160 "
             "charge-events=10 charge-attention=112t "
             "parallel-maintenance=[component:stone-drill-bit attention:12t overlap:12t completed:true] "
+            "service-option=[choice:defer-spare matched-bit-used:true spindle-condition:980000->1000000ppm matched-service:8t pending-batches:0] "
             "delegated=935t elapsed=1047t matter=conserved"
         )
         summary = gameplay_report_summary.settlement_portfolio_player_experience([portfolio])
         assert summary is not None
         self.assertIn("charge-labor:112t delegated:935t", summary)
         self.assertIn("proved-parallel-work=[stone-drill-bit:12t]", summary)
+        self.assertIn("rational-defer=[spare-kept:true pending-batches:0 matched-service:980000->1000000ppm cost-not-spent:8t]", summary)
         self.assertIn("unobserved-freed-time=923t", summary)
         with self.assertRaisesRegex(ValueError, "unexecuted parallel player work"):
             gameplay_report_summary.settlement_portfolio_player_experience([
                 portfolio.replace("overlap:12t", "overlap:20t"),
+            ])
+        with self.assertRaisesRegex(ValueError, "matched spare service option"):
+            gameplay_report_summary.settlement_portfolio_player_experience([
+                portfolio.replace("matched-bit-used:true", "matched-bit-used:false"),
+            ])
+        with self.assertRaisesRegex(ValueError, "deferred service with active follow-up demand"):
+            gameplay_report_summary.settlement_portfolio_player_experience([
+                portfolio.replace("pending-batches:0", "pending-batches:8"),
             ])
 
     def test_scavenger_den_player_journey_reports_walked_retreat_and_real_recovery(self) -> None:
@@ -3866,14 +3890,14 @@ class GameplayReportContractTests(unittest.TestCase):
 
     def test_fieldwork_exact_local_summary_exposes_independent_multi_trip_order(self) -> None:
         lines = [
-            "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[body:continuous-generated-terrain edges:12 barren-sites:1 target-distance:2 haul-trips:2] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:40000000..45000000mg] tools=[hammer:650000mg pick:2000000mg custody:player-carried] extraction=[order:30000000mg batches:60 ticks:292 complete:true] haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg utilization:360000..1000000ppm] locomotion=[outbound:981000000000nJ/287uL loaded-max:1533000000000nJ/425uL] cache=[returned:30000000mg tool-dropped:true] matter=conserved",
+            "FIELDWORK EXPEDITION evidence=ordinary-exact-local route=[body:continuous-generated-terrain edges:12 barren-sites:1 target-distance:2 haul-trips:2] survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:40000000..45000000mg] tools=[hammer:650000mg pick:2000000mg custody:player-carried] extraction=[order:30000000mg batches:60 ticks:292 complete:true] haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg utilization:360000..1000000ppm distance:8voxels moving-control:54ct] locomotion=[outbound:8ct/981000000000nJ/287uL loaded-max:7ct/1533000000000nJ/425uL] cache=[returned:30000000mg tool-dropped:true] matter=conserved",
         ]
         summary = gameplay_report_summary.fieldwork_summary(lines)
         self.assertIsNone(summary)
         exact = gameplay_fieldwork_summary._exact_local_expedition_summary(lines)
         self.assertEqual(
             exact,
-            "exact-local-expedition=[body:continuous-generated-terrain edges:12 barren:1 distance:2 trips:2 survey:2+1 order:30kg batches:60 work:292t load:2kg->9kg..25kg/25kg utilization:360000..1000000ppm move-cost:+56%energy/+48%hydration returned:30kg matter:conserved]",
+            "exact-local-expedition=[body:continuous-generated-terrain edges:12 barren:1 distance:2 trips:2 survey:2+1 order:30kg batches:60 work:292t load:2kg->9kg..25kg/25kg utilization:360000..1000000ppm travel:8voxels/54ct held-corridor:8/7ct move-cost:+56%energy/+48%hydration returned:30kg matter:conserved]",
         )
 
     def test_fieldwork_summary_exposes_generated_exact_local_parity(self) -> None:

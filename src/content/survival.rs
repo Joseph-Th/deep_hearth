@@ -11,7 +11,7 @@ use crate::survival::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
     FoodDefinition, HydrationDefinition, LocomotionDefinition, LocomotionSpeedDefinition,
     MetabolismDefinition, NutritionDefinition, PhysiologyDefinition, SurvivalExertion,
-    SurvivalRegistry, SurvivalStressDefinition, ThermalComfortDefinition,
+    SurvivalRegistry, SurvivalStressDefinition, ThermalComfortDefinition, WalkingSpeedDefinition,
 };
 
 use super::{
@@ -40,6 +40,8 @@ const PLAYER_CROUCHING_EYE_HEIGHT_UM: u64 = 1_270_000;
 const PLAYER_INTERACTION_REACH_UM: u64 = 4_500_000;
 const PLAYER_CROUCHING_SPEED_NM_PER_SECOND: u64 = 1_300_000_000;
 const PLAYER_WALKING_SPEED_NM_PER_SECOND: u64 = 4_300_000_000;
+/// Full-pack travel remains walkable but rewards smaller loads and staging decisions.
+const PLAYER_FULLY_LOADED_WALKING_SPEED_NM_PER_SECOND: u64 = 2_500_000_000;
 const PLAYER_SPRINTING_SPEED_NM_PER_SECOND: u64 = 5_600_000_000;
 const PLAYER_HORIZONTAL_ACCELERATION_UM_PER_SECOND_SQUARED: u64 = 20_000_000;
 const PLAYER_UNLOADED_JUMP_SPEED_NM_PER_SECOND: u64 = 5_000_000_000;
@@ -99,7 +101,12 @@ fn physiology() -> PhysiologyDefinition {
                 ),
                 LocomotionSpeedDefinition::new(
                     Speed::from_nanometers_per_second(PLAYER_CROUCHING_SPEED_NM_PER_SECOND),
-                    Speed::from_nanometers_per_second(PLAYER_WALKING_SPEED_NM_PER_SECOND),
+                    WalkingSpeedDefinition::new(
+                        Speed::from_nanometers_per_second(PLAYER_WALKING_SPEED_NM_PER_SECOND),
+                        Speed::from_nanometers_per_second(
+                            PLAYER_FULLY_LOADED_WALKING_SPEED_NM_PER_SECOND,
+                        ),
+                    ),
                     Speed::from_nanometers_per_second(PLAYER_SPRINTING_SPEED_NM_PER_SECOND),
                     Speed::from_nanometers_per_second(PLAYER_UNLOADED_JUMP_SPEED_NM_PER_SECOND),
                     Speed::from_nanometers_per_second(PLAYER_FULLY_LOADED_JUMP_SPEED_NM_PER_SECOND),

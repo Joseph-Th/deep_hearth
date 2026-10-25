@@ -191,9 +191,9 @@ pub fn project_player_walk_path(
 
 /// Projects an explicit walk path using a hypothetical future carried load.
 ///
-/// Ordinary walking speed is load-independent; only locomotion exertion is load-sensitive. This
-/// lets callers price a planned return haul without manufacturing future inventory custody. The
-/// requested load must fit the supplied body-carrying capacity. Route discovery remains caller-owned.
+/// Both walking speed and locomotion exertion use the projected mass, so the caller can compare
+/// planned return hauls without manufacturing inventory custody. The requested load must fit
+/// the supplied body-carrying capacity. Route discovery remains caller-owned.
 pub fn project_player_walk_path_for_load(
     registries: &Registries,
     state: &AppState,
@@ -215,7 +215,6 @@ pub fn project_player_walk_path_for_load(
     let mut projection = WalkProjectionCursor {
         registries,
         state,
-        player,
         body: player.body(),
         exertion: player.locomotion_exertion(),
         control_ticks: 0,
@@ -290,7 +289,6 @@ fn validate_walk_projection_start(
 struct WalkProjectionCursor<'a> {
     registries: &'a Registries,
     state: &'a AppState,
-    player: PlayerLogisticsRecord,
     body: PlayerBodyState,
     exertion: LocomotionExertionAccumulator,
     control_ticks: u64,
@@ -324,9 +322,10 @@ fn project_walk_leg(
         let after = project_player_walk_body_tick(
             projection.registries,
             projection.state,
-            projection.player,
             before,
             movement,
+            projection.carried,
+            projection.capacity,
         )
         .map_err(PlayerWalkProjectionError::BodyMotion)?;
         if after == before {
@@ -406,9 +405,10 @@ fn settle_projected_walk_velocity(
         let after = project_player_walk_body_tick(
             projection.registries,
             projection.state,
-            projection.player,
             body,
             PlayerControlInput::NEUTRAL,
+            projection.carried,
+            projection.capacity,
         )
         .map_err(PlayerWalkProjectionError::BodyMotion)?;
         projection.body = after;
@@ -428,9 +428,10 @@ fn settle_projected_walk_velocity(
 fn project_player_walk_body_tick(
     registries: &Registries,
     state: &AppState,
-    player: PlayerLogisticsRecord,
     before: PlayerBodyState,
     input: PlayerControlInput,
+    carried: Mass,
+    capacity: Mass,
 ) -> Result<PlayerBodyState, PlayerBodyMotionError> {
     let locomotion = registries.survival().physiology().locomotion();
     let bounds = horizontal_voxel_bounds(before, locomotion)
@@ -450,11 +451,11 @@ fn project_player_walk_body_tick(
     let horizontal_body = resolve_horizontal_control(
         registries,
         state,
-        player,
         before,
         locomotion,
         availability,
         input,
+        Some((carried, capacity)),
     )?;
     let (after, _, _) = resolve_vertical_control(
         registries,

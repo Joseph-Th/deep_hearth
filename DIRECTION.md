@@ -102,7 +102,7 @@ logistics and runs 20 Hz normalized walking input, authored acceleration/braking
 wall/floor/ceiling collision wherever the current footprint has generated chunk truth. Missing destination chunks
 remain hard authority boundaries rather than air, but the first terrain seed/state pair is now persisted as world
 generation identity and `validate_generate_player_neighborhood` can atomically fill the missing 3x3 neighborhood
-around the admitted player in one revision. The same body path owns stance, ledge-safe crouching, load-limited
+around the admitted player in one revision. The same body path owns stance, ledge-safe crouching, load-limited walking and
 sprinting, and load-sensitive jumping. Adapter residency/unload remains open; the next gameplay slice can move to
 direct block action composition while streaming composition is added around this demand boundary. The core now
 accepts a normalized fixed-point view direction and deterministically raycasts from authored stance-specific eye
@@ -116,8 +116,8 @@ fails closed when that body physics is active instead of skipping intervening co
 `TickSpan` work remains boundary-gated and generated-world slow work additionally requires ground contact.
 
 Direct player movement is now on the target authority path for basic terrestrial locomotion: fixed-point body
-position, horizontal/vertical velocity, persisted standing/crouching stance, walking, load-limited sprinting,
-grounded load-sensitive jumping, gravity, swept full-cube collision, crouched ledge protection, save/load
+position, horizontal/vertical velocity, persisted standing/crouching stance, load-limited walking and
+sprinting, grounded load-sensitive jumping, gravity, swept full-cube collision, crouched ledge protection, save/load
 continuation, and body/terrain race rejection are authoritative. Realized horizontal effort is speed- and
 load-sensitive and settles through the existing slow survival owner. Landing impact now derives from downward
 pre-collision speed: an authored safe threshold prevents ordinary jump injury, while harder impacts persist a

@@ -8,7 +8,7 @@ mod walk_projection;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Speed;
+use crate::core::quantity::{Mass, Speed};
 use crate::core::state::AppState;
 use crate::core::time::CONTROL_TICK_DURATION;
 use crate::registry::Registries;
@@ -356,11 +356,11 @@ pub(crate) fn decide_player_body_motion(
     let horizontal_body = resolve_horizontal_control(
         registries,
         state,
-        player,
         before,
         locomotion,
         availability,
         input,
+        None,
     )?;
     let (after, grounded, fall_impact) = resolve_vertical_control(
         registries,
@@ -428,11 +428,11 @@ pub(crate) fn decide_player_body_motion(
 fn resolve_horizontal_control(
     registries: &Registries,
     state: &AppState,
-    player: PlayerLogisticsRecord,
     before: PlayerBodyState,
     locomotion: LocomotionDefinition,
     availability: PlayerControlAvailability,
     input: PlayerControlInput,
+    projected_load: Option<(Mass, Mass)>,
 ) -> Result<PlayerBodyState, PlayerBodyMotionError> {
     let desired_stance = if availability.alive && !availability.busy && input.crouch() {
         PlayerStance::Crouching
@@ -450,6 +450,7 @@ fn resolve_horizontal_control(
         stance,
         availability,
         input,
+        projected_load,
     )?;
     let mut velocity = if availability.busy {
         HorizontalVelocity::ZERO
@@ -470,6 +471,10 @@ fn resolve_horizontal_control(
         position,
         velocity,
     )?;
+    let player =
+        state.logistics().player().copied().unwrap_or_else(|| {
+            unreachable!("generated-world body motion requires admitted player")
+        });
     if position.containing_voxel() != before.voxel_position()
         && !player_voxel_change_allowed(state, player, position.containing_voxel())
     {
@@ -486,6 +491,7 @@ fn resolve_desired_horizontal_velocity(
     stance: PlayerStance,
     availability: PlayerControlAvailability,
     input: PlayerControlInput,
+    projected_load: Option<(Mass, Mass)>,
 ) -> Result<HorizontalVelocity, PlayerBodyMotionError> {
     if !availability.grounded && !availability.busy {
         return Ok(before.horizontal_velocity());
@@ -496,15 +502,24 @@ fn resolve_desired_horizontal_velocity(
             HorizontalControlInput::NEUTRAL,
         );
     }
+    if input.horizontal().is_neutral() {
+        return Ok(HorizontalVelocity::ZERO);
+    }
     let target_speed = match stance {
         PlayerStance::Crouching => locomotion.crouching_speed(),
-        PlayerStance::Standing if input.sprint() => {
-            let carrying = assess_player_carrying(state).unwrap_or_else(|| {
-                unreachable!("generated body motion requires admitted carrying")
+        PlayerStance::Standing => {
+            let (carried, capacity) = projected_load.unwrap_or_else(|| {
+                let carrying = assess_player_carrying(state).unwrap_or_else(|| {
+                    unreachable!("generated body motion requires admitted carrying")
+                });
+                (carrying.stored(), carrying.capacity())
             });
-            locomotion.sprinting_speed_for_load(carrying.stored(), carrying.capacity())
+            if input.sprint() {
+                locomotion.sprinting_speed_for_load(carried, capacity)
+            } else {
+                locomotion.walking_speed_for_load(carried, capacity)
+            }
         }
-        PlayerStance::Standing => locomotion.walking_speed(),
     };
     desired_horizontal_velocity(target_speed.nanometers_per_second(), input.horizontal())
 }
