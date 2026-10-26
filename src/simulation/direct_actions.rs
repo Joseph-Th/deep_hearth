@@ -63,10 +63,12 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     if combat_intent {
         let _ = take_player_pending_primary_break(state);
     }
-    if matches!(
-        input.secondary(),
-        Some(SecondaryControlIntent::PlaceStorage { .. })
-    ) {
+    if input.drop_active_selection()
+        || matches!(
+            input.secondary(),
+            Some(SecondaryControlIntent::PlaceStorage { .. })
+        )
+    {
         let _ = take_player_pending_secondary_use(state);
     }
     let primary = if pending_primary.is_some() {
@@ -79,7 +81,17 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     } else {
         None
     };
-    let secondary = if state.player_work().active().is_some() {
+    let secondary = if input.drop_active_selection()
+        && matches!(
+            input.secondary(),
+            Some(SecondaryControlIntent::UseActive { .. })
+        )
+        && validate_player_action(state).is_ok()
+    {
+        // A held use sampled alongside a drop must not create a replacement meal
+        // after the previous buffered use was cancelled above.
+        pending_secondary
+    } else if state.player_work().active().is_some() {
         pending_secondary.or_else(|| match input.secondary() {
             Some(SecondaryControlIntent::PlaceStorage { definition, .. }) => {
                 Some(SecondaryActionOutcome::StoragePlacementRejected {

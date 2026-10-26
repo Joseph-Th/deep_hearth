@@ -240,7 +240,7 @@ fn advance_control_tick_unstaged(
         .player()
         .is_some_and(|player| player.vitality() == crate::survival::Vitality::ZERO);
     let preserve_pending_context = (has_pending_primary && input.primary().is_none())
-        || (has_pending_secondary && input.secondary().is_none());
+        || (has_pending_secondary && input.secondary().is_none() && !input.drop_active_selection());
     let body_input = if preserve_pending_context {
         PlayerControlInput::NEUTRAL
     } else {
@@ -264,11 +264,13 @@ fn advance_control_tick_unstaged(
         attempt_pending_primary_break(registries, state)
     };
     let pending_secondary = if has_pending_secondary && player_dead {
-        input
-            .secondary()
-            .is_none()
+        (input.secondary().is_none() && !input.drop_active_selection())
             .then_some(SecondaryActionOutcome::PlayerDead)
-    } else if has_pending_secondary && input.secondary().is_some() {
+    } else if has_pending_secondary
+        && (input.secondary().is_some() || input.drop_active_selection())
+    {
+        // Dropping the selected item supersedes its buffered use even on the
+        // exact due boundary, before that use can start eating or drinking.
         let _ = crate::logistics::take_player_pending_secondary_use(state);
         None
     } else {

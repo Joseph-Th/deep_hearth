@@ -1847,6 +1847,195 @@ fn one_shot_secondary_use_composes_selected_food_without_exposing_lot_identity()
 }
 
 #[test]
+fn dropping_queued_food_does_not_eat_it_after_automatic_repickup() {
+    for keep_use_pressed in [false, true] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        let position = VoxelCoord::new(0, 0, 0);
+        let carried = admit_player(&registries, &mut state, position);
+        let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+        let mass = Mass::from_milligrams(500_000);
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            TEMPERATURE,
+        )
+        .unwrap();
+        validate_set_active_selection(
+            &registries,
+            &state,
+            Some(PlayerActiveSelection::material(commodity)),
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let queued = advance_control_tick_with_direct_input(
+            &registries,
+            &mut state,
+            PlayerDirectControlInput::NEUTRAL
+                .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+        )
+        .unwrap();
+        assert_eq!(
+            queued.secondary_action(),
+            Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+        );
+        assert!(state.logistics().pending_secondary_use().is_some());
+        let mut drop_input = PlayerDirectControlInput::NEUTRAL.with_drop_active_selection();
+        if keep_use_pressed {
+            drop_input =
+                drop_input.with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+        }
+        let dropped =
+            advance_control_tick_with_direct_input(&registries, &mut state, drop_input).unwrap();
+        assert_eq!(
+            dropped.secondary_action(),
+            None,
+            "a simultaneous held-use press must not requeue food while dropping it"
+        );
+        assert!(matches!(
+            dropped.active_selection_drop(),
+            Some(ActiveSelectionDropOutcome::MaterialDropped(outcome))
+                if outcome.dropped_mass() == mass
+        ));
+        assert!(
+            state.logistics().pending_secondary_use().is_none(),
+            "explicit drop must cancel the older queued food use"
+        );
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let matter_before = calculate_matter_accounting(&state).unwrap().total();
+        let mut repicked = Mass::ZERO;
+        for _ in 2..CONTROL_TICKS_PER_SIMULATION_TICK {
+            let current = advance_control_tick(&registries, &mut state).unwrap();
+            let restored = advance_control_tick(&registries, &mut replay).unwrap();
+            assert_eq!(current, restored);
+            assert_eq!(
+                current.secondary_action(),
+                None,
+                "dropping selected food must not leave an after-the-fact meal"
+            );
+            if let Some(pickup) = current.surface_drop_pickup() {
+                repicked = repicked.checked_add(pickup.picked_mass()).unwrap();
+            }
+        }
+        assert_eq!(
+            repicked, mass,
+            "automatic pickup crosses the original buffered-use boundary"
+        );
+        assert_eq!(state.player_work().active(), None);
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(carried)
+                .unwrap()
+                .get_mass(commodity),
+            mass
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            matter_before
+        );
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
+fn dropping_queued_food_on_due_boundary_supersedes_the_meal() {
+    for keep_use_pressed in [false, true] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        let position = VoxelCoord::new(0, 0, 0);
+        let carried = admit_player(&registries, &mut state, position);
+        let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+        let mass = Mass::from_milligrams(500_000);
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            TEMPERATURE,
+        )
+        .unwrap();
+        validate_set_active_selection(
+            &registries,
+            &state,
+            Some(PlayerActiveSelection::material(commodity)),
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let queued = advance_control_tick_with_direct_input(
+            &registries,
+            &mut state,
+            PlayerDirectControlInput::NEUTRAL
+                .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+        )
+        .unwrap();
+        assert_eq!(
+            queued.secondary_action(),
+            Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+        );
+        for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK - 1 {
+            let step = advance_control_tick(&registries, &mut state).unwrap();
+            assert_eq!(step.secondary_action(), None);
+        }
+        assert!(state.logistics().pending_secondary_use().is_some());
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let matter_before = calculate_matter_accounting(&state).unwrap().total();
+        let mut drop = PlayerDirectControlInput::NEUTRAL.with_drop_active_selection();
+        if keep_use_pressed {
+            drop = drop.with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+        }
+        let current =
+            advance_control_tick_with_direct_input(&registries, &mut state, drop).unwrap();
+        let restored =
+            advance_control_tick_with_direct_input(&registries, &mut replay, drop).unwrap();
+        assert_eq!(current, restored);
+        assert_eq!(current.secondary_action(), None);
+        assert!(
+            matches!(
+                current.active_selection_drop(),
+                Some(ActiveSelectionDropOutcome::MaterialDropped(outcome))
+                    if outcome.dropped_mass() == mass
+            ),
+            "due-boundary drop must take precedence over prior food use: {:?}",
+            current.active_selection_drop()
+        );
+        assert!(state.player_work().active().is_none());
+        assert!(state.logistics().pending_secondary_use().is_none());
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(carried)
+                .unwrap()
+                .get_mass(commodity),
+            Mass::ZERO
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            matter_before
+        );
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
 fn explicit_storage_placement_supersedes_pending_contextual_use_before_boundary() {
     let registries = build_registries();
     let mut state = AppState::new();
