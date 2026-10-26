@@ -7,6 +7,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
+use crate::inventory::PlayerStoragePlacementError;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -117,11 +118,17 @@ fn busy_player_combat_controls_report_rejections_without_interrupting_active_wor
         assert_eq!(state, replay);
     }
 
-    for secondary in [
-        SecondaryControlIntent::use_active(direction),
-        SecondaryControlIntent::place_storage(
-            crate::content::STORAGE_ROUGH_TIMBER_FIELD_BOX,
-            direction,
+    for (secondary, expected) in [
+        (SecondaryControlIntent::use_active(direction), None),
+        (
+            SecondaryControlIntent::place_storage(
+                crate::content::STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                direction,
+            ),
+            Some(SecondaryActionOutcome::StoragePlacementRejected {
+                definition: crate::content::STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                error: PlayerStoragePlacementError::PlayerBusy,
+            }),
         ),
     ] {
         let command = PlayerDirectControlInput::NEUTRAL.with_secondary(secondary);
@@ -132,8 +139,8 @@ fn busy_player_combat_controls_report_rejections_without_interrupting_active_wor
         assert_eq!(current, restored);
         assert_eq!(
             current.secondary_action(),
-            None,
-            "held secondary use remains one-shot during exclusive work"
+            expected.as_ref(),
+            "held contextual use stays one-shot, but explicit storage placement must report busy"
         );
         assert_eq!(state.player_work().active(), started);
         assert_eq!(state.combat().revision(), combat_revision);
@@ -182,4 +189,27 @@ fn busy_player_combat_controls_report_rejections_without_interrupting_active_wor
         matter_before
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // The busy response is not a queued placement and must disappear after work releases.
+    let place =
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::place_storage(
+            crate::content::STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            direction,
+        ));
+    let current = advance_control_tick_with_direct_input(&registries, &mut state, place).unwrap();
+    let restored = advance_control_tick_with_direct_input(&registries, &mut replay, place).unwrap();
+    assert_eq!(current, restored);
+    assert!(current.secondary_action().is_some());
+    assert!(!matches!(
+        current.secondary_action(),
+        Some(SecondaryActionOutcome::StoragePlacementRejected {
+            error: PlayerStoragePlacementError::PlayerBusy,
+            ..
+        })
+    ));
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
 }

@@ -77,7 +77,16 @@ pub(super) fn attempt_direct_actions_after_quick_access(
         None
     };
     let secondary = if state.player_work().active().is_some() {
-        pending_secondary
+        pending_secondary.or_else(|| match input.secondary() {
+            Some(SecondaryControlIntent::PlaceStorage { definition, .. }) => {
+                Some(SecondaryActionOutcome::StoragePlacementRejected {
+                    definition,
+                    error: crate::inventory::PlayerStoragePlacementError::PlayerBusy,
+                })
+            }
+            // A held contextual use is one-shot and stays quiet while work is active.
+            Some(SecondaryControlIntent::UseActive { .. }) | None => None,
+        })
     } else {
         attempt_secondary_action(registries, state, input.secondary()).or(pending_secondary)
     };
