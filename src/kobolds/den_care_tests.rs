@@ -336,6 +336,76 @@ fn partial_ration_uses_only_the_missing_mass_from_a_later_large_serving() {
 }
 
 #[test]
+fn den_uses_small_sufficient_fragment_before_older_large_provisions() {
+    let (registries, mut world, [den, _, _, _]) = setup();
+    let food = |amount| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(amount),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    validate_create_surface_resources(&registries, &world, [food(15_000)])
+        .unwrap()
+        .commit(&mut world)
+        .unwrap();
+    let _ = advance_tick(&registries, &mut world).unwrap();
+    assert_eq!(
+        world.kobold_state().colony.as_ref().unwrap().partial_meal,
+        Mass::from_milligrams(15_000)
+    );
+
+    // Both sources cover the last 5 g. The older large parcel must not win
+    // solely because the consumed mass is tied at the remaining ration.
+    let created =
+        validate_create_surface_resources(&registries, &world, [food(30_000), food(6_000)])
+            .unwrap();
+    let ids = created.resource_ids().collect::<Vec<_>>();
+    created.commit(&mut world).unwrap();
+    let conserved = calculate_matter_accounting(&world).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &world)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while world.tick().value() < 600 {
+        assert_eq!(
+            advance_tick(&registries, &mut world).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(world, restored);
+    assert_eq!(
+        world.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(30_000),
+        "a full future ration should remain intact"
+    );
+    assert_eq!(
+        world.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    let colony = world.kobold_state().colony.as_ref().unwrap();
+    assert!(!colony.hungry);
+    assert_eq!(colony.partial_meal, Mass::ZERO);
+    assert_eq!(
+        calculate_matter_accounting(&world)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&world).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
+}
+
+#[test]
 fn invalid_or_missing_partial_ration_credit_is_rejected_on_load() {
     let (registries, mut world, [den, _, _, _]) = setup();
     let spec = SurfaceResourceSpec::new(

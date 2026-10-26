@@ -1,7 +1,5 @@
 //! Sparse resident feeding from recoverable den custody into terminal matter accounting.
 
-use std::cmp::Reverse;
-
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
@@ -409,7 +407,7 @@ pub(super) fn consume_den_meal(
     if !state.can_spend_surface_revisions(1) {
         return None;
     }
-    let (source, material, mass, consumed_after) = state
+    let (source, material, mass, consumed_after, _) = state
         .surface()
         .available_resources_at(Some(den))
         .filter_map(|resource| {
@@ -434,12 +432,27 @@ pub(super) fn consume_den_meal(
                 .copied()
                 .unwrap_or(AggregateMass::ZERO)
                 .checked_add(AggregateMass::from_mass(mass))?;
-            Some((resource.id(), material, mass, consumed_after))
+            Some((
+                resource.id(),
+                material,
+                mass,
+                consumed_after,
+                resource.remaining_mass(),
+            ))
         })
-        // A single complete ration already wins in the caller. Otherwise take
-        // the largest usable portion, not whichever fragment got the lowest ID.
-        // Stable identity breaks ties without affecting conserved custody.
-        .max_by_key(|(id, _, mass, _)| (*mass, Reverse(*id)))?;
+        // Leave an intact full ration when a smaller parcel can finish this
+        // meal. If no parcel is sufficient, choose the largest usable partial
+        // serving. Neither selection needs an intermediate allocation.
+        .min_by_key(|(id, _, mass, _, available)| {
+            (
+                if minimum_ration.is_zero() {
+                    u64::MAX - mass.milligrams()
+                } else {
+                    available.milligrams()
+                },
+                *id,
+            )
+        })?;
     let next_revision = state
         .surface()
         .revision()
