@@ -358,9 +358,10 @@ current two-cell bodies: full-cube terrain cannot appear at their feet or head, 
 prospective heavy temple caste cannot spawn across an existing opening resident, even when
 the generated shrine floor cell is air. The resident need not reserve future patrol cells;
 those remain subject to the existing movement-clearance decision. Both generation tokens
-recheck the pair of actual resident positions at commit, since a patrol can move without
-changing the world or logistics revision. Trusted loading rejects any current resident
-inside generated full-cube terrain, outside the generated vertical world, or overlapped
+recheck the pair of actual resident positions at commit when either the original or
+current resident lies in a proposed chunk, since a patrol can move without changing the
+world or logistics revision. Distant patrol movement cannot stale unrelated streaming.
+Trusted loading rejects any current resident inside generated full-cube terrain, outside the generated vertical world, or overlapped
 by a live temple caste.
 
 Newly generated solid terrain cannot bury an existing, available surface-resource

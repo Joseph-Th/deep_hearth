@@ -263,14 +263,25 @@ impl Display for ChunkGenerationCommitError {
 impl Error for ChunkGenerationCommitError {}
 
 /// Geometry admission depends on these live actor positions, which have no
-/// standalone revision. Recheck the exact physical snapshot so a patrol step
-/// between validation and commit cannot introduce buried resident bodies.
+/// standalone revision. Recheck the physical snapshot only when old or new
+/// resident occupancy intersects an incoming chunk. Distant patrol steps
+/// cannot change this plan's legality and must not stall unrelated streaming.
 fn validate_unchanged_opening_residents(
     state: &AppState,
     expected: Option<[VoxelCoord; 2]>,
+    chunks: &[WorldChunk],
 ) -> Result<(), ChunkGenerationCommitError> {
     let actual = crate::kobolds::opening_kobold_positions(state);
-    if actual != expected {
+    let affects_chunks = [expected, actual]
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|position| {
+            chunks
+                .iter()
+                .any(|chunk| chunk.coord() == ChunkCoord::containing(position))
+        });
+    if actual != expected && affects_chunks {
         return Err(ChunkGenerationCommitError::StaleOpeningResidents { expected, actual });
     }
     Ok(())
@@ -341,7 +352,11 @@ impl ValidatedChunkGeneration {
             });
         }
         let coord = self.chunk.coord();
-        validate_unchanged_opening_residents(state, self.expected_opening_residents)?;
+        validate_unchanged_opening_residents(
+            state,
+            self.expected_opening_residents,
+            std::slice::from_ref(&self.chunk),
+        )?;
         if state.world().get_chunk(coord).is_some() {
             return Err(ChunkGenerationCommitError::ChunkAppeared { chunk: coord });
         }
@@ -422,7 +437,7 @@ impl ValidatedPlayerChunkDemand {
                 actual: actual_inventory_revision,
             });
         }
-        validate_unchanged_opening_residents(state, self.expected_opening_residents)?;
+        validate_unchanged_opening_residents(state, self.expected_opening_residents, &self.chunks)?;
         for chunk in &self.chunks {
             if state.world().get_chunk(chunk.coord()).is_some() {
                 return Err(ChunkGenerationCommitError::ChunkAppeared {

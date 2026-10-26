@@ -265,6 +265,118 @@ fn scout_move_invalidates_a_previously_clear_chunk_generation_plan() {
 }
 
 #[test]
+fn distant_scout_patrol_does_not_invalidate_unrelated_chunk_generation() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{ChunkCoord, validate_generate_chunk};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(8, -10, 8);
+    let junction = VoxelCoord::new(9, -10, 8);
+    let tip = VoxelCoord::new(10, -10, 8);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let far_chunk = ChunkCoord::new(4, 4);
+    let planned = validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x4B4F_424F_4C44_5445),
+        far_chunk,
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    while state.tick().value() < 180 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(planned.commit(&mut state), Ok(far_chunk));
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
+fn distant_scout_patrol_does_not_block_player_neighborhood_streaming() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, set_generated_block_for_test,
+        validate_generate_chunk, validate_generate_player_neighborhood,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x4B4F_424F_4C44_5445);
+    for chunk in [ChunkCoord::new(0, 0), ChunkCoord::new(4, 4)] {
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let surface = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(0, *y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, surface + 1, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    // A physically supported patrol in an already generated distant column
+    // continues while the player demands only the missing nearby chunks.
+    let den = VoxelCoord::new(72, 80, 72);
+    let junction = VoxelCoord::new(73, 80, 72);
+    let tip = VoxelCoord::new(74, 80, 72);
+    for location in [den, junction, tip] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(location.x(), location.y() - 1, location.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in location.y()..=location.y() + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(location.x(), y, location.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let pending = validate_generate_player_neighborhood(&registries, &state)
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.chunks().len(), 8);
+    while state.tick().value() < 180 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(pending.commit(&mut state).unwrap().len(), 8);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn player_guards_diagonal_clearing_but_cannot_deter_through_an_opaque_corner() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::world::{
