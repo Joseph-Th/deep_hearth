@@ -143,6 +143,128 @@ fn generated_opening() -> (crate::Registries, AppState, VoxelCoord) {
 }
 
 #[test]
+fn terrain_generation_must_not_bury_an_existing_opening_resident() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::state::{StateValidationError, validate_loaded_state};
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{ChunkCoord, ChunkGenerationError, validate_generate_chunk};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(8, -10, 8);
+    let junction = VoxelCoord::new(9, -10, 8);
+    let tip = VoxelCoord::new(10, -10, 8);
+    add_traversable_edge_for_test(&mut state, den, junction);
+    add_traversable_edge_for_test(&mut state, junction, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+
+    let before = state.clone();
+    assert!(matches!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(0x4B4F_424F_4C44_5445),
+            ChunkCoord::containing(den),
+            BLOCK_STATE_STONE,
+        ),
+        Err(ChunkGenerationError::OpeningResidentBodyCollision { voxel }) if voxel == den
+    ));
+    assert_eq!(state, before, "rejected generation must not modify custody");
+
+    // Loading cannot legitimize an overlapped resident created by any other
+    // state-construction path, even if the chunk itself is otherwise valid.
+    let mut invalid = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &invalid,
+        WorldGenerationSeed::new(0x4B4F_424F_4C44_5445),
+        ChunkCoord::containing(den),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut invalid)
+    .unwrap();
+    add_traversable_edge_for_test(&mut invalid, den, junction);
+    add_traversable_edge_for_test(&mut invalid, junction, tip);
+    invalid
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    assert!(matches!(
+        validate_loaded_state(&registries, &invalid),
+        Err(StateValidationError::Kobolds(
+            "generated terrain intersects an opening kobold resident"
+        ))
+    ));
+
+    // The same authored resident route above real ground does not reserve
+    // an entire chunk or prevent valid generation and save admission.
+    let mut clear = AppState::new();
+    let air_den = VoxelCoord::new(8, 30, 8);
+    let air_junction = VoxelCoord::new(9, 30, 8);
+    let air_tip = VoxelCoord::new(10, 30, 8);
+    add_traversable_edge_for_test(&mut clear, air_den, air_junction);
+    add_traversable_edge_for_test(&mut clear, air_junction, air_tip);
+    clear
+        .kobold_state_mut()
+        .apply_opening_colony([air_den, air_junction, air_tip]);
+    validate_generate_chunk(
+        &registries,
+        &clear,
+        WorldGenerationSeed::new(0x4B4F_424F_4C44_5445),
+        ChunkCoord::containing(air_den),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut clear)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &clear), Ok(()));
+}
+
+#[test]
+fn scout_move_invalidates_a_previously_clear_chunk_generation_plan() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{ChunkCoord, ChunkGenerationCommitError, validate_generate_chunk};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(15, -10, 8);
+    let junction = VoxelCoord::new(16, -10, 8);
+    let tip = VoxelCoord::new(17, -10, 8);
+    add_traversable_edge_for_test(&mut state, den, junction);
+    add_traversable_edge_for_test(&mut state, junction, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+
+    // The scout is initially across the chunk border, so a solid candidate
+    // chunk at the junction is legal at validation time.
+    let planned = validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x4B4F_424F_4C44_5445),
+        ChunkCoord::containing(junction),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    while state.tick().value() < 180 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(colony(&state).scout_position(), junction);
+    let before = state.clone();
+    assert!(matches!(
+        planned.commit(&mut state),
+        Err(ChunkGenerationCommitError::StaleOpeningResidents {
+            expected: Some([expected_scout, _]),
+            actual: Some([actual_scout, _]),
+        }) if expected_scout == den && actual_scout == junction
+    ));
+    assert_eq!(state, before, "stale generation must not create terrain");
+}
+
+#[test]
 fn player_guards_diagonal_clearing_but_cannot_deter_through_an_opaque_corner() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::world::{

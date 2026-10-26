@@ -73,6 +73,8 @@ pub enum ChunkGenerationError {
     UnknownSolidState { state: BlockStateId },
     ChunkCoordinateOverflow { chunk: ChunkCoord },
     PlayerBodyCollision { voxel: VoxelCoord },
+    OpeningResidentBodyCollision { voxel: VoxelCoord },
+    OpeningResidentTempleCasteCollision { voxel: VoxelCoord },
     PlayerBodyTempleCasteCollision { voxel: VoxelCoord },
     TempleCasteInfrastructureCollision { voxel: VoxelCoord },
     StructureBuriedByTerrain { voxel: VoxelCoord },
@@ -114,6 +116,20 @@ impl Display for ChunkGenerationError {
             Self::PlayerBodyCollision { voxel } => write!(
                 formatter,
                 "terrain generation would intersect the player body at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::OpeningResidentBodyCollision { voxel } => write!(
+                formatter,
+                "terrain generation would bury an opening kobold resident at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::OpeningResidentTempleCasteCollision { voxel } => write!(
+                formatter,
+                "terrain generation would overlap an opening kobold with a temple resident at voxel ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -170,13 +186,37 @@ impl Error for ChunkGenerationError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChunkGenerationCommitError {
-    StaleWorldRevision { expected: u64, actual: u64 },
-    StaleSurfaceRevision { expected: u64, actual: u64 },
-    StaleLogisticsRevision { expected: u64, actual: u64 },
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    StaleStructureRevision { expected: u64, actual: u64 },
-    StalePlayerWorkRevision { expected: u64, actual: u64 },
-    ChunkAppeared { chunk: ChunkCoord },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSurfaceRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleOpeningResidents {
+        expected: Option<[VoxelCoord; 2]>,
+        actual: Option<[VoxelCoord; 2]>,
+    },
+    ChunkAppeared {
+        chunk: ChunkCoord,
+    },
 }
 
 impl Display for ChunkGenerationCommitError {
@@ -206,6 +246,10 @@ impl Display for ChunkGenerationCommitError {
                 formatter,
                 "player-work revision changed from {expected} to {actual} before terrain generation commit"
             ),
+            Self::StaleOpeningResidents { expected, actual } => write!(
+                formatter,
+                "opening resident positions changed from {expected:?} to {actual:?} before terrain generation commit"
+            ),
             Self::ChunkAppeared { chunk } => write!(
                 formatter,
                 "world chunk ({},{}) was generated before this terrain commit",
@@ -218,6 +262,20 @@ impl Display for ChunkGenerationCommitError {
 
 impl Error for ChunkGenerationCommitError {}
 
+/// Geometry admission depends on these live actor positions, which have no
+/// standalone revision. Recheck the exact physical snapshot so a patrol step
+/// between validation and commit cannot introduce buried resident bodies.
+fn validate_unchanged_opening_residents(
+    state: &AppState,
+    expected: Option<[VoxelCoord; 2]>,
+) -> Result<(), ChunkGenerationCommitError> {
+    let actual = crate::kobolds::opening_kobold_positions(state);
+    if actual != expected {
+        return Err(ChunkGenerationCommitError::StaleOpeningResidents { expected, actual });
+    }
+    Ok(())
+}
+
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedChunkGeneration {
@@ -227,6 +285,7 @@ pub struct ValidatedChunkGeneration {
     expected_inventory_revision: u64,
     expected_structure_revision: u64,
     expected_player_work_revision: u64,
+    expected_opening_residents: Option<[VoxelCoord; 2]>,
     next_revision: u64,
     profile: WorldGenerationProfile,
     chunk: WorldChunk,
@@ -282,6 +341,7 @@ impl ValidatedChunkGeneration {
             });
         }
         let coord = self.chunk.coord();
+        validate_unchanged_opening_residents(state, self.expected_opening_residents)?;
         if state.world().get_chunk(coord).is_some() {
             return Err(ChunkGenerationCommitError::ChunkAppeared { chunk: coord });
         }
@@ -305,6 +365,7 @@ pub struct ValidatedPlayerChunkDemand {
     expected_inventory_revision: u64,
     expected_structure_revision: u64,
     expected_player_work_revision: u64,
+    expected_opening_residents: Option<[VoxelCoord; 2]>,
     next_revision: u64,
     profile: WorldGenerationProfile,
     chunks: Vec<WorldChunk>,
@@ -361,6 +422,7 @@ impl ValidatedPlayerChunkDemand {
                 actual: actual_inventory_revision,
             });
         }
+        validate_unchanged_opening_residents(state, self.expected_opening_residents)?;
         for chunk in &self.chunks {
             if state.world().get_chunk(chunk.coord()).is_some() {
                 return Err(ChunkGenerationCommitError::ChunkAppeared {
@@ -416,6 +478,7 @@ pub fn validate_generate_chunk(
         expected_inventory_revision: state.inventory().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_player_work_revision: state.player_work().revision(),
+        expected_opening_residents: crate::kobolds::opening_kobold_positions(state),
         next_revision,
         profile,
         chunk,
@@ -483,6 +546,7 @@ pub fn validate_generate_player_neighborhood(
         expected_inventory_revision: state.inventory().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_player_work_revision: state.player_work().revision(),
+        expected_opening_residents: crate::kobolds::opening_kobold_positions(state),
         next_revision,
         profile,
         chunks,
@@ -519,7 +583,15 @@ fn validate_generated_chunk_occupancy(
     {
         return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
     }
+    if let Some(voxel) = first_opening_resident_collision_in_chunk(registry, state, chunk) {
+        return Err(ChunkGenerationError::OpeningResidentBodyCollision { voxel });
+    }
     let coord = chunk.coord();
+    if let Some(voxel) = first_prospective_temple_overlap(registry, profile, coord, |cell| {
+        crate::kobolds::opening_kobold_occupies_voxel(state, cell)
+    }) {
+        return Err(ChunkGenerationError::OpeningResidentTempleCasteCollision { voxel });
+    }
     if let Some(voxel) =
         first_player_prospective_temple_collision(registries, state, profile, coord)
     {
@@ -531,6 +603,35 @@ fn validate_generated_chunk_occupancy(
         return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
     }
     Ok(())
+}
+
+/// A live opening colony can inhabit authored route cells before chunk
+/// generation. Do not create full-cube terrain through the scout or the
+/// watchman's two-cell body; unoccupied future route cells remain subject
+/// to the ordinary movement clearance gate.
+fn first_opening_resident_collision_in_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    let residents = crate::kobolds::opening_kobold_positions(state)?;
+    for resident in residents {
+        for y in [Some(resident.y()), resident.y().checked_add(1)]
+            .into_iter()
+            .flatten()
+        {
+            let cell = VoxelCoord::new(resident.x(), y, resident.z());
+            if ChunkCoord::containing(cell) == chunk.coord()
+                && (!(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&cell.y())
+                    || registry
+                        .block_for_state(chunk.block_at(cell))
+                        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube))
+            {
+                return Some(cell);
+            }
+        }
+    }
+    None
 }
 
 fn validate_generation_profile(

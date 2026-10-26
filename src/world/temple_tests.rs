@@ -27,6 +27,48 @@ fn site_for_seed(seed: WorldGenerationSeed) -> (ChunkCoord, generation::temple::
 }
 
 #[test]
+fn temple_generation_cannot_spawn_a_heavy_resident_inside_an_opening_kobold() {
+    use crate::logistics::add_traversable_edge_for_test;
+
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    let (chunk, site) = site_for_seed(seed);
+    let den = site.warden();
+    let junction = VoxelCoord::new(den.x() + 1, den.y(), den.z());
+    let tip = VoxelCoord::new(den.x() + 2, den.y(), den.z());
+    let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, den, junction);
+    add_traversable_edge_for_test(&mut state, junction, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+
+    let before = state.clone();
+    assert!(matches!(
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE),
+        Err(ChunkGenerationError::OpeningResidentTempleCasteCollision { voxel }) if voxel == den
+    ));
+    assert_eq!(state, before);
+
+    let mut invalid = AppState::new();
+    validate_generate_chunk(&registries, &invalid, seed, chunk, BLOCK_STATE_STONE)
+        .unwrap()
+        .commit(&mut invalid)
+        .unwrap();
+    add_traversable_edge_for_test(&mut invalid, den, junction);
+    add_traversable_edge_for_test(&mut invalid, junction, tip);
+    invalid
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    assert!(matches!(
+        validate_loaded_state(&registries, &invalid),
+        Err(crate::core::state::StateValidationError::Kobolds(
+            "temple caste intersects an opening kobold resident"
+        ))
+    ));
+}
+
+#[test]
 fn four_service_bays_have_accessible_rooms_and_distinct_finite_components() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);

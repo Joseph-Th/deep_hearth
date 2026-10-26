@@ -790,17 +790,20 @@ pub(crate) fn record_close_contact(state: &mut AppState, role: KoboldRole, impul
 /// Physical occupancy of the two small opening residents, independently of
 /// sight, warning state and surface cargo. Both stand two cells tall; the
 /// watchman has his own saved patrol position even while the scout is away.
+pub(crate) fn opening_kobold_positions(state: &AppState) -> Option<[VoxelCoord; 2]> {
+    let colony = state.kobold_state().colony.as_ref()?;
+    Some([colony.scout_position(), colony.watch_position()])
+}
+
 pub(crate) fn opening_kobold_occupies_voxel(state: &AppState, voxel: VoxelCoord) -> bool {
-    let Some(colony) = state.kobold_state().colony.as_ref() else {
+    let Some(residents) = opening_kobold_positions(state) else {
         return false;
     };
-    [colony.scout_position(), colony.watch_position()]
-        .into_iter()
-        .any(|resident| {
-            voxel.x() == resident.x()
-                && voxel.z() == resident.z()
-                && (voxel.y() == resident.y() || resident.y().checked_add(1) == Some(voxel.y()))
-        })
+    residents.into_iter().any(|resident| {
+        voxel.x() == resident.x()
+            && voxel.z() == resident.z()
+            && (voxel.y() == resident.y() || resident.y().checked_add(1) == Some(voxel.y()))
+    })
 }
 
 /// Materialization checks generated temple caste bodies and the opening

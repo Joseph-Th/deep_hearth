@@ -15,6 +15,7 @@ use super::{
 /// generated world. Ambient equipment, energy/fluid stores and unenclosed
 /// stockpiles remain shareable locality rather than full-cube collision.
 fn validate_opening_resident_infrastructure(
+    registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
 ) -> Result<(), &'static str> {
@@ -30,6 +31,28 @@ fn validate_opening_resident_infrastructure(
             resident,
             VoxelCoord::new(resident.x(), head_y, resident.z()),
         ] {
+            if !(crate::world::WORLD_MIN_Y..crate::world::WORLD_MAX_Y_EXCLUSIVE).contains(&cell.y())
+            {
+                return Err("opening kobold body extends outside the generated vertical world");
+            }
+            if state
+                .world()
+                .get_chunk(crate::world::ChunkCoord::containing(cell))
+                .is_some()
+                && state.world().block_at(cell).is_none_or(|block| {
+                    registries
+                        .world()
+                        .block_for_state(block)
+                        .is_none_or(|definition| {
+                            definition.collision() == crate::world::BlockCollisionShape::FullCube
+                        })
+                })
+            {
+                return Err("generated terrain intersects an opening kobold resident");
+            }
+            if crate::kobolds::temple_caste_occupies_voxel(registries, state, cell) {
+                return Err("temple caste intersects an opening kobold resident");
+            }
             let enclosed = state.logistics().stockpiles_at(cell).any(|id| {
                 state
                     .inventory()
@@ -127,7 +150,7 @@ pub(crate) fn validate_loaded_kobolds(
             .then_some(())
             .ok_or("uninhabited kobold state contains consumed matter");
     };
-    validate_opening_resident_infrastructure(state, colony)?;
+    validate_opening_resident_infrastructure(registries, state, colony)?;
     validate_contact_history(colony, state.control_tick(), state.combat())?;
     if colony.scout_step > 3
         || (colony.scout_step == 3 && (colony.returning || colony.detour_goal.is_none()))
