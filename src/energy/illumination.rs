@@ -71,6 +71,15 @@ fn light_sources_at_locations<'a>(
     locations: impl Iterator<Item = (EnergyStoreId, VoxelCoord)> + 'a,
 ) -> impl Iterator<Item = LocalLightSourceProjection> + 'a {
     locations.filter_map(move |(store, position)| {
+        // Terrain may be generated after a located store was assembled. A
+        // stored charge inside a newly solid cell still exists, but cannot
+        // radiate block light through its opaque source voxel. Graph-only
+        // worlds retain their pre-generation illumination contract.
+        if state.world().generation_profile().is_some()
+            && !voxel_transmits_light(registries, state, position)
+        {
+            return None;
+        }
         let record = state.energy().get_store(store).unwrap_or_else(|| {
             panic!("runtime invariant broken: located energy store disappeared")
         });

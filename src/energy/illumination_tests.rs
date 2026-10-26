@@ -13,7 +13,7 @@ use crate::energy::{
     validate_assemble_energy_store, validate_combust_fuel, validate_combust_selected_fuel,
 };
 use crate::inventory::deposit_bulk_for_test;
-use crate::logistics::place_energy_store_for_fixture;
+use crate::logistics::{place_energy_store_for_fixture, relocate_player_for_test};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -25,6 +25,89 @@ use crate::world::{
 };
 
 use super::{assess_local_illumination, project_local_light_sources};
+
+#[test]
+fn generated_solid_cell_shields_a_located_emitter_until_its_source_is_exposed() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = VoxelCoord::new(8, -10, 8);
+    let adjacent = VoxelCoord::new(9, -10, 8);
+    let carried = validate_admit_player(&registries, &state, source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, carried, commodity, mass).unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_combust_fuel(&registries, &state, fire, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let stored_charge = state.energy().get_store(fire).unwrap().stored();
+    // Preserve the real assembled, located fire while moving the player beyond
+    // the incoming chunk's footprint before admitting generated terrain.
+    relocate_player_for_test(&mut state, VoxelCoord::new(24, -10, 8));
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x4C49_4748_545F_534F),
+        ChunkCoord::containing(source),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.world().block_at(source), Some(BLOCK_STATE_STONE));
+    assert_eq!(
+        state.energy().get_store(fire).unwrap().stored(),
+        stored_charge
+    );
+    set_generated_block_for_test(registries.world(), &mut state, adjacent, BlockStateId::AIR);
+    assert_eq!(
+        assess_local_illumination(&registries, &state, adjacent).level(),
+        0,
+        "light must not cross from an emitter enclosed within an opaque world cell"
+    );
+    assert!(
+        project_local_light_sources(&registries, &state).is_empty(),
+        "renderer projection must not advertise a buried light source"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        assess_local_illumination(&registries, &loaded, adjacent).level(),
+        0
+    );
+    set_generated_block_for_test(registries.world(), &mut state, source, BlockStateId::AIR);
+    assert_eq!(project_local_light_sources(&registries, &state).len(), 1);
+    assert_eq!(
+        state.energy().get_store(fire).unwrap().stored(),
+        stored_charge
+    );
+    assert_eq!(
+        assess_local_illumination(&registries, &state, adjacent).level(),
+        6,
+        "opening the actual source cell restores its ordinary finite light"
+    );
+}
 
 #[test]
 fn finite_campfire_light_appears_only_while_stored_heat_exists() {
