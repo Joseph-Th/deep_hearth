@@ -755,6 +755,7 @@ fn prepared_club_strike_waits_for_windup_commits_live_contact_and_replays() {
     );
     let assessment = assess_player_melee(&registries, &state).unwrap();
     assert!(!assessment.ready());
+    assert!(!assessment.prepared_release_ready());
     assert_eq!(assessment.preparation_remaining_ticks(), Some(10));
     assert_eq!(assessment.recovery_control_ticks(), 34);
     let quick = advance_control_tick_with_direct_input(
@@ -809,6 +810,37 @@ fn prepared_club_strike_waits_for_windup_commits_live_contact_and_replays() {
             advance_control_tick(&registries, &mut state).unwrap(),
             advance_control_tick(&registries, &mut loaded).unwrap()
         );
+    }
+    for game in [&mut state, &mut loaded] {
+        let before = assess_player_melee(&registries, game).unwrap();
+        assert_eq!(before.preparation_remaining_ticks(), Some(1));
+        assert!(!before.prepared_release_ready());
+        let _ = advance_control_tick(&registries, game).unwrap();
+        let ready = assess_player_melee(&registries, game).unwrap();
+        assert_eq!(ready.preparation_remaining_ticks(), Some(0));
+        assert!(ready.prepared_release_ready());
+        assert!(!ready.ready());
+        crate::logistics::validate_set_active_selection(&registries, game, None)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        let unarmed = assess_player_melee(&registries, game).unwrap();
+        assert_eq!(unarmed.preparation_remaining_ticks(), Some(0));
+        assert!(!unarmed.prepared_release_ready());
+        crate::logistics::validate_set_active_selection(
+            &registries,
+            game,
+            Some(PlayerActiveSelection::Equipment(club)),
+        )
+        .unwrap()
+        .commit(game)
+        .unwrap();
+        assert!(
+            assess_player_melee(&registries, game)
+                .unwrap()
+                .prepared_release_ready()
+        );
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
     }
     let release =
         PlayerDirectControlInput::NEUTRAL.with_primary(PrimaryControlIntent::release_strike(west));

@@ -28,14 +28,21 @@ pub(super) fn resolve_horizontal_motion(
         .z_nanometers()
         .checked_add(integrate_velocity(velocity.z_nanometers_per_second())?)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let (resolved_x, collided_x) = sweep_horizontal_x(body, locomotion, proposed_x, blocked)?;
+    let (resolved_x, collided_x) =
+        sweep_horizontal_axis(body, locomotion, proposed_x, HorizontalAxis::X, blocked)?;
     let x_resolved = body.with_motion(
         WorldPoint::new(resolved_x, position.y_nanometers(), position.z_nanometers()),
         velocity,
         body.vertical_velocity(),
         body.stance(),
     );
-    let (resolved_z, collided_z) = sweep_horizontal_z(x_resolved, locomotion, proposed_z, blocked)?;
+    let (resolved_z, collided_z) = sweep_horizontal_axis(
+        x_resolved,
+        locomotion,
+        proposed_z,
+        HorizontalAxis::Z,
+        blocked,
+    )?;
     Ok((
         WorldPoint::new(resolved_x, position.y_nanometers(), resolved_z),
         collided_x,
@@ -43,25 +50,42 @@ pub(super) fn resolve_horizontal_motion(
     ))
 }
 
-fn sweep_horizontal_x(
+#[derive(Clone, Copy)]
+enum HorizontalAxis {
+    X,
+    Z,
+}
+
+/// Both horizontal axes use the same checked leading-face sweep. The perpendicular body
+/// footprint is examined at each crossed cell, so a faster input cannot tunnel through a wall.
+fn sweep_horizontal_axis(
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
-    proposed_x: i64,
+    proposed: i64,
+    axis: HorizontalAxis,
     blocked: &impl Fn(VoxelCoord) -> bool,
 ) -> Result<(i64, bool), PlayerBodyMotionError> {
-    let current_x = body.foot_position().x_nanometers();
-    if proposed_x == current_x {
-        return Ok((current_x, false));
+    let position = body.foot_position();
+    let current = match axis {
+        HorizontalAxis::X => position.x_nanometers(),
+        HorizontalAxis::Z => position.z_nanometers(),
+    };
+    if proposed == current {
+        return Ok((current, false));
     }
     let (lower, upper) = body_horizontal_extents(locomotion)?;
     let (min_y, max_y) = vertical_voxel_bounds(body, locomotion)?;
-    let (_, _, min_z, max_z) = horizontal_voxel_bounds(body, locomotion)
+    let (min_x, max_x, min_z, max_z) = horizontal_voxel_bounds(body, locomotion)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    if proposed_x > current_x {
-        let current_leading = current_x
+    let (min_other, max_other) = match axis {
+        HorizontalAxis::X => (min_z, max_z),
+        HorizontalAxis::Z => (min_x, max_x),
+    };
+    if proposed > current {
+        let current_leading = current
             .checked_add(upper)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-        let proposed_leading = proposed_x
+        let proposed_leading = proposed
             .checked_add(upper)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
         let first = current_leading.div_euclid(NANOMETERS_PER_VOXEL);
@@ -69,9 +93,9 @@ fn sweep_horizontal_x(
             .checked_sub(1)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
             .div_euclid(NANOMETERS_PER_VOXEL);
-        for x in first..=last {
-            if column_x_blocks(x, min_y, max_y, min_z, max_z, blocked) {
-                let wall = x
+        for cell in first..=last {
+            if column_blocks(axis, cell, min_y, max_y, min_other, max_other, blocked) {
+                let wall = cell
                     .checked_mul(NANOMETERS_PER_VOXEL)
                     .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
                 return Ok((
@@ -81,133 +105,51 @@ fn sweep_horizontal_x(
                 ));
             }
         }
-        return Ok((proposed_x, false));
-    }
-
-    let current_leading = current_x
-        .checked_sub(lower)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let proposed_leading = proposed_x
-        .checked_sub(lower)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let first = proposed_leading.div_euclid(NANOMETERS_PER_VOXEL);
-    let last = current_leading
-        .checked_sub(1)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
-        .div_euclid(NANOMETERS_PER_VOXEL);
-    for x in (first..=last).rev() {
-        if column_x_blocks(x, min_y, max_y, min_z, max_z, blocked) {
-            let wall = x
-                .checked_add(1)
-                .and_then(|value| value.checked_mul(NANOMETERS_PER_VOXEL))
-                .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-            return Ok((
-                wall.checked_add(lower)
-                    .ok_or(PlayerBodyMotionError::CoordinateOverflow)?,
-                true,
-            ));
-        }
-    }
-    Ok((proposed_x, false))
-}
-
-fn sweep_horizontal_z(
-    body: PlayerBodyState,
-    locomotion: LocomotionDefinition,
-    proposed_z: i64,
-    blocked: &impl Fn(VoxelCoord) -> bool,
-) -> Result<(i64, bool), PlayerBodyMotionError> {
-    let current_z = body.foot_position().z_nanometers();
-    if proposed_z == current_z {
-        return Ok((current_z, false));
-    }
-    let (lower, upper) = body_horizontal_extents(locomotion)?;
-    let (min_y, max_y) = vertical_voxel_bounds(body, locomotion)?;
-    let (min_x, max_x, _, _) = horizontal_voxel_bounds(body, locomotion)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    if proposed_z > current_z {
-        let current_leading = current_z
-            .checked_add(upper)
+    } else {
+        let current_leading = current
+            .checked_sub(lower)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-        let proposed_leading = proposed_z
-            .checked_add(upper)
+        let proposed_leading = proposed
+            .checked_sub(lower)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-        let first = current_leading.div_euclid(NANOMETERS_PER_VOXEL);
-        let last = proposed_leading
+        let first = proposed_leading.div_euclid(NANOMETERS_PER_VOXEL);
+        let last = current_leading
             .checked_sub(1)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
             .div_euclid(NANOMETERS_PER_VOXEL);
-        for z in first..=last {
-            if column_z_blocks(z, min_y, max_y, min_x, max_x, blocked) {
-                let wall = z
-                    .checked_mul(NANOMETERS_PER_VOXEL)
+        for cell in (first..=last).rev() {
+            if column_blocks(axis, cell, min_y, max_y, min_other, max_other, blocked) {
+                let wall = cell
+                    .checked_add(1)
+                    .and_then(|value| value.checked_mul(NANOMETERS_PER_VOXEL))
                     .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
                 return Ok((
-                    wall.checked_sub(upper)
+                    wall.checked_add(lower)
                         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?,
                     true,
                 ));
             }
         }
-        return Ok((proposed_z, false));
     }
-
-    let current_leading = current_z
-        .checked_sub(lower)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let proposed_leading = proposed_z
-        .checked_sub(lower)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    let first = proposed_leading.div_euclid(NANOMETERS_PER_VOXEL);
-    let last = current_leading
-        .checked_sub(1)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
-        .div_euclid(NANOMETERS_PER_VOXEL);
-    for z in (first..=last).rev() {
-        if column_z_blocks(z, min_y, max_y, min_x, max_x, blocked) {
-            let wall = z
-                .checked_add(1)
-                .and_then(|value| value.checked_mul(NANOMETERS_PER_VOXEL))
-                .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-            return Ok((
-                wall.checked_add(lower)
-                    .ok_or(PlayerBodyMotionError::CoordinateOverflow)?,
-                true,
-            ));
-        }
-    }
-    Ok((proposed_z, false))
+    Ok((proposed, false))
 }
 
-fn column_x_blocks(
-    x: i64,
+fn column_blocks(
+    axis: HorizontalAxis,
+    cell: i64,
     min_y: i64,
     max_y: i64,
-    min_z: i64,
-    max_z: i64,
+    min_other: i64,
+    max_other: i64,
     blocked: &impl Fn(VoxelCoord) -> bool,
 ) -> bool {
     for y in min_y..=max_y {
-        for z in min_z..=max_z {
-            if blocked(VoxelCoord::new(x, y, z)) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn column_z_blocks(
-    z: i64,
-    min_y: i64,
-    max_y: i64,
-    min_x: i64,
-    max_x: i64,
-    blocked: &impl Fn(VoxelCoord) -> bool,
-) -> bool {
-    for y in min_y..=max_y {
-        for x in min_x..=max_x {
-            if blocked(VoxelCoord::new(x, y, z)) {
+        for other in min_other..=max_other {
+            let voxel = match axis {
+                HorizontalAxis::X => VoxelCoord::new(cell, y, other),
+                HorizontalAxis::Z => VoxelCoord::new(other, y, cell),
+            };
+            if blocked(voxel) {
                 return true;
             }
         }
@@ -268,3 +210,7 @@ pub(super) fn player_voxel_change_allowed(
         .carried_equipment()
         .any(|equipment| equipment_occupancy(state, equipment).is_some())
 }
+
+#[cfg(test)]
+#[path = "horizontal_tests.rs"]
+mod tests;

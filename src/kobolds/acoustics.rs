@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use crate::core::state::AppState;
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{CubeFace, VoxelCoord};
 use crate::world::BlockCollisionShape;
 
 use super::junkworks::{KoboldJunkRig, KoboldJunkRigKind};
@@ -26,33 +26,15 @@ fn acoustic_reach(kind: KoboldJunkRigKind) -> u8 {
 
 fn neighbors(voxel: VoxelCoord) -> impl Iterator<Item = VoxelCoord> {
     [
-        voxel
-            .x()
-            .checked_add(1)
-            .map(|x| VoxelCoord::new(x, voxel.y(), voxel.z())),
-        voxel
-            .x()
-            .checked_sub(1)
-            .map(|x| VoxelCoord::new(x, voxel.y(), voxel.z())),
-        voxel
-            .y()
-            .checked_add(1)
-            .map(|y| VoxelCoord::new(voxel.x(), y, voxel.z())),
-        voxel
-            .y()
-            .checked_sub(1)
-            .map(|y| VoxelCoord::new(voxel.x(), y, voxel.z())),
-        voxel
-            .z()
-            .checked_add(1)
-            .map(|z| VoxelCoord::new(voxel.x(), voxel.y(), z)),
-        voxel
-            .z()
-            .checked_sub(1)
-            .map(|z| VoxelCoord::new(voxel.x(), voxel.y(), z)),
+        CubeFace::East,
+        CubeFace::West,
+        CubeFace::Top,
+        CubeFace::Bottom,
+        CubeFace::South,
+        CubeFace::North,
     ]
     .into_iter()
-    .flatten()
+    .filter_map(move |face| face.adjacent_voxel(voxel))
 }
 
 /// Sound travels along actual face-connected, empty voxels; a short bend is
