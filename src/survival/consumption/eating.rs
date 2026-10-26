@@ -17,8 +17,8 @@ use crate::inventory::{
     validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::labor::{
-    EatingWork, PlayerAttentionError, PlayerWork, ValidatedPlayerAttentionHold,
-    validate_player_attention,
+    EatingWork, PlayerAttentionConflict, PlayerAttentionError, PlayerWork,
+    ValidatedPlayerAttentionHold, validate_player_attention,
 };
 use crate::logistics::validate_player_stockpile_access;
 use crate::material::MaterialId;
@@ -274,6 +274,7 @@ pub fn validate_eat(
         PlayerAttentionError::SurvivalNotInitialized => EatError::SurvivalNotInitialized,
         PlayerAttentionError::PlayerDead => EatError::PlayerDead,
         PlayerAttentionError::Busy { active } => EatError::PlayerBusy { active },
+        PlayerAttentionError::PreparedStrikeActive => EatError::PreparedStrikeActive,
     })?;
     validate_player_stockpile_access(state, source).map_err(EatError::Access)?;
     let exact_selection =
@@ -382,12 +383,16 @@ impl ValidatedEat {
                 actual: actual_logistics_revision,
             });
         }
-        if let Err(conflict) = self.attention.precheck(state) {
-            return Err(EatCommitError::StalePlayerWorkRevision {
-                expected: conflict.expected(),
-                actual: conflict.actual(),
-            });
-        }
+        self.attention
+            .precheck(state)
+            .map_err(|conflict| match conflict {
+                PlayerAttentionConflict::WorkRevision { expected, actual } => {
+                    EatCommitError::StalePlayerWorkRevision { expected, actual }
+                }
+                PlayerAttentionConflict::CombatRevision { expected, actual } => {
+                    EatCommitError::StaleCombatRevision { expected, actual }
+                }
+            })?;
         let actual_survival_revision = state.survival().revision();
         if actual_survival_revision != self.expected_survival_revision {
             return Err(EatCommitError::StaleSurvivalRevision {

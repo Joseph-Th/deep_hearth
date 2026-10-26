@@ -21,6 +21,7 @@ pub enum EatError {
     PlayerBusy {
         active: Box<PlayerWork>,
     },
+    PreparedStrikeActive,
     EmptySelection,
     DuplicateLot {
         lot: MaterialLotId,
@@ -99,6 +100,9 @@ impl Display for EatError {
             Self::Access(error) => write!(formatter, "food stockpile access failed: {error}"),
             Self::PlayerBusy { active } => {
                 write!(formatter, "player cannot eat while occupied by {active:?}")
+            }
+            Self::PreparedStrikeActive => {
+                formatter.write_str("player must lower the prepared weapon before eating")
             }
             Self::EmptySelection => formatter.write_str("eating selection must not be empty"),
             Self::DuplicateLot { lot } => write!(
@@ -230,6 +234,7 @@ impl Error for EatError {
             Self::SurvivalNotInitialized
             | Self::PlayerDead
             | Self::PlayerBusy { .. }
+            | Self::PreparedStrikeActive
             | Self::EmptySelection
             | Self::DuplicateLot { .. }
             | Self::UnknownStockpile { .. }
@@ -272,6 +277,10 @@ pub enum EatCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -300,6 +309,10 @@ impl Display for EatCommitError {
                 formatter,
                 "validated eating expected player-work revision {expected} but current revision is {actual}"
             ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "validated eating expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated eating expected survival revision {expected} but current revision is {actual}"
@@ -323,6 +336,7 @@ impl Error for EatCommitError {
             Self::StaleControlTick { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleInventoryRevision { .. } => None,
         }

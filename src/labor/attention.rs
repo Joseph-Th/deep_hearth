@@ -10,34 +10,27 @@ pub(crate) enum PlayerAttentionError {
     SurvivalNotInitialized,
     PlayerDead,
     Busy { active: Box<PlayerWork> },
+    PreparedStrikeActive,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PlayerAttentionConflict {
-    expected: u64,
-    actual: u64,
-}
-
-impl PlayerAttentionConflict {
-    pub(crate) const fn expected(self) -> u64 {
-        self.expected
-    }
-
-    pub(crate) const fn actual(self) -> u64 {
-        self.actual
-    }
+pub(crate) enum PlayerAttentionConflict {
+    WorkRevision { expected: u64, actual: u64 },
+    CombatRevision { expected: u64, actual: u64 },
 }
 
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerAttention {
     expected_revision: u64,
+    expected_combat_revision: u64,
 }
 
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerAttentionHold {
     expected_revision: u64,
+    expected_combat_revision: u64,
     next_revision: u64,
     work: PlayerWork,
 }
@@ -52,6 +45,7 @@ impl ValidatedPlayerAttention {
         });
         Some(ValidatedPlayerAttentionHold {
             expected_revision: self.expected_revision,
+            expected_combat_revision: self.expected_combat_revision,
             next_revision,
             work,
         })
@@ -62,8 +56,15 @@ impl ValidatedPlayerAttentionHold {
     pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerAttentionConflict> {
         let actual = state.player_work().revision();
         if actual != self.expected_revision {
-            return Err(PlayerAttentionConflict {
+            return Err(PlayerAttentionConflict::WorkRevision {
                 expected: self.expected_revision,
+                actual,
+            });
+        }
+        let actual = state.combat().revision();
+        if actual != self.expected_combat_revision {
+            return Err(PlayerAttentionConflict::CombatRevision {
+                expected: self.expected_combat_revision,
                 actual,
             });
         }
@@ -93,7 +94,13 @@ pub(crate) fn validate_player_attention(
             active: Box::new(active),
         });
     }
+    // A raised weapon is already an exclusive actor commitment. All consumers
+    // of attention (work, meals, drinks) must honor the same admission rule.
+    if state.combat().has_prepared_strike() {
+        return Err(PlayerAttentionError::PreparedStrikeActive);
+    }
     Ok(ValidatedPlayerAttention {
         expected_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
     })
 }

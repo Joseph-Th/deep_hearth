@@ -171,7 +171,6 @@ pub(crate) struct ValidatedPlayerWorkStart {
     attention: ValidatedPlayerAttentionHold,
     expected_control_tick: ControlTick,
     expected_survival_revision: u64,
-    expected_combat_revision: u64,
     resource_budget: super::PlayerWorkResourceBudget,
 }
 
@@ -190,24 +189,21 @@ impl ValidatedPlayerWorkStart {
                 actual: actual_control_tick,
             });
         }
-        self.attention.precheck(state).map_err(|conflict| {
-            PlayerWorkCommitError::StaleRevision {
-                expected: conflict.expected(),
-                actual: conflict.actual(),
-            }
-        })?;
+        self.attention
+            .precheck(state)
+            .map_err(|conflict| match conflict {
+                super::PlayerAttentionConflict::WorkRevision { expected, actual } => {
+                    PlayerWorkCommitError::StaleRevision { expected, actual }
+                }
+                super::PlayerAttentionConflict::CombatRevision { expected, actual } => {
+                    PlayerWorkCommitError::StaleCombatRevision { expected, actual }
+                }
+            })?;
         let actual_survival_revision = state.survival().revision();
         if actual_survival_revision != self.expected_survival_revision {
             return Err(PlayerWorkCommitError::StaleSurvivalRevision {
                 expected: self.expected_survival_revision,
                 actual: actual_survival_revision,
-            });
-        }
-        let actual_combat_revision = state.combat().revision();
-        if actual_combat_revision != self.expected_combat_revision {
-            return Err(PlayerWorkCommitError::StaleCombatRevision {
-                expected: self.expected_combat_revision,
-                actual: actual_combat_revision,
             });
         }
         Ok(())
@@ -286,10 +282,8 @@ fn validate_player_work_start_inner(
         }
         PlayerAttentionError::PlayerDead => PlayerWorkStartError::PlayerDead,
         PlayerAttentionError::Busy { active } => PlayerWorkStartError::Busy { active },
+        PlayerAttentionError::PreparedStrikeActive => PlayerWorkStartError::PreparedStrikeActive,
     })?;
-    if state.combat().has_prepared_strike() {
-        return Err(PlayerWorkStartError::PreparedStrikeActive);
-    }
     let Some(player) = state.survival().player() else {
         return Err(PlayerWorkStartError::SurvivalNotInitialized);
     };
@@ -331,7 +325,6 @@ fn validate_player_work_start_inner(
         attention,
         expected_control_tick: state.control_tick(),
         expected_survival_revision: state.survival().revision(),
-        expected_combat_revision: state.combat().revision(),
         resource_budget: budget,
     })
 }

@@ -946,11 +946,9 @@ fn prepared_melee_stance_excludes_timed_work_and_stales_prior_work_admission() {
     // work admission, then check the trusted-load combat reference boundary.
     let mut impossible = state.clone();
     let work_revision = impossible.player_work().revision();
-    impossible.player_work_state_mut().apply_start(
-        work_revision,
-        work_revision + 1,
-        work,
-    );
+    impossible
+        .player_work_state_mut()
+        .apply_start(work_revision, work_revision + 1, work);
     assert_eq!(
         preparation::validate_loaded_combat_references(registries.equipment(), &impossible),
         Err("prepared strike cannot coexist with exclusive player work")
@@ -975,6 +973,135 @@ fn prepared_melee_stance_excludes_timed_work_and_stales_prior_work_admission() {
             SurvivalExertion::REST,
         )
         .is_ok()
+    );
+}
+
+#[test]
+fn prepared_melee_stance_excludes_meals_and_drinks_and_stales_both_intakes() {
+    use crate::content::{EQUIPMENT_WOODEN_CLUB, FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES};
+    use crate::core::quantity::{Mass, Temperature, Volume};
+    use crate::fluid::{
+        add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting,
+    };
+    use crate::inventory::{MaterialLotSelection, deposit_lot_for_test};
+    use crate::logistics::validate_place_fluid_store;
+    use crate::material::CommodityKey;
+    use crate::matter::calculate_matter_accounting;
+    use crate::survival::{
+        DrinkCommitError, DrinkError, EatCommitError, EatError, validate_drink, validate_eat,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let here = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, here)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let meal_mass = Mass::from_milligrams(150_000);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        meal_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let selections = [MaterialLotSelection::new(lot, meal_mass)];
+    let serving = Volume::from_microliters(750_000);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        serving,
+        FLUID_WATER,
+        serving,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, water, here)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let meal = validate_eat(&registries, &state, carried, &selections).unwrap();
+    let drink = validate_drink(&registries, &state, water, serving).unwrap();
+    let combat_before = state.combat().revision();
+    let preparation = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(matches!(
+        preparation,
+        PrimitivePreparationOutcome::Prepared { .. }
+    ));
+    let combat_after = state.combat().revision();
+    let matter_before = calculate_matter_accounting(&state).unwrap();
+    let fluid_before = calculate_fluid_volume_accounting(&state).unwrap();
+    let prepared_state = state.clone();
+
+    assert_eq!(
+        validate_eat(&registries, &state, carried, &selections).err(),
+        Some(EatError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        validate_drink(&registries, &state, water, serving).err(),
+        Some(DrinkError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        meal.commit(&mut state),
+        Err(EatCommitError::StaleCombatRevision {
+            expected: combat_before,
+            actual: combat_after,
+        })
+    );
+    assert_eq!(
+        drink.commit(&mut state),
+        Err(DrinkCommitError::StaleCombatRevision {
+            expected: combat_before,
+            actual: combat_after,
+        })
+    );
+    assert_eq!(state, prepared_state);
+    assert_eq!(calculate_matter_accounting(&state).unwrap(), matter_before);
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+
+    let cancelled = validate_cancel_primitive_preparation(&state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(cancelled, PrimitivePreparationOutcome::Cancelled);
+    let mut drinking = state.clone();
+    let eaten = validate_eat(&registries, &state, carried, &selections)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let drank = validate_drink(&registries, &drinking, water, serving)
+        .unwrap()
+        .commit(&mut drinking)
+        .unwrap();
+    assert_eq!(eaten.total_mass(), meal_mass);
+    assert_eq!(drank.volume(), serving);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &drinking), Ok(()));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before.total()
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&drinking).unwrap(),
+        fluid_before
     );
 }
 

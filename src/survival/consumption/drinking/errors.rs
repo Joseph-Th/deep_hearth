@@ -20,6 +20,7 @@ pub enum DrinkError {
     PlayerBusy {
         active: Box<PlayerWork>,
     },
+    PreparedStrikeActive,
     UnknownStore {
         store: FluidStoreId,
     },
@@ -75,6 +76,9 @@ impl Display for DrinkError {
                     formatter,
                     "player cannot drink while occupied by {active:?}"
                 )
+            }
+            Self::PreparedStrikeActive => {
+                formatter.write_str("player must lower the prepared weapon before drinking")
             }
             Self::UnknownStore { store } => {
                 write!(formatter, "unknown drink source store {}", store.value())
@@ -164,6 +168,7 @@ impl Error for DrinkError {
             Self::SurvivalNotInitialized
             | Self::PlayerDead
             | Self::PlayerBusy { .. }
+            | Self::PreparedStrikeActive
             | Self::UnknownStore { .. }
             | Self::EmptyStore { .. }
             | Self::NotDrinkable
@@ -198,6 +203,10 @@ pub enum DrinkCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -229,6 +238,10 @@ impl Display for DrinkCommitError {
                 formatter,
                 "validated drinking expected player-work revision {expected} but current revision is {actual}"
             ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "validated drinking expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated drinking expected survival revision {expected} but current revision is {actual}"
@@ -259,6 +272,7 @@ impl Error for DrinkCommitError {
             Self::StaleControlTick { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleFluidRevision { .. }
             | Self::FluidSourceChanged { .. } => None,

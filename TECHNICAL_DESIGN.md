@@ -30,9 +30,9 @@ Implemented systems exchange a small set of authoritative flows:
 | Flow | Contract |
 | --- | --- |
 | Matter | Moves through explicit custody; creation/destruction requires an authored physical source/sink. |
-| Fluid | Finite stores own volume; withdrawal/consumption, same-voxel manual decant, and immediate one-voxel downward gravity feed are explicit. Generic transport is absent. |
+| Fluid | Finite stores own volume; withdrawal/consumption, same-voxel manual decant, and immediate one-voxel downward gravity feed are explicit. Player-tended transfers refuse exclusive work at admission and bind work revisions through commit. Generic transport is absent. |
 | Energy | Finite stores and work records own stored/reserved energy; losses are explicit sinks. Player-tended combustion, energy-store assembly, and energy-store upgrades reject active exclusive work at validation and commit without restricting headless owner execution. |
-| Labor | `PlayerWorkState` owns exclusive timed attention; survival supplies physiological work budget. A raised, prepared melee weapon excludes timed player work, including across validation-to-commit transitions. Admitted-player equipment assembly and upgrades cannot run alongside active work; headless material owner execution remains available. |
+| Labor | `PlayerWorkState` owns exclusive timed attention; survival supplies physiological work budget. A raised, prepared melee weapon excludes all timed player attention, including eating and drinking, across validation-to-commit transitions; the shared attention guard checks work and combat revisions. Admitted-player equipment assembly and upgrades cannot run alongside active work; headless material owner execution remains available. |
 | Information | Hidden geology becomes actor-usable only through acquired `GeologicalKnowledgeState`. |
 | Support/load | Structures own support; endpoint owners contribute source-separated load. |
 | Capacity/time | Reservations, occupancy, and persisted schedules protect delayed work from double booking. |

@@ -18,8 +18,8 @@ use crate::fluid::{
     ValidatedFluidEgress, validate_fluid_egress,
 };
 use crate::labor::{
-    DrinkingWork, PlayerAttentionError, PlayerWork, ValidatedPlayerAttentionHold,
-    validate_player_attention,
+    DrinkingWork, PlayerAttentionConflict, PlayerAttentionError, PlayerWork,
+    ValidatedPlayerAttentionHold, validate_player_attention,
 };
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -176,6 +176,7 @@ fn map_player_attention_error(error: PlayerAttentionError) -> DrinkError {
         PlayerAttentionError::SurvivalNotInitialized => DrinkError::SurvivalNotInitialized,
         PlayerAttentionError::PlayerDead => DrinkError::PlayerDead,
         PlayerAttentionError::Busy { active } => DrinkError::PlayerBusy { active },
+        PlayerAttentionError::PreparedStrikeActive => DrinkError::PreparedStrikeActive,
     }
 }
 
@@ -395,12 +396,16 @@ impl ValidatedDrink {
                 actual: actual_logistics_revision,
             });
         }
-        if let Err(conflict) = self.attention.precheck(state) {
-            return Err(DrinkCommitError::StalePlayerWorkRevision {
-                expected: conflict.expected(),
-                actual: conflict.actual(),
-            });
-        }
+        self.attention
+            .precheck(state)
+            .map_err(|conflict| match conflict {
+                PlayerAttentionConflict::WorkRevision { expected, actual } => {
+                    DrinkCommitError::StalePlayerWorkRevision { expected, actual }
+                }
+                PlayerAttentionConflict::CombatRevision { expected, actual } => {
+                    DrinkCommitError::StaleCombatRevision { expected, actual }
+                }
+            })?;
         let actual_survival_revision = state.survival().revision();
         if actual_survival_revision != self.expected_survival_revision {
             return Err(DrinkCommitError::StaleSurvivalRevision {
