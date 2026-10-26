@@ -9,8 +9,8 @@ use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    SurfaceResourceId, SurfaceResourceLifecycle, forage_food_to_adjacent_den,
-    relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
+    ScavengedPortionRequest, SurfaceResourceId, SurfaceResourceLifecycle,
+    forage_food_to_adjacent_den, relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
     split_bulk_scavenged_drop_with_head_wear,
 };
 use crate::survival::Vitality;
@@ -169,12 +169,9 @@ fn plan_scout_move(
         registries,
         state,
         colony,
+        context,
         proposed_step,
         proposed_returning,
-        player_position,
-        den_space,
-        forage_ready,
-        next_tick,
         inherited_target,
     );
     let proposed_position = proposed_detour.map_or_else(
@@ -354,16 +351,28 @@ fn scout_releases_cargo(frightened: bool, den_full: bool, can_move: bool) -> boo
 
 /// The same canonical splitting operation must account for a tool's actual
 /// abrasion, or the scout uses its original bare-hand batch instead.
-fn split_scavenged_bulk_with_available_tool(
-    registries: &Registries,
-    state: &mut AppState,
+struct ScoutSplitRequest {
     source: SurfaceResourceId,
     from: VoxelCoord,
     to: VoxelCoord,
     at: SimulationTick,
     bare_batch: Mass,
     den_space: Mass,
+}
+
+fn split_scavenged_bulk_with_available_tool(
+    registries: &Registries,
+    state: &mut AppState,
+    request: ScoutSplitRequest,
 ) -> Option<(SurfaceResourceId, Mass)> {
+    let ScoutSplitRequest {
+        source,
+        from,
+        to,
+        at,
+        bare_batch,
+        den_space,
+    } = request;
     let tool = state.kobold_state().colony.as_ref().and_then(|colony| {
         (from == colony.route[1])
             .then(|| current_junction_scrap_lever(state, colony))
@@ -373,11 +382,13 @@ fn split_scavenged_bulk_with_available_tool(
         split_bulk_scavenged_drop_with_head_wear(
             registries,
             state,
-            source,
-            from,
-            to,
-            at,
-            bare_batch.max(LEVER_SPLIT_BATCH).min(den_space),
+            ScavengedPortionRequest::new(
+                source,
+                from,
+                to,
+                at,
+                bare_batch.max(LEVER_SPLIT_BATCH).min(den_space),
+            ),
             tool.head(),
             tool.kind().abrasion_per_split(),
             tool.kind().abrasion_form(),
@@ -430,16 +441,28 @@ fn scout_cargo_movement_allowed(
 /// Finish a locally attempted food exchange without abandoning the original
 /// parcel if the new transfer failed. Both parcels remain surface-owned; the
 /// boolean only records whether the scout truly switched its carried identity.
-fn finish_return_cargo_exchange(
-    registries: &Registries,
-    state: &mut AppState,
+struct ScoutCargoExchange {
     from: VoxelCoord,
     to: VoxelCoord,
     carried: Option<SurfaceResourceId>,
     moved: Option<SurfaceResourceId>,
     can_keep_carried: bool,
     new_parcel: Option<SurfaceResourceId>,
+}
+
+fn finish_return_cargo_exchange(
+    registries: &Registries,
+    state: &mut AppState,
+    exchange: ScoutCargoExchange,
 ) -> (Option<SurfaceResourceId>, bool) {
+    let ScoutCargoExchange {
+        from,
+        to,
+        carried,
+        moved,
+        can_keep_carried,
+        new_parcel,
+    } = exchange;
     let relocated = moved.or_else(|| {
         (can_keep_carried && new_parcel.is_none())
             .then(|| {
@@ -614,12 +637,14 @@ pub(crate) fn apply_kobold_scout_tick(
         split_scavenged_bulk_with_available_tool(
             registries,
             state,
-            source,
-            from,
-            position,
-            next_tick,
-            salvage_batch,
-            den_space,
+            ScoutSplitRequest {
+                source,
+                from,
+                to: position,
+                at: next_tick,
+                bare_batch: salvage_batch,
+                den_space,
+            },
         )
     });
     // An unattended food patch is genuine competition even if the player has
@@ -659,14 +684,16 @@ pub(crate) fn apply_kobold_scout_tick(
     let (relocated_drop, switched_cargo) = finish_return_cargo_exchange(
         registries,
         state,
-        from,
-        position,
-        carried_drop,
-        first_relocated,
-        can_move && continuing_carried_custody,
-        split_drop
-            .map(|(id, _)| id)
-            .or(foraged_food.map(|(id, _)| id)),
+        ScoutCargoExchange {
+            from,
+            to: position,
+            carried: carried_drop,
+            moved: first_relocated,
+            can_keep_carried: can_move && continuing_carried_custody,
+            new_parcel: split_drop
+                .map(|(id, _)| id)
+                .or(foraged_food.map(|(id, _)| id)),
+        },
     );
     // A recovered handle remains at the junction for a later stone wedge.
     // The assembled kit likewise stays at its physical worksite, not in

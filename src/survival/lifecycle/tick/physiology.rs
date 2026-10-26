@@ -224,16 +224,27 @@ fn resolve_vitality(
     )
 }
 
+/// Physical effects resolved together at the same authoritative slow tick.
+#[derive(Clone, Copy)]
+pub(super) struct LiveTickExposure {
+    pub(super) local_heat: Energy,
+    pub(super) thermal_exposure: crate::survival::ThermalExposure,
+    pub(super) fall_vitality_loss_ppm: u32,
+}
+
 pub(super) fn resolve_live_player_tick(
     registries: &Registries,
     state: &AppState,
     before: PlayerSurvivalRecord,
     exertion: SurvivalExertion,
     next_tick: SimulationTick,
-    local_heat: Energy,
-    thermal_exposure: crate::survival::ThermalExposure,
-    fall_vitality_loss_ppm: u32,
+    exposure: LiveTickExposure,
 ) -> Result<LivePlayerTickResolution, SurvivalTickError> {
+    let LiveTickExposure {
+        local_heat,
+        thermal_exposure,
+        fall_vitality_loss_ppm,
+    } = exposure;
     let physiology = registries.survival().physiology();
     let installment = resolve_pending_installment(registries, state, next_tick);
     let resources = resolve_tick_resources(

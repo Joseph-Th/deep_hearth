@@ -305,12 +305,11 @@ fn recovered_iron_has_a_conserved_toolhead_path_and_a_repairable_mining_tool() {
         maintenance.replacement(),
         CommodityKey::new(MATERIAL_IRON, FORM_TOOL)
     );
-    assert_eq!(
+    assert!(
         registry
             .textures()
             .get_equipment_appearance(EQUIPMENT_IRON_PICK)
-            .is_some(),
-        true
+            .is_some()
     );
     let head = registry
         .textures()
@@ -342,7 +341,12 @@ fn industrial_temperature_range_admits_iron_while_primitive_furnaces_do_not() {
             .unwrap();
         match value {
             CapabilityValue::Temperature(temperature) => temperature,
-            other => panic!("expected temperature limit, got {other:?}"),
+            other @ (CapabilityValue::Mass(_)
+            | CapabilityValue::Pressure(_)
+            | CapabilityValue::Power(_)
+            | CapabilityValue::MassFlow(_)) => {
+                panic!("expected temperature limit, got {other:?}")
+            }
         }
     };
     let iron = registry

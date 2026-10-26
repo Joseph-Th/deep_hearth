@@ -51,7 +51,6 @@ impl<'a> FoodStackPortion<'a> {
         Self { stack, mass }
     }
 
-    #[must_use]
     pub const fn stack(self) -> &'a MaterialStackProjection {
         self.stack
     }

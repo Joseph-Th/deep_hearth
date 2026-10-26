@@ -665,12 +665,11 @@ fn watchman_can_be_staggered_without_affecting_a_remote_scout() {
     }
     let seen =
         crate::kobolds::available_nearby_kobold_scouts(&registries, &state).collect::<Vec<_>>();
-    assert_eq!(
+    assert!(
         seen.iter()
             .find(|resident| resident.role() == KoboldRole::Watchman)
             .unwrap()
-            .is_staggered(),
-        true,
+            .is_staggered()
     );
     assert_eq!(
         seen.iter()

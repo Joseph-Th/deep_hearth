@@ -192,10 +192,10 @@ impl ValidatedPlayerStructuralDismantlingStart {
     }
 }
 
-fn target_record<'a>(
-    state: &'a AppState,
+fn target_record(
+    state: &AppState,
     element: StructuralElementId,
-) -> Result<&'a super::StructuralElementRecord, PlayerStructuralDismantlingError> {
+) -> Result<&super::StructuralElementRecord, PlayerStructuralDismantlingError> {
     let record = state
         .structures()
         .get_element(element)
@@ -404,7 +404,21 @@ pub(crate) fn decide_structural_dismantling_tick(
         MaterialIngressError::RevisionExhausted => {
             StructuralDismantlingTickError::InventoryRevision
         }
-        other => panic!("admitted structural recovery became invalid: {other}"),
+        error @ (MaterialIngressError::Empty
+        | MaterialIngressError::UnknownStockpile { .. }
+        | MaterialIngressError::UnknownMaterial { .. }
+        | MaterialIngressError::UnknownForm { .. }
+        | MaterialIngressError::UnknownCompositionMaterial { .. }
+        | MaterialIngressError::ZeroMass
+        | MaterialIngressError::InvalidComposition { .. }
+        | MaterialIngressError::CompositionMissingHost { .. }
+        | MaterialIngressError::Storage(_)
+        | MaterialIngressError::ProvenanceInFuture { .. }
+        | MaterialIngressError::MassOverflow { .. }
+        | MaterialIngressError::CapacityExceeded { .. }
+        | MaterialIngressError::ReservationMismatch { .. }) => {
+            panic!("admitted structural recovery became invalid: {error}")
+        }
     })?;
     let expected_structure_revision = projected_structures.revision();
     let next_structure_revision = expected_structure_revision

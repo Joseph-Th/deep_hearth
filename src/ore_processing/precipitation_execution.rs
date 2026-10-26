@@ -132,7 +132,7 @@ fn resolve_precipitation_batch(
         return Err(PrecipitationBatchError::MissingReactant);
     }
     let charge_units = galena / GALENA_MG;
-    if galena % GALENA_MG != 0
+    if !galena.is_multiple_of(GALENA_MG)
         || iron
             != charge_units
                 .checked_mul(IRON_MG)

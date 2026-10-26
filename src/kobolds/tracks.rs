@@ -127,7 +127,7 @@ impl KoboldColony {
             if trail.role != KoboldRole::Scout
                 || tick < FIRST_SCOUT_TICK
                 || tick > state.tick().value()
-                || (tick - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+                || !(tick - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
                 || previous.is_some_and(|prior: KoboldTrack| {
                     prior.at >= trail.at || prior.toward != trail.from
                 })
@@ -194,7 +194,7 @@ impl KoboldColony {
                 )
                 || mark.at <= reported_at
                 || at > state.tick().value()
-                || (at - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+                || !(at - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
                 || !matches!(
                     (mark.from, mark.toward),
                     (a, b) if (a == den && b == junction)

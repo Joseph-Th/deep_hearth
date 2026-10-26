@@ -446,17 +446,16 @@ impl KoboldColony {
     }
 
     fn validate_detour(&self, state: &AppState) -> Result<(), &'static str> {
-        if let Some(detour) = self.detour {
-            if (self.scout_step != 2
+        if let Some(detour) = self.detour
+            && ((self.scout_step != 2
                 && self.scout_step != 3
                 && !(self.scout_step == 1 && self.returning))
                 || detour == self.route[0]
                 || detour == self.route[1]
                 || detour == self.route[2]
-                || !state.logistics().has_traversal_edge(self.route[1], detour)
-            {
-                return Err("invalid kobold temporary detour or traversal edge");
-            }
+                || !state.logistics().has_traversal_edge(self.route[1], detour))
+        {
+            return Err("invalid kobold temporary detour or traversal edge");
         }
         if let Some(goal) = self.detour_goal {
             let Some(first) = self.detour else {

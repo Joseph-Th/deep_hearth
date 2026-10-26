@@ -213,9 +213,7 @@ pub(crate) fn first_player_structure_collision(
     state: &AppState,
     body: PlayerBodyState,
 ) -> Option<VoxelCoord> {
-    if state.world().generation_profile().is_none() {
-        return None;
-    }
+    state.world().generation_profile()?;
     let locomotion = registries.survival().physiology().locomotion();
     first_player_body_collision_where(body, locomotion, |voxel| {
         structure_blocks_player_cell(state, voxel)
@@ -246,9 +244,7 @@ pub(crate) fn first_player_body_overlap_with_bounds(
     state: &AppState,
     bounds: VoxelBounds,
 ) -> Option<VoxelCoord> {
-    if state.world().generation_profile().is_none() {
-        return None;
-    }
+    state.world().generation_profile()?;
     let body = state.logistics().player()?.body();
     let locomotion = registries.survival().physiology().locomotion();
     first_player_body_collision_where(body, locomotion, |voxel| bounds.has_voxel(voxel))
@@ -934,6 +930,9 @@ fn supporting_floor_y(
 
 /// All movement axes, standing clearance and grounding share solid-cell authority.
 /// Concealed temple residents remain physical obstacles just like generated rock.
+/// Small opening residents are contact targets rather than full-cube walls:
+/// same-cell melee and den-custody recovery must remain possible. Their patrol
+/// separately avoids entering the larger player's occupied footprint.
 fn player_cell_blocks_motion(registries: &Registries, state: &AppState, voxel: VoxelCoord) -> bool {
     world_cell_blocks_motion(registries.world(), state.world(), voxel)
         || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)

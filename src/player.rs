@@ -431,19 +431,19 @@ impl ValidatedPlayerRespawn {
         self.logistics
             .precheck(state)
             .map_err(|error| match error {
-                PlayerLogisticsRespawnCommitError::StaleSimulationTick { expected, actual } => {
+                PlayerLogisticsRespawnCommitError::SimulationTick { expected, actual } => {
                     PlayerRespawnCommitError::StaleSimulationTick { expected, actual }
                 }
-                PlayerLogisticsRespawnCommitError::StaleLogisticsRevision { expected, actual } => {
+                PlayerLogisticsRespawnCommitError::LogisticsRevision { expected, actual } => {
                     PlayerRespawnCommitError::StaleLogisticsRevision { expected, actual }
                 }
-                PlayerLogisticsRespawnCommitError::StaleInventoryRevision { expected, actual } => {
+                PlayerLogisticsRespawnCommitError::InventoryRevision { expected, actual } => {
                     PlayerRespawnCommitError::StaleInventoryRevision { expected, actual }
                 }
-                PlayerLogisticsRespawnCommitError::StaleWorldRevision { expected, actual } => {
+                PlayerLogisticsRespawnCommitError::WorldRevision { expected, actual } => {
                     PlayerRespawnCommitError::StaleWorldRevision { expected, actual }
                 }
-                PlayerLogisticsRespawnCommitError::StaleStructureRevision { expected, actual } => {
+                PlayerLogisticsRespawnCommitError::StructureRevision { expected, actual } => {
                     PlayerRespawnCommitError::StaleStructureRevision { expected, actual }
                 }
             })?;

@@ -172,7 +172,7 @@ pub fn validate_start_player_manual_craft_from_stack(
     equipment: Option<EquipmentId>,
 ) -> Result<ValidatedManualCraftStart, PlayerManualCraftError> {
     let carried = carried_stockpile(state)?;
-    let definition = registries.crafting().get_manual(process).ok_or_else(|| {
+    let definition = registries.crafting().get_manual(process).ok_or({
         PlayerManualCraftError::InputPlan(ManualCraftInputPlanError::UnknownManualProcess {
             process,
         })
@@ -188,7 +188,7 @@ pub fn validate_start_player_manual_craft_from_stack(
         .milligrams()
         .checked_mul(batches.get())
         .map(Mass::from_milligrams)
-        .ok_or_else(|| {
+        .ok_or({
             PlayerManualCraftError::InputPlan(ManualCraftInputPlanError::InputMassOverflow {
                 process,
                 batches,

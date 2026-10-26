@@ -52,7 +52,7 @@ impl KoboldColony {
     pub(super) fn validate_watchman(&self, now: SimulationTick) -> Result<(), &'static str> {
         let ready = self.watch_ready_at.value();
         if ready < FIRST_SCOUT_TICK
-            || (ready - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+            || !(ready - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
             || (ready != FIRST_SCOUT_TICK
                 && ready > now.value().saturating_add(WATCH_RECOVERY_TICKS))
             || (self.mobilized_at.is_none()
@@ -74,20 +74,19 @@ impl KoboldColony {
         {
             return Err("kobold watchman's food-backed patrol cooldown is invalid");
         }
-        if let Some(deployed) = self.watch_deployed_at {
-            if deployed > now
+        if let Some(deployed) = self.watch_deployed_at
+            && (deployed > now
                 || deployed.value() < FIRST_SCOUT_TICK
-                || (deployed.value() - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+                || !(deployed.value() - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
                 || self.mobilized_at.is_none_or(|report| report >= deployed)
                 || deployed.checked_add_span(TickSpan::new(WATCH_RECOVERY_TICKS))
                     != Some(self.watch_ready_at)
                 || (self.watch_leg == 1
                     && now.value() < deployed.value().saturating_add(SCOUT_STEP_TICKS))
                 || (self.watch_leg == 2
-                    && now.value() < deployed.value().saturating_add(2 * SCOUT_STEP_TICKS))
-            {
-                return Err("kobold watchman lacks a possible provisioned deployment");
-            }
+                    && now.value() < deployed.value().saturating_add(2 * SCOUT_STEP_TICKS)))
+        {
+            return Err("kobold watchman lacks a possible provisioned deployment");
         }
         Ok(())
     }

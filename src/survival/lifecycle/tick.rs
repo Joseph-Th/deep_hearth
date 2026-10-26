@@ -11,7 +11,7 @@ use crate::survival::{SurvivalExertion, Vitality};
 
 mod physiology;
 
-use physiology::resolve_live_player_tick;
+use physiology::{LiveTickExposure, resolve_live_player_tick};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SurvivalTickError {
@@ -100,9 +100,11 @@ pub(crate) fn decide_survival_tick_with_local_heat(
         before,
         exertion,
         next_tick,
-        local_heat,
-        thermal_exposure,
-        fall_vitality_loss_ppm,
+        LiveTickExposure {
+            local_heat,
+            thermal_exposure,
+            fall_vitality_loss_ppm,
+        },
     )?;
     build_tick_plan(
         registries,

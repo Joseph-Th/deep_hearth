@@ -216,12 +216,12 @@ pub(super) fn attempt_selected_secondary_action(
         Ok(Some(_))
     );
     let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
-    if commodity == timber && points_at_block {
-        if let Some(outcome) =
+    if commodity == timber
+        && points_at_block
+        && let Some(outcome) =
             attempt_selected_timber_placement(registries, state, commodity, direction)
-        {
-            return outcome;
-        }
+    {
+        return outcome;
     }
     if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)
         && let Some(outcome) =

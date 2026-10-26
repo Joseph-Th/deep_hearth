@@ -68,7 +68,6 @@ impl PlayerEquipmentAssemblyOption {
         &self.inputs
     }
 
-    #[must_use]
     pub const fn availability(&self) -> PlayerEquipmentAssemblyAvailability {
         self.availability
     }

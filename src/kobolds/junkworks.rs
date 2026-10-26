@@ -188,9 +188,7 @@ fn current_rig_at(
     colony: &KoboldColony,
     position: VoxelCoord,
 ) -> Option<KoboldJunkRig> {
-    if colony.mobilized_at.is_none() {
-        return None;
-    }
+    colony.mobilized_at?;
     let core = selected_core_at(state, position)?;
     let (striker, kind) = selected_striker_at(state, position)?;
     Some(KoboldJunkRig {

@@ -82,7 +82,15 @@ impl Error for PlayerMaterialDropError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::SurfacePlacement(error) => Some(error),
-            _ => None,
+            Self::PlayerNotAdmitted
+            | Self::PlayerDead
+            | Self::PlayerBusy
+            | Self::NoCarriedMaterial { .. }
+            | Self::InventoryRevisionExhausted
+            | Self::SurfaceRevisionExhausted
+            | Self::SurfaceResourceIdExhausted
+            | Self::MaterialMassOverflow
+            | Self::PickupScheduleOverflow => None,
         }
     }
 }

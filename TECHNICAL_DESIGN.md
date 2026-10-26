@@ -408,6 +408,10 @@ and trusted loading likewise treat embodied, full-footprint structural cells
 as solid across the continuous body. Narrow posts and inert blueprints do not
 become voxel-wide walls. Player admission and respawn bind the structural
 revision so a panel erected after clearance validation invalidates commit.
+The smaller opening scout and watchman are close-contact actors, not full-cube
+movement obstacles: same-voxel melee and den recovery remain possible. Their
+scavenging and patrol logic still avoids entering the player's occupied body.
+This differs deliberately from full-body blocking by the heavy temple castes.
 Both admission and respawn clearance also bind the simulation tick. A guardian can move on a
 slow tick without changing the world, structure, inventory, or logistics revisions; a delayed
 player commit rejects that stale clearance so the body must be checked against the resident's

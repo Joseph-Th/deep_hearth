@@ -276,7 +276,17 @@ impl PlayerWork {
     pub(crate) const fn structural_dismantling(self) -> Option<StructuralDismantlingWork> {
         match self {
             Self::StructuralDismantling { work } => Some(work),
-            _ => None,
+            Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
+            | Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. } => None,
         }
     }
 

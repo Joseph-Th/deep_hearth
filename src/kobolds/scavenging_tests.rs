@@ -105,10 +105,7 @@ fn hungry_scout_continues_to_a_distant_full_patch_past_a_nearby_crumb() {
         super::reachable_detour_food(
             &registries,
             state,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             state.tick(),
             capacity,
             super::super::SCOUT_MEAL_MASS,
@@ -292,10 +289,7 @@ fn scout_forages_the_largest_recoverable_serving_not_the_oldest_crumb() {
         super::reachable_side_food(
             &registries,
             &state,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             state.tick(),
             maximum,
         ),
@@ -369,10 +363,7 @@ fn hungry_loose_food_raids_prefer_a_complete_meal_over_old_fragments() {
         super::reachable_detour_drop(
             &registries,
             state,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             capacity,
             state.tick(),
             true,
@@ -447,10 +438,7 @@ fn distant_forage_ranking_respects_recoverable_capacity_and_stable_ties() {
         super::reachable_far_food(
             &registries,
             &state,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             state.tick(),
             capacity,
         )
@@ -680,10 +668,7 @@ fn hungry_scout_hauls_whole_distant_food_instead_of_splitting_a_nearer_cache() {
         super::reachable_detour_drop(
             &registries,
             &far,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             Mass::from_milligrams(500_000),
             far.tick(),
             true,
@@ -695,10 +680,7 @@ fn hungry_scout_hauls_whole_distant_food_instead_of_splitting_a_nearer_cache() {
         super::reachable_detour_drop(
             &registries,
             &only_near,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             Mass::from_milligrams(500_000),
             only_near.tick(),
             true,
@@ -884,10 +866,7 @@ fn nearby_whole_food_still_beats_a_whole_distant_parcel() {
         super::reachable_detour_drop(
             &registries,
             &state,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             Mass::from_milligrams(500_000),
             state.tick(),
             true,
@@ -930,10 +909,7 @@ fn side_cache_prefers_whole_cargo_over_older_bulk_food_but_splits_when_pack_spac
         reachable_side_drop(
             &registries,
             &state,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             capacity,
             state.tick(),
             false,
@@ -969,10 +945,7 @@ fn far_cache_search_uses_two_real_edges_and_prefers_whole_cargo() {
         reachable_far_drop(
             &registries,
             &state,
-            path.junction,
-            path.den,
-            path.tip,
-            None,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             capacity,
             state.tick(),
             false,
@@ -1090,10 +1063,10 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
         reachable_side_drop(
             &registries,
             &guarded,
-            path.junction,
-            path.den,
-            path.tip,
-            Some(player_guarding_food),
+            super::ScavengeRoute::new(
+                [path.den, path.junction, path.tip],
+                Some(player_guarding_food)
+            ),
             space,
             guarded.tick(),
             false,
@@ -1105,10 +1078,10 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
         reachable_side_drop(
             &registries,
             &unguarded,
-            path.junction,
-            path.den,
-            path.tip,
-            Some(player_not_guarding),
+            super::ScavengeRoute::new(
+                [path.den, path.junction, path.tip],
+                Some(player_not_guarding)
+            ),
             space,
             unguarded.tick(),
             false,

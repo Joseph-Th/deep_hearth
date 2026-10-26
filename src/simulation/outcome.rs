@@ -454,7 +454,6 @@ impl TickOutcome {
 
     /// Local percussion impulses from real kobold apparatus on this tick.
     /// A hidden distant warning never appears in this read-side event channel.
-    #[must_use]
     pub fn kobold_alarm_pulses(&self) -> &[KoboldAlarmPulse] {
         &self.kobold_alarm_pulses
     }

@@ -155,7 +155,6 @@ impl PlayerStockpileProjection {
         self.available
     }
 
-    #[must_use]
     pub fn stacks(&self) -> &[MaterialStackProjection] {
         &self.stacks
     }
@@ -178,12 +177,10 @@ pub struct PlayerInventoryProjection {
 }
 
 impl PlayerInventoryProjection {
-    #[must_use]
     pub const fn carrying(&self) -> PlayerCarryingAssessment {
         self.carrying
     }
 
-    #[must_use]
     pub const fn quick_access_slots(
         &self,
     ) -> &[Option<PlayerActiveSelection>; PLAYER_QUICK_ACCESS_SLOT_COUNT] {
@@ -195,22 +192,18 @@ impl PlayerInventoryProjection {
         self.active_quick_access_slot
     }
 
-    #[must_use]
     pub const fn carried(&self) -> &PlayerStockpileProjection {
         &self.carried
     }
 
-    #[must_use]
     pub fn equipment(&self) -> &[PlayerCarriedEquipmentProjection] {
         &self.equipment
     }
 
-    #[must_use]
     pub fn local_equipment(&self) -> &[PlayerLocalEquipmentProjection] {
         &self.local_equipment
     }
 
-    #[must_use]
     pub fn local_containers(&self) -> &[PlayerStockpileProjection] {
         &self.local_containers
     }

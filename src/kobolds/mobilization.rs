@@ -74,7 +74,7 @@ impl KoboldColony {
         let aligned = |at: SimulationTick| {
             at.value() >= FIRST_SCOUT_TICK
                 && at <= current
-                && (at.value() - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS == 0
+                && (at.value() - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
         };
         if self.witnessed_machinery_at.is_some_and(|at| !aligned(at))
             || self.mobilized_at.is_some_and(|at| !aligned(at))

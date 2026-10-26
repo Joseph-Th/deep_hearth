@@ -1635,7 +1635,7 @@ fn autonomous_warden_motion_invalidates_pending_respawn_clearance() {
     assert_eq!(
         logistics_pending.precheck(&state),
         Err(
-            crate::logistics::PlayerLogisticsRespawnCommitError::StaleSimulationTick {
+            crate::logistics::PlayerLogisticsRespawnCommitError::SimulationTick {
                 expected: prepared_at,
                 actual,
             }

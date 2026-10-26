@@ -410,13 +410,13 @@ fn validate_transfer_fluid(
         },
     )?;
     let before_destination = destination_record.contents();
-    if let Some(existing) = before_destination {
-        if existing.fluid() != before_source.fluid() {
-            return Err(FluidTransferError::IncompatibleFluid {
-                expected: existing.fluid(),
-                found: before_source.fluid(),
-            });
-        }
+    if let Some(existing) = before_destination
+        && existing.fluid() != before_source.fluid()
+    {
+        return Err(FluidTransferError::IncompatibleFluid {
+            expected: existing.fluid(),
+            found: before_source.fluid(),
+        });
     }
     let available = destination_record
         .capacity()

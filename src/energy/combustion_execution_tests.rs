@@ -238,7 +238,7 @@ fn campfire_fixture() -> (
 #[test]
 fn campfire_refueling_requires_idle_player_attention_and_preserves_work() {
     let (registries, mut state, carried, fire) = campfire_fixture();
-    let _ = deposit_bulk_for_test(
+    deposit_bulk_for_test(
         &registries,
         &mut state,
         carried,
@@ -312,7 +312,7 @@ fn campfire_refueling_requires_idle_player_attention_and_preserves_work() {
 #[test]
 fn assembling_another_campfire_requires_idle_player_attention() {
     let (registries, mut state, carried, _) = campfire_fixture();
-    let _ = deposit_bulk_for_test(
+    deposit_bulk_for_test(
         &registries,
         &mut state,
         carried,
@@ -320,7 +320,7 @@ fn assembling_another_campfire_requires_idle_player_attention() {
         Mass::from_milligrams(1_000_000),
     )
     .unwrap_or_else(|error| panic!("busy assembly stone supply failed: {error}"));
-    let _ = deposit_bulk_for_test(
+    deposit_bulk_for_test(
         &registries,
         &mut state,
         carried,

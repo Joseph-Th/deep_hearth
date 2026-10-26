@@ -98,7 +98,6 @@ impl KoboldScrapLever {
     pub const fn head(self) -> SurfaceResourceId {
         self.head
     }
-    #[must_use]
     pub const fn kind(self) -> KoboldPryHeadKind {
         self.kind
     }
@@ -354,7 +353,7 @@ pub(super) fn validate_pry_fitting(
     }
     if work.handle == work.head
         || started < FIRST_SCOUT_TICK
-        || (started - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+        || !(started - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
         || work.started_at > now
     {
         return Err("kobold pry fitting has an impossible work start");

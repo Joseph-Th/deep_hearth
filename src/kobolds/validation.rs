@@ -48,7 +48,7 @@ fn validate_meal_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'s
     let next = colony.next_meal_at.value();
     let first = FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS;
     if next < first
-        || (next - FIRST_SCOUT_TICK) % SCOUT_MEAL_INTERVAL_TICKS != 0
+        || !(next - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_MEAL_INTERVAL_TICKS)
         || next <= current
         || (current < first && next != first)
         || (current >= first && next - current > SCOUT_MEAL_INTERVAL_TICKS)
@@ -171,7 +171,7 @@ pub(crate) fn validate_loaded_kobolds(
     if let Some(wary_until) = colony.wary_until {
         let due = wary_until.value();
         if due < FIRST_SCOUT_TICK + SCOUT_WARY_INTERVAL_TICKS
-            || (due - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+            || !(due - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
             || due > current.saturating_add(SCOUT_WARY_INTERVAL_TICKS)
         {
             return Err("kobold caution deadline is not aligned with authoritative time");
@@ -181,7 +181,7 @@ pub(crate) fn validate_loaded_kobolds(
         let earliest = FIRST_SCOUT_TICK + SCOUT_STEP_TICKS + colony.forage_interval();
         let forage_due = next_forage.value();
         if forage_due < earliest
-            || (forage_due - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+            || !(forage_due - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
             || forage_due > current.saturating_add(SCOUT_FORAGE_INTERVAL_TICKS)
         {
             return Err("kobold forage interval is not aligned with authoritative time");
@@ -192,7 +192,7 @@ pub(crate) fn validate_loaded_kobolds(
         return Err("kobold scout step is overdue");
     }
     if due < FIRST_SCOUT_TICK
-        || (due - FIRST_SCOUT_TICK) % SCOUT_STEP_TICKS != 0
+        || !(due - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
         || (current < FIRST_SCOUT_TICK && due != FIRST_SCOUT_TICK)
         || (current >= FIRST_SCOUT_TICK && due - current > SCOUT_STEP_TICKS)
     {

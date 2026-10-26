@@ -110,7 +110,6 @@ pub struct ValidatedPlayerQuickMove {
 }
 
 impl ValidatedPlayerQuickMove {
-    #[must_use]
     pub const fn outcome(&self) -> PlayerQuickMoveOutcome {
         self.outcome
     }

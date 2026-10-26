@@ -80,8 +80,8 @@ impl CombatState {
         {
             return Err("combat recovery record conflicts with control history");
         }
-        if let Some(prepared) = self.prepared {
-            if prepared.started_at > now
+        if let Some(prepared) = self.prepared
+            && (prepared.started_at > now
                 || self.revision == 0
                 || ViewDirection::new(prepared.aim[0], prepared.aim[1], prepared.aim[2]).is_err()
                 || prepared
@@ -94,10 +94,9 @@ impl CombatState {
                             .started_at
                             .checked_steps_since(at)
                             .is_none_or(|elapsed| elapsed < u64::from(self.recovery_control_ticks))
-                })
-            {
-                return Err("prepared combat stance contradicts actor clock or facing");
-            }
+                }))
+        {
+            return Err("prepared combat stance contradicts actor clock or facing");
         }
         Ok(())
     }

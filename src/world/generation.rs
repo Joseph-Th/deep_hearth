@@ -671,7 +671,7 @@ pub(super) fn seeded_mineral_state(
     // 4 m lenses are sparse, and unlike a global mineral uniform roll,
     // their types reflect shallow vs deep host-rock position. Lattice hash
     // remains invariant under chunk and generation-order changes.
-    (hash % 89 == 0).then(|| {
+    hash.is_multiple_of(89).then(|| {
         let choice = ((hash >> 13) % 8) as usize;
         // Select strata using the lattice cell, not individual voxel elevation;
         // otherwise one 4 m lens crossing -40 splits into unrelated ores.

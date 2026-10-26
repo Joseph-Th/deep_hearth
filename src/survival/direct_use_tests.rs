@@ -229,7 +229,7 @@ fn full_metabolic_reserves_do_not_block_a_needed_dietary_serving() {
     assert_eq!(stack_meal, lot_meal);
     assert_eq!(state, lot_state);
     let full_reserve_mass = physiology.nutrition().full_reserve_food_mass().milligrams();
-    let expected_refill = Mass::from_milligrams((full_reserve_mass + 1) / 2);
+    let expected_refill = Mass::from_milligrams(full_reserve_mass.div_ceil(2));
     assert_eq!(stack_meal.total_mass(), expected_refill);
     assert_eq!(
         state.inventory().get_lot(berries).map(|lot| lot.mass()),

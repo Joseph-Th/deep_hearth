@@ -96,11 +96,7 @@ pub(crate) fn forage_food_to_adjacent_den(
     materialize_scavenged_portion(
         registries,
         state,
-        source,
-        from,
-        den,
-        at,
-        maximum_mass,
+        ScavengedPortionRequest::new(source, from, den, at, maximum_mass),
         SurfaceResourceKind::Opportunity,
         None,
     )
@@ -121,14 +117,38 @@ pub(crate) fn split_bulk_scavenged_drop_step(
     materialize_scavenged_portion(
         registries,
         state,
-        source,
-        from,
-        to,
-        at,
-        maximum_mass,
+        ScavengedPortionRequest::new(source, from, to, at, maximum_mass),
         SurfaceResourceKind::Drop,
         None,
     )
+}
+
+/// Physical source and one-step destination for a conserved scout material transfer.
+#[derive(Clone, Copy)]
+pub(crate) struct ScavengedPortionRequest {
+    source: SurfaceResourceId,
+    from: crate::spatial::VoxelCoord,
+    to: crate::spatial::VoxelCoord,
+    at: crate::core::time::SimulationTick,
+    maximum_mass: crate::core::quantity::Mass,
+}
+
+impl ScavengedPortionRequest {
+    pub(crate) const fn new(
+        source: SurfaceResourceId,
+        from: crate::spatial::VoxelCoord,
+        to: crate::spatial::VoxelCoord,
+        at: crate::core::time::SimulationTick,
+        maximum_mass: crate::core::quantity::Mass,
+    ) -> Self {
+        Self {
+            source,
+            from,
+            to,
+            at,
+            maximum_mass,
+        }
+    }
 }
 
 /// Split a bulky drop with a local improvised head, retaining both exact physical
@@ -138,11 +158,7 @@ pub(crate) fn split_bulk_scavenged_drop_step(
 pub(crate) fn split_bulk_scavenged_drop_with_head_wear(
     registries: &crate::registry::Registries,
     state: &mut crate::core::state::AppState,
-    source: SurfaceResourceId,
-    from: crate::spatial::VoxelCoord,
-    to: crate::spatial::VoxelCoord,
-    at: crate::core::time::SimulationTick,
-    maximum_mass: crate::core::quantity::Mass,
+    request: ScavengedPortionRequest,
     head: SurfaceResourceId,
     wear_mass: crate::core::quantity::Mass,
     residue_form: crate::material::FormId,
@@ -150,11 +166,7 @@ pub(crate) fn split_bulk_scavenged_drop_with_head_wear(
     materialize_scavenged_portion(
         registries,
         state,
-        source,
-        from,
-        to,
-        at,
-        maximum_mass,
+        request,
         SurfaceResourceKind::Drop,
         Some((head, wear_mass, residue_form)),
     )
@@ -165,11 +177,7 @@ pub(crate) fn split_bulk_scavenged_drop_with_head_wear(
 fn materialize_scavenged_portion(
     registries: &crate::registry::Registries,
     state: &mut crate::core::state::AppState,
-    source: SurfaceResourceId,
-    from: crate::spatial::VoxelCoord,
-    to: crate::spatial::VoxelCoord,
-    at: crate::core::time::SimulationTick,
-    maximum_mass: crate::core::quantity::Mass,
+    request: ScavengedPortionRequest,
     source_kind: SurfaceResourceKind,
     head_wear: Option<(
         SurfaceResourceId,
@@ -177,6 +185,13 @@ fn materialize_scavenged_portion(
         crate::material::FormId,
     )>,
 ) -> Option<(SurfaceResourceId, crate::core::quantity::Mass)> {
+    let ScavengedPortionRequest {
+        source,
+        from,
+        to,
+        at,
+        maximum_mass,
+    } = request;
     let required_revisions = if head_wear.is_some() { 3 } else { 2 };
     if !from.is_face_adjacent_to(to) || !state.can_spend_surface_revisions(required_revisions) {
         return None;

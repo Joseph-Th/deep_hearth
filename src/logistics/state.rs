@@ -364,6 +364,14 @@ pub struct LogisticsState {
     fluid_stores_by_position: BTreeMap<VoxelCoord, BTreeSet<FluidStoreId>>,
 }
 
+/// Custody created by a death and respawn: old carried matter and equipment
+/// become one ground cache while the new player receives a fresh carrier.
+pub(super) struct PlayerRespawnCustody<'a> {
+    pub(super) fresh_carried_stockpile: StockpileId,
+    pub(super) death_position: VoxelCoord,
+    pub(super) dropped_equipment: &'a [EquipmentId],
+}
+
 impl LogisticsState {
     #[must_use]
     pub(crate) const fn new() -> Self {
@@ -660,16 +668,19 @@ impl LogisticsState {
         self.revision = next_revision;
     }
 
-    pub(crate) fn apply_player_respawn(
+    pub(super) fn apply_player_respawn(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
         expected_player: PlayerLogisticsRecord,
         respawn_body: PlayerBodyState,
-        carried_stockpile: StockpileId,
-        death_position: VoxelCoord,
-        dropped_equipment: &[EquipmentId],
+        custody: PlayerRespawnCustody<'_>,
     ) {
+        let PlayerRespawnCustody {
+            fresh_carried_stockpile: carried_stockpile,
+            death_position,
+            dropped_equipment,
+        } = custody;
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert_eq!(self.player, Some(expected_player));

@@ -147,11 +147,10 @@ fn structural_creation_removal_and_trusted_load_keep_local_occupancy_in_sync() {
             .collect::<Vec<_>>(),
         vec![first]
     );
-    assert_eq!(
-        state
+    assert!(
+        !state
             .structures()
             .has_active_overhead_cover(near.x(), near.z(), -1, 2),
-        false,
         "an indexed plan without physical activation cannot shelter an actor"
     );
     assert_eq!(

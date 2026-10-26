@@ -284,11 +284,13 @@ fn short_iron_scrap_only_strikes_alarms_and_cannot_inherit_fitting() {
         crate::surface::split_bulk_scavenged_drop_with_head_wear(
             &registries,
             &mut state,
-            bulk,
-            JUNCTION,
-            DEN,
-            at,
-            Mass::from_milligrams(250_000),
+            crate::surface::ScavengedPortionRequest::new(
+                bulk,
+                JUNCTION,
+                DEN,
+                at,
+                Mass::from_milligrams(250_000)
+            ),
             larger_scrap,
             fitted.kind().abrasion_per_split(),
             fitted.kind().abrasion_form(),
@@ -1126,11 +1128,13 @@ fn spent_copper_fulcrum_falls_back_to_the_existing_stone_head() {
             crate::surface::split_bulk_scavenged_drop_with_head_wear(
                 &registries,
                 &mut state,
-                bulk,
-                JUNCTION,
-                DEN,
-                at,
-                Mass::from_milligrams(50_000),
+                crate::surface::ScavengedPortionRequest::new(
+                    bulk,
+                    JUNCTION,
+                    DEN,
+                    at,
+                    Mass::from_milligrams(50_000)
+                ),
                 tool.head(),
                 tool.kind().abrasion_per_split(),
                 tool.kind().abrasion_form(),
@@ -1389,11 +1393,13 @@ fn worn_out_wedge_prompts_a_real_repair_trip_past_nearby_bulk() {
             crate::surface::split_bulk_scavenged_drop_with_head_wear(
                 &registries,
                 &mut state,
-                bulk,
-                JUNCTION,
-                DEN,
-                at,
-                Mass::from_milligrams(100_000),
+                crate::surface::ScavengedPortionRequest::new(
+                    bulk,
+                    JUNCTION,
+                    DEN,
+                    at,
+                    Mass::from_milligrams(100_000)
+                ),
                 old_wedge,
                 WEDGE_ABRASION_PER_SPLIT,
                 FORM_CHIP,

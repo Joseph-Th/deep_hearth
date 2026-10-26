@@ -82,11 +82,10 @@ fn indexed_overhead_cover_requires_active_local_roof_and_survives_save_load() {
         assess_player_overhead_cover(&registries, &state),
         Some(PlayerOverheadCoverAssessment::Covered)
     );
-    assert_eq!(
-        state
+    assert!(
+        !state
             .structures()
             .has_active_overhead_cover(1, 0, floor_y + 2, WORLD_MAX_Y_EXCLUSIVE),
-        false,
         "adjacent columns cannot inherit a neighboring roof"
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));

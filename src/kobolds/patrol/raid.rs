@@ -1,8 +1,6 @@
 //! Read-only planning of the scout's local interest and bounded side raids.
 
-use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -13,8 +11,8 @@ use super::super::junkworks::{
     is_junk_striker,
 };
 use super::super::scavenging::{
-    best_local_forage, has_local_scout_interest, is_portable_drop, local_portable_source,
-    matches_salvage_goal, reachable_detour_drop, reachable_detour_food,
+    ScavengeRoute, best_local_forage, has_local_scout_interest, is_portable_drop,
+    local_portable_source, matches_salvage_goal, reachable_detour_drop, reachable_detour_food,
     reachable_inherited_salvage, scout_wants_loose_drop,
 };
 use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_better_head};
@@ -44,15 +42,11 @@ pub(super) fn scout_raid_interest(
         && colony.scout_step == 1
         && !colony.returning)
         .then(|| {
-            let [den, junction, tip] = colony.route;
             reachable_inherited_salvage(
                 registries,
                 state,
-                junction,
+                ScavengeRoute::new(colony.route, player_position),
                 from,
-                den,
-                tip,
-                player_position,
                 capacity,
                 at,
             )
@@ -106,15 +100,7 @@ pub(super) fn scout_raid_interest(
     let missing_tool_at_tip = !pressured
         && colony.scout_step == 1
         && !colony.returning
-        && reachable_needed_tool_at_tip(
-            registries,
-            state,
-            colony,
-            from,
-            capacity,
-            at,
-            player_position,
-        );
+        && reachable_needed_tool_at_tip(registries, state, colony, context);
     let exposed = (has_local_scout_interest(
         registries,
         state,
@@ -129,16 +115,7 @@ pub(super) fn scout_raid_interest(
             && !useful_iron_at_tip
             && !missing_tool_at_tip)
             || local_food)
-        && !continue_to_planned_far_raid(
-            registries,
-            state,
-            colony,
-            from,
-            capacity,
-            forage_ready,
-            at,
-            player_position,
-        );
+        && !continue_to_planned_far_raid(registries, state, colony, context);
     (exposed, inherited_target)
 }
 
@@ -147,14 +124,18 @@ fn reachable_needed_tool_at_tip(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
-    from: VoxelCoord,
-    capacity: Mass,
-    at: SimulationTick,
-    player_position: Option<VoxelCoord>,
+    context: ScoutPatrolContext,
 ) -> bool {
     if !junction_awaits_better_head(state, colony) {
         return false;
     }
+    let ScoutPatrolContext {
+        from,
+        den_space: capacity,
+        at,
+        player_position,
+        ..
+    } = context;
     let tip = colony.route[2];
     state
         .surface()
@@ -178,11 +159,7 @@ fn continue_to_planned_far_raid(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
-    from: VoxelCoord,
-    capacity: Mass,
-    forage_ready: bool,
-    at: SimulationTick,
-    player_position: Option<VoxelCoord>,
+    context: ScoutPatrolContext,
 ) -> bool {
     if colony.scout_step != 2 || colony.returning {
         return false;
@@ -190,6 +167,14 @@ fn continue_to_planned_far_raid(
     let Some(goal) = colony.detour_goal else {
         return false;
     };
+    let ScoutPatrolContext {
+        from,
+        den_space: capacity,
+        forage_ready,
+        at,
+        player_position,
+        ..
+    } = context;
     let needs_striker =
         colony.mobilized_at.is_some() && den_or_relay_needs_striker(state, colony.route[0]);
     let target_drop = local_portable_source(
@@ -291,31 +276,25 @@ pub(super) fn choose_outbound_detour(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
+    context: ScoutPatrolContext,
     step: u8,
     returning: bool,
-    player_position: Option<VoxelCoord>,
-    den_space: Mass,
-    forage_ready: bool,
-    at: SimulationTick,
     inherited_target: Option<(VoxelCoord, Option<VoxelCoord>)>,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
     if step != 2 || returning || colony.scout_step != 1 {
         return None;
     }
-    let [den, junction, tip] = colony.route;
-    let loose_cache = |food_only| {
-        reachable_detour_drop(
-            registries,
-            state,
-            junction,
-            den,
-            tip,
-            player_position,
-            den_space,
-            at,
-            food_only,
-        )
-    };
+    let ScoutPatrolContext {
+        den_space,
+        forage_ready,
+        at,
+        player_position,
+        ..
+    } = context;
+    let junction = colony.route[1];
+    let route = ScavengeRoute::new(colony.route, player_position);
+    let loose_cache =
+        |food_only| reachable_detour_drop(registries, state, route, den_space, at, food_only);
     let wild_food = || {
         let local_food_remains = state
             .surface()
@@ -327,17 +306,7 @@ pub(super) fn choose_outbound_detour(
                 let shortage = SCOUT_MEAL_MASS
                     .checked_sub(colony.partial_meal)
                     .expect("trusted resident's partial meal is below a full ration");
-                reachable_detour_food(
-                    registries,
-                    state,
-                    junction,
-                    den,
-                    tip,
-                    player_position,
-                    at,
-                    maximum_mass,
-                    shortage,
-                )
+                reachable_detour_food(registries, state, route, at, maximum_mass, shortage)
             })
             .flatten()
     };

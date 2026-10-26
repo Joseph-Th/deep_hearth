@@ -117,7 +117,6 @@ impl PlayerStructuralPlacementProjection {
         self.member
     }
 
-    #[must_use]
     pub fn supports(&self) -> &[StructuralSupportPlacementProjection] {
         &self.supports
     }

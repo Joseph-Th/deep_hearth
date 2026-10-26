@@ -87,10 +87,7 @@ fn opaque_terrain_hides_a_far_cache_until_the_route_is_exposed() {
         reachable_far_drop(
             &registries,
             state,
-            junction,
-            den,
-            tip,
-            None,
+            super::ScavengeRoute::new([den, junction, tip], None),
             Mass::from_milligrams(500_000),
             state.tick(),
             false,

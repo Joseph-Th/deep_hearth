@@ -59,23 +59,23 @@ impl Error for PlayerLogisticsRespawnError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlayerLogisticsRespawnCommitError {
-    StaleSimulationTick {
+    SimulationTick {
         expected: SimulationTick,
         actual: SimulationTick,
     },
-    StaleLogisticsRevision {
+    LogisticsRevision {
         expected: u64,
         actual: u64,
     },
-    StaleInventoryRevision {
+    InventoryRevision {
         expected: u64,
         actual: u64,
     },
-    StaleWorldRevision {
+    WorldRevision {
         expected: u64,
         actual: u64,
     },
-    StaleStructureRevision {
+    StructureRevision {
         expected: u64,
         actual: u64,
     },
@@ -84,25 +84,25 @@ pub(crate) enum PlayerLogisticsRespawnCommitError {
 impl Display for PlayerLogisticsRespawnCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::StaleSimulationTick { expected, actual } => write!(
+            Self::SimulationTick { expected, actual } => write!(
                 formatter,
                 "respawn expected simulation tick {} but current tick is {}",
                 expected.value(),
                 actual.value()
             ),
-            Self::StaleLogisticsRevision { expected, actual } => write!(
+            Self::LogisticsRevision { expected, actual } => write!(
                 formatter,
                 "respawn expected logistics revision {expected} but current revision is {actual}"
             ),
-            Self::StaleInventoryRevision { expected, actual } => write!(
+            Self::InventoryRevision { expected, actual } => write!(
                 formatter,
                 "respawn expected inventory revision {expected} but current revision is {actual}"
             ),
-            Self::StaleWorldRevision { expected, actual } => write!(
+            Self::WorldRevision { expected, actual } => write!(
                 formatter,
                 "respawn expected world revision {expected} but current revision is {actual}"
             ),
-            Self::StaleStructureRevision { expected, actual } => write!(
+            Self::StructureRevision { expected, actual } => write!(
                 formatter,
                 "respawn expected structure revision {expected} but current revision is {actual}"
             ),
@@ -136,35 +136,35 @@ impl ValidatedPlayerLogisticsRespawn {
     ) -> Result<(), PlayerLogisticsRespawnCommitError> {
         let actual_tick = state.tick();
         if actual_tick != self.expected_tick {
-            return Err(PlayerLogisticsRespawnCommitError::StaleSimulationTick {
+            return Err(PlayerLogisticsRespawnCommitError::SimulationTick {
                 expected: self.expected_tick,
                 actual: actual_tick,
             });
         }
         let actual_logistics = state.logistics().revision();
         if actual_logistics != self.expected_logistics_revision {
-            return Err(PlayerLogisticsRespawnCommitError::StaleLogisticsRevision {
+            return Err(PlayerLogisticsRespawnCommitError::LogisticsRevision {
                 expected: self.expected_logistics_revision,
                 actual: actual_logistics,
             });
         }
         let actual_world = state.world().revision();
         if actual_world != self.expected_world_revision {
-            return Err(PlayerLogisticsRespawnCommitError::StaleWorldRevision {
+            return Err(PlayerLogisticsRespawnCommitError::WorldRevision {
                 expected: self.expected_world_revision,
                 actual: actual_world,
             });
         }
         let actual_structure = state.structures().revision();
         if actual_structure != self.expected_structure_revision {
-            return Err(PlayerLogisticsRespawnCommitError::StaleStructureRevision {
+            return Err(PlayerLogisticsRespawnCommitError::StructureRevision {
                 expected: self.expected_structure_revision,
                 actual: actual_structure,
             });
         }
         self.carried.precheck(state).map_err(|error| match error {
             EmptyStockpileAllocationCommitError::StaleInventoryRevision { expected, actual } => {
-                PlayerLogisticsRespawnCommitError::StaleInventoryRevision { expected, actual }
+                PlayerLogisticsRespawnCommitError::InventoryRevision { expected, actual }
             }
         })
     }
@@ -176,9 +176,11 @@ impl ValidatedPlayerLogisticsRespawn {
             self.next_logistics_revision,
             self.expected_player,
             self.respawn_body,
-            carried_stockpile,
-            self.death_position,
-            &self.dropped_equipment,
+            super::state::PlayerRespawnCustody {
+                fresh_carried_stockpile: carried_stockpile,
+                death_position: self.death_position,
+                dropped_equipment: &self.dropped_equipment,
+            },
         );
         PlayerLogisticsRespawnOutcome {
             position: self.respawn_body.voxel_position(),

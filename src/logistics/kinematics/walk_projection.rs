@@ -149,7 +149,6 @@ impl PlayerWalkProjection {
         self.locomotion_exertion
     }
 
-    #[must_use]
     pub const fn resource_budget(self) -> SurvivalResourceBudget {
         self.resource_budget
     }

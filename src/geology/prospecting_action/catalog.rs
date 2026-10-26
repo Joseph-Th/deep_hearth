@@ -103,7 +103,6 @@ impl PlayerProspectingOption {
         self.resource_mass_resolution
     }
 
-    #[must_use]
     pub const fn work(&self) -> ProspectingWorkProjection {
         self.work
     }
@@ -118,12 +117,10 @@ impl PlayerProspectingOption {
         self.work.requires_equipment()
     }
 
-    #[must_use]
     pub fn accepted_instrument_definitions(&self) -> &[EquipmentDefinitionId] {
         &self.accepted_instrument_definitions
     }
 
-    #[must_use]
     pub fn instruments(&self) -> &[PlayerProspectingInstrumentOption] {
         &self.instruments
     }

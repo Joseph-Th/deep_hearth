@@ -335,19 +335,47 @@ fn unguarded_unlit_cell(
             < SCOUT_DETERRENT_LIGHT_LEVEL
 }
 
+/// One real three-stop patrol graph with the currently observed player position.
+/// Search methods may vary resource capacity or freshness time, but must not
+/// accidentally exchange the den, junction, or authored outer endpoint.
+#[derive(Clone, Copy)]
+pub(super) struct ScavengeRoute {
+    junction: VoxelCoord,
+    den: VoxelCoord,
+    authored_tip: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+}
+
+impl ScavengeRoute {
+    pub(super) const fn new(
+        [den, junction, authored_tip]: [VoxelCoord; 3],
+        player_position: Option<VoxelCoord>,
+    ) -> Self {
+        Self {
+            junction,
+            den,
+            authored_tip,
+            player_position,
+        }
+    }
+}
+
 /// Search only neighboring traversal cells, not the full history of world resources.
 /// Moving a whole parcel precedes splitting a bulky pile at the same route distance.
 pub(super) fn reachable_side_drop(
     registries: &Registries,
     state: &AppState,
-    junction: VoxelCoord,
-    den: VoxelCoord,
-    authored_tip: VoxelCoord,
-    player_position: Option<VoxelCoord>,
+    route: ScavengeRoute,
     capacity: Mass,
     at: SimulationTick,
     food_only: bool,
 ) -> Option<VoxelCoord> {
+    let ScavengeRoute {
+        junction,
+        den,
+        authored_tip,
+        player_position,
+    } = route;
     state
         .logistics()
         .traversable_destinations(junction)
@@ -377,14 +405,17 @@ pub(super) fn reachable_side_drop(
 pub(super) fn reachable_far_drop(
     registries: &Registries,
     state: &AppState,
-    junction: VoxelCoord,
-    den: VoxelCoord,
-    authored_tip: VoxelCoord,
-    player_position: Option<VoxelCoord>,
+    route: ScavengeRoute,
     capacity: Mass,
     at: SimulationTick,
     food_only: bool,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
+    let ScavengeRoute {
+        junction,
+        den,
+        authored_tip,
+        player_position,
+    } = route;
     state
         .logistics()
         .traversable_destinations(junction)
@@ -427,31 +458,16 @@ pub(super) fn reachable_far_drop(
 pub(super) fn reachable_detour_drop(
     registries: &Registries,
     state: &AppState,
-    junction: VoxelCoord,
-    den: VoxelCoord,
-    authored_tip: VoxelCoord,
-    player_position: Option<VoxelCoord>,
+    route: ScavengeRoute,
     capacity: Mass,
     at: SimulationTick,
     food_only: bool,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
-    let side = reachable_side_drop(
-        registries,
-        state,
-        junction,
-        den,
-        authored_tip,
-        player_position,
-        capacity,
-        at,
-        food_only,
-    );
+    let side = reachable_side_drop(registries, state, route, capacity, at, food_only);
     // Generic scrap must not gain knowledge of distant manufactured copper
     // just because that parcel is easier to lift than a nearer stone pile.
-    if !food_only {
-        if let Some(first) = side {
-            return Some((first, None));
-        }
+    if !food_only && let Some(first) = side {
+        return Some((first, None));
     }
     let whole_at = |position, minimum_mass| {
         state
@@ -468,26 +484,14 @@ pub(super) fn reachable_detour_drop(
     // A tiny intact fragment should not defeat a genuinely adequate ration
     // one more route edge away. When no full meal can be carried, retain the
     // existing whole-before-split, distance-first fallback for partial food.
-    if food_only {
-        if let Some(first) = side.filter(|first| whole_at(*first, SCOUT_MEAL_MASS)) {
-            return Some((first, None));
-        }
+    if food_only && let Some(first) = side.filter(|first| whole_at(*first, SCOUT_MEAL_MASS)) {
+        return Some((first, None));
     }
-    let far = reachable_far_drop(
-        registries,
-        state,
-        junction,
-        den,
-        authored_tip,
-        player_position,
-        capacity,
-        at,
-        food_only,
-    );
-    if food_only {
-        if let Some((first, goal)) = far.filter(|(_, goal)| whole_at(*goal, SCOUT_MEAL_MASS)) {
-            return Some((first, Some(goal)));
-        }
+    let far = reachable_far_drop(registries, state, route, capacity, at, food_only);
+    if food_only
+        && let Some((first, goal)) = far.filter(|(_, goal)| whole_at(*goal, SCOUT_MEAL_MASS))
+    {
+        return Some((first, Some(goal)));
     }
     if let Some(first) = side.filter(|first| whole_at(*first, Mass::ZERO)) {
         return Some((first, None));
@@ -504,13 +508,16 @@ pub(super) fn reachable_detour_drop(
 pub(super) fn reachable_side_food(
     registries: &Registries,
     state: &AppState,
-    junction: VoxelCoord,
-    den: VoxelCoord,
-    authored_tip: VoxelCoord,
-    player_position: Option<VoxelCoord>,
+    route: ScavengeRoute,
     at: SimulationTick,
     maximum_mass: Mass,
 ) -> Option<VoxelCoord> {
+    let ScavengeRoute {
+        junction,
+        den,
+        authored_tip,
+        player_position,
+    } = route;
     state
         .logistics()
         .traversable_destinations(junction)
@@ -532,13 +539,16 @@ pub(super) fn reachable_side_food(
 pub(super) fn reachable_far_food(
     registries: &Registries,
     state: &AppState,
-    junction: VoxelCoord,
-    den: VoxelCoord,
-    authored_tip: VoxelCoord,
-    player_position: Option<VoxelCoord>,
+    route: ScavengeRoute,
     at: SimulationTick,
     maximum_mass: Mass,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
+    let ScavengeRoute {
+        junction,
+        den,
+        authored_tip,
+        player_position,
+    } = route;
     state
         .logistics()
         .traversable_destinations(junction)
@@ -571,34 +581,13 @@ pub(super) fn reachable_far_food(
 pub(super) fn reachable_detour_food(
     registries: &Registries,
     state: &AppState,
-    junction: VoxelCoord,
-    den: VoxelCoord,
-    authored_tip: VoxelCoord,
-    player_position: Option<VoxelCoord>,
+    route: ScavengeRoute,
     at: SimulationTick,
     maximum_mass: Mass,
     meal_shortage: Mass,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
-    let side = reachable_side_food(
-        registries,
-        state,
-        junction,
-        den,
-        authored_tip,
-        player_position,
-        at,
-        maximum_mass,
-    );
-    let far = reachable_far_food(
-        registries,
-        state,
-        junction,
-        den,
-        authored_tip,
-        player_position,
-        at,
-        maximum_mass,
-    );
+    let side = reachable_side_food(registries, state, route, at, maximum_mass);
+    let far = reachable_far_food(registries, state, route, at, maximum_mass);
     match (side, far) {
         (Some(first), Some((second, goal))) => {
             let side_mass = best_local_forage(registries, state, first, at, maximum_mass)?.0;
@@ -674,14 +663,17 @@ fn engineered_drop_at(
 pub(super) fn reachable_inherited_salvage(
     registries: &Registries,
     state: &AppState,
-    junction: VoxelCoord,
+    route: ScavengeRoute,
     observer: VoxelCoord,
-    den: VoxelCoord,
-    authored_tip: VoxelCoord,
-    player_position: Option<VoxelCoord>,
     capacity: Mass,
     at: SimulationTick,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
+    let ScavengeRoute {
+        junction,
+        den,
+        authored_tip,
+        player_position,
+    } = route;
     if capacity.is_zero() {
         return None;
     }

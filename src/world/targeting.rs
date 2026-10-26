@@ -324,12 +324,18 @@ type RayCrossingCell = (VoxelCoord, CubeFace, BlockStateId);
 
 /// Include every face-adjacent cell touched on a tied boundary, not only the diagonal.
 /// Missing world truth fails closed before any interaction at that same distance.
+struct RayBoundaryCells {
+    touched: [Option<RayCrossingCell>; 7],
+    count: usize,
+    tied_axes: [bool; 3],
+}
+
 fn boundary_cells(
     state: &AppState,
     voxel: VoxelCoord,
     cursors: &[Option<AxisCursor>; 3],
     minimum: AxisCursor,
-) -> Result<([Option<RayCrossingCell>; 7], usize, [bool; 3]), PlayerBlockTargetError> {
+) -> Result<RayBoundaryCells, PlayerBlockTargetError> {
     let tied = std::array::from_fn(|index| {
         cursors[index].is_some_and(|cursor| cursor.same_distance(minimum))
     });
@@ -365,7 +371,11 @@ fn boundary_cells(
             count += 1;
         }
     }
-    Ok((touched, count, tied))
+    Ok(RayBoundaryCells {
+        touched,
+        count,
+        tied_axes: tied,
+    })
 }
 
 fn advance_ray_boundary<T>(
@@ -376,7 +386,11 @@ fn advance_ray_boundary<T>(
     minimum: AxisCursor,
     inspect: &mut impl FnMut(VoxelCoord, BlockStateId, Option<CubeFace>) -> VoxelTraceStep<T>,
 ) -> Result<VoxelTraceStep<T>, PlayerBlockTargetError> {
-    let (touched, count, tied) = boundary_cells(state, *voxel, cursors, minimum)?;
+    let RayBoundaryCells {
+        touched,
+        count,
+        tied_axes,
+    } = boundary_cells(state, *voxel, cursors, minimum)?;
     // Physical occlusion takes precedence over air-space selection at tied intersections.
     for solid in [true, false] {
         for &(candidate, face, block_state) in touched[..count].iter().flatten() {
@@ -388,11 +402,13 @@ fn advance_ray_boundary<T>(
             }
             match inspect(candidate, block_state, Some(face)) {
                 VoxelTraceStep::Continue => {}
-                outcome => return Ok(outcome),
+                outcome @ (VoxelTraceStep::Hit(_) | VoxelTraceStep::Blocked) => {
+                    return Ok(outcome);
+                }
             }
         }
     }
-    for (index, is_tied) in tied.into_iter().enumerate() {
+    for (index, is_tied) in tied_axes.into_iter().enumerate() {
         if is_tied {
             let cursor = cursors[index]
                 .as_mut()

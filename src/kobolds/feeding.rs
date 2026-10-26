@@ -17,7 +17,7 @@ use crate::survival::{FoodFreshness, freshness_from_history};
 use super::junkworks::{current_den_rig, den_needs_striker};
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::scavenging::{
-    den_cache_space, is_contestable_drop, is_portable_drop, is_servant_era_salvage,
+    ScavengeRoute, den_cache_space, is_contestable_drop, is_portable_drop, is_servant_era_salvage,
     matches_salvage_goal, reachable_inherited_salvage,
 };
 use super::{
@@ -288,13 +288,13 @@ fn clear_inert_cache_for_industry(
     at: SimulationTick,
 ) -> Option<SurfaceResourceId> {
     let colony = state.kobold_state().colony.as_ref()?;
-    if colony.mobilized_at.is_none() {
-        return None;
-    }
-    let tip = colony.route[2];
+    colony.mobilized_at?;
+    let route = ScavengeRoute::new(
+        colony.route,
+        state.logistics().player().map(|record| record.position()),
+    );
     let needs_striker = den_needs_striker(state, den);
     let protected_striker = current_den_rig(state, colony).map(|rig| rig.striker());
-    let player = state.logistics().player().map(|record| record.position());
     if !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
@@ -302,8 +302,8 @@ fn clear_inert_cache_for_industry(
     // If a whole visible component already fits, a raid needs no eviction.
     // Do not expel local matter merely to take a different, larger haul.
     if !free.is_zero()
-        && reachable_inherited_salvage(registries, state, junction, den, den, tip, player, free, at)
-            .is_some_and(|(first, far)| {
+        && reachable_inherited_salvage(registries, state, route, den, free, at).is_some_and(
+            |(first, far)| {
                 state
                     .surface()
                     .available_resources_at(Some(far.unwrap_or(first)))
@@ -312,7 +312,8 @@ fn clear_inert_cache_for_industry(
                             && is_portable_drop(item)
                             && item.remaining_mass() <= free
                     })
-            })
+            },
+        )
     {
         return None;
     }
@@ -342,9 +343,8 @@ fn clear_inert_cache_for_industry(
             if capacity <= free {
                 return None;
             }
-            let (first, far) = reachable_inherited_salvage(
-                registries, state, junction, den, den, tip, player, capacity, at,
-            )?;
+            let (first, far) =
+                reachable_inherited_salvage(registries, state, route, den, capacity, at)?;
             let target = far.unwrap_or(first);
             let whole = state
                 .surface()
