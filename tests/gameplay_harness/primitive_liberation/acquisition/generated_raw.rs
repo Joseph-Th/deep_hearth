@@ -44,9 +44,9 @@ fn move_player(
         .value()
         .checked_sub(started_at)
         .unwrap_or_else(|| panic!("liberation {context} movement completion precedes start"));
-    assert_eq!(
-        elapsed, 1,
-        "one bounded opening edge should settle within one slow-tick attention interval"
+    assert!(
+        (1..=3).contains(&elapsed),
+        "one bounded opening edge should settle within one tick, or after at most two actual lateral corrections"
     );
     elapsed
 }

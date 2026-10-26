@@ -11,12 +11,12 @@ use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::logistics::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
-    assess_player_carrying, project_player_adjacent_walk,
+    PlayerWalkProjectionError, assess_player_carrying, project_player_adjacent_walk,
 };
 use deep_hearth::persistence::validate_persistable_state;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::{advance_control_tick, advance_control_tick_with_input};
-use deep_hearth::spatial::VoxelCoord;
+use deep_hearth::spatial::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VoxelCoord};
 use deep_hearth::survival::assess_survival;
 use deep_hearth::world::{
     CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
@@ -107,12 +107,109 @@ pub(super) fn walk_continuous_body_adjacent_and_settle(
         .player()
         .map(|player| player.position())
         .unwrap_or_else(|| panic!("ordinary gameplay {context} lost admitted player"));
+    let mut alignment_controls = 0_u64;
+    let mut alignment_maneuvers = 0_u8;
+    // A voxel-center route can be clear even when a previous turn has stopped the real
+    // continuous body against one side of a narrow passage. Don't silently teleport the actor
+    // or flatten the terrain. Try at most two actual, exertion-bearing lateral maneuvers.
+    let projection = loop {
+        match project_player_adjacent_walk(registries, state, destination) {
+            Ok(projection) => break projection,
+            Err(PlayerWalkProjectionError::DestinationUnreachableBeforeBoundary { .. })
+                if alignment_maneuvers < 2 =>
+            {
+                alignment_maneuvers += 1;
+                let before = state
+                    .logistics()
+                    .player()
+                    .unwrap_or_else(|| panic!("ordinary gameplay {context} lost player"))
+                    .body();
+                let lateral_x = destination.z() != origin.z();
+                let lateral_origin = if lateral_x { origin.x() } else { origin.z() };
+                let lateral_position = if lateral_x {
+                    before.foot_position().x_nanometers()
+                } else {
+                    before.foot_position().z_nanometers()
+                };
+                let center = lateral_origin
+                    .checked_mul(NANOMETERS_PER_VOXEL)
+                    .and_then(|value| value.checked_add(NANOMETERS_PER_VOXEL / 2))
+                    .unwrap_or_else(|| {
+                        panic!("ordinary gameplay {context} corridor center overflow")
+                    });
+                let offset = lateral_position - center;
+                assert!(
+                    offset.unsigned_abs() > 150_000_000,
+                    "ordinary gameplay {context} route is obstructed even with a centered body: {origin:?}->{destination:?}, lateral offset {offset}nm"
+                );
+                let input = if offset > 0 {
+                    -CONTROL_INPUT_PARTS_PER_MILLION
+                } else {
+                    CONTROL_INPUT_PARTS_PER_MILLION
+                };
+                let (x, z) = if lateral_x { (input, 0) } else { (0, input) };
+                let correction = PlayerControlInput::new(
+                    HorizontalControlInput::new(x, z).unwrap_or_else(|error| {
+                        panic!("ordinary gameplay {context} lateral input invalid: {error}")
+                    }),
+                );
+                let before_survival = assess_survival(registries, state).unwrap_or_else(|| {
+                    panic!("ordinary gameplay {context} lost survival before lateral correction")
+                });
+                for _ in 0..2 {
+                    let _ = advance_control_tick_with_input(registries, state, correction)
+                        .unwrap_or_else(|error| {
+                            panic!("ordinary gameplay {context} lateral correction failed: {error}")
+                        });
+                    alignment_controls += 1;
+                    assert_eq!(
+                        state.logistics().player().map(|player| player.position()),
+                        Some(origin),
+                        "ordinary gameplay {context} lateral correction left the known passage"
+                    );
+                }
+                for _ in 0..10 {
+                    let player = state.logistics().player().unwrap_or_else(|| {
+                        panic!("ordinary gameplay {context} lost player while braking")
+                    });
+                    if player.body().horizontal_velocity() == HorizontalVelocity::ZERO {
+                        break;
+                    }
+                    let _ = advance_control_tick(registries, state).unwrap_or_else(|error| {
+                        panic!("ordinary gameplay {context} lateral braking failed: {error}")
+                    });
+                    alignment_controls += 1;
+                }
+                assert!(
+                    state.logistics().player().is_some_and(|player| {
+                        player.position() == origin
+                            && player.body().horizontal_velocity() == HorizontalVelocity::ZERO
+                    }),
+                    "ordinary gameplay {context} could not stop its physical lateral maneuver"
+                );
+                while !state.control_tick().is_simulation_boundary() {
+                    let _ = advance_control_tick(registries, state).unwrap_or_else(|error| {
+                        panic!("ordinary gameplay {context} lateral settlement failed: {error}")
+                    });
+                    alignment_controls += 1;
+                }
+                let after_survival = assess_survival(registries, state).unwrap_or_else(|| {
+                    panic!("ordinary gameplay {context} lost survival after lateral correction")
+                });
+                assert!(
+                    after_survival.metabolic_energy() < before_survival.metabolic_energy(),
+                    "ordinary gameplay {context} physical correction incurred no simulated time cost"
+                );
+            }
+            Err(error) => panic!(
+                "ordinary gameplay {context} walk projection failed after {alignment_maneuvers} lateral maneuvers/{alignment_controls} control ticks: {error}; body={:?} carry={:?}",
+                state.logistics().player().map(|player| player.body()),
+                assess_player_carrying(state)
+            ),
+        }
+    };
     let survival_before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("ordinary gameplay {context} lost survival before movement"));
-    let projection =
-        project_player_adjacent_walk(registries, state, destination).unwrap_or_else(|error| {
-            panic!("ordinary gameplay {context} walk projection failed: {error}")
-        });
     let x = i32::try_from(destination.x() - origin.x())
         .unwrap_or_else(|_| unreachable!("adjacent gameplay x delta fits i32"))
         * CONTROL_INPUT_PARTS_PER_MILLION;
@@ -185,7 +282,7 @@ pub(super) fn walk_continuous_body_adjacent_and_settle(
         Some(projection.resource_budget().hydration()),
         "ordinary gameplay {context} did not settle projected hydration"
     );
-    control_ticks
+    control_ticks + alignment_controls
 }
 
 fn assert_trusted_persistence_ready(

@@ -11,7 +11,9 @@ mod validation;
 pub(crate) use consumption::freshness_from_history;
 
 pub use assessment::{
-    HungerState, HydrationState, SurvivalAssessment, ThermalComfortState, assess_survival,
+    HungerState, HydrationState, PlayerRestingProvisionRunway, PlayerUnheatedComfortRunway,
+    SurvivalAssessment, ThermalComfortState, assess_player_resting_provision_runway,
+    assess_player_unheated_comfort_runway, assess_survival,
 };
 pub use consumption::{
     AdjacentDrinkSource, DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome,

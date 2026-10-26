@@ -2,10 +2,142 @@
 
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
+use crate::core::time::TickSpan;
+use crate::logistics::{PlayerOverheadCoverAssessment, assess_player_overhead_cover};
 use crate::registry::Registries;
 
 use super::state::PlayerSurvivalRecord;
-use super::{NUTRITION_PARTS_PER_MILLION, NutritionReserves, PhysiologyDefinition, Vitality};
+use super::{
+    NUTRITION_PARTS_PER_MILLION, NutritionReserves, PhysiologyDefinition, ThermalExposure, Vitality,
+};
+
+/// Conditional warmth runway at the player's current position, assuming no local heat.
+///
+/// This is an actionable forecast, not a promise about weather, travel or future fuel. The
+/// two cover alternatives show the physical value of securing a roof; only `current()`
+/// describes the player's actual terrain and active structures. Missing world authority
+/// cannot be mistaken for open sky or for shelter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerUnheatedComfortRunway {
+    overhead_cover: PlayerOverheadCoverAssessment,
+    current: Option<TickSpan>,
+    if_open: TickSpan,
+    if_covered: TickSpan,
+}
+
+/// Time until the player's first hunger/thirst warning while resting without intake.
+/// Movement, labor, meals, illness or other future changes invalidate these conditional
+/// estimates; they are not a guarantee of uninterrupted safe travel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerRestingProvisionRunway {
+    hungry_in: Option<TickSpan>,
+    thirsty_in: Option<TickSpan>,
+}
+
+impl PlayerRestingProvisionRunway {
+    /// `None` means no finite duration is representable at this resting rate.
+    #[must_use]
+    pub const fn hungry_in(self) -> Option<TickSpan> {
+        self.hungry_in
+    }
+
+    #[must_use]
+    pub const fn thirsty_in(self) -> Option<TickSpan> {
+        self.thirsty_in
+    }
+}
+
+fn warning_runway(remaining: u128, warning: u128, loss: u128) -> Option<TickSpan> {
+    // A zero threshold still has a real zero-reserve emergency state.
+    let comfortable_floor = warning.max(1);
+    if remaining < comfortable_floor {
+        return Some(TickSpan::ZERO);
+    }
+    if loss == 0 {
+        return None;
+    }
+    let to_spend = remaining - comfortable_floor + 1;
+    u64::try_from(to_spend.div_ceil(loss))
+        .ok()
+        .map(TickSpan::new)
+}
+
+/// A player-visible resting baseline for deciding whether to provision before work or travel.
+/// Uses the same current reserves and basal costs as survival execution, without assuming that
+/// later locomotion or manual work is free.
+#[must_use]
+pub fn assess_player_resting_provision_runway(
+    registries: &Registries,
+    state: &AppState,
+) -> Option<PlayerRestingProvisionRunway> {
+    let player = state.survival().player()?;
+    let physiology = registries.survival().physiology();
+    Some(PlayerRestingProvisionRunway {
+        hungry_in: warning_runway(
+            player.metabolic_energy().nanojoules(),
+            physiology.hungry_below().nanojoules(),
+            physiology.basal_energy_cost_per_tick().nanojoules(),
+        ),
+        thirsty_in: warning_runway(
+            u128::from(player.hydration().microliters()),
+            u128::from(physiology.thirsty_below().microliters()),
+            u128::from(physiology.hydration_loss_per_tick().microliters()),
+        ),
+    })
+}
+
+impl PlayerUnheatedComfortRunway {
+    #[must_use]
+    pub const fn overhead_cover(self) -> PlayerOverheadCoverAssessment {
+        self.overhead_cover
+    }
+
+    /// Ticks until the first chilly/cold state if today's exposure and zero heat persist.
+    /// Unknown terrain/roof truth produces `None`, not an invented estimate.
+    #[must_use]
+    pub const fn current(self) -> Option<TickSpan> {
+        self.current
+    }
+
+    #[must_use]
+    pub const fn if_open(self) -> TickSpan {
+        self.if_open
+    }
+
+    #[must_use]
+    pub const fn if_covered(self) -> TickSpan {
+        self.if_covered
+    }
+}
+
+/// Combines real current cover, live survival reserve and authored warmth loss.
+/// The projection is deliberately conditional on staying in place without a heat source.
+#[must_use]
+pub fn assess_player_unheated_comfort_runway(
+    registries: &Registries,
+    state: &AppState,
+) -> Option<PlayerUnheatedComfortRunway> {
+    let player = state.survival().player()?;
+    let cover = assess_player_overhead_cover(registries, state)?;
+    let comfort = registries.survival().physiology().thermal_comfort();
+    let if_open = comfort
+        .ticks_until_unheated_discomfort(player.thermal_comfort_ppm(), ThermalExposure::Open);
+    let if_covered = comfort.ticks_until_unheated_discomfort(
+        player.thermal_comfort_ppm(),
+        ThermalExposure::OverheadCover,
+    );
+    let current = match cover {
+        PlayerOverheadCoverAssessment::Open => Some(if_open),
+        PlayerOverheadCoverAssessment::Covered => Some(if_covered),
+        PlayerOverheadCoverAssessment::WorldUnavailable => None,
+    };
+    Some(PlayerUnheatedComfortRunway {
+        overhead_cover: cover,
+        current,
+        if_open,
+        if_covered,
+    })
+}
 
 /// Qualitative energy state derived from authored physiology thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,6 +287,10 @@ pub(super) fn assess_record(
         thermal_comfort_state,
     }
 }
+
+#[cfg(test)]
+#[path = "assessment_tests.rs"]
+mod tests;
 
 fn diet_recovery_numerator(physiology: PhysiologyDefinition, nutrition: NutritionReserves) -> u64 {
     u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())

@@ -650,9 +650,16 @@ pub(super) fn acquire_raw_kit<T>(
         fabrication_attention,
         "liberation fabrication phases must account for the full post-gathering fabrication wall"
     );
-    assert_eq!(
-        generated_raw.travel_ticks, projected_attention.travel_ticks,
-        "liberation opening-graph travel diverged from the pre-action projection"
+    let extra_travel_ticks = generated_raw
+        .travel_ticks
+        .checked_sub(projected_attention.travel_ticks)
+        .unwrap_or_else(|| {
+            panic!("liberation physical travel was somehow shorter than the visible route minimum")
+        });
+    assert!(
+        extra_travel_ticks <= projected_attention.travel_ticks,
+        "liberation physical route required {extra_travel_ticks} extra slow ticks for {} edges; the projected minimum no longer represents a reasonable first-order route plan",
+        projected_attention.travel_ticks
     );
     assert_eq!(
         generated_raw.gathering_ticks, projected_attention.gathering_ticks,
@@ -672,8 +679,12 @@ pub(super) fn acquire_raw_kit<T>(
         "liberation travel, gathering, and fabrication must account for the complete acquisition wall"
     );
     assert_eq!(
-        attention, projected_attention.total_ticks,
-        "liberation complete acquisition attention diverged from the pre-action projection"
+        attention,
+        projected_attention
+            .total_ticks
+            .checked_add(extra_travel_ticks)
+            .unwrap_or_else(|| panic!("liberation observed detour cost overflowed")),
+        "liberation acquisition must account for real body corrections separately from the minimum-path investment estimate"
     );
     let metabolic = survival_before
         .metabolic_energy()
@@ -684,7 +695,7 @@ pub(super) fn acquire_raw_kit<T>(
         .checked_sub(survival_after.hydration())
         .unwrap_or_else(|| panic!("liberation kit hydration reserve increased"));
     reviewln!(
-        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} evidence={} scope=progression-carryover->incremental-liberation-kit branch={} continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=ordinary-generated-opening-graph acquisition=continuous-body-travel+local-gather carried-custody=finite@moving-player runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=true disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t travel:{}t gathering:{}t fabrication=[total:{}t adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} evidence={} scope=progression-carryover->incremental-liberation-kit branch={} continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=ordinary-generated-opening-graph acquisition=continuous-body-travel+local-gather carried-custody=finite@moving-player runtime-surface-gathering-proved=true ordinary-world-source-generation-proved=true disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t travel:{}t travel-minimum:{}t body-correction-extra:{}t gathering:{}t fabrication=[total:{}t adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
         if selected_build {
             "actor-selected"
         } else {
@@ -706,6 +717,8 @@ pub(super) fn acquire_raw_kit<T>(
         remaining_raw.milligrams(),
         attention,
         generated_raw.travel_ticks,
+        projected_attention.travel_ticks,
+        extra_travel_ticks,
         generated_raw.gathering_ticks,
         fabrication_attention,
         adze_attention,

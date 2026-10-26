@@ -113,6 +113,69 @@ fn unheated_discomfort_projection_honors_strict_warning_and_roof_exposure() {
 }
 
 #[test]
+fn player_warmth_forecast_does_not_invent_cover_for_unloaded_world() {
+    use crate::content::build_registries;
+    use crate::core::state::AppState;
+    use crate::logistics::PlayerOverheadCoverAssessment;
+    use crate::player::validate_admit_player;
+    use crate::spatial::VoxelCoord;
+    use crate::survival::assess_player_unheated_comfort_runway;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    assert_eq!(
+        assess_player_unheated_comfort_runway(&registries, &state),
+        None
+    );
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let forecast = assess_player_unheated_comfort_runway(&registries, &state)
+        .expect("admitted player should have conditional thermal alternatives");
+    assert_eq!(
+        forecast.overhead_cover(),
+        PlayerOverheadCoverAssessment::WorldUnavailable
+    );
+    assert_eq!(forecast.current(), None);
+    assert!(forecast.if_open() < forecast.if_covered());
+}
+
+#[test]
+fn player_resting_provision_forecast_tracks_actual_basal_consumption() {
+    use crate::content::build_registries;
+    use crate::core::state::AppState;
+    use crate::player::validate_admit_player;
+    use crate::simulation::advance_tick;
+    use crate::spatial::VoxelCoord;
+    use crate::survival::assess_player_resting_provision_runway;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    assert_eq!(
+        assess_player_resting_provision_runway(&registries, &state),
+        None
+    );
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let before = assess_player_resting_provision_runway(&registries, &state).unwrap();
+    assert!(before.hungry_in().unwrap().value() > 1);
+    assert!(before.thirsty_in().unwrap().value() > 1);
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let after = assess_player_resting_provision_runway(&registries, &state).unwrap();
+    assert_eq!(
+        before.hungry_in().unwrap().value(),
+        after.hungry_in().unwrap().value() + 1
+    );
+    assert_eq!(
+        before.thirsty_in().unwrap().value(),
+        after.thirsty_in().unwrap().value() + 1
+    );
+}
+
+#[test]
 fn zero_thermal_warning_projects_to_cold_instead_of_an_unreachable_chilly_band() {
     let thermal = ThermalComfortDefinition::new(0, 2, 1, 1, Energy::from_nanojoules(1), 1);
     assert_eq!(

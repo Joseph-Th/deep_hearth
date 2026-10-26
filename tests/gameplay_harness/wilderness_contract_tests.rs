@@ -77,7 +77,8 @@ use deep_hearth::surface::{
 };
 use deep_hearth::survival::{
     AdjacentDrinkSource, FoodCategory, FoodStackPortion, SurvivalExertion, SurvivalResourceBudget,
-    ThermalComfortState, assess_survival, available_adjacent_drink_sources,
+    ThermalComfortState, assess_player_resting_provision_runway,
+    assess_player_unheated_comfort_runway, assess_survival, available_adjacent_drink_sources,
     available_local_drink_sources, project_survival_resource_budget,
     validate_drink_store_to_hydration_target, validate_eat_stack_portions,
     validate_eat_stack_to_metabolic_target,
@@ -710,6 +711,8 @@ pub(super) struct WildernessOpeningReview {
     pub(super) seed: u64,
     pub(super) start_profile: WildernessStartProfile,
     pub(super) camp_goal: WildernessCampGoal,
+    pub(super) start_hunger_warning_ticks: u64,
+    pub(super) start_thirst_warning_ticks: u64,
     pub(super) food_secured_ticks: u64,
     pub(super) camp_ticks: u64,
     pub(super) forage_opportunity_mass_mg: u64,
@@ -1786,6 +1789,13 @@ fn extend_worksite_with_shelter(
         Some(PlayerOverheadCoverAssessment::Open),
         "planned long-stay roof must not reduce exposure"
     );
+    let unfinished_forecast = assess_player_unheated_comfort_runway(registries, state)
+        .unwrap_or_else(|| panic!("unfinished roof has no player-facing warmth forecast"));
+    assert_eq!(
+        unfinished_forecast.current(),
+        Some(unfinished_forecast.if_open()),
+        "in-progress construction must not claim future roof protection"
+    );
     advance_to(
         registries,
         state,
@@ -1804,6 +1814,17 @@ fn extend_worksite_with_shelter(
             .logistics()
             .player()
             .map(|player| player.body().foot_position()),
+    );
+    let completed_forecast = assess_player_unheated_comfort_runway(registries, state)
+        .unwrap_or_else(|| panic!("completed roof has no player-facing warmth forecast"));
+    assert_eq!(
+        completed_forecast.current(),
+        Some(completed_forecast.if_covered()),
+        "finished physical cover should immediately change the actor's actual warmth runway"
+    );
+    assert!(
+        completed_forecast.if_covered() > completed_forecast.if_open(),
+        "the roof should buy more unheated time from the same current survival reserves"
     );
 
     // Isolate the roof's authored exposure consequence in an exact continuation of the completed
@@ -1964,6 +1985,16 @@ fn evaluate_generated_wilderness_opening_internal(
         "generated wilderness carrying must expose authored body capability"
     );
     assert_ordinary_admitted_runtime_ready(&registries, &state, "generated wilderness opening");
+    let provision_forecast = assess_player_resting_provision_runway(&registries, &state)
+        .unwrap_or_else(|| panic!("wilderness start lacks player-visible provisioning forecast"));
+    let start_hunger_warning_ticks = provision_forecast
+        .hungry_in()
+        .unwrap_or_else(|| panic!("wilderness hunger warning horizon is not finite"))
+        .value();
+    let start_thirst_warning_ticks = provision_forecast
+        .thirsty_in()
+        .unwrap_or_else(|| panic!("wilderness thirst warning horizon is not finite"))
+        .value();
     assert!(
         state.available_local_ground_stockpiles().next().is_none(),
         "the opening should not begin with an empty ground staging pile masquerading as player storage"
@@ -4014,6 +4045,8 @@ fn evaluate_generated_wilderness_opening_internal(
         seed: seed.value(),
         start_profile,
         camp_goal,
+        start_hunger_warning_ticks,
+        start_thirst_warning_ticks,
         food_secured_ticks,
         camp_ticks: elapsed_ticks,
         forage_opportunity_mass_mg: forage_opportunity_mass.milligrams(),
@@ -4135,8 +4168,10 @@ fn print_player_journey(registries: &Registries, review: WildernessOpeningReview
     let goal = review.camp_goal.label();
     let episode = format!("{sample}/{}/{goal}", review.start_profile.label());
     std::println!(
-        "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} initial={} first-provisions=[{}g berries in {} patch-left:{}g] water=[adjacent:known quantity-before-visit:unknown choice:{} consumed:{}mL]",
+        "PLAYER JOURNEY seed=0x{seed:016X} episode={episode} goal={goal} initial={} resting-forecast=[hungry-in:{} thirsty-in:{} conditional-on-no-work] first-provisions=[{}g berries in {} patch-left:{}g] water=[adjacent:known quantity-before-visit:unknown choice:{} consumed:{}mL]",
         review.start_profile.label(),
+        physical_hours_tenths(registries, review.start_hunger_warning_ticks),
+        physical_hours_tenths(registries, review.start_thirst_warning_ticks),
         review.gathered_food_mass_mg / 1_000,
         physical_minutes_tenths(registries, review.food_secured_ticks),
         review.forage_remaining_mass_mg / 1_000,
@@ -4257,11 +4292,33 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         print_player_journey(&registries, review, sample);
     }
     if let Some(adaptation) = review.mobile_adaptation {
+        // The observer has taken no player actions during this entire interval. Reporting
+        // the next thermal event without its passive gap makes a shallow opening look like
+        // an engaging ten-minute sequence. Preserve the dead time in the player evidence.
+        let observed_elapsed = review
+            .camp_ticks
+            .checked_add(adaptation.exposed_ticks)
+            .unwrap_or_else(|| panic!("wilderness player-tempo clock overflowed"));
+        let passive_share = u128::from(adaptation.exposed_ticks)
+            .checked_mul(100)
+            .unwrap_or_else(|| panic!("wilderness passive-share numerator overflowed"))
+            / u128::from(observed_elapsed);
+        std::println!(
+            "PLAYER TEMPO seed=0x{:016X} episode={sample}/{}/{} opening-elapsed:{} active-goal-after-opening:none passive-until-next-pressure:{} ({}% of elapsed-to-warning) next-problem=chilly actionable-at-opening=[storage-deferred material-deferred warmth-forecast:{}t roof-if-built:{}t]",
+            review.seed,
+            review.start_profile.label(),
+            review.camp_goal.label(),
+            physical_minutes_tenths(&registries, review.camp_ticks),
+            physical_minutes_tenths(&registries, adaptation.exposed_ticks),
+            passive_share,
+            adaptation.projected_unheated_ticks,
+            adaptation.covered_unheated_ticks,
+        );
         // Retain the same actor's later, organically triggered decision in episode-filtered
         // replays. The original aggregate adaptation record has no episode key and is omitted
         // by design when the reader asks for one continuous player experience.
         std::println!(
-            "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=observed-chill after:{} response=[reactive-fire:{}t recovered:{}t comfort:{}ppm no-fire:{}ppm] alternative=[prepare-at:{}t comfort:{}ppm remaining-fuel:{}t vs-reactive:{}t] tradeoff=prepare-early-for-warmth-or-react-later-to-save-fuel",
+            "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=observed-chill after-passive-exposure:{} response=[reactive-fire:{}t recovered:{}t comfort:{}ppm no-fire:{}ppm] alternative=[prepare-at:{}t comfort:{}ppm remaining-fuel:{}t vs-reactive:{}t] tradeoff=prepare-early-for-warmth-or-react-later-to-save-fuel",
             review.seed,
             review.start_profile.label(),
             review.camp_goal.label(),

@@ -237,9 +237,10 @@ pub(super) fn project_incremental_kit_acquisition_attention(
     // The extension is assembled beside the inherited processing line at spawn. Production owns
     // the bounded opening topology, including the minimum route that visits both material leaves
     // and returns without detouring through optional water.
-    // Maintained execution requires every adjacent continuous-body leg to settle within one slow
-    // interval, so pre-action attention equals the minimum route's leg count. This is evaluator
-    // accounting, not a second movement-duration definition.
+    // The shortest route needs one slow interval per edge, but a continuous body can need
+    // corrective lateral steps after turns (especially when carrying a load). Without knowing
+    // the future exact resting body position, this is an optimistic *minimum*, not an exact
+    // arrival promise. The execution witness records any extra physical maneuver time.
     let travel_ticks = INITIAL_WILDERNESS_MATERIAL_ROUND_TRIP_LEGS;
     let mut gathering_ticks = 0_u64;
     for (commodity, mass) in &plan.raw_requirements {

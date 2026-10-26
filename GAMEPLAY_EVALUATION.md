@@ -4,6 +4,8 @@
 
 Use [`TESTING.md`](TESTING.md) for test selection and completion,
 [`STATUS.md`](STATUS.md) for reachability, and [`README.md`](README.md) for project routing.
+For the cross-system player-fantasy assessment, observed weak points, and high-fidelity
+experiment criteria, see [`PLAYER_EXPERIENCE_REVIEW.md`](PLAYER_EXPERIENCE_REVIEW.md).
 
 `tests/gameplay_harness/` evaluates player-facing behavior through production APIs. Controlled setup may create
 capability-only state; setup never establishes ordinary reachability.
@@ -216,6 +218,18 @@ transport costs to one fictitious actor.
 Concise reports retain one maintained exact-local wilderness player's first provisions,
 restraint, carried burden, remaining finite sources, and elapsed time. A separately executed
 cold-response continuation shows how that restraint changes when comfort becomes scarce.
+The mobile continuation reports its action-free exposure interval and percentage of elapsed
+time explicitly; waiting for an engineered warning is not credited as engaging player work.
+Its thermal forecast comes from the same player-facing cover-aware survival projection
+available to ordinary runtime callers, including the hypothetical benefit of already having
+a roof. Unknown world cover is not treated as open sky.
+The opening also reports basal hunger/thirst-warning horizons from the player-facing
+provisioning projection, so deferring food or water has a visible reason. These are explicitly
+resting, no-intake estimates, not predictions that ignore the cost of hauling or labor.
+The moving liberation kit witness keeps the minimum eight-edge opening route distinct from
+the physical travel time. Continuous-body lateral realignment on a loaded return leg must
+be executed via real input, settled and separately reported rather than regarded as a
+failed graph edge or erased from the projected attention comparison.
 The compact maintained journey includes the later actual campfire intervention and a clearly
 marked matched earlier-preparation alternative, rather than repeating the entire verbose event
 or implying the early fire was built by the actual late-reacting player.

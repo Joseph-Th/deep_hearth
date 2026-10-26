@@ -7,6 +7,7 @@ use super::*;
 pub(crate) struct MobileColdResponse {
     pub(super) exposed_ticks: u64,
     pub(super) projected_unheated_ticks: u64,
+    pub(super) covered_unheated_ticks: u64,
     pub(super) cold_comfort_ppm: u32,
     pub(super) first_fueled_tick: u64,
     pub(super) recovery_ticks: u64,
@@ -207,19 +208,26 @@ pub(super) fn evaluate_mobile_cold_response(
         state.available_local_ground_stockpiles().next().is_none(),
         "the minimalist actor should not inherit an unearned camp"
     );
-    let physiology = registries.survival().physiology();
-    let warning = physiology.thermal_comfort().warning_below_ppm();
+    let forecast = assess_player_unheated_comfort_runway(registries, &state)
+        .unwrap_or_else(|| panic!("mobile actor lacks an observable warmth forecast"));
     assert_eq!(
-        assess_player_overhead_cover(registries, &state),
-        Some(PlayerOverheadCoverAssessment::Open),
+        forecast.overhead_cover(),
+        PlayerOverheadCoverAssessment::Open,
         "mobile actor's unheated runway must use the actually observed roof exposure"
     );
-    let predicted_discomfort = physiology
+    let predicted_discomfort = forecast
+        .current()
+        .unwrap_or_else(|| panic!("generated wilderness has no current roof truth"));
+    assert_eq!(forecast.if_open(), predicted_discomfort);
+    assert!(
+        forecast.if_covered() > predicted_discomfort,
+        "the actual player-facing forecast should expose why overhead shelter is worth considering"
+    );
+    let warning = registries
+        .survival()
+        .physiology()
         .thermal_comfort()
-        .ticks_until_unheated_discomfort(
-            initial.thermal_comfort_ppm(),
-            deep_hearth::survival::ThermalExposure::Open,
-        );
+        .warning_below_ppm();
 
     // A new need is discovered by normal elapsed physical time. Stop on the observation
     // boundary rather than advancing an evaluator-chosen fixed number of ticks.
@@ -401,6 +409,7 @@ pub(super) fn evaluate_mobile_cold_response(
     MobileColdResponse {
         exposed_ticks,
         projected_unheated_ticks: predicted_discomfort.value(),
+        covered_unheated_ticks: forecast.if_covered().value(),
         cold_comfort_ppm: cold_comfort,
         first_fueled_tick: after_fuel
             .checked_duration_since(started)
@@ -421,8 +430,10 @@ pub(super) fn evaluate_mobile_cold_response(
 
 pub(super) fn print_mobile_cold_response(registries: &Registries, review: MobileColdResponse) {
     std::println!(
-        "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated:{}t conditional-on-open-cover] trigger=chilly/{}ppm after:{}t/{} reactive=[stone-ring:built fuel:{}g trips:2 light:{} recovered:{}t fueled:{}t comfort:{}ppm no-fire:{}ppm] planned=[start:{}t fueled:{}t comfort:{}ppm fire-runway:{}t vs-reactive:{}t] custody=[timber-left:{}g matter-conserved:true] mode=same-generated-world",
+        "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:{}t roof-if-built:{}t no-local-heat] passive-exposure={} trigger=chilly/{}ppm after:{}t/{} reactive=[stone-ring:built fuel:{}g trips:2 light:{} recovered:{}t fueled:{}t comfort:{}ppm no-fire:{}ppm] planned=[start:{}t fueled:{}t comfort:{}ppm fire-runway:{}t vs-reactive:{}t] custody=[timber-left:{}g matter-conserved:true] mode=same-generated-world",
         review.projected_unheated_ticks,
+        review.covered_unheated_ticks,
+        physical_minutes_tenths(registries, review.exposed_ticks),
         review.cold_comfort_ppm,
         review.exposed_ticks,
         physical_minutes_tenths(registries, review.exposed_ticks),
