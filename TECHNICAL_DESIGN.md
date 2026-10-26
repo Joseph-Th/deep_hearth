@@ -32,7 +32,7 @@ Implemented systems exchange a small set of authoritative flows:
 | Matter | Moves through explicit custody; creation/destruction requires an authored physical source/sink. |
 | Fluid | Finite stores own volume; withdrawal/consumption, same-voxel manual decant, and immediate one-voxel downward gravity feed are explicit. Generic transport is absent. |
 | Energy | Finite stores and work records own stored/reserved energy; losses are explicit sinks. Player-tended combustion, energy-store assembly, and energy-store upgrades reject active exclusive work at validation and commit without restricting headless owner execution. |
-| Labor | `PlayerWorkState` owns exclusive attention; survival supplies physiological work budget. Admitted-player equipment assembly and upgrades cannot run alongside active work, including across validation-to-commit transitions; headless material owner execution remains available. |
+| Labor | `PlayerWorkState` owns exclusive timed attention; survival supplies physiological work budget. A raised, prepared melee weapon excludes timed player work, including across validation-to-commit transitions. Admitted-player equipment assembly and upgrades cannot run alongside active work; headless material owner execution remains available. |
 | Information | Hidden geology becomes actor-usable only through acquired `GeologicalKnowledgeState`. |
 | Support/load | Structures own support; endpoint owners contribute source-separated load. |
 | Capacity/time | Reservations, occupancy, and persisted schedules protect delayed work from double booking. |

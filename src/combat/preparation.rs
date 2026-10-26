@@ -206,6 +206,9 @@ pub(crate) fn validate_loaded_combat_references(
     {
         return Err("dead or absent actor cannot retain a prepared strike");
     }
+    if state.player_work().active().is_some() {
+        return Err("prepared strike cannot coexist with exclusive player work");
+    }
     let weapon = state
         .equipment()
         .get_equipment(prepared.weapon)

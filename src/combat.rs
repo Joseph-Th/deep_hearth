@@ -63,6 +63,9 @@ impl CombatState {
         self.prepared
             .is_some_and(|strike| strike.weapon == equipment)
     }
+    pub(crate) const fn has_prepared_strike(&self) -> bool {
+        self.prepared.is_some()
+    }
     /// A resident cannot remember a blow later than the last player attack.
     pub(crate) fn admits_contact_at(&self, at: ControlTick) -> bool {
         self.last_attack_at.is_some_and(|last| last >= at)

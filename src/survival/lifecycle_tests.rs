@@ -145,8 +145,7 @@ fn a_day_of_unreplenished_diet_exposes_a_useful_recovery_choice() {
     let day = registries.core().calendar().ticks_per_day();
     let daily_decay = u32::try_from(u64::from(nutrition.decay_ppm_per_tick()) * day)
         .unwrap_or_else(|_| panic!("authored daily nutrition decay exceeds u32"));
-    // Recent diet must influence a sustained expedition. The previous multi-day reserve
-    // barely changed across a player's entire initial recovery and hid food-group choices.
+    // Daily reserve decay keeps food-group choices consequential during expeditions.
     assert_eq!(daily_decay, 600_000);
     let depleted = NutritionReserves::FULL.decay(daily_decay);
     assert_eq!(depleted.quality_ppm(), 400_000);

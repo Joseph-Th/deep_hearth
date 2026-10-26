@@ -888,6 +888,97 @@ fn prepared_club_strike_waits_for_windup_commits_live_contact_and_replays() {
 }
 
 #[test]
+fn prepared_melee_stance_excludes_timed_work_and_stales_prior_work_admission() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::core::time::TickSpan;
+    use crate::labor::{PlayerWork, PlayerWorkCommitError, PlayerWorkStartError};
+    use crate::production::ProductionJobId;
+    use crate::survival::SurvivalExertion;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let work = PlayerWork::ManualProduction {
+        job: ProductionJobId::new(1),
+    };
+    let authorized_before_preparation = crate::labor::validate_player_work_start(
+        &registries,
+        &state,
+        work,
+        TickSpan::new(1),
+        SurvivalExertion::REST,
+    )
+    .unwrap();
+    let before_revision = state.combat().revision();
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let after_revision = state.combat().revision();
+    let held_state = state.clone();
+
+    assert_eq!(
+        authorized_before_preparation.precheck(&state),
+        Err(PlayerWorkCommitError::StaleCombatRevision {
+            expected: before_revision,
+            actual: after_revision,
+        })
+    );
+    assert_eq!(
+        crate::labor::validate_player_work_start(
+            &registries,
+            &state,
+            work,
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+        )
+        .err(),
+        Some(PlayerWorkStartError::PreparedStrikeActive)
+    );
+    assert_eq!(state, held_state);
+    assert_eq!(state.combat().prepared.map(|p| p.weapon), Some(club));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    // Forge the impossible cross-owner combination without passing through
+    // work admission, then check the trusted-load combat reference boundary.
+    let mut impossible = state.clone();
+    let work_revision = impossible.player_work().revision();
+    impossible.player_work_state_mut().apply_start(
+        work_revision,
+        work_revision + 1,
+        work,
+    );
+    assert_eq!(
+        preparation::validate_loaded_combat_references(registries.equipment(), &impossible),
+        Err("prepared strike cannot coexist with exclusive player work")
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+
+    let _ = validate_cancel_primitive_preparation(&state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(
+        crate::labor::validate_player_work_start(
+            &registries,
+            &state,
+            work,
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn trusted_combat_recovery_accepts_the_authored_prepared_maximum_only() {
     let registries = build_registries();
     let mut state = AppState::new();

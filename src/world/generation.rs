@@ -859,8 +859,8 @@ fn first_surface_resource_collision(
                 .block_for_state(chunk.block_at(resource.position()))
                 .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
         })
-        // The spatial index walks voxels; preserve the old ID-first result
-        // when more than one parcel conflicts with terrain admission.
+        // Report the lowest parcel ID when multiple resources conflict,
+        // independently of spatial-index traversal order.
         .min_by_key(|resource| resource.id())
         .map(|resource| resource.position())
 }
@@ -1047,9 +1047,10 @@ fn first_infrastructure_prospective_temple_collision(
 ) -> Option<VoxelCoord> {
     first_prospective_temple_overlap(registries.world(), profile, coord, |voxel| {
         state.logistics().has_stationary_occupant_at(voxel)
-            || state.structures().elements().any(|element| {
-                !element.embodied_material().is_empty() && element.bounds().has_voxel(voxel)
-            })
+            || state
+                .structures()
+                .elements_covering(voxel)
+                .any(|element| !element.embodied_material().is_empty())
     })
 }
 

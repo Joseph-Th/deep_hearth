@@ -30,6 +30,7 @@ pub enum PlayerWorkStartError {
     PlayerDead,
     PlayerAirborne,
     PlayerMoving,
+    PreparedStrikeActive,
     Busy { active: Box<PlayerWork> },
     MetabolicCostOverflow { duration: TickSpan },
     InsufficientMetabolicEnergy { available: Energy, required: Energy },
@@ -52,6 +53,9 @@ impl Display for PlayerWorkStartError {
             }
             Self::PlayerMoving => {
                 formatter.write_str("player must stop body motion before beginning slow work")
+            }
+            Self::PreparedStrikeActive => {
+                formatter.write_str("player must lower the prepared weapon before beginning work")
             }
             Self::Busy { active } => write!(formatter, "player is already occupied by {active:?}"),
             Self::MetabolicCostOverflow { duration } => write!(
@@ -102,6 +106,7 @@ impl Error for PlayerWorkStartError {
             | Self::PlayerDead
             | Self::PlayerAirborne
             | Self::PlayerMoving
+            | Self::PreparedStrikeActive
             | Self::Busy { .. }
             | Self::MetabolicCostOverflow { .. }
             | Self::InsufficientMetabolicEnergy { .. }
@@ -127,6 +132,10 @@ pub enum PlayerWorkCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for PlayerWorkCommitError {
@@ -146,6 +155,10 @@ impl Display for PlayerWorkCommitError {
                 formatter,
                 "player-work admission expected survival revision {expected} but current revision is {actual}"
             ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "player-work admission expected combat revision {expected} but current revision is {actual}"
+            ),
         }
     }
 }
@@ -158,6 +171,7 @@ pub(crate) struct ValidatedPlayerWorkStart {
     attention: ValidatedPlayerAttentionHold,
     expected_control_tick: ControlTick,
     expected_survival_revision: u64,
+    expected_combat_revision: u64,
     resource_budget: super::PlayerWorkResourceBudget,
 }
 
@@ -187,6 +201,13 @@ impl ValidatedPlayerWorkStart {
             return Err(PlayerWorkCommitError::StaleSurvivalRevision {
                 expected: self.expected_survival_revision,
                 actual: actual_survival_revision,
+            });
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(PlayerWorkCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
             });
         }
         Ok(())
@@ -266,6 +287,9 @@ fn validate_player_work_start_inner(
         PlayerAttentionError::PlayerDead => PlayerWorkStartError::PlayerDead,
         PlayerAttentionError::Busy { active } => PlayerWorkStartError::Busy { active },
     })?;
+    if state.combat().has_prepared_strike() {
+        return Err(PlayerWorkStartError::PreparedStrikeActive);
+    }
     let Some(player) = state.survival().player() else {
         return Err(PlayerWorkStartError::SurvivalNotInitialized);
     };
@@ -307,6 +331,7 @@ fn validate_player_work_start_inner(
         attention,
         expected_control_tick: state.control_tick(),
         expected_survival_revision: state.survival().revision(),
+        expected_combat_revision: state.combat().revision(),
         resource_budget: budget,
     })
 }
