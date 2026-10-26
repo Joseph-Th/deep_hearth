@@ -117,7 +117,24 @@ def wilderness_player_experience(lines: list[str]) -> str | None:
     adaptation = _one_record(lines, "PLAYER ADAPTATION opening=stay-mobile ")
     if adaptation is None:
         return opening
-    after = _capture(adaptation, r"\bafter:(\d+)t/([0-9.]+m)", "cold onset")
+    forecast = _required(adaptation, "forecast")
+    open_runway, covered_runway = _capture(
+        forecast,
+        r"unheated-open:(\d+)t roof-if-built:(\d+)t no-local-heat",
+        "conditional shelter forecast",
+    )
+    provision = re.search(r"\bself-chosen-provisions:(\d+)t", adaptation)
+    passive_exposure = _required(adaptation, "passive-exposure")
+    after_ticks, after_minutes = _capture(
+        adaptation, r"\bafter:(\d+)t/([0-9.]+m)", "cold onset"
+    )
+    if (
+        int(covered_runway) <= int(open_runway)
+        or int(after_ticks) == 0
+        or (provision is not None and int(after_ticks) < int(provision.group(1)))
+        or not re.fullmatch(r"[0-9.]+m", passive_exposure)
+    ):
+        raise ValueError("player adaptation lost its actual provisioning, exposure or shelter tradeoff")
     reactive = _required(adaptation, "reactive")
     planned = _required(adaptation, "planned")
     if "stone-ring:built" not in reactive:
@@ -140,7 +157,10 @@ def wilderness_player_experience(lines: list[str]) -> str | None:
         raise ValueError("player adaptation lost its observed warmth and finite-fuel tradeoff")
     return (
         opening
-        + " continuation=[chilly-after:" + after[1]
+        + " continuation=[chilly-after:" + after_minutes
+        + (" provisioning:" + provision.group(1) + "t" if provision is not None else "")
+        + " passive:" + passive_exposure
+        + " roof-forecast:" + covered_runway + "t-vs-open:" + open_runway + "t"
         + " reacted:built-fire-at-" + fueled + "t"
         + " comfort:" + comfort + "ppm vs-no-fire:" + no_fire + "ppm]"
         + " alternative=[matched-early-fire-at:" + earlier + "t"

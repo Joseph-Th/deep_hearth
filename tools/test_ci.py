@@ -3353,7 +3353,8 @@ class GameplayReportContractTests(unittest.TestCase):
             "tool-choice=[selected:defer] material-choice=[selected:defer] warmth=[fire:false]"
         )
         adaptation = (
-            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated:179t conditional-on-open-cover] "
+            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:179t roof-if-built:594t no-local-heat] "
+            "self-chosen-provisions:30t passive-exposure=8.9m "
             "trigger=chilly/799000ppm after:179t/10.7m "
             "reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:3t "
             "fueled:199t comfort:806000ppm no-fire:776000ppm] "
@@ -3363,15 +3364,32 @@ class GameplayReportContractTests(unittest.TestCase):
         experienced = gameplay_report_summary.wilderness_player_experience([opening, adaptation])
         assert experienced is not None
         self.assertIn("fire:not-yet-built", experienced)
-        self.assertIn("continuation=[chilly-after:10.7m reacted:built-fire-at-199t", experienced)
+        self.assertIn("continuation=[chilly-after:10.7m provisioning:30t passive:8.9m roof-forecast:594t-vs-open:179t reacted:built-fire-at-199t", experienced)
         self.assertIn("alternative=[matched-early-fire-at:178t", experienced)
         self.assertIn("fuel-runway:1087t-vs-late:1108t", experienced)
         self.assertNotIn("continuation=", gameplay_report_summary.wilderness_player_experience([opening]))
+        unprovisioned = adaptation.replace("self-chosen-provisions:30t ", "").replace(
+            "passive-exposure=8.9m", "passive-exposure=10.7m"
+        )
+        unprovisioned_experience = gameplay_report_summary.wilderness_player_experience(
+            [opening, unprovisioned]
+        )
+        assert unprovisioned_experience is not None
+        self.assertIn("continuation=[chilly-after:10.7m passive:10.7m", unprovisioned_experience)
+        self.assertNotIn("provisioning:", unprovisioned_experience)
+        with self.assertRaisesRegex(ValueError, "lost cold onset"):
+            gameplay_report_summary.wilderness_player_experience([
+                opening, adaptation.replace("after:179t", "after-total:179t"),
+            ])
         with self.assertRaisesRegex(ValueError, "duplicate PLAYER ADAPTATION"):
             gameplay_report_summary.wilderness_player_experience([opening, adaptation, adaptation])
         with self.assertRaisesRegex(ValueError, "warmth and finite-fuel tradeoff"):
             gameplay_report_summary.wilderness_player_experience([
                 opening, adaptation.replace("comfort:963500ppm", "comfort:700000ppm"),
+            ])
+        with self.assertRaisesRegex(ValueError, "provisioning, exposure or shelter tradeoff"):
+            gameplay_report_summary.wilderness_player_experience([
+                opening, adaptation.replace("roof-if-built:594t", "roof-if-built:50t"),
             ])
 
     def test_lived_field_expedition_never_inherits_proxy_actor_or_hidden_reserves(self) -> None:
@@ -3512,7 +3530,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIELDWORK PACING seed=0x1 noisy-detail",
         ]
         lines.append(
-            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated:179t conditional-on-open-cover] trigger=chilly/799000ppm after:179t/10.7m reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:1t fueled:199t comfort:818000ppm no-fire:778000ppm] planned=[start:158t fueled:178t comfort:1000000ppm fire-runway:1089t vs-reactive:1110t] custody=[timber-left:31130g matter-conserved:true] mode=same-generated-world"
+            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:179t roof-if-built:594t no-local-heat] self-chosen-provisions:30t passive-exposure=8.9m trigger=chilly/799000ppm after:179t/10.7m reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:1t fueled:199t comfort:818000ppm no-fire:778000ppm] planned=[start:158t fueled:178t comfort:1000000ppm fire-runway:1089t vs-reactive:1110t] custody=[timber-left:31130g matter-conserved:true] mode=same-generated-world"
         )
         lines.append(
             "WILDERNESS NUTRITION seed=0x1 episode=coverage/hunger-pressure/two-food-ration evidence=generated-exact-local path=forage->junction choice=fruit-and-protein gather=[berries:250000mg nuts:250000mg] meal=[berries:150000mg nuts:150000mg duration:30t] energy-replenished=true nutrition-offered=[fruit:300000ppm protein:300000ppm] nuts-left=500000mg matter=conserved"
