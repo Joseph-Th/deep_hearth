@@ -3294,6 +3294,55 @@ class GameplayReportContractTests(unittest.TestCase):
             gameplay_report_summary.wilderness_summary(postfire_lines)
         self.assertIn("tool-policy=[short-cache-projects:1 first-box-adze-deferred:1/1 long-stay-adze:1/1 crossover:5batches]", summary)
 
+    def test_worksite_summary_requires_a_real_matched_choice_and_does_not_claim_productive_casting(self) -> None:
+        witness = (
+            "WILDERNESS CASTING BED seed=0xA evidence=generated-exact-local "
+            "goal=specified-workstation choice=[pre-work-fire:true] "
+            "worksite=[auto-placed-at-player:true stationary-mass:9600000mg "
+            "carried-mass:0mg output-produced:false] "
+            "payoff=deferred-until-molten-metal matter=conserved"
+        )
+        project = (
+            "PLAYER PROJECT TRADEOFF seed=0xA episode=coverage/rested/clay-worksite "
+            "goal=specified-not-discovered phase=prepare-vs-push-through "
+            "observation=[remaining-warmth:181t predicted-project-work-at-least:212t] "
+            "policy=[choose-prework-fire:true] "
+            "action=[same-acquisition-and-crafting:216t both-branches] "
+            "investment=[extra-fire-preparation:20t stone:1000000mg "
+            "timber-fuel:1000000mg remaining-runway:895t] matched-at=256t "
+            "consequence=[prepared-comfort:1000000ppm exposed-comfort:744000ppm] "
+            "benefit=[comfort-delta:+256000ppm] "
+            "productive-output=[stationary-casting-bed:9.6kg metal-cast:0] "
+            "next-dependency=obtain-molten-metal matter=conserved replay=exact"
+        )
+        summary = gameplay_report_summary.wilderness_worksite_player_experience([witness, project])
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn("goal=specified-not-discovered", summary)
+        self.assertIn("choice=[prepare-fire:true extra:20t stone:1.00kg fuel:1.00kg]", summary)
+        self.assertIn("comfort:1000000ppm-vs:744000ppm", summary)
+        self.assertIn("metal-produced:0 next:molten-metal", summary)
+        with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                witness, project.replace("same-acquisition-and-crafting:216t", "same-acquisition-and-crafting:10t")
+            ])
+        with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                witness, project.replace("choose-prework-fire:true", "choose-prework-fire:false")
+            ])
+        with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                witness, project.replace("benefit=[comfort-delta:+256000ppm]", "benefit=[comfort-delta:+1ppm]")
+            ])
+        with self.assertRaisesRegex(ValueError, "project ownership"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                witness, project.replace("specified-not-discovered", "spontaneously-discovered")
+            ])
+        with self.assertRaisesRegex(ValueError, "finished physical workstation"):
+            gameplay_report_summary.wilderness_worksite_player_experience([project])
+        with self.assertRaisesRegex(ValueError, "duplicate PLAYER PROJECT TRADEOFF"):
+            gameplay_report_summary.wilderness_worksite_player_experience([witness, project, project])
+
     def test_fieldwork_player_experience_reports_actor_risk_and_delayed_consequence(self) -> None:
         lines = [
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor observed-resource-mass=0..5000000mg",

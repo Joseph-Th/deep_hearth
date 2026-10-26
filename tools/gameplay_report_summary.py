@@ -18,6 +18,7 @@ from tools.gameplay_summary.player_experience import (
     scavenger_den_player_experience,
     settlement_portfolio_player_experience,
     wilderness_player_experience,
+    wilderness_worksite_player_experience,
 )
 from tools.gameplay_summary.power import power_provider_summary
 from tools.gameplay_summary.progression import progression_summary
@@ -817,7 +818,12 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
             selected.append(scavenger_den)
         if scoped_ordinary and nutrition_witness is not None:
             selected.append(nutrition_witness)
-        if scoped_ordinary and casting_bed_witness is not None:
+        worksite = wilderness_worksite_player_experience(lines)
+        if worksite is not None:
+            selected.append(worksite)
+        elif scoped_ordinary and casting_bed_witness is not None:
+            # The raw witness is still truthful on older isolated test inputs,
+            # but it cannot be presented as an earned player tradeoff.
             selected.append(casting_bed_witness)
         # The continued need and matched early-preparation tradeoff are folded into the
         # single maintained player's experience above. Do not duplicate the verbose record.

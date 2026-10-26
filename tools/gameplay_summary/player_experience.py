@@ -169,6 +169,77 @@ def wilderness_player_experience(lines: list[str]) -> str | None:
     )
 
 
+def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
+    """One specified construction goal with an actual self-directed site-preparation decision.
+
+    Do not promote a ready workstation into productive output or an assigned
+    project into a spontaneously discovered player goal.
+    """
+
+    record = _one_record(lines, "PLAYER PROJECT TRADEOFF ")
+    if record is None:
+        return None
+    witness = _one_seeded(lines, "WILDERNESS CASTING BED ", _required(record, "seed"))
+    if witness is None:
+        raise ValueError("worksite project tradeoff lacks its finished physical workstation")
+    if (
+        _required(record, "goal") != "specified-not-discovered"
+        or _required(witness, "goal") != "specified-workstation"
+        or _required(witness, "evidence") != "generated-exact-local"
+        or _required(witness, "payoff") != "deferred-until-molten-metal"
+        or _required(witness, "matter") != "conserved"
+        or _required(record, "matter") != "conserved"
+        or _required(record, "replay") != "exact"
+    ):
+        raise ValueError("worksite narrative mislabels project ownership or physical evidence")
+    remaining, estimate = _capture(
+        _required(record, "observation"),
+        r"remaining-warmth:(\d+)t predicted-project-work-at-least:(\d+)t",
+        "actor-observed project exposure",
+    )
+    choice, = _capture(
+        _required(record, "policy"), r"choose-prework-fire:(true|false)", "worksite decision"
+    )
+    work, = _capture(
+        _required(record, "action"),
+        r"same-acquisition-and-crafting:(\d+)t both-branches",
+        "identical counterfactual work",
+    )
+    preparation, stone, timber, runway = _capture(
+        _required(record, "investment"),
+        r"extra-fire-preparation:(\d+)t stone:(\d+)mg timber-fuel:(\d+)mg remaining-runway:(\d+)t",
+        "physical fire investment",
+    )
+    protected, exposed = _capture(
+        _required(record, "consequence"),
+        r"prepared-comfort:(\d+)ppm exposed-comfort:(\d+)ppm",
+        "matched actual worker comfort",
+    )
+    delta, = _capture(
+        _required(record, "benefit"), r"comfort-delta:\+(\d+)ppm", "physical warmth benefit"
+    )
+    if (
+        (choice == "true") != (int(estimate) >= int(remaining))
+        or any(int(value) <= 0 for value in (remaining, estimate, work, preparation, stone, timber, runway))
+        or int(work) < int(estimate)
+        or int(protected) <= int(exposed)
+        or int(protected) - int(exposed) != int(delta)
+        or _required(record, "productive-output") != "[stationary-casting-bed:9.6kg metal-cast:0]"
+        or "output-produced:false" not in _required(witness, "worksite")
+        or f"pre-work-fire:{choice}" not in _required(witness, "choice")
+    ):
+        raise ValueError("worksite project failed to establish an earned preparation tradeoff")
+    return (
+        "PLAYER EXPERIENCE worksite-project goal=specified-not-discovered "
+        f"forecast=[warmth:{remaining}t necessary-work:{estimate}t] "
+        f"choice=[prepare-fire:{choice} extra:{preparation}t "
+        f"stone:{_kg(stone)} fuel:{_kg(timber)}] "
+        f"matched=[same-work:{work}t comfort:{protected}ppm-vs:{exposed}ppm "
+        f"fire-left:{runway}t] "
+        "outcome=[station:9.6kg metal-produced:0 next:molten-metal]"
+    )
+
+
 def fieldwork_exact_local_player_experience(lines: list[str]) -> str | None:
     """A separate, actually walked field expedition, not the proxy campaign's body."""
 
