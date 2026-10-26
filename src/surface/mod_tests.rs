@@ -1847,6 +1847,200 @@ fn one_shot_secondary_use_composes_selected_food_without_exposing_lot_identity()
 }
 
 #[test]
+fn explicit_storage_placement_supersedes_pending_contextual_use_before_boundary() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let mass = Mass::from_milligrams(500_000);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    assert!(state.logistics().pending_secondary_use().is_some());
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let placement = PlayerDirectControlInput::NEUTRAL.with_secondary(
+        SecondaryControlIntent::place_storage(STORAGE_ROUGH_TIMBER_FIELD_BOX, positive_x_view()),
+    );
+    let current =
+        advance_control_tick_with_direct_input(&registries, &mut state, placement).unwrap();
+    let replay =
+        advance_control_tick_with_direct_input(&registries, &mut restored, placement).unwrap();
+    assert_eq!(current, replay);
+    assert!(
+        matches!(
+            current.secondary_action(),
+            Some(SecondaryActionOutcome::StorageTargetRejected(_))
+        ),
+        "the explicit storage command should resolve immediately, not masquerade as queued use: {:?}",
+        current.secondary_action()
+    );
+    assert!(
+        state.logistics().pending_secondary_use().is_none(),
+        "replaced one-shot use must not eat automatically at the next boundary"
+    );
+    for _ in 2..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let current = advance_control_tick(&registries, &mut state).unwrap();
+        let replay = advance_control_tick(&registries, &mut restored).unwrap();
+        assert_eq!(current, replay);
+        assert_eq!(current.secondary_action(), None);
+    }
+    assert_eq!(state, restored);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn newly_selected_contextual_use_replaces_older_buffer_before_slow_boundary() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let mass = Mass::from_milligrams(500_000);
+    let _ = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let water_volume = Volume::from_microliters(1_000_000);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        water_volume,
+        FLUID_WATER,
+        water_volume,
+        TEMPERATURE,
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, water, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary),
+    );
+    let empty_slot = PlayerQuickAccessSlot::new(1).unwrap();
+    let redirected = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_quick_access_slot(empty_slot)
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap();
+    assert!(redirected.quick_access_selection().is_some());
+    assert_eq!(
+        redirected.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary),
+    );
+    assert_eq!(state.logistics().active_selection(), None);
+    assert_eq!(
+        state
+            .logistics()
+            .pending_secondary_use()
+            .map(|pending| pending.selection()),
+        Some(None),
+        "the newest one-shot use must bind the newly selected empty hand",
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut last = None;
+    for _ in 2..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let current = advance_control_tick(&registries, &mut state).unwrap();
+        let replay = advance_control_tick(&registries, &mut restored).unwrap();
+        assert_eq!(current, replay);
+        last = Some(current);
+    }
+    let boundary = last.unwrap();
+    assert!(
+        matches!(
+            boundary.secondary_action(),
+            Some(SecondaryActionOutcome::DrinkingStarted(outcome)) if outcome.store() == water
+        ),
+        "the new water action must execute instead of eating or canceling as stale: {:?}",
+        boundary.secondary_action(),
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass,
+    );
+    assert_eq!(state, restored);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn queued_secondary_use_yields_to_same_boundary_quick_access_and_current_use() {
     let registries = build_registries();
     let mut state = AppState::new();

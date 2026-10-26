@@ -60,6 +60,18 @@ impl SecondaryControlIntent {
 }
 
 impl PrimaryControlIntent {
+    /// Explicit combat inputs must receive work rejections and supersede queued structural breaks.
+    pub(super) const fn is_combat(self) -> bool {
+        matches!(
+            self,
+            Self::Shove { .. }
+                | Self::Strike { .. }
+                | Self::PrepareStrike { .. }
+                | Self::ReleaseStrike { .. }
+                | Self::CancelStrike
+        )
+    }
+
     #[must_use]
     pub const fn strike(direction: ViewDirection) -> Self {
         Self::Strike { direction }

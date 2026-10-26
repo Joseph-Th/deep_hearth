@@ -55,20 +55,23 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     pending_primary: Option<PrimaryActionOutcome>,
     pending_secondary: Option<SecondaryActionOutcome>,
 ) -> DirectActionOutcomes {
+    let combat_intent = input.primary().is_some_and(PrimaryControlIntent::is_combat);
+    // A different explicit one-shot action supersedes an older buffered action in
+    // the same control slot. Otherwise the obsolete action would execute on the next
+    // slow boundary even after the newer input was handled. Both buffered owners
+    // reserve the revision needed for this early cancellation.
+    if combat_intent {
+        let _ = take_player_pending_primary_break(state);
+    }
+    if matches!(
+        input.secondary(),
+        Some(SecondaryControlIntent::PlaceStorage { .. })
+    ) {
+        let _ = take_player_pending_secondary_use(state);
+    }
     let primary = if pending_primary.is_some() {
         pending_primary
-    } else if state.player_work().active().is_none()
-        || matches!(
-            input.primary(),
-            Some(
-                PrimaryControlIntent::Shove { .. }
-                    | PrimaryControlIntent::Strike { .. }
-                    | PrimaryControlIntent::PrepareStrike { .. }
-                    | PrimaryControlIntent::ReleaseStrike { .. }
-                    | PrimaryControlIntent::CancelStrike
-            )
-        )
-    {
+    } else if state.player_work().active().is_none() || combat_intent {
         // Holding excavation through its work interval is silent so it can chain
         // on completion. Combat presses, by contrast, receive the owner's typed
         // rejection instead of vanishing without feedback.
@@ -193,8 +196,20 @@ fn attempt_secondary_action(
     intent: Option<SecondaryControlIntent>,
 ) -> Option<SecondaryActionOutcome> {
     let intent = intent?;
-    if state.logistics().pending_secondary_use().is_some() {
-        return Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary);
+    if let Some(pending) = state.logistics().pending_secondary_use() {
+        if matches!(
+            intent,
+            SecondaryControlIntent::UseActive { direction }
+                if pending.direction() == Some(direction)
+                    && pending.selection() == state.logistics().active_selection()
+                    && state.logistics().player().map(|player| player.position())
+                        == Some(pending.position())
+        ) {
+            return Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary);
+        }
+        // A fresh contextual selection, aim or actor position replaces the earlier
+        // queued use; otherwise the old gesture fires or fails on the slow boundary.
+        let _ = take_player_pending_secondary_use(state);
     }
     let direction = match intent {
         SecondaryControlIntent::UseActive { direction } => direction,
@@ -360,6 +375,18 @@ fn attempt_primary_break(
     state: &mut AppState,
     direction: ViewDirection,
 ) -> PrimaryActionOutcome {
+    if let Some(pending) = state.logistics().pending_primary_break() {
+        if pending.direction() == Some(direction)
+            && state.logistics().player().map(|player| player.position())
+                == Some(pending.position())
+        {
+            // Held breaking is one scheduled action, not repeated failed admissions.
+            // Target/world changes are still revalidated on its due boundary.
+            return PrimaryActionOutcome::QueuedUntilSimulationBoundary;
+        }
+        // A new direction or actor location replaces the stale one-shot request.
+        let _ = take_player_pending_primary_break(state);
+    }
     let element = match resolve_direct_structural_target(registries, state, direction) {
         Ok(element) => Some(element),
         Err(DirectStructuralTargetError::Ambiguous { count }) => {

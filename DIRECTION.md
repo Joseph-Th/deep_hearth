@@ -159,7 +159,7 @@ Logistics persists the minimum control context needed to re-resolve that action 
 contextual use keeps player voxel, active selection, and view direction, while structural break also pins the
 exact member identity so a stale request cannot fall through to terrain excavation. Save/load preserves an
 off-boundary request; changed locality, hotbar context, or structural target cancels buffered intent instead of
-authorizing stale state. A fresh same-kind input on the due boundary supersedes the older request. This removes
+authorizing stale state. Holding the same structural break or contextual use retains the existing queued action without repeated admission errors. A new aim, selection, or player position with fresh input replaces the obsolete queued context before the boundary; explicit combat replaces a pending structural break and explicit storage placement replaces pending contextual use. A fresh same-kind input on the due boundary also supersedes the older request. This removes
 held-input dependence without pretending affected slow work is a control-rate schedule; the gameplay report
 keeps the sub-quantum secondary-use admission wait visible.
 Projected edible stacks can now drive the default timed eating action directly, so two visible freshness cohorts
