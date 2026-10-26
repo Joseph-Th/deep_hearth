@@ -221,6 +221,18 @@ pub(super) fn attempt_selected_secondary_action(
         && let Some(outcome) =
             attempt_selected_timber_placement(registries, state, commodity, direction)
     {
+        // A downward aim at the ground under the player's feet cannot
+        // materialize a post in their own occupied body. If the same log can
+        // fuel an existing co-located fire, do not let that impossible
+        // placement shadow the valid direct-use action. Real pointed post
+        // placements retain priority over local combustion.
+        if matches!(
+            outcome,
+            SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { .. }
+        ) && let Some(combustion) = attempt_selected_combustion(registries, state, commodity)
+        {
+            return combustion;
+        }
         return outcome;
     }
     if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)

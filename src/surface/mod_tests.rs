@@ -2815,6 +2815,152 @@ fn secondary_storage_placement_rejects_the_player_body_voxel() {
 }
 
 #[test]
+fn impossible_self_placement_does_not_prevent_fueling_a_local_campfire() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|y| state.world().block_at(VoxelCoord::new(8, *y, 8)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let position = VoxelCoord::new(8, surface_y + 1, 8);
+    let carried = admit_player(&registries, &mut state, position);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    for (commodity, mass) in [
+        (stone, Mass::from_milligrams(1_000_000)),
+        (timber, CAMPFIRE_FUEL_MASS),
+    ] {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            TEMPERATURE,
+        )
+        .unwrap();
+    }
+    let mut no_fire = state.clone();
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before_matter = calculate_matter_accounting(&state).unwrap().total();
+    let direction = ViewDirection::new(0, -VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap();
+    let target = crate::world::raycast_player_block(&registries, &state, direction)
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.face(), crate::spatial::CubeFace::Top);
+    assert_eq!(target.face().adjacent_voxel(target.voxel()), Some(position));
+
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let result = loop {
+        let control = advance_control_tick(&registries, &mut state).unwrap();
+        if control.secondary_action().is_some() {
+            break control;
+        }
+    };
+    assert!(
+        matches!(
+            result.secondary_action(),
+            Some(SecondaryActionOutcome::CombustionFuelAdded { store, released })
+                if *store == fire && !released.is_zero()
+        ),
+        "downward timber use yielded {:?}",
+        result.secondary_action()
+    );
+    assert_eq!(state.structures().elements().count(), 0);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(timber),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        before_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    validate_set_active_selection(
+        &registries,
+        &no_fire,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap()
+    .commit(&mut no_fire)
+    .unwrap();
+    let no_fire_before = calculate_matter_accounting(&no_fire).unwrap().total();
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut no_fire,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let rejection = loop {
+        let control = advance_control_tick(&registries, &mut no_fire).unwrap();
+        if let Some(outcome) = control.secondary_action() {
+            break outcome.clone();
+        }
+    };
+    assert_eq!(
+        rejection,
+        SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }
+    );
+    assert_eq!(no_fire.structures().elements().count(), 0);
+    assert_eq!(
+        no_fire
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(timber),
+        CAMPFIRE_FUEL_MASS
+    );
+    assert_eq!(
+        calculate_matter_accounting(&no_fire).unwrap().total(),
+        no_fire_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &no_fire), Ok(()));
+}
+
+#[test]
 fn secondary_use_sets_one_grounded_timber_post_on_pointed_terrain_top_face() {
     let registries = build_registries();
     let mut state = AppState::new();
