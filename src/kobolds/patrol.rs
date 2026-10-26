@@ -126,6 +126,18 @@ struct ScoutMovePlan {
     physically_clear: bool,
 }
 
+/// One observed patrol decision frame. Reuse these facts across raid selection
+/// and movement so their safety, capacity, and timing gates cannot diverge.
+#[derive(Clone, Copy)]
+struct ScoutPatrolContext {
+    from: VoxelCoord,
+    den_space: Mass,
+    forage_ready: bool,
+    at: SimulationTick,
+    player_position: Option<VoxelCoord>,
+    pressured: bool,
+}
+
 /// Movement and retreat planning does not mutate the authoritative colony.
 /// An obstructed outbound scout returns by real edges; at the den it waits
 /// for a cleared route rather than inventing a bypass.
@@ -133,13 +145,17 @@ fn plan_scout_move(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
-    next_tick: SimulationTick,
-    pressured: bool,
+    context: ScoutPatrolContext,
     raid_interest: (bool, Option<(VoxelCoord, Option<VoxelCoord>)>),
-    player_position: Option<VoxelCoord>,
-    den_space: Mass,
-    forage_ready: bool,
 ) -> ScoutMovePlan {
+    let ScoutPatrolContext {
+        from,
+        den_space,
+        forage_ready,
+        at: next_tick,
+        player_position,
+        pressured,
+    } = context;
     let (exposed_at_current, inherited_target) = raid_interest;
     let wary_at_den = colony.scout_step == 0
         && !pressured
@@ -167,23 +183,12 @@ fn plan_scout_move(
     );
     let ahead_is_lit = assess_local_illumination(registries, state, proposed_position).level()
         >= SCOUT_DETERRENT_LIGHT_LEVEL
-        && (!proposed_returning
-            || scout_visible_from(
-                registries,
-                state,
-                colony.scout_position(),
-                proposed_position,
-            ));
+        && (!proposed_returning || scout_visible_from(registries, state, from, proposed_position));
     // A scout can see a guarded destination from the previous route cell.
     // Approaching that clearing should prompt caution, not a free step into
     // the player's reach. This is checked only on the resident's slow clock.
     let ahead_is_guarded = proposed_step != colony.scout_step
-        && scout_sees_guarded_cell(
-            registries,
-            state,
-            colony.scout_position(),
-            proposed_position,
-        );
+        && scout_sees_guarded_cell(registries, state, from, proposed_position);
     let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position)
         || (colony.watch_deployed_at.is_some() && proposed_position == colony.watch_position());
     // A detour chosen at the junction is not a reservation. Player pickup or
@@ -244,7 +249,7 @@ fn plan_scout_move(
             // deterrence. Only an unpressured scout can plan to hold short of a
             // guarded homeward edge; a panicked scout still uses its real exit.
             && (pressured
-                || !scout_sees_guarded_cell(registries, state, colony.scout_position(), position))
+                || !scout_sees_guarded_cell(registries, state, from, position))
             && scout_can_enter(registries, state, position, player_position)
             && !(colony.watch_deployed_at.is_some() && position == colony.watch_position()),
     }
@@ -520,28 +525,16 @@ pub(crate) fn apply_kobold_scout_tick(
     let forage_interval = colony.forage_interval();
     let mobilized = colony.mobilized_at.is_some();
     let den_space = den_cache_space(state, colony.route[0]);
-    let raid_interest = scout_raid_interest(
-        registries,
-        state,
-        colony,
+    let decision = ScoutPatrolContext {
         from,
         den_space,
         forage_ready,
-        next_tick,
+        at: next_tick,
         player_position,
         pressured,
-    );
-    let move_plan = plan_scout_move(
-        registries,
-        state,
-        colony,
-        next_tick,
-        pressured,
-        raid_interest,
-        player_position,
-        den_space,
-        forage_ready,
-    );
+    };
+    let raid_interest = scout_raid_interest(registries, state, colony, decision);
+    let move_plan = plan_scout_move(registries, state, colony, decision, raid_interest);
     let ScoutMovePlan {
         step,
         returning,

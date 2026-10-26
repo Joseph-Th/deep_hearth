@@ -1,6 +1,9 @@
 //! Headless deterministic simulation core for Deep Hearth.
 
 #![forbid(unsafe_code)]
+// Unit tests deliberately use unwrap/expect as assertions: a missing value or rejection
+// must fail the test. Production builds retain Cargo's deny-level panic hygiene lints.
+#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
 
 // Foundational vocabulary. Higher-level workflows may depend on these; these stay workflow-agnostic.
 pub mod capability;

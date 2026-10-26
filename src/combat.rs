@@ -436,7 +436,7 @@ fn validate_attack(
             }
             Some(before)
         }
-        _ => None,
+        PrimitiveAttackOutcome::Miss | PrimitiveAttackOutcome::Staggered { .. } => None,
     };
     Ok(ValidatedPrimitiveAttack {
         player_action,

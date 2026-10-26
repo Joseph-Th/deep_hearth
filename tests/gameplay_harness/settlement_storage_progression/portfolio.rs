@@ -37,6 +37,7 @@ use crate::powered_craft_planning::{authored_batch, project_powered_craft_sequen
 use crate::production_timing::finish_uninterrupted_production_job;
 use crate::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
+#[path = "portfolio/parallel.rs"]
 mod parallel;
 use parallel::{
     execute_parallel_drill_bit_maintenance, prepare_next_machine_during_delegation,

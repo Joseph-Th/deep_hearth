@@ -20,7 +20,7 @@ use super::super::scavenging::{
 use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_better_head};
 use super::super::visibility::scout_visible_from;
 use super::super::{KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS};
-use super::{scout_can_enter, scout_sees_guarded_cell};
+use super::{ScoutPatrolContext, scout_can_enter, scout_sees_guarded_cell};
 
 /// Determine whether a den's expelled inert parcel should be ignored in
 /// favor of a reachable piece of inherited machinery. The indexed target is
@@ -29,13 +29,16 @@ pub(super) fn scout_raid_interest(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
-    from: VoxelCoord,
-    capacity: Mass,
-    forage_ready: bool,
-    at: SimulationTick,
-    player_position: Option<VoxelCoord>,
-    pressured: bool,
+    context: ScoutPatrolContext,
 ) -> (bool, Option<(VoxelCoord, Option<VoxelCoord>)>) {
+    let ScoutPatrolContext {
+        from,
+        den_space: capacity,
+        forage_ready,
+        at,
+        player_position,
+        pressured,
+    } = context;
     let inherited_target = (colony.mobilized_at.is_some()
         && !pressured
         && colony.scout_step == 1

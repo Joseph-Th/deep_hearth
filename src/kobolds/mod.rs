@@ -482,7 +482,9 @@ impl KoboldColony {
         match role {
             KoboldRole::Scout => self.scout_balance_ppm,
             KoboldRole::Watchman => self.watch_balance_ppm,
-            _ => unreachable!("only opening residents have provisional balance"),
+            KoboldRole::TempleWarden | KoboldRole::TempleArchivist => {
+                unreachable!("only opening residents have provisional balance")
+            }
         }
     }
 
@@ -505,7 +507,7 @@ impl KoboldColony {
         let at = match role {
             KoboldRole::Scout => self.scout_shoved_at,
             KoboldRole::Watchman => self.watch_shoved_at,
-            _ => None,
+            KoboldRole::TempleWarden | KoboldRole::TempleArchivist => None,
         };
         at.is_some_and(|at| {
             now.checked_steps_since(at)
@@ -694,7 +696,9 @@ impl KoboldState {
                         KoboldRole::TempleArchivist => temple_archivist::archivist_visible_from(
                             registries, state, *resident, position,
                         ),
-                        _ => scout_visible_from(registries, state, *resident, position),
+                        KoboldRole::Scout | KoboldRole::Watchman | KoboldRole::TempleWarden => {
+                            scout_visible_from(registries, state, *resident, position)
+                        }
                     })
                     .map(|(position, role, is_defending)| KoboldSighting {
                         role,
@@ -778,7 +782,9 @@ pub(crate) fn record_close_contact(state: &mut AppState, role: KoboldRole, impul
             colony.watch_shoved_at = Some(at);
             colony.watch_balance_ppm = colony.watch_balance_ppm.saturating_sub(impulse_ppm);
         }
-        _ => unreachable!("primitive contact targets only opening residents"),
+        KoboldRole::TempleWarden | KoboldRole::TempleArchivist => {
+            unreachable!("primitive contact targets only opening residents")
+        }
     }
 }
 
