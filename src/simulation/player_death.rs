@@ -33,7 +33,7 @@ use crate::surface::{
     decide_surface_gathering_cancellation,
 };
 use crate::world::{
-    BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
+    BlockExcavationCancellationPlan, apply_block_excavation_cancellation,
     decide_block_excavation_cancellation,
 };
 
@@ -128,20 +128,7 @@ pub(super) fn decide_player_death_effects(
             )
             .map(PlayerDeathEffectPlan::BlockExcavation)
             .map(Some)
-            .map_err(|error| match error {
-                BlockExcavationTickError::MaterialLotId => TickError::MaterialLotIdExhausted,
-                BlockExcavationTickError::InventoryRevision => {
-                    TickError::InventoryRevisionExhausted
-                }
-                BlockExcavationTickError::SurfaceResourceId => {
-                    TickError::SurfaceResourceIdExhausted
-                }
-                BlockExcavationTickError::SurfaceRevision => TickError::SurfaceRevisionExhausted,
-                BlockExcavationTickError::WorldRevision => TickError::WorldRevisionExhausted,
-                BlockExcavationTickError::EquipmentRevision => {
-                    TickError::EquipmentRevisionExhausted
-                }
-            })
+            .map_err(super::map_block_excavation_tick_error)
         }
         PlayerWork::Mining { job } => {
             let record = state.mining().get_job(job).unwrap_or_else(|| {

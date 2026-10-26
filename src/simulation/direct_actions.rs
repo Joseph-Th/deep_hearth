@@ -57,7 +57,21 @@ pub(super) fn attempt_direct_actions_after_quick_access(
 ) -> DirectActionOutcomes {
     let primary = if pending_primary.is_some() {
         pending_primary
-    } else if state.player_work().active().is_none() {
+    } else if state.player_work().active().is_none()
+        || matches!(
+            input.primary(),
+            Some(
+                PrimaryControlIntent::Shove { .. }
+                    | PrimaryControlIntent::Strike { .. }
+                    | PrimaryControlIntent::PrepareStrike { .. }
+                    | PrimaryControlIntent::ReleaseStrike { .. }
+                    | PrimaryControlIntent::CancelStrike
+            )
+        )
+    {
+        // Holding excavation through its work interval is silent so it can chain
+        // on completion. Combat presses, by contrast, receive the owner's typed
+        // rejection instead of vanishing without feedback.
         attempt_primary_action(registries, state, input.primary())
     } else {
         None
@@ -439,3 +453,7 @@ fn attempt_active_selection_drop(
         }
     })
 }
+
+#[cfg(test)]
+#[path = "direct_actions_tests.rs"]
+mod tests;
