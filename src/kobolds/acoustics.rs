@@ -13,6 +13,7 @@ use crate::spatial::{CubeFace, VoxelCoord};
 use crate::world::BlockCollisionShape;
 
 use super::junkworks::{KoboldJunkRig, KoboldJunkRigKind};
+use super::visibility::within_manhattan_reach;
 
 fn acoustic_reach(kind: KoboldJunkRigKind) -> u8 {
     match kind {
@@ -58,12 +59,7 @@ fn audible_path(
     kind: KoboldJunkRigKind,
 ) -> bool {
     let reach = acoustic_reach(kind);
-    let direct_distance = source
-        .x()
-        .abs_diff(listener.x())
-        .saturating_add(source.y().abs_diff(listener.y()))
-        .saturating_add(source.z().abs_diff(listener.z()));
-    if direct_distance > u64::from(reach) {
+    if !within_manhattan_reach(source, listener, u64::from(reach)) {
         return false;
     }
     // The authored opening graph has no voxel authority until the world is

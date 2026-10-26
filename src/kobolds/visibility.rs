@@ -27,12 +27,7 @@ pub(super) fn scout_visible_from(
     scout: VoxelCoord,
     observer: VoxelCoord,
 ) -> bool {
-    let distance = scout
-        .x()
-        .abs_diff(observer.x())
-        .saturating_add(scout.y().abs_diff(observer.y()))
-        .saturating_add(scout.z().abs_diff(observer.z()));
-    if distance > 2 {
+    if !within_manhattan_reach(scout, observer, 2) {
         return false;
     }
     if state.world().generation_profile().is_none() {
@@ -49,7 +44,7 @@ pub(super) fn scout_visible_from(
     if !transparent(scout) || !transparent(observer) {
         return false;
     }
-    if distance < 2 {
+    if within_manhattan_reach(scout, observer, 1) {
         return true;
     }
     let toward = |first: i64, second: i64| {

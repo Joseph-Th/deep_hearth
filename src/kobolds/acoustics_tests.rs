@@ -71,6 +71,73 @@ fn drop_part(
 }
 
 #[test]
+fn distant_extreme_coordinates_do_not_wrap_local_sight_or_hearing() {
+    let registries = build_registries();
+    let state = AppState::new();
+    let east = VoxelCoord::new(i64::MAX, 0, 0);
+    let near = VoxelCoord::new(i64::MAX - 2, 0, 0);
+    let within_iron = VoxelCoord::new(i64::MAX - 6, 0, 0);
+    let beyond_iron = VoxelCoord::new(i64::MAX - 7, 0, 0);
+    let opposite_extreme = VoxelCoord::new(i64::MIN, 0, 0);
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        east,
+        near,
+    ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        east,
+        within_iron,
+    ));
+    assert!(audible_path(
+        &registries,
+        &state,
+        east,
+        within_iron,
+        KoboldJunkRigKind::IronChime,
+    ));
+    assert!(!audible_path(
+        &registries,
+        &state,
+        east,
+        within_iron,
+        KoboldJunkRigKind::StoneClatter,
+    ));
+    assert!(!audible_path(
+        &registries,
+        &state,
+        east,
+        beyond_iron,
+        KoboldJunkRigKind::IronChime,
+    ));
+    assert!(!audible_path(
+        &registries,
+        &state,
+        east,
+        opposite_extreme,
+        KoboldJunkRigKind::IronChime,
+    ));
+    assert!(!crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        east,
+        opposite_extreme,
+    ));
+    // Authored graph mode has no generated voxel opacity, but cannot leak
+    // perception beyond the same bounded distance admitted in generated terrain.
+    let south = VoxelCoord::new(i64::MIN, i64::MIN, i64::MIN);
+    let near_south = VoxelCoord::new(i64::MIN + 1, i64::MIN + 1, i64::MIN);
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        south,
+        near_south,
+    ));
+}
+
+#[test]
 fn a_generated_stone_corner_hides_the_origin_of_a_real_two_hop_warning() {
     let (registries, mut state) = solid_generated_chunk();
     let den = VoxelCoord::new(8, -10, 8);
