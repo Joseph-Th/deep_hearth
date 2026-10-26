@@ -28,6 +28,7 @@ use super::{FluidDefinitionId, FluidStoreId};
 pub enum FluidTransferError {
     PlayerNotAdmitted,
     PlayerDead,
+    PlayerBusy,
     SourceAccess(PlayerFluidStoreAccessError),
     DestinationAccess(PlayerFluidStoreAccessError),
     InvalidGravityRoute {
@@ -91,6 +92,7 @@ pub enum FluidTransferCommitError {
     StaleStructureRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
+    StalePlayerWorkRevision { expected: u64, actual: u64 },
     ContentsChanged { store: FluidStoreId },
     Structure(StructuralCommitError),
 }
@@ -154,6 +156,7 @@ pub struct ValidatedFluidTransfer {
     expected_world_revision: Option<u64>,
     expected_structure_revision: Option<u64>,
     expected_logistics_revision: u64,
+    expected_player_work_revision: u64,
     player_action: PlayerActionGuard,
     structural: Option<ValidatedFluidStructuralLoad>,
 }
@@ -197,6 +200,13 @@ impl ValidatedFluidTransfer {
                 actual: stale.actual,
             }
         })?;
+        let actual_work = state.player_work().revision();
+        if actual_work != self.expected_player_work_revision {
+            return Err(FluidTransferCommitError::StalePlayerWorkRevision {
+                expected: self.expected_player_work_revision,
+                actual: actual_work,
+            });
+        }
         let actual_fluid = state.fluid().revision();
         if actual_fluid != self.expected_fluid_revision {
             return Err(FluidTransferCommitError::StaleFluidRevision {
@@ -377,6 +387,11 @@ fn validate_transfer_fluid(
         }
         crate::player::PlayerActionValidationError::PlayerDead => FluidTransferError::PlayerDead,
     })?;
+    // Hand decant and controlled gravity feeding occupy the same exclusive player attention
+    // as other timed work. Check this before inspecting vessel contents or geometry.
+    if state.player_work().active().is_some() {
+        return Err(FluidTransferError::PlayerBusy);
+    }
     if source == destination {
         return Err(FluidTransferError::SameStore);
     }
@@ -477,6 +492,7 @@ fn validate_transfer_fluid(
         expected_structure_revision: matches!(geometry, TransferGeometry::Gravity)
             .then_some(state.structures().revision()),
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
         player_action,
         structural,
     })
