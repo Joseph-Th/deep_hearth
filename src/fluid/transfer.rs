@@ -398,6 +398,10 @@ fn validate_transfer_fluid(
     if volume.is_zero() {
         return Err(FluidTransferError::ZeroVolume);
     }
+    // Authorization and physical route precede vessel existence and contents.
+    // Otherwise an inaccessible source with a nonexistent destination could
+    // disclose the latter's inventory status instead of rejecting the source.
+    validate_transfer_geometry(registries, state, source, destination, geometry)?;
     let fluid = state.fluid();
     let source_record = fluid
         .get_store(source)
@@ -405,7 +409,6 @@ fn validate_transfer_fluid(
     let destination_record = fluid
         .get_store(destination)
         .ok_or(FluidTransferError::UnknownStore { store: destination })?;
-    validate_transfer_geometry(registries, state, source, destination, geometry)?;
     let before_source = source_record
         .contents()
         .ok_or(FluidTransferError::EmptySource { store: source })?;

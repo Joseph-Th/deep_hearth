@@ -141,6 +141,89 @@ fn no_player_cannot_decant_through_the_player_owned_action() {
 }
 
 #[test]
+fn local_pour_rejects_inaccessible_endpoints_before_inspecting_vessel_contents() {
+    let remote = VoxelCoord::new(1, 0, 0);
+    let mut fixture = fixture_at(None, remote);
+    let missing = FluidStoreId::new(999_001);
+    let amount = Volume::from_microliters(1);
+    let empty_local = add_fluid_store(&mut fixture.state, amount).unwrap();
+    validate_place_fluid_store(&fixture.state, empty_local, POSITION)
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+    let before = fixture.state.clone();
+    let remote_access = PlayerFluidStoreAccessError::RemoteKnownFluidStore {
+        store: fixture.destination,
+        store_position: remote,
+        player_position: POSITION,
+    };
+
+    // An unknown destination must not override the remote source's access denial.
+    assert_eq!(
+        validate_transfer_fluid_between_local_stores(
+            &fixture.registries,
+            &fixture.state,
+            fixture.destination,
+            missing,
+            amount,
+        )
+        .err(),
+        Some(FluidTransferError::SourceAccess(remote_access)),
+    );
+    // An empty local source must not reveal its contents before denying
+    // access to the destination.
+    assert_eq!(
+        validate_transfer_fluid_between_local_stores(
+            &fixture.registries,
+            &fixture.state,
+            empty_local,
+            fixture.destination,
+            amount,
+        )
+        .err(),
+        Some(FluidTransferError::DestinationAccess(remote_access)),
+    );
+    // Truly unknown local identities still have a precise typed error.
+    assert_eq!(
+        validate_transfer_fluid_between_local_stores(
+            &fixture.registries,
+            &fixture.state,
+            fixture.source,
+            missing,
+            amount,
+        )
+        .err(),
+        Some(FluidTransferError::UnknownStore { store: missing }),
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn gravity_feed_rejects_remote_source_before_unknown_lower_destination() {
+    let lower = VoxelCoord::new(0, -1, 0);
+    let fixture = fixture_at(None, lower);
+    let before = fixture.state.clone();
+    assert_eq!(
+        validate_gravity_feed_fluid_to_lower_store(
+            &fixture.registries,
+            &fixture.state,
+            fixture.destination,
+            FluidStoreId::new(999_002),
+            Volume::from_microliters(1),
+        )
+        .err(),
+        Some(FluidTransferError::SourceAccess(
+            PlayerFluidStoreAccessError::RemoteKnownFluidStore {
+                store: fixture.destination,
+                store_position: lower,
+                player_position: POSITION,
+            },
+        )),
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
 fn registered_fluid_identities_cannot_mix_even_at_equal_temperatures() {
     use crate::content::{MATERIAL_COPPER, MATERIAL_TIN, make_test_registries_with_fluids};
     use crate::fluid::{FluidDefinition, FluidDefinitionId};
