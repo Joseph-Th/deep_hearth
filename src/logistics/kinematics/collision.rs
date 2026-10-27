@@ -48,6 +48,44 @@ pub(crate) fn player_body_is_grounded(registries: &Registries, state: &AppState)
         == Some(player.body().foot_position().y_nanometers())
 }
 
+/// A materialized full-cell member beneath any part of the player's horizontal
+/// footprint can be the current floor. Its removal at a slow boundary must
+/// retain the immediately following 20 Hz gravity/collision step.
+pub(crate) fn player_body_stands_above_structure(
+    registries: &Registries,
+    state: &AppState,
+    element: crate::structural::StructuralElementId,
+) -> bool {
+    let Some(record) = state.structures().get_element(element) else {
+        return false;
+    };
+    if record.embodied_material().is_empty() || !record.geometry().covers_horizontal_footprint() {
+        return false;
+    }
+    let Some(player) = state.logistics().player() else {
+        return false;
+    };
+    let Some((min_x, max_x, min_z, max_z)) = horizontal_voxel_bounds(
+        player.body(),
+        registries.survival().physiology().locomotion(),
+    ) else {
+        return true;
+    };
+    let Some(below_y) = player.body().foot_position().y_nanometers().checked_sub(1) else {
+        return true;
+    };
+    let below_y = below_y.div_euclid(NANOMETERS_PER_VOXEL);
+    let bounds = record.bounds();
+    let min = bounds.min();
+    let max = bounds.max_exclusive();
+    min.y() <= below_y
+        && below_y < max.y()
+        && min.x() <= max_x
+        && max.x() > min_x
+        && min.z() <= max_z
+        && max.z() > min_z
+}
+
 pub(crate) fn first_player_body_collision(
     registry: &WorldRegistry,
     world: &WorldState,

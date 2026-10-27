@@ -30,7 +30,8 @@ pub(crate) use collision::{
     first_player_body_collision, first_player_body_collision_in_chunk,
     first_player_body_overlap_with_bounds, first_player_structure_collision,
     first_player_temple_caste_collision, player_body_fits_continuous_world,
-    player_body_is_grounded, player_body_occupies_voxel, player_body_uses_generated_world,
+    player_body_is_grounded, player_body_occupies_voxel, player_body_stands_above_structure,
+    player_body_uses_generated_world,
 };
 use exertion::resolve_control_exertion;
 use horizontal::{player_voxel_change_allowed, resolve_horizontal_motion};

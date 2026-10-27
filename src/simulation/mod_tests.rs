@@ -38,6 +38,8 @@ use crate::world::{
 mod direct_gathering;
 #[path = "mod_tests/overhead_cover.rs"]
 mod overhead_cover;
+#[path = "mod_tests/slow_boundary_support.rs"]
+mod slow_boundary_support;
 #[path = "mod_tests/structural_placement.rs"]
 mod structural_placement;
 #[path = "mod_tests/structural_targeting.rs"]

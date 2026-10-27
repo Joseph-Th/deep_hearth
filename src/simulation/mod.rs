@@ -30,7 +30,7 @@ use crate::labor::{
 use crate::logistics::{
     PlayerControlInput, PlayerOverheadCoverAssessment, PlayerStance, apply_player_body_motion,
     assess_player_overhead_cover, decide_player_body_motion, player_body_is_grounded,
-    player_body_uses_generated_world,
+    player_body_stands_above_structure, player_body_uses_generated_world,
 };
 use crate::mining::{apply_mining_tick, decide_mining_tick};
 use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
@@ -326,6 +326,14 @@ fn control_stepping_required(registries: &Registries, state: &AppState) -> bool 
         state.logistics().player().copied().unwrap_or_else(|| {
             unreachable!("generated-world body requires admitted player logistics")
         });
+    if let Some(PlayerWork::StructuralDismantling { work }) = state.player_work().active()
+        && work.completes_at().value() == state.tick().value().saturating_add(1)
+        && player_body_stands_above_structure(registries, state, work.element())
+    {
+        // The slow phase removes this floor before the boundary's final
+        // control sample. Skipping that sample would erase the first fall step.
+        return true;
+    }
     let body = player.body();
     let horizontal = body.horizontal_velocity();
     player.pending_fall_vitality_loss_ppm() != 0
