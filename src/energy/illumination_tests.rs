@@ -27,6 +27,57 @@ use crate::world::{
 use super::{assess_local_illumination, project_local_light_sources};
 
 #[test]
+fn ungenerated_opening_light_reaches_nearby_cells_and_replays() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = VoxelCoord::new(0, 0, 0);
+    let carried = validate_admit_player(&registries, &state, source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, carried, commodity, mass).unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_combust_fuel(&registries, &state, fire, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.world().generation_profile().is_none());
+    let at = |state: &AppState, x| {
+        assess_local_illumination(&registries, state, VoxelCoord::new(x, 0, 0))
+    };
+    assert_eq!(at(&state, 0).level(), 7);
+    assert_eq!(at(&state, 1).level(), 6);
+    assert_eq!(at(&state, 5).level(), 2);
+    assert_eq!(at(&state, 7).level(), 0);
+    assert_eq!(at(&state, 1).strongest_source(), Some(fire));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for x in 0..=7 {
+        assert_eq!(at(&state, x), at(&loaded, x));
+    }
+}
+
+#[test]
 fn generated_solid_cell_shields_a_located_emitter_until_its_source_is_exposed() {
     let registries = build_registries();
     let mut state = AppState::new();
@@ -406,9 +457,12 @@ fn local_light_index_excludes_remote_emitters_rebuilds_and_preserves_stable_ties
         Vec::new(),
         "removing the last colocated source removes its empty position bucket"
     );
+    let residual = assess_local_illumination(&registries, &loaded, center);
+    assert_eq!(residual.level(), 1);
     assert_eq!(
-        assess_local_illumination(&registries, &loaded, center).level(),
-        0
+        residual.strongest_source(),
+        Some(ids[1]),
+        "after colocated light is removed the real 14-voxel source still contributes one level"
     );
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &loaded),

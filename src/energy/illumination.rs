@@ -199,8 +199,19 @@ fn propagated_light_level(
     if source.position() == target {
         return source.level();
     }
-    if manhattan_distance(source.position(), target) >= u128::from(source.level()) {
+    let distance = manhattan_distance(source.position(), target);
+    if distance >= u128::from(source.level()) {
         return 0;
+    }
+
+    // The authored opening traversal graph predates chunk generation. With no
+    // generated voxel authority there are no terrain cells to flood through:
+    // treating every missing cell as an opaque block would leave even a lit
+    // campfire dark at the next graph vertex. Retain the bounded direct falloff
+    // until generated terrain supplies actual occlusion authority.
+    if state.world().generation_profile().is_none() {
+        return source.level()
+            - u8::try_from(distance).expect("distance is below bounded source light level");
     }
 
     let mut reached = BTreeMap::from([(source.position(), source.level())]);
