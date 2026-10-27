@@ -22,8 +22,8 @@ use super::equipment::{
     EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME, EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL,
 };
 use super::{
-    FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_STONE,
-    MATERIAL_WILD_NUTS, MATERIAL_WOOD,
+    FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_BERRIES, MATERIAL_CLAY,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
 };
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
@@ -39,6 +39,8 @@ pub const SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(5);
 pub const SURFACE_GATHERING_HAND_FORAGE_NUTS: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(6);
+pub const SURFACE_GATHERING_HAND_COLLECT_NATIVE_COPPER: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(7);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
 pub const MANUAL_POWER_TREADLE_DYNAMO: ManualPowerMethodId = ManualPowerMethodId::new(4);
@@ -132,6 +134,19 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(850_000_000_000),
                     Volume::from_microliters(230),
+                ),
+            ),
+            // Exposed native-metal float is a bounded cold-working foothold,
+            // not a multi-kilogram smelting reserve. Hand picking is timed.
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_COLLECT_NATIVE_COPPER,
+                CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+                Mass::from_milligrams(100_000),
+                Mass::from_milligrams(20_000),
+                TickSpan::new(12),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_200_000_000_000),
+                    Volume::from_microliters(300),
                 ),
             ),
         ],

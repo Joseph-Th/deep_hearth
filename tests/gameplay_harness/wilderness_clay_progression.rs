@@ -9,6 +9,9 @@ use deep_hearth::content::{
 use deep_hearth::logistics::validate_quick_move_player_stack;
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
+#[path = "wilderness_native_copper.rs"]
+mod native_copper;
+
 #[derive(Clone, Copy)]
 struct CachePayoff {
     attention_ticks: u64,
@@ -846,6 +849,33 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
         selected_nuts,
         matter_before,
     );
+    let copper_result = native_copper::exercise_native_copper_preservation(
+        &registries,
+        &food_first,
+        native_copper::CopperRoute {
+            junction,
+            forage: forage.position(),
+            water: water_position,
+            outcrop: outcrop.position(),
+            stone: adjacent_surface_resource(&food_first, stone).position(),
+            carried,
+        },
+        selected_nuts,
+        matter_before,
+    );
+    assert_eq!(
+        copper_result.recovered_berries,
+        food_first_cache.recovered_berries
+    );
+    assert!(
+        copper_result.avoided_age_ticks > 51,
+        "the copper-banded crock must preserve real food longer than the basic timber box"
+    );
+    let basic_security_ticks = food_first_cache.secured_at.value() - food_first.tick().value();
+    assert!(
+        copper_result.project_ticks > basic_security_ticks,
+        "spending finite copper on the stronger crock should require more real early work than basic timber storage"
+    );
     assert_eq!(
         food_first_cache.berries_mass, cache.berries_mass,
         "early food security and advanced workshop must secure identical harvests"
@@ -941,6 +971,20 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             first_food_elapsed,
             workshop_food_elapsed,
             workshop_food_elapsed - first_food_elapsed,
+        );
+        std::println!(
+            "PLAYER FIRST METAL seed=0x{:016X} episode=coverage/rested/clay-worksite origin=finite-native-copper-float action=[visit-clay-spur>collect-copper>cold-work>carve-stone>band-crock>forage>recover-food] cost=[metal:{}mg stone:3000000mg security-elapsed:{}t] discovery=[float-before:{}mg float-after:{}mg] payoff=[recovered-berries:{}mg preservation:{}ppm saved-age:{}t-per-120t] comparison=[timber-box:{}ppm security-elapsed:{}t extra-copper-route:{}t] smelted-metal=0 matter=conserved replay=exact",
+            seed.value(),
+            copper_result.copper_collected.milligrams(),
+            copper_result.project_ticks,
+            copper_result.copper_source_before.milligrams(),
+            copper_result.copper_source_after.milligrams(),
+            copper_result.recovered_berries.milligrams(),
+            copper_result.preservation_ppm,
+            copper_result.avoided_age_ticks,
+            food_first_cache.preservation_ppm,
+            basic_security_ticks,
+            copper_result.project_ticks - basic_security_ticks,
         );
     }
 }

@@ -193,6 +193,11 @@ body motion remains the sole ordinary player locomotion authority and derives le
 collision, current work/custody constraints, physiology, and carried load rather than requiring traversal edges. AI and
 haulage may later derive discrete route cost from world geometry and movement capability instead of extending the
 opening observation graph into a hand-authored world network.
+The clay outcrop also contains a small independent native-copper surface float. The actor selects
+40 g from this finite source with explicit direct-control gathering, cold-works two reinforcement
+batches, carves a stone body from the separate rock supply, and builds a copper-banded provisions
+crock. The more expensive crock preserves an actual berry haul longer than a timber field box,
+but does not bypass the separate ore and electrical foundry progression or produce molten metal.
 
 The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
 secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,

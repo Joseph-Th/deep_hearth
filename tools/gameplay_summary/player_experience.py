@@ -342,6 +342,51 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         or int(metal_first) - int(food_first) != int(delay)
     ):
         raise ValueError("food-first alternative did not earn its earlier useful outcome")
+    first_metal = _one_seeded(lines, "PLAYER FIRST METAL ", _required(record, "seed"))
+    if first_metal is None:
+        raise ValueError("worksite project lost its generated native-copper cold-working payoff")
+    if (
+        _required(first_metal, "origin") != "finite-native-copper-float"
+        or _required(first_metal, "action")
+        != "[visit-clay-spur>collect-copper>cold-work>carve-stone>band-crock>forage>recover-food]"
+        or _required(first_metal, "smelted-metal") != "0"
+        or _required(first_metal, "matter") != "conserved"
+        or _required(first_metal, "replay") != "exact"
+    ):
+        raise ValueError("first-metal branch must execute physical cold-working, not counterfeit smelting")
+    metal_mass, stone_mass, metal_ticks = _capture(
+        _required(first_metal, "cost"),
+        r"metal:(\d+)mg stone:(\d+)mg security-elapsed:(\d+)t",
+        "first-metal project material and time",
+    )
+    source_before, source_after = _capture(
+        _required(first_metal, "discovery"),
+        r"float-before:(\d+)mg float-after:(\d+)mg",
+        "depleting discovered copper float",
+    )
+    recovered, metal_preserve, metal_saved = _capture(
+        _required(first_metal, "payoff"),
+        r"recovered-berries:(\d+)mg preservation:(\d+)ppm saved-age:(\d+)t-per-120t",
+        "physically recovered copper preservation result",
+    )
+    basic_preserve, basic_ticks, premium_delay = _capture(
+        _required(first_metal, "comparison"),
+        r"timber-box:(\d+)ppm security-elapsed:(\d+)t extra-copper-route:(\d+)t",
+        "realized early preservation alternative",
+    )
+    if (
+        int(metal_mass) != 40_000
+        or int(stone_mass) != 3_000_000
+        or int(source_before) - int(source_after) != int(metal_mass)
+        or not 0 < int(source_after)
+        or not 0 < int(metal_ticks)
+        or not 0 < int(basic_ticks) < int(metal_ticks)
+        or int(metal_ticks) - int(basic_ticks) != int(premium_delay)
+        or int(recovered) != int(stored_berries)
+        or not 0 < int(basic_preserve) == int(preserve) < int(metal_preserve)
+        or not berry_saved // 1_000_000 < int(metal_saved) <= 120
+    ):
+        raise ValueError("first-metal branch did not earn distinct finite metal and food preservation")
     return (
         "PLAYER EXPERIENCE worksite-project goal=specified-not-discovered "
         f"provision=[selected-protein:{_kg(picked)} left-in-world:{_kg(left)} "
@@ -360,6 +405,9 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         f"saved-age:{berry_saved / 1_000_000:.1f}t/120t] "
         f"priority=[food-first:{food_first}t bed-first:{metal_first}t "
         f"saved:{delay}t before-metal-feed] "
+        f"first-metal=[native-float:{_kg(source_before)} took:{_kg(metal_mass)} "
+        f"crock-security:{metal_ticks}t vs-wood:{basic_ticks}t cost-extra:{premium_delay}t "
+        f"saved-age:{metal_saved}t/120t vs-wood:{berry_saved / 1_000_000:.1f}t/120t smelted:0] "
         "outcome=[station:9.6kg metal-produced:0 next:molten-metal]"
     )
 

@@ -2,9 +2,10 @@
 
 use crate::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, BLOCK_STATE_STONE,
-    FLUID_WATER, FORM_BOARD, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES,
-    MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
-    STORAGE_ROUGH_TIMBER_FIELD_BOX, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    FLUID_WATER, FORM_BOARD, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
+    FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WILD_NUTS, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
@@ -909,7 +910,7 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
 
     let layout = generated_opening_layout(seed, spawn);
     let profile = generated_profile(&first);
-    assert_eq!(profile.len(), 5);
+    assert_eq!(profile.len(), 6);
     assert_eq!(
         first.logistics().traversable_edges().count(),
         INITIAL_WILDERNESS_ACCESS_EDGES
@@ -973,6 +974,15 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
             .contains(&mass_for(CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)))
     );
     assert!(
+        (Mass::from_milligrams(COPPER_FLOAT_BASE_MG)
+            ..=Mass::from_milligrams(COPPER_FLOAT_BASE_MG + COPPER_FLOAT_VARIATION_MG))
+            .contains(&mass_for(CommodityKey::new(
+                MATERIAL_COPPER,
+                FORM_NATIVE_METAL
+            ))),
+        "first native copper must be a finite, smaller-than-foundry natural float"
+    );
+    assert!(
         (Mass::from_milligrams(TIMBER_BASE_MASS_MG)
             ..=Mass::from_milligrams(TIMBER_BASE_MASS_MG + TIMBER_VARIATION_MG))
             .contains(&mass_for(CommodityKey::new(MATERIAL_WOOD, FORM_LOG)))
@@ -1007,6 +1017,11 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         position_for(CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)),
         layout.clay,
         "clay-rich earth is one separate opening leg beyond the water source"
+    );
+    assert_eq!(
+        position_for(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)),
+        layout.clay,
+        "the copper find shares a visible outcrop with clay, but must keep its own resource identity"
     );
     let stone_position = position_for(CommodityKey::new(MATERIAL_STONE, FORM_LUMP));
     let timber_position = position_for(CommodityKey::new(MATERIAL_WOOD, FORM_LOG));

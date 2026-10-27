@@ -3346,7 +3346,17 @@ class GameplayReportContractTests(unittest.TestCase):
             "payoff=[recovered-berries:2000000mg first-security:245t bed-first-security:461t] "
             "extra-workshop-delay=216t unresolved=metal-production custody=conserved replay=exact"
         )
-        records = [witness, project, provision, payoff, priority]
+        first_metal = (
+            "PLAYER FIRST METAL seed=0xA episode=coverage/rested/clay-worksite "
+            "origin=finite-native-copper-float "
+            "action=[visit-clay-spur>collect-copper>cold-work>carve-stone>band-crock>forage>recover-food] "
+            "cost=[metal:40000mg stone:3000000mg security-elapsed:374t] "
+            "discovery=[float-before:101854mg float-after:61854mg] "
+            "payoff=[recovered-berries:2000000mg preservation:5000000ppm saved-age:96t-per-120t] "
+            "comparison=[timber-box:1750000ppm security-elapsed:225t extra-copper-route:149t] "
+            "smelted-metal=0 matter=conserved replay=exact"
+        )
+        records = [witness, project, provision, payoff, priority, first_metal]
         summary = gameplay_report_summary.wilderness_worksite_player_experience(records)
         self.assertIsNotNone(summary)
         assert summary is not None
@@ -3364,6 +3374,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("metal-produced:0 next:molten-metal", summary)
         self.assertIn("priority=[food-first:245t bed-first:461t saved:216t before-metal-feed]", summary)
+        self.assertIn("first-metal=[native-float:0.10kg took:0.04kg crock-security:374t vs-wood:225t cost-extra:149t saved-age:96t/120t vs-wood:51.4t/120t smelted:0]", summary)
         with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
             gameplay_report_summary.wilderness_worksite_player_experience([
                 witness, project.replace("same-acquisition-and-crafting:216t", "same-acquisition-and-crafting:10t"), provision, payoff, priority
@@ -3427,6 +3438,25 @@ class GameplayReportContractTests(unittest.TestCase):
             gameplay_report_summary.wilderness_worksite_player_experience([
                 witness, project, provision, payoff,
                 priority.replace("first-security:245t bed-first-security:461t", "first-security:461t bed-first-security:245t"),
+            ])
+        with self.assertRaisesRegex(ValueError, "generated native-copper cold-working payoff"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                witness, project, provision, payoff, priority,
+            ])
+        with self.assertRaisesRegex(ValueError, "distinct finite metal and food preservation"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                first_metal.replace("float-after:61854mg", "float-after:101854mg"),
+            ])
+        with self.assertRaisesRegex(ValueError, "distinct finite metal and food preservation"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                first_metal.replace("saved-age:96t-per-120t", "saved-age:20t-per-120t"),
+            ])
+        with self.assertRaisesRegex(ValueError, "physical cold-working"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                first_metal.replace("smelted-metal=0", "smelted-metal=40000"),
             ])
 
     def test_fieldwork_player_experience_reports_actor_risk_and_delayed_consequence(self) -> None:
