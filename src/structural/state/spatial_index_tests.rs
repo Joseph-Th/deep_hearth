@@ -194,3 +194,108 @@ fn structural_creation_removal_and_trusted_load_keep_local_occupancy_in_sync() {
         "removing one member cannot discard a different voxel's occupancy"
     );
 }
+
+#[test]
+fn indexed_structural_overlap_preserves_lowest_id_and_real_voxel_intersection_after_load() {
+    use crate::content::{
+        FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    };
+    use crate::core::quantity::{Area, Length};
+    use crate::core::state::{AppState, validate_loaded_state};
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let geometry = |min: VoxelCoord, max: VoxelCoord, area| {
+        StructuralElementGeometry::new(
+            VoxelBounds::new(min, max).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(area),
+        )
+        .unwrap()
+    };
+    let mut built = Vec::new();
+    for position in [
+        VoxelCoord::new(9, 0, 9),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(30, 0, 30),
+    ] {
+        let max = VoxelCoord::new(position.x() + 1, 1, position.z() + 1);
+        let member = add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry(position, max, 1_000_000),
+            true,
+        )
+        .unwrap();
+        materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
+        built.push(member);
+    }
+    // An inert overlapping plan is not embodied matter.
+    let planned = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry(
+            VoxelCoord::new(1, 0, 1),
+            VoxelCoord::new(2, 1, 2),
+            1_000_000,
+        ),
+        true,
+    )
+    .unwrap();
+    let candidate = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry(
+            VoxelCoord::new(0, 0, 0),
+            VoxelCoord::new(10, 1, 10),
+            100_000_000,
+        ),
+        true,
+    )
+    .unwrap();
+    let verify = |state: &AppState| {
+        let structure = state.structures();
+        let record = structure.get_element(candidate).unwrap();
+        assert_eq!(
+            structure.overlapping_embodied_full_footprint(record),
+            Some((built[0], VoxelCoord::new(9, 0, 9))),
+            "lowest member ID must win even when its column sorts later"
+        );
+        assert!(structure.has_embodied_member_intersecting(record.bounds()));
+        assert!(!structure.has_embodied_member_intersecting(
+            VoxelBounds::new(VoxelCoord::new(0, 1, 0), VoxelCoord::new(10, 2, 10)).unwrap()
+        ));
+        assert!(!structure.has_embodied_member_intersecting(
+            VoxelBounds::new(VoxelCoord::new(10, 0, 0), VoxelCoord::new(30, 1, 10)).unwrap()
+        ));
+        assert!(!structure.has_embodied_member_intersecting(
+            VoxelBounds::new(VoxelCoord::new(1, 0, 1), VoxelCoord::new(2, 1, 2)).unwrap()
+        ));
+        assert!(
+            structure
+                .get_element(planned)
+                .unwrap()
+                .embodied_material()
+                .is_empty()
+        );
+    };
+    verify(&state);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    verify(&restored);
+}

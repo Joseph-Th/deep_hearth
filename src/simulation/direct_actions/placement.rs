@@ -53,8 +53,7 @@ fn validate_direct_placement_position(
         || state
             .structures()
             .elements_covering(position)
-            .next()
-            .is_some()
+            .any(|member| !member.embodied_material().is_empty())
     {
         return Err(DirectPlacementTargetError::LocationOccupied { position });
     }
@@ -116,6 +115,15 @@ fn resolve_supported_timber_target(
             return Err(SecondaryActionOutcome::AmbiguousStructuralPlacementTarget { count });
         }
     };
+    // An unbuilt plan has no physical surface to place against. Logs can
+    // still resolve a real terrain face beyond it; boards require real framing.
+    if state
+        .structures()
+        .get_element(target.element)
+        .is_none_or(|member| member.embodied_material().is_empty())
+    {
+        return Ok(None);
+    }
     let position = target
         .face
         .adjacent_voxel(target.voxel)

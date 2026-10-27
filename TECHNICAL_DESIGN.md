@@ -115,7 +115,12 @@ then read the owning section/source for exact semantics and errors.
 
 Generated-world targeting distinguishes structural interaction from physical contact: a materialized
 full-cell panel remains selectable for its own dismantling, but blocks melee contact into or beyond
-its occupied cell. Unembodied plans do not obstruct either ray.
+its occupied cell. Unembodied plans do not obstruct either ray: a pointed structural break
+prefers reachable embodied matter even behind nearer empty plans, and only selects the closest
+plan when no physical member is hit. The empty plan cannot provide a placement support face or
+occupy generated air, so a pointed timber post may use the actual terrain behind it. Bounded
+structural footprint checks use the existing horizontal index and exact intersection tests,
+including for broad geometry.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |

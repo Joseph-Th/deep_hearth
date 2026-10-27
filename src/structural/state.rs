@@ -143,8 +143,8 @@ impl StructureState {
 
     /// Any actual built member, including a narrow post, obstructs a heavy
     /// resident's occupied body volume. For small footprints, use local indexed
-    /// occupancy; for unusually large bounds, scan each member just once rather
-    /// than expanding an unbounded number of voxel lookups.
+    /// occupancy; for unusually large bounds, query horizontal candidates once
+    /// instead of expanding an unbounded number of voxel lookups.
     #[must_use]
     pub(crate) fn has_embodied_member_intersecting(&self, bounds: VoxelBounds) -> bool {
         if bounds
@@ -156,7 +156,13 @@ impl StructureState {
                     .any(|element| !element.embodied_material().is_empty())
             });
         }
-        self.elements.values().any(|element| {
+        self.elements_intersecting_horizontal_columns(
+            bounds.min().x(),
+            bounds.max_exclusive().x() - 1,
+            bounds.min().z(),
+            bounds.max_exclusive().z() - 1,
+        )
+        .any(|element| {
             !element.embodied_material().is_empty() && element.bounds().has_intersection(bounds)
         })
     }
@@ -170,7 +176,14 @@ impl StructureState {
         if !candidate.geometry().covers_horizontal_footprint() {
             return None;
         }
-        self.elements.values().find_map(|member| {
+        let bounds = candidate.bounds();
+        self.elements_intersecting_horizontal_columns(
+            bounds.min().x(),
+            bounds.max_exclusive().x() - 1,
+            bounds.min().z(),
+            bounds.max_exclusive().z() - 1,
+        )
+        .find_map(|member| {
             if member.id() == candidate.id()
                 || member.embodied_material().is_empty()
                 || !member.geometry().covers_horizontal_footprint()

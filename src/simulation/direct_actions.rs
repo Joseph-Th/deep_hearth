@@ -378,15 +378,35 @@ struct DirectStructuralFaceTarget {
     face: CubeFace,
 }
 
+fn direct_structural_face_candidate(
+    (first, count): (Option<StructuralElementId>, usize),
+    voxel: VoxelCoord,
+    face: CubeFace,
+) -> Option<Result<DirectStructuralFaceTarget, usize>> {
+    first.map(|element| {
+        if count == 1 {
+            Ok(DirectStructuralFaceTarget {
+                element,
+                voxel,
+                face,
+            })
+        } else {
+            Err(count)
+        }
+    })
+}
+
 fn resolve_direct_structural_face_target(
     registries: &Registries,
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<Option<DirectStructuralFaceTarget>, DirectStructuralTargetError> {
-    let target = raycast_player_air_voxel(registries, state, direction, |voxel, face| {
-        // Physical matter takes precedence over inert plans occupying the same
-        // cell. Both may coexist, but only materialized members can physically
-        // occlude a plan. Preserve ambiguity among multiple real members.
+    let mut first_plan = None;
+    let traced = raycast_player_air_voxel(registries, state, direction, |voxel, face| {
+        // A blueprint has no embodied matter and cannot block the view of
+        // a real member in a later cell. Remember the nearest selectable plan
+        // only as a fallback, while respecting solid terrain and physical
+        // structural occlusion in the owner's raycast.
         let mut embodied = (None, 0_usize);
         let mut planned = (None, 0_usize);
         for record in state.structures().elements_covering(voxel) {
@@ -398,19 +418,21 @@ fn resolve_direct_structural_face_target(
             group.0.get_or_insert(record.id());
             group.1 += 1;
         }
-        let (first, count) = if embodied.1 != 0 { embodied } else { planned };
-        let first = first?;
-        Some(if count == 1 {
-            Ok(DirectStructuralFaceTarget {
-                element: first,
-                voxel,
-                face,
-            })
-        } else {
-            Err(count)
-        })
-    })
-    .map_err(|_| DirectStructuralTargetError::TargetUnavailable)?;
+        if embodied.1 != 0 {
+            return direct_structural_face_candidate(embodied, voxel, face);
+        }
+        if first_plan.is_none() {
+            first_plan = direct_structural_face_candidate(planned, voxel, face);
+        }
+        None
+    });
+    let target = match traced {
+        Ok(physical) => physical.or(first_plan),
+        // Missing farther world truth must not erase a nearer, already
+        // observed blueprint, but cannot authorize an unseen physical target.
+        Err(_) if first_plan.is_some() => first_plan,
+        Err(_) => return Err(DirectStructuralTargetError::TargetUnavailable),
+    };
     target
         .transpose()
         .map_err(|count| DirectStructuralTargetError::Ambiguous { count })

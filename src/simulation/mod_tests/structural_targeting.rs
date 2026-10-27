@@ -195,3 +195,120 @@ fn direct_targeting_prefers_materialized_member_over_overlapping_inert_plan() {
         );
     }
 }
+
+#[test]
+fn inert_front_blueprint_cannot_occlude_reachable_real_structural_member() {
+    // Both use the same ray. An unbuilt blueprint must be selectable when
+    // alone, but it is not physical cover for an embodied member behind it.
+    for with_real_member in [false, true] {
+        let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+        let first = VoxelCoord::new(1, floor_y + 1, 0);
+        let second = VoxelCoord::new(2, floor_y + 1, 0);
+        for target in [first, second] {
+            set_generated_block_for_test(registries.world(), &mut state, target, BlockStateId::AIR);
+        }
+        let add = |state: &mut AppState, target: VoxelCoord| {
+            let bounds = VoxelBounds::new(
+                target,
+                VoxelCoord::new(target.x() + 1, target.y() + 1, target.z() + 1),
+            )
+            .unwrap();
+            let geometry = StructuralElementGeometry::new(
+                bounds,
+                Length::from_micrometers(1_000_000),
+                Area::from_square_millimeters(5_000),
+            )
+            .unwrap();
+            add_structural_element(
+                &registries,
+                state,
+                STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+                MATERIAL_WOOD,
+                geometry,
+                true,
+            )
+            .unwrap()
+        };
+        let blueprint = add(&mut state, first);
+        let real = with_real_member.then(|| {
+            let element = add(&mut state, second);
+            materialize_structural_element_for_test(&registries, &mut state, element, FORM_LOG);
+            element
+        });
+        assert_eq!(
+            crate::core::state::validate_loaded_state(&registries, &state),
+            Ok(())
+        );
+        let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+        let serialized = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut reloaded = serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let intent = PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::break_target(direction));
+        let response =
+            advance_control_tick_with_direct_input(&registries, &mut state, intent).unwrap();
+        let replay =
+            advance_control_tick_with_direct_input(&registries, &mut reloaded, intent).unwrap();
+        assert_eq!(response, replay);
+        assert_eq!(
+            response.primary_action(),
+            Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+        );
+        assert_eq!(
+            state
+                .logistics()
+                .pending_primary_break()
+                .map(|pending| pending.element()),
+            Some(real.unwrap_or(blueprint)),
+            "a nonphysical blueprint must not shadow later embodied matter"
+        );
+        assert_eq!(state, reloaded);
+    }
+}
+
+#[test]
+fn nearby_blueprint_remains_selectable_before_unknown_world_authority() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(14, 0);
+    let position = VoxelCoord::new(15, floor_y + 1, 0);
+    set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    let plan = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(position, VoxelCoord::new(16, floor_y + 2, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(5_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    // The ray encounters the visible plan before entering an ungenerated chunk.
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    let outcome = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::break_target(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        outcome.primary_action(),
+        Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    assert_eq!(
+        state
+            .logistics()
+            .pending_primary_break()
+            .map(|pending| pending.element()),
+        Some(plan)
+    );
+}
