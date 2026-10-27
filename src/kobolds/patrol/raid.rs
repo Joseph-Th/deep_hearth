@@ -355,8 +355,7 @@ pub(super) fn choose_outbound_detour(
     context: ScoutPatrolContext,
     step: u8,
     returning: bool,
-    inherited_target: Option<(VoxelCoord, Option<VoxelCoord>)>,
-    preferred_forage: Option<(VoxelCoord, Option<VoxelCoord>)>,
+    interest: ScoutRaidInterest,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
     if step != 2 || returning || colony.scout_step != 1 {
         return None;
@@ -368,6 +367,11 @@ pub(super) fn choose_outbound_detour(
         player_position,
         ..
     } = context;
+    let ScoutRaidInterest {
+        inherited_target,
+        preferred_forage,
+        ..
+    } = interest;
     let junction = colony.route[1];
     let route = ScavengeRoute::new(colony.route, player_position);
     let loose_cache =

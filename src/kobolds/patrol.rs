@@ -161,18 +161,13 @@ fn plan_scout_move(
         player_position,
         pressured,
     } = context;
-    let ScoutRaidInterest {
-        exposed_at_current,
-        inherited_target,
-        preferred_forage,
-    } = raid_interest;
     let wary_at_den = colony.scout_step == 0
         && !pressured
         && colony.wary_until.is_some_and(|until| next_tick < until);
     let (proposed_step, proposed_returning) = if wary_at_den {
         (0, false)
     } else {
-        colony.next_scout_step(pressured, exposed_at_current)
+        colony.next_scout_step(pressured, raid_interest.exposed_at_current)
     };
     let proposed_detour = choose_outbound_detour(
         registries,
@@ -181,8 +176,7 @@ fn plan_scout_move(
         context,
         proposed_step,
         proposed_returning,
-        inherited_target,
-        preferred_forage,
+        raid_interest,
     );
     let proposed_position = proposed_detour.map_or_else(
         || colony.position_at_step(proposed_step),
