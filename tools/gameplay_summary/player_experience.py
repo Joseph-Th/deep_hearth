@@ -468,6 +468,49 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         or still_available != "true"
     ):
         raise ValueError("generated-world geological mining did not earn a harder-seam ore payoff")
+    dressing = _one_seeded(lines, "PLAYER FIRST ORE DRESSING ", _required(record, "seed"))
+    if dressing is None:
+        raise ValueError("first mined ore has no executed manual liberation or physical alternative")
+    if (
+        _required(dressing, "provenance") != "generated-mined-ore"
+        or _required(dressing, "method")
+        != "[select-owned-ore>hand-break>hand-sort>retain-gangue-and-unworked-ore]"
+        or _required(dressing, "route")
+        != "[carried-custody:unchanged physical-work:timed]"
+        or _required(dressing, "decision")
+        != "[immediate-supply:float future-scale:ore]"
+        or _required(dressing, "downstream")
+        != "[cold-workable-native:true molten-metal:false]"
+        or _required(dressing, "matter") != "conserved"
+        or _required(dressing, "replay") != "exact"
+    ):
+        raise ValueError("manual ore dressing lost its physical custody, useful options, or conservation")
+    feed, native, reject, unworked = _capture(
+        _required(dressing, "batch"),
+        r"feed:(\d+)mg native:(\d+)mg rejected:(\d+)mg unworked:(\d+)mg",
+        "selected mined-ore feed and exact recovered, rejected, and retained masses",
+    )
+    dressing_ticks = _required(dressing, "attention")
+    if not dressing_ticks.endswith("t") or not dressing_ticks[:-1].isdigit():
+        raise ValueError("manual ore dressing lost actual player work duration")
+    float_mass, float_ticks, float_left = _capture(
+        _required(dressing, "immediate-alternative"),
+        r"finite-float:(\d+)mg return-work:(\d+)t source-left:(\d+)mg",
+        "matched real finite surface-gathering alternative",
+    )
+    if (
+        int(feed) != 100_000
+        or int(feed) + int(unworked) != int(recovered_ore)
+        or not 0 < int(native) < int(feed)
+        or int(native) + int(reject) != int(feed)
+        or int(native) * 1_000_000 * 1_000_000
+        != int(feed) * 500_000 * 650_000
+        or not 0 < int(float_left)
+        or int(float_left) + int(float_mass) + 20_000 != int(source_before)
+        or not int(native) < int(float_mass)
+        or not 0 < int(float_ticks) < int(dressing_ticks[:-1])
+    ):
+        raise ValueError("hand-sorted first ore or cheaper remaining float did not earn its physical payoff")
     return (
         "PLAYER EXPERIENCE worksite-project goal=specified-not-discovered "
         f"provision=[selected-protein:{_kg(picked)} left-in-world:{_kg(left)} "
@@ -495,6 +538,10 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         f"first-seam=[survey:{seam_surveys}t tools:{seam_tools}t mine:{seam_mining}t "
         f"ore-returned:{_kg(recovered_ore)} hardness:{int(acquired_hardness) // 1_000_000}MPa "
         "stone-rejected:true next-order:available] "
+        f"first-ore-dressing=[feed:{_kg(feed)} native:{_kg(native)} "
+        f"gangue:{_kg(reject)} ore-unworked:{_kg(unworked)} manual:{dressing_ticks} "
+        f"float-option:{_kg(float_mass)}/{float_ticks}t float-left:{_kg(float_left)} "
+        "near-term:choose-float future-scale:retain-ore] "
         "outcome=[station:9.6kg metal-produced:0 next:molten-metal]"
     )
 

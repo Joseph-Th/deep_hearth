@@ -201,8 +201,14 @@ acquisition work on roof-panel stock while the crock protects food longer at hig
 The ore seam is geological truth, not a visible free stockpile: field inspection and tool-backed
 sampling must first acquire positive locality and hardness evidence. A normal stone pick cannot
 excavate its 650 MPa rock, whereas the copper-reinforced pick can mine a real finite ore parcel and
-haul it home. Neither the native float nor ore mining creates molten metal or bypasses the later
-ore dressing, electrical furnace, and casting requirements.
+haul it home. Manual hand breaking and sorting now accept an observed, revision-bound inventory
+stack rather than asking a player to choose opaque lot identities. The returned ore can be
+selected and physically dressed in carried custody: a 100 g sample yields 32.5 g of native copper,
+67.5 g of copper-bearing rock residue, and leaves the other 100 g unworked, for 168 ticks of
+player labor. This is an expensive small-batch fallback: while the finite float still holds
+40 g, a matched 11-tick walk/forage alternative acquires more usable copper sooner. Ore dressing
+therefore pays off after exposed supplies become limiting, not as compulsory early busywork.
+Neither branch produces molten metal or bypasses the later furnace and casting requirements.
 
 The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
 secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,

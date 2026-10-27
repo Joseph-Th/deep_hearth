@@ -1,18 +1,117 @@
 //! Contract tests for ore-processing registry ownership and routing.
 
 use crate::content::{
-    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_REINFORCEMENT, MATERIAL_COPPER, PROCESS_HAND_BREAK_ORE,
-    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
+    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, MATERIAL_COPPER,
+    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
+use crate::core::state::AppState;
+use crate::inventory::{
+    MaterialStackProjectionError, add_solid_stockpile_for_test, deposit_lot_for_test,
+    project_material_stacks,
+};
+use crate::material::CommodityKey;
 use crate::production::{ProcessDefinition, ProductionRegistry};
 
 use super::{
     ConstituentRecoveryProfile, ConstituentSeparationProcessDefinition,
-    ManualComminutionProcessDefinition, ManualOrePhysicsError, ManualOreProcessProfile,
+    ManualComminutionProcessDefinition, ManualComminutionResolutionError,
+    ManualConstituentSeparationResolutionError, ManualOrePhysicsError, ManualOreProcessProfile,
     OreProcessingRegistry, PoweredOreProcessProfile, ScreeningProcessDefinition,
-    project_manual_ore_duration,
+    project_manual_ore_duration, resolve_manual_comminution_from_stack,
+    resolve_manual_constituent_separation_from_stack,
 };
+
+#[test]
+fn player_selected_manual_ore_stacks_enforce_exact_amounts_and_revision_freshness() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(300_000))
+        .unwrap_or_else(|error| panic!("manual ore stack stockpile failed: {error}"));
+    let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    let feed = Mass::from_milligrams(100_000);
+    let deposit = |state: &mut AppState| {
+        deposit_lot_for_test(
+            &registries,
+            state,
+            stockpile,
+            ore,
+            feed,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("manual ore stack lot setup failed: {error}"));
+    };
+    deposit(&mut state);
+    let stack = project_material_stacks(&registries, &state, stockpile)
+        .unwrap()
+        .into_iter()
+        .find(|stack| stack.commodity() == ore)
+        .expect("player-visible ore stack missing");
+    let snapshot = state.clone();
+    let resolved = resolve_manual_comminution_from_stack(
+        &registries,
+        &state,
+        PROCESS_HAND_BREAK_ORE,
+        &stack,
+        feed,
+    )
+    .unwrap_or_else(|error| panic!("valid stack ore breaking rejected: {error}"));
+    assert!(resolved.duration().value() > 0);
+    assert!(matches!(
+        resolve_manual_comminution_from_stack(
+            &registries,
+            &state,
+            PROCESS_HAND_BREAK_ORE,
+            &stack,
+            Mass::ZERO,
+        ),
+        Err(ManualComminutionResolutionError::Stack(
+            MaterialStackProjectionError::ZeroMass
+        ))
+    ));
+    assert!(matches!(
+        resolve_manual_constituent_separation_from_stack(
+            &registries,
+            &state,
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            &stack,
+            Mass::from_milligrams(100_001),
+        ),
+        Err(ManualConstituentSeparationResolutionError::Stack(
+            MaterialStackProjectionError::MassExceedsStack { .. }
+        ))
+    ));
+    assert_eq!(
+        state, snapshot,
+        "player stack resolution must not mutate custody"
+    );
+    deposit(&mut state);
+    assert!(matches!(
+        resolve_manual_comminution_from_stack(
+            &registries,
+            &state,
+            PROCESS_HAND_BREAK_ORE,
+            &stack,
+            feed,
+        ),
+        Err(ManualComminutionResolutionError::Stack(
+            MaterialStackProjectionError::StaleInventoryRevision { .. }
+        ))
+    ));
+    assert!(matches!(
+        resolve_manual_constituent_separation_from_stack(
+            &registries,
+            &state,
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            &stack,
+            feed,
+        ),
+        Err(ManualConstituentSeparationResolutionError::Stack(
+            MaterialStackProjectionError::StaleInventoryRevision { .. }
+        ))
+    ));
+}
 
 #[test]
 fn manual_ore_projection_rejects_zero_mass_non_batch() {

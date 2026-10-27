@@ -3,11 +3,13 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::MassFlow;
+use crate::core::quantity::{Mass, MassFlow};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::EquipmentId;
-use crate::inventory::{MaterialLotSelection, StockpileId};
+use crate::inventory::{
+    MaterialLotSelection, MaterialStackProjection, MaterialStackProjectionError, StockpileId,
+};
 use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
@@ -66,6 +68,7 @@ impl<'selection> ManualComminutionRequest<'selection> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualComminutionResolutionError {
     UnknownProcess { process: ProcessId },
+    Stack(MaterialStackProjectionError),
     Input(ProcessInputError),
     Equipment(ManualOreEquipmentError),
     Physics(ManualOrePhysicsError),
@@ -81,6 +84,12 @@ impl Display for ManualComminutionResolutionError {
                 "process {} has no authored manual comminution semantics",
                 process.value()
             ),
+            Self::Stack(error) => {
+                write!(
+                    formatter,
+                    "manual comminution stack selection failed: {error}"
+                )
+            }
             Self::Input(error) => write!(formatter, "manual comminution input failed: {error}"),
             Self::Equipment(error) => {
                 write!(formatter, "manual comminution equipment failed: {error}")
@@ -97,6 +106,7 @@ impl Display for ManualComminutionResolutionError {
 impl Error for ManualComminutionResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Stack(error) => Some(error),
             Self::Input(error) => Some(error),
             Self::Equipment(error) => Some(error),
             Self::Physics(error) => Some(error),
@@ -197,6 +207,25 @@ pub fn resolve_manual_comminution_process(
         resolution,
         processing_rate,
     })
+}
+
+/// Resolves a player-visible, revision-bound material stack into canonical
+/// hand breaking. The player selects a cohort and mass, never internal lot IDs.
+pub fn resolve_manual_comminution_from_stack(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    stack: &MaterialStackProjection,
+    mass: Mass,
+) -> Result<ResolvedManualComminution, ManualComminutionResolutionError> {
+    let selections = stack
+        .selections_for_mass(state, stack.stockpile(), mass)
+        .map_err(ManualComminutionResolutionError::Stack)?;
+    resolve_manual_comminution_process(
+        registries,
+        state,
+        ManualComminutionRequest::new(process, stack.stockpile(), &selections),
+    )
 }
 
 /// Failure while reserving a resolved hand-breaking job and exclusive player labor.

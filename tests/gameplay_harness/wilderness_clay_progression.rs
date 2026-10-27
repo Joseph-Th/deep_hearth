@@ -1042,5 +1042,20 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             seam.mined_ore.milligrams(),
             seam.followup_still_resolvable,
         );
+        std::println!(
+            "PLAYER FIRST ORE DRESSING seed=0x{:016X} episode=coverage/rested/clay-worksite provenance=generated-mined-ore method=[select-owned-ore>hand-break>hand-sort>retain-gangue-and-unworked-ore] route=[carried-custody:unchanged physical-work:timed] batch=[feed:{}mg native:{}mg rejected:{}mg unworked:{}mg] attention={}t immediate-alternative=[finite-float:{}mg return-work:{}t source-left:{}mg] decision=[immediate-supply:float future-scale:ore] downstream=[cold-workable-native:true molten-metal:false] matter=conserved replay=exact",
+            seed.value(),
+            seam.dressed_feed.milligrams(),
+            seam.native_recovered.milligrams(),
+            seam.crushed_residue.milligrams(),
+            seam.mined_ore
+                .checked_sub(seam.dressed_feed)
+                .unwrap()
+                .milligrams(),
+            seam.dressed_ticks,
+            seam.alternate_float_gathered.milligrams(),
+            seam.alternate_float_ticks,
+            seam.alternate_float_remaining.milligrams(),
+        );
     }
 }

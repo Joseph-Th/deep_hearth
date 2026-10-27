@@ -4,17 +4,24 @@
 use super::*;
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK,
-    FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
-    MINING_METHOD_HAND_PICK, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
+    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
+    MINING_METHOD_HAND_PICK, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
 };
 use deep_hearth::equipment::validate_upgrade_equipment;
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceKind, player_prospecting_options,
     validate_start_field_prospecting,
 };
+use deep_hearth::inventory::{MaterialStackProjectionError, project_material_stacks};
 use deep_hearth::logistics::{validate_drop_equipment, validate_pickup_equipment};
 use deep_hearth::mining::{
     MiningStartError, MiningTargetRequest, resolve_mining_target, validate_start_mining,
+};
+use deep_hearth::ore_processing::{
+    ManualComminutionResolutionError, resolve_manual_comminution_from_stack,
+    resolve_manual_constituent_separation_from_stack, validate_start_manual_comminution,
+    validate_start_manual_constituent_separation,
 };
 
 pub(super) struct SeamRoute {
@@ -34,6 +41,230 @@ pub(super) struct SeamPayoff {
     pub(super) mined_ore: Mass,
     pub(super) hardness_upper_pa: u64,
     pub(super) followup_still_resolvable: bool,
+    pub(super) dressed_feed: Mass,
+    pub(super) native_recovered: Mass,
+    pub(super) crushed_residue: Mass,
+    pub(super) dressed_ticks: u64,
+    pub(super) alternate_float_gathered: Mass,
+    pub(super) alternate_float_remaining: Mass,
+    pub(super) alternate_float_ticks: u64,
+}
+
+/// The freshly mined ore does not automatically justify hand dressing while
+/// a shorter, finite surface-float trip can still supply the immediate need.
+/// Compare the actual walk and gathering work from the *same* post-mine state.
+fn gather_remaining_float_instead(
+    registries: &Registries,
+    after_mining: &AppState,
+    route: &SeamRoute,
+    conserved: deep_hearth::core::quantity::AggregateMass,
+) -> (Mass, Mass, u64) {
+    let mut alternative = after_mining.clone();
+    let started_at = alternative.tick();
+    let copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
+    visit_outcrop(registries, &mut alternative, route, false);
+    let source = local_surface_resource(&alternative, copper);
+    let before = alternative
+        .available_surface_resources()
+        .find(|record| record.id() == source)
+        .unwrap_or_else(|| panic!("finite copper float is no longer locally observable"))
+        .remaining_mass();
+    let selected = Mass::from_milligrams(40_000);
+    assert!(
+        before >= selected,
+        "the immediate float alternative must still be genuinely available on every opening seed"
+    );
+    gather_in_batches(
+        registries,
+        &mut alternative,
+        source,
+        selected,
+        "remaining native float instead of mineral dressing",
+    );
+    let remaining = alternative
+        .available_surface_resources()
+        .find(|record| record.id() == source)
+        .unwrap_or_else(|| panic!("the selected surface float lost its persistent identity"))
+        .remaining_mass();
+    assert_eq!(before.checked_sub(selected), Some(remaining));
+    visit_outcrop(registries, &mut alternative, route, true);
+    assert_eq!(
+        alternative
+            .inventory()
+            .get_stockpile(route.carried)
+            .unwrap()
+            .get_mass(copper),
+        selected,
+        "the cheaper float route must physically deliver its selected copper to the worksite"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&alternative).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(registries, &alternative), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(registries, &alternative)).unwrap();
+    let replay: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(replay.into_state(registries), Ok(alternative.clone()));
+    (
+        selected,
+        remaining,
+        alternative.tick().value() - started_at.value(),
+    )
+}
+
+/// Process only explicitly selected ore from this player's carried custody.
+/// Both output streams stay represented in the carried stockpile, including
+/// the rejected gangue. No test-owned lot, ground bin, or equipment is spawned.
+fn hand_dress_first_copper(
+    registries: &Registries,
+    state: &mut AppState,
+    carried: StockpileId,
+) -> (Mass, Mass, Mass, u64) {
+    let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    let crushed = CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED);
+    let gangue = CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED);
+    let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
+    let feed = Mass::from_milligrams(100_000);
+    let before_native = state
+        .inventory()
+        .get_stockpile(carried)
+        .unwrap()
+        .get_mass(native);
+    let beginning = state.tick();
+    let ore_stack = project_material_stacks(registries, state, carried)
+        .unwrap_or_else(|error| panic!("actor-visible mined-ore catalog failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == ore && stack.mass() >= feed)
+        .expect("player cannot select the genuinely mined ore from the familiar carried stacks");
+    let broken = resolve_manual_comminution_from_stack(
+        registries,
+        state,
+        PROCESS_HAND_BREAK_ORE,
+        &ore_stack,
+        feed,
+    )
+    .unwrap_or_else(|error| panic!("hand-breaking mined ore was rejected: {error}"));
+    let breaking_job =
+        validate_start_manual_comminution(registries, state, &broken, carried, carried)
+            .unwrap_or_else(|error| panic!("hand-breaking mined ore start rejected: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("hand-breaking mined ore commit failed: {error}"));
+    let breaking_finish = state
+        .production()
+        .get_job(breaking_job)
+        .unwrap()
+        .completes_at();
+    advance_to(
+        registries,
+        state,
+        breaking_finish,
+        TickEventAllowance {
+            production_jobs: &[breaking_job],
+            ..TickEventAllowance::default()
+        },
+        "hand-breaking first owned geological ore",
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(crushed),
+        feed
+    );
+    assert!(
+        matches!(
+            resolve_manual_comminution_from_stack(
+                registries,
+                state,
+                PROCESS_HAND_BREAK_ORE,
+                &ore_stack,
+                feed,
+            ),
+            Err(ManualComminutionResolutionError::Stack(
+                MaterialStackProjectionError::StaleInventoryRevision { .. }
+            ))
+        ),
+        "the old player stack choice must be stale after ore actually changes form"
+    );
+    let crushed_stack = project_material_stacks(registries, state, carried)
+        .unwrap_or_else(|error| panic!("actor-visible crushed-ore catalog failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == crushed && stack.mass() >= feed)
+        .expect("player cannot select the hand-broken rock from the familiar carried stacks");
+    let sorted = resolve_manual_constituent_separation_from_stack(
+        registries,
+        state,
+        PROCESS_HAND_SORT_NATIVE_COPPER,
+        &crushed_stack,
+        feed,
+    )
+    .unwrap_or_else(|error| panic!("hand-sorting owned crushed ore was rejected: {error}"));
+    let recovered = sorted.target_mass();
+    let residue = sorted.residue_mass();
+    assert_eq!(recovered.checked_add(residue), Some(feed));
+    let sorting_job = validate_start_manual_constituent_separation(
+        registries, state, &sorted, carried, carried, carried,
+    )
+    .unwrap_or_else(|error| panic!("hand-sorting mined ore start rejected: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("hand-sorting mined ore commit failed: {error}"));
+    let sorting_finish = state
+        .production()
+        .get_job(sorting_job)
+        .unwrap()
+        .completes_at();
+    advance_to(
+        registries,
+        state,
+        sorting_finish,
+        TickEventAllowance {
+            production_jobs: &[sorting_job],
+            ..TickEventAllowance::default()
+        },
+        "hand-sorting native copper from personally mined rock",
+    );
+    let pack = state.inventory().get_stockpile(carried).unwrap();
+    assert_eq!(
+        pack.get_mass(ore),
+        feed,
+        "undressed ore must remain available"
+    );
+    assert_eq!(
+        pack.get_mass(gangue),
+        residue,
+        "hand sorting must retain the rock-hosted, copper-bearing crushed residue"
+    );
+    assert_eq!(
+        pack.get_mass(crushed),
+        Mass::ZERO,
+        "the selected ore feed was sorted"
+    );
+    let gangue_lot = state
+        .inventory()
+        .lot_ids(carried)
+        .find_map(|id| {
+            state
+                .inventory()
+                .get_lot(id)
+                .filter(|lot| lot.commodity() == gangue)
+        })
+        .expect("sorted mixed rock must remain physically in the player's inventory");
+    assert!(
+        gangue_lot.composition().parts_per_million(MATERIAL_COPPER) > 0,
+        "hand sorting must not silently destroy copper still bound into the reject"
+    );
+    assert_eq!(
+        pack.get_mass(native).checked_sub(before_native),
+        Some(recovered),
+        "recovered native copper must enter this player's actual carried inventory"
+    );
+    (
+        feed,
+        recovered,
+        residue,
+        state.tick().value() - beginning.value(),
+    )
 }
 
 fn visit_outcrop(
@@ -335,6 +566,14 @@ pub(super) fn exercise_generated_copper_seam(
         requested,
         "mined ore must physically return to the worksite in the player's carried inventory"
     );
+    let (alternate_float_gathered, alternate_float_remaining, alternate_float_ticks) =
+        gather_remaining_float_instead(registries, &state, &route, conserved);
+    let (dressed_feed, native_recovered, crushed_residue, dressed_ticks) =
+        hand_dress_first_copper(registries, &mut state, route.carried);
+    assert!(
+        alternate_float_ticks < dressed_ticks && alternate_float_gathered > native_recovered,
+        "while finite exposed copper remains, the player must not mistake slower ore dressing for the cheapest immediate native-metal supply"
+    );
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
         conserved
@@ -356,5 +595,12 @@ pub(super) fn exercise_generated_copper_seam(
         mined_ore: requested,
         hardness_upper_pa: acquired_hardness.upper().pascals(),
         followup_still_resolvable,
+        dressed_feed,
+        native_recovered,
+        crushed_residue,
+        dressed_ticks,
+        alternate_float_gathered,
+        alternate_float_remaining,
+        alternate_float_ticks,
     }
 }

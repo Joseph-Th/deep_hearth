@@ -7,7 +7,9 @@ use crate::core::quantity::{Mass, MassFlow};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::EquipmentId;
-use crate::inventory::{MaterialLotSelection, StockpileId};
+use crate::inventory::{
+    MaterialLotSelection, MaterialStackProjection, MaterialStackProjectionError, StockpileId,
+};
 use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
@@ -66,6 +68,7 @@ impl<'selection> ManualConstituentSeparationRequest<'selection> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualConstituentSeparationResolutionError {
     UnknownProcess { process: ProcessId },
+    Stack(MaterialStackProjectionError),
     Input(ProcessInputError),
     Equipment(ManualOreEquipmentError),
     Physics(ManualOrePhysicsError),
@@ -81,6 +84,12 @@ impl Display for ManualConstituentSeparationResolutionError {
                 "process {} has no authored manual constituent-separation semantics",
                 process.value()
             ),
+            Self::Stack(error) => {
+                write!(
+                    formatter,
+                    "manual separation stack selection failed: {error}"
+                )
+            }
             Self::Input(error) => write!(formatter, "manual separation input failed: {error}"),
             Self::Equipment(error) => {
                 write!(formatter, "manual separation equipment failed: {error}")
@@ -100,6 +109,7 @@ impl Display for ManualConstituentSeparationResolutionError {
 impl Error for ManualConstituentSeparationResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Stack(error) => Some(error),
             Self::Input(error) => Some(error),
             Self::Equipment(error) => Some(error),
             Self::Physics(error) => Some(error),
@@ -232,6 +242,25 @@ pub fn resolve_manual_constituent_separation_process(
         target_mass: outputs.target_mass,
         residue_mass: outputs.residue_mass,
     })
+}
+
+/// Resolves hand sorting from an actor-visible material cohort and mass.
+/// Exact lot slices stay private to the inventory stack owner.
+pub fn resolve_manual_constituent_separation_from_stack(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    stack: &MaterialStackProjection,
+    mass: Mass,
+) -> Result<ResolvedManualConstituentSeparation, ManualConstituentSeparationResolutionError> {
+    let selections = stack
+        .selections_for_mass(state, stack.stockpile(), mass)
+        .map_err(ManualConstituentSeparationResolutionError::Stack)?;
+    resolve_manual_constituent_separation_process(
+        registries,
+        state,
+        ManualConstituentSeparationRequest::new(process, stack.stockpile(), &selections),
+    )
 }
 
 /// Failure while reserving a resolved manual separation job and exclusive player labor.

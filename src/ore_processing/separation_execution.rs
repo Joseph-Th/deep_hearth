@@ -28,6 +28,7 @@ pub use manual::{
     ManualConstituentSeparationCommitError, ManualConstituentSeparationRequest,
     ManualConstituentSeparationResolutionError, ResolvedManualConstituentSeparation,
     StartManualConstituentSeparationError, ValidatedManualConstituentSeparationStart,
+    resolve_manual_constituent_separation_from_stack,
     resolve_manual_constituent_separation_process, validate_start_manual_constituent_separation,
 };
 use outputs::resolve_separation_outputs;

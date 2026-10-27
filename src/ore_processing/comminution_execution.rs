@@ -27,7 +27,8 @@ pub use errors::ComminutionResolutionError;
 pub use manual::{
     ManualComminutionCommitError, ManualComminutionRequest, ManualComminutionResolutionError,
     ResolvedManualComminution, StartManualComminutionError, ValidatedManualComminutionStart,
-    resolve_manual_comminution_process, validate_start_manual_comminution,
+    resolve_manual_comminution_from_stack, resolve_manual_comminution_process,
+    validate_start_manual_comminution,
 };
 pub use outputs::ComminutionBatchError;
 use outputs::resolve_comminution_outputs;

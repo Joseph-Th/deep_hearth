@@ -34,7 +34,8 @@ pub use comminution_execution::{
     ComminutionResolutionError, ManualComminutionCommitError, ManualComminutionRequest,
     ManualComminutionResolutionError, ResolvedComminution, ResolvedManualComminution,
     StartManualComminutionError, ValidatedManualComminutionStart, resolve_comminution_process,
-    resolve_manual_comminution_process, validate_start_manual_comminution,
+    resolve_manual_comminution_from_stack, resolve_manual_comminution_process,
+    validate_start_manual_comminution,
 };
 
 pub(crate) use comminution_execution::validate_loaded_comminution_job;
@@ -58,6 +59,7 @@ pub use separation_execution::{
     ManualConstituentSeparationResolutionError, ResolvedConstituentSeparation,
     ResolvedManualConstituentSeparation, StartManualConstituentSeparationError,
     ValidatedManualConstituentSeparationStart, resolve_constituent_separation_process,
+    resolve_manual_constituent_separation_from_stack,
     resolve_manual_constituent_separation_process, validate_start_manual_constituent_separation,
 };
 
