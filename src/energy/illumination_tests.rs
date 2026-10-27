@@ -28,6 +28,13 @@ use super::{assess_local_illumination, project_local_light_sources};
 
 #[test]
 fn ungenerated_opening_light_reaches_nearby_cells_and_replays() {
+    use crate::content::{FORM_BOARD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+    use crate::core::quantity::{Area, Length};
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    };
+
     let registries = build_registries();
     let mut state = AppState::new();
     let source = VoxelCoord::new(0, 0, 0);
@@ -75,6 +82,64 @@ fn ungenerated_opening_light_reaches_nearby_cells_and_replays() {
     for x in 0..=7 {
         assert_eq!(at(&state, x), at(&loaded, x));
     }
+
+    // A physical wall in the opening graph has the same optical authority as
+    // a generated wall: no light inside the panel, but a longer open-air detour
+    // can still illuminate the position beyond it.
+    let wall = VoxelCoord::new(1, 0, 0);
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(wall, VoxelCoord::new(2, 1, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(1_000_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    assert_eq!(at(&state, 2).level(), 5, "an unbuilt plan casts no shadow");
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_BOARD);
+    assert_eq!(at(&state, 1).level(), 0);
+    assert_eq!(at(&state, 2).level(), 3);
+    assert_eq!(at(&state, 2).strongest_source(), Some(fire));
+    let wall_saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let wall_loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&wall_saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, wall_loaded);
+    assert_eq!(at(&state, 2), at(&wall_loaded, 2));
+
+    // An existing located emitter buried by later construction keeps its
+    // finite charge, but must stop advertising light from inside the solid.
+    let stored_before = state.energy().get_store(fire).unwrap().stored();
+    relocate_player_for_test(&mut state, VoxelCoord::new(4, 0, 0));
+    let enclosing = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(source, VoxelCoord::new(1, 1, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(1_000_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, enclosing, FORM_BOARD);
+    assert!(project_local_light_sources(&registries, &state).is_empty());
+    assert_eq!(at(&state, 0).level(), 0);
+    assert_eq!(at(&state, 2).level(), 0);
+    assert_eq!(
+        state.energy().get_store(fire).unwrap().stored(),
+        stored_before
+    );
 }
 
 #[test]

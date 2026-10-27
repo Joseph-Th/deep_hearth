@@ -71,13 +71,10 @@ fn light_sources_at_locations<'a>(
     locations: impl Iterator<Item = (EnergyStoreId, VoxelCoord)> + 'a,
 ) -> impl Iterator<Item = LocalLightSourceProjection> + 'a {
     locations.filter_map(move |(store, position)| {
-        // Terrain may be generated after a located store was assembled. A
-        // stored charge inside a newly solid cell still exists, but cannot
-        // radiate block light through its opaque source voxel. Graph-only
-        // worlds retain their pre-generation illumination contract.
-        if state.world().generation_profile().is_some()
-            && !voxel_transmits_light(registries, state, position)
-        {
+        // Terrain can be generated and structures materialized around an
+        // existing store. The charge remains owned, but a full-cell obstacle
+        // at the emitter position must not radiate through itself.
+        if !voxel_transmits_light(registries, state, position) {
             return None;
         }
         let record = state.energy().get_store(store).unwrap_or_else(|| {
@@ -204,12 +201,13 @@ fn propagated_light_level(
         return 0;
     }
 
-    // The authored opening traversal graph predates chunk generation. With no
-    // generated voxel authority there are no terrain cells to flood through:
-    // treating every missing cell as an opaque block would leave even a lit
-    // campfire dark at the next graph vertex. Retain the bounded direct falloff
-    // until generated terrain supplies actual occlusion authority.
-    if state.world().generation_profile().is_none() {
+    // The authored graph has no generated terrain. Preserve constant-time
+    // Manhattan falloff when no materialized structural obstacle intersects
+    // any shortest route. Otherwise take the same bounded detour search used
+    // by generated terrain, treating missing terrain as air but not built walls.
+    if state.world().generation_profile().is_none()
+        && !pre_generation_structure_may_occlude(state, source.position(), target)
+    {
         return source.level()
             - u8::try_from(distance).expect("distance is below bounded source light level");
     }
@@ -244,9 +242,35 @@ fn propagated_light_level(
     0
 }
 
+fn pre_generation_structure_may_occlude(
+    state: &AppState,
+    from: VoxelCoord,
+    to: VoxelCoord,
+) -> bool {
+    let min_y = from.y().min(to.y());
+    let max_y = from.y().max(to.y());
+    state
+        .structures()
+        .elements_intersecting_horizontal_columns(
+            from.x().min(to.x()),
+            from.x().max(to.x()),
+            from.z().min(to.z()),
+            from.z().max(to.z()),
+        )
+        .any(|member| {
+            !member.embodied_material().is_empty()
+                && member.geometry().covers_horizontal_footprint()
+                && member.bounds().min().y() <= max_y
+                && member.bounds().max_exclusive().y() > min_y
+        })
+}
+
 fn voxel_transmits_light(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
     if state.structures().blocks_full_cell(position) {
         return false;
+    }
+    if state.world().generation_profile().is_none() {
+        return true;
     }
     let Some(block_state) = state.world().block_at(position) else {
         return false;
