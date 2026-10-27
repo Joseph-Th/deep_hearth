@@ -3,6 +3,112 @@
 use super::*;
 
 #[test]
+fn fatal_tick_does_not_restart_a_suspended_manual_craft() {
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let (registries, mut state, source, lot, destination) = make_fixture();
+    let support = active_stockpile_support(&registries, &mut state);
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let paused = advance_tick(&registries, &mut state).unwrap();
+    assert!(matches!(
+        paused.production_availability_changes(),
+        [ProductionAvailabilityChange::Suspended { job: stopped, .. }] if *stopped == job
+    ));
+    assert_eq!(state.player_work().active(), None);
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let suspension_before = state.production().get_job(job).unwrap().suspension();
+    let reserved_before = state
+        .inventory()
+        .get_stockpile(destination)
+        .unwrap()
+        .reserved_inbound();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+
+    // This player has the energy and hydration to begin the interrupted work,
+    // but no thermal reserve or vitality to survive the current outdoor tick.
+    // Production's pre-tick availability forecast therefore sees labor that
+    // cannot remain available after the authoritative survival settlement.
+    let before = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::from_parts_per_million_unchecked(1),
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            0,
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert!(outcome.production_completions().is_empty());
+    assert!(
+        !outcome.production_availability_changes().iter().any(|change| {
+            matches!(change, ProductionAvailabilityChange::Resumed { job: resumed, .. } if *resumed == job)
+        }),
+        "the fatal tick must not resume a manual job with no surviving worker"
+    );
+    assert_eq!(
+        state.survival().player().unwrap().vitality(),
+        Vitality::ZERO
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.production().get_job(job).unwrap().suspension(),
+        suspension_before
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .reserved_inbound(),
+        reserved_before
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(loaded.into_state(&registries), Ok(state));
+}
+
+#[test]
 fn fatal_tick_suspends_unfinished_manual_craft_and_preserves_work_in_process() {
     let (registries, mut state, source, lot, destination) = make_fixture();
     let job = validate_start_manual_craft(

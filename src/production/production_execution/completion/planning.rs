@@ -45,11 +45,38 @@ impl DueCompletionPlanning {
 
 /// Adds the end-of-tick suspension required when fatal survival resolution releases unfinished
 /// direct player production. A job completing on the fatal tick is allowed to finish normally.
+/// Manual work provisionally resumed against the pre-tick living player must not remain active
+/// after a fatal survival settlement.
 pub(crate) fn plan_player_death_suspension(
+    registries: &Registries,
     state: &AppState,
     tick: SimulationTick,
     plan: &mut CompletionPlan,
 ) -> Result<(), CompletionPlanError> {
+    // Completion planning provisionally sees the living pre-tick player and may therefore
+    // resume a suspended manual job. Unless it finishes this tick, that resumption would
+    // start player work after survival has killed the only worker. Preserve the existing
+    // suspension and its material reservations rather than manufacturing an unstaffed job.
+    let due_jobs = &plan.jobs;
+    plan.availability_changes.retain(|change| {
+        let ProductionAvailabilityChange::Resumed { job, .. } = *change else {
+            return true;
+        };
+        if due_jobs.contains(&job) {
+            return true;
+        }
+        let record = state.production().get_job(job).unwrap_or_else(|| {
+            panic!("runtime invariant broken: resumed production job is missing")
+        });
+        registries
+            .manual_process_exertion(record.process())
+            .is_none()
+    });
+    if plan.availability_changes.is_empty() && plan.jobs.is_empty() {
+        // The provisional resumption was the plan's only production mutation.
+        plan.revisions.next_production_revision = plan.revisions.expected_production_revision;
+        plan.revisions.player_labor_dependencies = None;
+    }
     let Some(PlayerWork::ManualProduction { job }) = state.player_work().active() else {
         return Ok(());
     };

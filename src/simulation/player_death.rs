@@ -95,7 +95,7 @@ pub(super) fn decide_player_death_effects(
     if !player_dead_after_tick {
         return Ok(None);
     }
-    plan_player_death_suspension(state, next_tick, completion_plan)?;
+    plan_player_death_suspension(registries, state, next_tick, completion_plan)?;
     let Some(work) = state.player_work().active() else {
         return Ok(None);
     };
