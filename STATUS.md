@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Manual/powered shaping, tool wear/service, upgrades, field instruments and machines. Physical waste routes to finite local storage; full bins block work. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Graded tin/iron/lead ores; cassiterite, hematite and galena dressing with mechanical tailings recovery. Copper casting and PbS+Fe lead smelting; no general reduction. |
-| Opening wilderness acquisition | Scouts raid, forage, track, salvage and relay alarms. Light and players deter. Unarmed/club/spear blows spend survival reserves and startle or stagger; optional ten-tick windup strengthens a strike. No wounds. |
+| Opening wilderness acquisition | Scouts raid, forage and alarm. Light and players deter; built walls and enclosed storage block pre-generation patrols; walls obscure sight. Melee spends reserves to startle or stagger; windup adds force. No wounds. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier

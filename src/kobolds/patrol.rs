@@ -45,15 +45,19 @@ pub(super) fn scout_can_enter(
     if player_position == Some(position) {
         return false;
     }
-    if state.world().generation_profile().is_none() {
-        return true;
-    }
     let Some(head_y) = position.y().checked_add(1) else {
         return false;
     };
-    state
-        .world()
-        .has_standing_clearance(registries.world(), position)
+    // The authored opening graph has no generated terrain collision, but
+    // constructed enclosures and embodied full-cell members remain physical
+    // in either world mode. Continuous player-body clearance is meaningful
+    // only once generated terrain supports the body geometry; the authored
+    // graph instead uses its existing same-node player occupancy check.
+    let generated = state.world().generation_profile().is_some();
+    (!generated
+        || state
+            .world()
+            .has_standing_clearance(registries.world(), position))
         && [
             position,
             VoxelCoord::new(position.x(), head_y, position.z()),
@@ -61,7 +65,8 @@ pub(super) fn scout_can_enter(
         .into_iter()
         .all(|cell| {
             !super::temple_caste_occupies_voxel(registries, state, cell)
-                && !crate::logistics::player_body_occupies_voxel(registries, state, cell)
+                && (!generated
+                    || !crate::logistics::player_body_occupies_voxel(registries, state, cell))
                 // A physical enclosure obstructs passage. Co-located loose
                 // equipment and energy/fluid stores are locality markers,
                 // not full-cube terrain; illumination owns fire deterrence.

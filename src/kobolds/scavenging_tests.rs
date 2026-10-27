@@ -65,6 +65,102 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
 }
 
 #[test]
+fn opening_scout_does_not_cross_a_materialized_full_cell_member() {
+    use crate::content::{FORM_BOARD, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+    use crate::core::quantity::{Area, Length};
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    let head = VoxelCoord::new(path.junction.x(), path.junction.y() + 1, path.junction.z());
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(
+            head,
+            VoxelCoord::new(head.x() + 1, head.y() + 1, head.z() + 1),
+        )
+        .unwrap(),
+        Length::from_micrometers(1_000_000),
+        Area::from_square_millimeters(1_000_000),
+    )
+    .unwrap();
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    assert!(super::super::patrol::scout_can_enter(
+        &registries,
+        &state,
+        path.junction,
+        None,
+    ));
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_BOARD);
+    assert!(state.structures().blocks_full_cell(head));
+    assert!(
+        !super::super::patrol::scout_can_enter(&registries, &state, path.junction, None),
+        "materialized full-footprint roof occupying the scout's head cannot be passed through"
+    );
+    assert!(
+        super::super::visibility::scout_visible_from(&registries, &state, path.den, path.tip,),
+        "an overhead panel does not occlude the horizontal route at ground level"
+    );
+    let barrier = path.junction;
+    let ground_panel = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(
+                barrier,
+                VoxelCoord::new(barrier.x() + 1, barrier.y() + 1, barrier.z() + 1),
+            )
+            .unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(1_000_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, ground_panel, FORM_BOARD);
+    assert!(
+        !super::super::visibility::scout_visible_from(&registries, &state, path.den, path.tip,),
+        "a materialized full-cell junction wall must obscure the farther resident"
+    );
+    while state.tick().value() < 180 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.den
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, loaded);
+}
+
+#[test]
 fn ungenerated_campfire_light_deters_scout_before_the_adjacent_clearing() {
     use crate::content::{
         CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG, FORM_LUMP, MATERIAL_WOOD,
