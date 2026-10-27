@@ -65,6 +65,88 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
 }
 
 #[test]
+fn ungenerated_campfire_light_deters_scout_before_the_adjacent_clearing() {
+    use crate::content::{
+        CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG, FORM_LUMP, MATERIAL_WOOD,
+    };
+    use crate::energy::{
+        assess_local_illumination, validate_assemble_energy_store, validate_combust_fuel,
+    };
+    use crate::inventory::deposit_bulk_for_test;
+    use crate::logistics::relocate_player_for_test;
+
+    let registries = build_registries();
+    let mut lit = AppState::new();
+    let path = route(&mut lit);
+    lit.kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while lit.tick().value() < 175 {
+        let _ = advance_tick(&registries, &mut lit).unwrap();
+    }
+    assert_eq!(
+        lit.kobold_state().colony.as_ref().unwrap().scout_position(),
+        path.den
+    );
+    let carried = validate_admit_player(&registries, &lit, path.side_stone)
+        .unwrap()
+        .commit(&mut lit)
+        .unwrap()
+        .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut lit, carried, commodity, mass).unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(&registries, &lit, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut lit)
+            .unwrap();
+    // Matched worlds own the same constructed fire and material. Fuel only
+    // the lit branch, then leave both without human presence at the clearing.
+    let mut dark = lit.clone();
+    validate_combust_fuel(&registries, &lit, fire, carried)
+        .unwrap()
+        .commit(&mut lit)
+        .unwrap();
+    relocate_player_for_test(&mut lit, path.far_food);
+    relocate_player_for_test(&mut dark, path.far_food);
+    assert!(lit.world().generation_profile().is_none());
+    assert!(assess_local_illumination(&registries, &lit, path.junction).level() >= 3);
+
+    while lit.tick().value() < 180 {
+        let _ = advance_tick(&registries, &mut lit).unwrap();
+        let _ = advance_tick(&registries, &mut dark).unwrap();
+    }
+    assert_eq!(
+        dark.kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.junction
+    );
+    assert_eq!(
+        lit.kobold_state().colony.as_ref().unwrap().scout_position(),
+        path.den
+    );
+    assert_eq!(validate_loaded_state(&registries, &lit), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &lit)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, lit);
+}
+
+#[test]
 fn hungry_scout_continues_to_a_distant_full_patch_past_a_nearby_crumb() {
     use crate::content::MATERIAL_WILD_NUTS;
 
